@@ -1,10 +1,23 @@
-You are analyzing GitHub issue #__ISSUE_NUMBER__ for this repository.
+You are analyzing issue #__ISSUE_NUMBER__ for this repository.
+
+The issue content is already resolved and given below — do NOT fetch it, and do
+not assume it lives on GitHub.
+
+- Source: __ISSUE_SOURCE__
+- Reference: __ISSUE_URL__
+- Title: __ISSUE_TITLE__
+- Labels: __ISSUE_LABELS__
+
+Issue body:
+
+<issue-body>
+__ISSUE_BODY__
+</issue-body>
 
 Steps:
-1. Fetch the issue data using: gh issue view __ISSUE_NUMBER__ --json title,body,labels,comments
-2. Analyze the codebase to understand the affected areas, tech stack, and architecture
-3. Identify the scope, complexity, and key files/modules involved
-4. Produce a structured analysis
+1. Analyze the codebase to understand the affected areas, tech stack, and architecture
+2. Identify the scope, complexity, and key files/modules involved
+3. Produce a structured analysis
 
 Save your analysis to __ANALYSIS_PATH__ with this structure:
 
