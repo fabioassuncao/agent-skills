@@ -16,16 +16,20 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 function git(...args) {
-  return execFileSync('git', ['-C', packageDir, ...args], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'inherit'],
-  }).trim();
+  try {
+    return execFileSync('git', ['-C', packageDir, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+    }).trim();
+  } catch {
+    fail(`git ${args.join(' ')} failed. The version bump was not committed.`);
+  }
 }
 
 function fail(message) {
@@ -33,12 +37,12 @@ function fail(message) {
   process.exit(1);
 }
 
-/** Files the bump is allowed to touch, relative to the repository root. */
+/**
+ * Files the bump is allowed to touch. Absolute paths, because every git call
+ * runs with `-C packageDir` and pathspecs would otherwise resolve against it.
+ */
 function bumpFiles() {
-  const root = git('rev-parse', '--show-toplevel');
-  return ['package.json', 'package-lock.json'].map((file) =>
-    relative(root, resolve(packageDir, file)),
-  );
+  return ['package.json', 'package-lock.json'].map((file) => resolve(packageDir, file));
 }
 
 function check() {
