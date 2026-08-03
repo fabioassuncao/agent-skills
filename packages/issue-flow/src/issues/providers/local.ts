@@ -150,7 +150,10 @@ export class LocalFileIssueProvider implements IssueProvider {
   }
 
   async create(draft: IssueDraft): Promise<Issue> {
-    const id = String(await this.allocateNumber());
+    // An explicit id is how a mirror keeps the identifier of the Issue it
+    // mirrors: allocating a fresh one would make `issue-flow run <n>` see two
+    // unrelated Issues instead of one demand in two places.
+    const id = draft.id === undefined ? String(await this.allocateNumber()) : normalizeId(draft.id);
     const dir = await this.issueDir(id);
 
     if (await this.exists(join(dir, 'issue.md'))) {
@@ -172,6 +175,7 @@ export class LocalFileIssueProvider implements IssueProvider {
       createdAt: timestamp,
       updatedAt: timestamp,
       contentHash: hashIssueContent(draft.title, draft.body),
+      ...(draft.remote ? { remote: draft.remote } : {}),
     };
 
     await mkdir(dir, { recursive: true });
@@ -186,7 +190,7 @@ export class LocalFileIssueProvider implements IssueProvider {
       labels: draft.labels,
       state: 'open',
       source: 'local',
-      remoteRef: null,
+      remoteRef: draft.remote?.ref ?? null,
       createdAt: timestamp,
       updatedAt: timestamp,
       contentHash: metadata.contentHash,

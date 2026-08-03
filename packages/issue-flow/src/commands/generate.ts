@@ -1,17 +1,27 @@
+import { loadIssuesConfig } from '../config.js';
 import { runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
+import { isoNow } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
+import { ensureProvidersRegistered } from '../issues/bootstrap.js';
+import { localIssueRef } from '../issues/context.js';
+import { IssueDraftParseError, parseIssueDraft } from '../issues/draft.js';
+import { getProvider } from '../issues/registry.js';
+import type { Issue, IssueDraft, IssueGenerateTarget } from '../issues/types.js';
 import { printError, printSuccess } from '../ui/logger.js';
 
-/**
- * Extract an issue URL from headless output.
- */
-function parseIssueUrl(output: string): string | null {
-  const match = output.match(/(https:\/\/github\.com\/[^\s]+\/issues\/\d+)/);
-  return match?.[1] ?? null;
+/** Human-readable pointer to a created Issue. */
+function issueLocation(issue: Issue): string {
+  return issue.remoteRef ?? localIssueRef(issue.id);
 }
 
-export async function runGenerate(promptText: string): Promise<number> {
+/**
+ * Ask the agent for the Issue content.
+ *
+ * The agent only drafts: creation belongs to the providers, so the same draft
+ * can be persisted to GitHub, to the local files, or to both.
+ */
+async function draftIssue(promptText: string): Promise<IssueDraft> {
   const template = await loadPrompt('generate');
   const prompt = applyPlaceholders(template, {
     __USER_PROMPT__: promptText,
@@ -23,20 +33,90 @@ export async function runGenerate(promptText: string): Promise<number> {
     timeout: getGlobalTimeout() ?? 300_000,
     outputFormat: 'text',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
-    statusMessage: 'Creating GitHub issue...',
+    statusMessage: 'Drafting issue...',
   });
 
   if (!result.success) {
-    printError(`Issue creation failed: ${result.error}`);
+    throw new Error(`Issue creation failed: ${result.error}`);
+  }
+
+  return parseIssueDraft(result.result);
+}
+
+/**
+ * Create the GitHub Issue and mirror it locally.
+ *
+ * The remote comes first on purpose: it owns the identifier, and the mirror has
+ * to reuse it so both copies describe one demand. A remote failure therefore
+ * leaves nothing behind, and a mirror failure is reported with the remote
+ * reference that already exists.
+ */
+async function createBoth(draft: IssueDraft): Promise<Issue[]> {
+  const remote = await getProvider('github').create(draft);
+
+  try {
+    const mirror = await getProvider('local').create({
+      ...draft,
+      id: remote.id,
+      ...(remote.remoteRef
+        ? {
+            remote: {
+              provider: 'github' as const,
+              ref: remote.remoteRef,
+              syncedAt: isoNow(),
+              syncedContentHash: remote.contentHash,
+            },
+          }
+        : {}),
+    });
+    return [remote, mirror];
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `GitHub issue created at ${issueLocation(remote)}, but the local mirror was not written: ` +
+        `${message}. Nothing else was persisted; re-run with --local to create the mirror.`,
+    );
+  }
+}
+
+async function createIssues(target: IssueGenerateTarget, draft: IssueDraft): Promise<Issue[]> {
+  if (target === 'both') {
+    return createBoth(draft);
+  }
+  return [await getProvider(target).create(draft)];
+}
+
+export async function runGenerate(
+  promptText: string,
+  target?: IssueGenerateTarget,
+): Promise<number> {
+  const config = await loadIssuesConfig();
+  const destination = target ?? config.defaultGenerateTarget;
+
+  ensureProvidersRegistered();
+
+  let draft: IssueDraft;
+  try {
+    draft = await draftIssue(promptText);
+  } catch (err) {
+    if (err instanceof IssueDraftParseError) {
+      printError(`Could not read the generated Issue draft: ${err.message}`);
+    } else {
+      printError(err instanceof Error ? err.message : String(err));
+    }
     return 1;
   }
 
-  const issueUrl = parseIssueUrl(result.result);
+  let created: Issue[];
+  try {
+    created = await createIssues(destination, draft);
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
 
-  if (issueUrl) {
-    printSuccess(`Issue created: ${issueUrl}`);
-  } else {
-    printSuccess('Issue creation completed');
+  for (const issue of created) {
+    printSuccess(`Issue created (${issue.source}): ${issueLocation(issue)}`);
   }
   return 0;
 }

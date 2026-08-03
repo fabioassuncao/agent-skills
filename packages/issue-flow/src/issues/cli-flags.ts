@@ -1,4 +1,4 @@
-import type { IssuesConfig } from './types.js';
+import type { IssueGenerateTarget, IssuesConfig } from './types.js';
 
 /**
  * Mapping from the Issue provider CLI flags to configuration overrides.
@@ -65,4 +65,33 @@ export function resolveIssuesOverrides(opts: IssueCliFlags): Partial<IssuesConfi
   }
 
   return overrides;
+}
+
+/** Destination flags accepted by `generate`. */
+export interface GenerateTargetFlags {
+  github?: boolean;
+  local?: boolean;
+  both?: boolean;
+}
+
+/**
+ * Destination the generated Issue is created in, or `undefined` when the user
+ * passed no flag (the caller then falls back to `defaultGenerateTarget`).
+ *
+ * @throws IssueFlagError when more than one destination is requested.
+ */
+export function resolveGenerateTarget(opts: GenerateTargetFlags): IssueGenerateTarget | undefined {
+  const selected: IssueGenerateTarget[] = [];
+  if (opts.github === true) selected.push('github');
+  if (opts.local === true) selected.push('local');
+  if (opts.both === true) selected.push('both');
+
+  if (selected.length > 1) {
+    throw new IssueFlagError(
+      `${selected.map((target) => `--${target}`).join(', ')} are mutually exclusive; ` +
+        'pass only one destination.',
+    );
+  }
+
+  return selected[0];
 }

@@ -40,6 +40,17 @@ export interface IssueDraft {
   title: string;
   body: string;
   labels: string[];
+  /**
+   * Identifier to create the Issue under, when the caller needs a specific one
+   * (a mirror must share the identifier of the Issue it mirrors). Providers
+   * that allocate their own identifiers may ignore it.
+   */
+  id?: string;
+  /**
+   * Counterpart this Issue mirrors. Providers that persist metadata record it
+   * so divergence can later be detected without querying the remote.
+   */
+  remote?: IssueRemoteRef;
 }
 
 /**

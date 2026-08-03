@@ -2,7 +2,12 @@ import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
 import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
 import { setGlobalTimeout, setVerbose } from './core/verbose.js';
-import { IssueFlagError, resolveIssuesOverrides } from './issues/cli-flags.js';
+import {
+  IssueFlagError,
+  resolveGenerateTarget,
+  resolveIssuesOverrides,
+} from './issues/cli-flags.js';
+import type { IssueGenerateTarget } from './issues/types.js';
 import type { WebConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
 
@@ -138,11 +143,25 @@ withIssueOptions(
 withGlobalOptions(
   program
     .command('generate')
-    .description('Create a GitHub issue via Claude Code Headless')
-    .requiredOption('--prompt <text>', 'Issue description text'),
-).action(async (options: { prompt: string }) => {
+    .description('Draft an issue via Claude Code Headless and create it')
+    .requiredOption('--prompt <text>', 'Issue description text')
+    .option('--github', 'Create the issue on GitHub')
+    .option('--local', 'Create the issue under issues/<n>/ only')
+    .option('--both', 'Create the issue on GitHub and mirror it locally'),
+).action(async (options: { prompt: string; github?: boolean; local?: boolean; both?: boolean }) => {
+  let target: IssueGenerateTarget | undefined;
+  try {
+    target = resolveGenerateTarget(options);
+  } catch (error) {
+    if (error instanceof IssueFlagError) {
+      printError(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
+
   const { runGenerate } = await import('./commands/generate.js');
-  const code = await runGenerate(options.prompt);
+  const code = await runGenerate(options.prompt, target);
   process.exit(code);
 });
 

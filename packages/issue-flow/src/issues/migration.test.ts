@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { resolvePackageDir } from '../core/prompt-resolver.js';
+import { DRAFT_TAG } from './draft.js';
 
 /**
  * Guards the provider migration: the pipeline talks to Issue providers, never
@@ -76,7 +77,7 @@ async function readPrompt(name: string): Promise<string> {
 }
 
 describe('prompt templates consume the resolved Issue', () => {
-  it('no template asks the agent to fetch the Issue with gh', async () => {
+  it.each(FORBIDDEN_GH_CALLS)('no template asks the agent to run %s', async (call) => {
     const promptsDir = resolvePackageDir('prompts');
     expect(promptsDir).not.toBeNull();
 
@@ -86,12 +87,22 @@ describe('prompt templates consume the resolved Issue', () => {
     const offenders: string[] = [];
     for (const name of names) {
       const content = await readFile(join(promptsDir as string, name), 'utf-8');
-      if (content.includes('gh issue view')) {
+      if (content.includes(call)) {
         offenders.push(name);
       }
     }
 
     expect(offenders).toEqual([]);
+  });
+
+  it('generate.md emits a parseable draft instead of creating the Issue', async () => {
+    const content = await readPrompt('generate.md');
+
+    expect(content).toContain(`<${DRAFT_TAG}>`);
+    expect(content).toContain(`</${DRAFT_TAG}>`);
+    expect(content).toContain('__USER_PROMPT__');
+    // The draft is what gets captured now; no URL is fished out of the prose.
+    expect(content).not.toContain('Output the issue URL');
   });
 
   it.each(PHASE_PROMPTS)('%s consumes every Issue placeholder', async (name) => {

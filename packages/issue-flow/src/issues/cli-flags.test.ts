@@ -3,7 +3,39 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadIssuesConfig, PROJECT_CONFIG_FILENAME } from '../config.js';
-import { IssueFlagError, resolveIssuesOverrides } from './cli-flags.js';
+import { IssueFlagError, resolveGenerateTarget, resolveIssuesOverrides } from './cli-flags.js';
+
+describe('resolveGenerateTarget', () => {
+  it('returns undefined when no destination flag was passed', () => {
+    expect(resolveGenerateTarget({})).toBeUndefined();
+  });
+
+  it.each([
+    ['github', { github: true }],
+    ['local', { local: true }],
+    ['both', { both: true }],
+  ])('maps the flag to the %s destination', (expected, flags) => {
+    expect(resolveGenerateTarget(flags)).toBe(expected);
+  });
+
+  it.each([
+    [{ github: true, local: true }],
+    [{ github: true, both: true }],
+    [{ local: true, both: true }],
+    [{ github: true, local: true, both: true }],
+  ])('rejects combined destinations (%o)', (flags) => {
+    expect(() => resolveGenerateTarget(flags)).toThrow(IssueFlagError);
+    expect(() => resolveGenerateTarget(flags)).toThrow(/mutually exclusive/);
+  });
+
+  it('names the offending flags in the error message', () => {
+    expect(() => resolveGenerateTarget({ local: true, both: true })).toThrow(/--local, --both/);
+  });
+
+  it('ignores flags that are present but false', () => {
+    expect(resolveGenerateTarget({ github: false, local: false, both: true })).toBe('both');
+  });
+});
 
 describe('resolveIssuesOverrides', () => {
   it('returns nothing when no Issue flag was passed', () => {

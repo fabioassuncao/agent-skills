@@ -298,6 +298,52 @@ describe('create', () => {
     });
   });
 
+  it('honours an explicit identifier instead of allocating one', async () => {
+    const allocate = vi.spyOn(provider, 'allocateNumber');
+
+    expect(
+      await provider.create({ title: 'Mirror', body: 'Body', labels: [], id: '108' }),
+    ).toMatchObject({ id: '108', number: 108 });
+
+    expect(allocate).not.toHaveBeenCalled();
+    expect(await readMetadata('108')).toMatchObject({ id: '108', number: 108 });
+  });
+
+  it('rejects an explicit identifier that would escape the issues directory', async () => {
+    await expect(
+      provider.create({ title: 'Escape', body: 'Body', labels: [], id: '../elsewhere' }),
+    ).rejects.toThrow(/Invalid local issue identifier/);
+  });
+
+  it('records the remote pointer of a mirrored issue', async () => {
+    const remote = {
+      provider: 'github' as const,
+      ref: 'https://github.com/acme/app/issues/108',
+      syncedAt: '2026-08-03T12:00:00Z',
+      syncedContentHash: hashIssueContent('Mirror', 'Body'),
+    };
+
+    const issue = await provider.create({
+      title: 'Mirror',
+      body: 'Body',
+      labels: [],
+      id: '108',
+      remote,
+    });
+
+    expect(issue.remoteRef).toBe(remote.ref);
+    expect(await readMetadata('108')).toMatchObject({ remote });
+    expect((await provider.get('108'))?.remoteRef).toBe(remote.ref);
+  });
+
+  it('refuses an explicit identifier that already exists', async () => {
+    await writeIssue('108', '# Existing\n\nBody\n');
+
+    await expect(
+      provider.create({ title: 'Mirror', body: 'Body', labels: [], id: '108' }),
+    ).rejects.toThrow(/already exists.*pick another identifier/s);
+  });
+
   it('refuses to overwrite an existing issue when a collision is detected', async () => {
     await writeIssue('7', '# Existing\n\nBody\n');
     vi.spyOn(provider, 'allocateNumber').mockResolvedValue(7);

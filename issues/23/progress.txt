@@ -31,6 +31,9 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Flag nova de CLI: mapeamento puro em `src/issues/cli-flags.ts` (testável) + helper de declaração (`withIssueOptions`) em `src/cli.ts`. Nunca colocar lógica em `cli.ts`, que roda `program.parse()` no import.
 - Checagem de ambiente que pode virar opcional deve carregar uma chave estável (`CheckResult.key`), nunca ser filtrada pelo texto de `name` — o label é mensagem para o usuário e pode mudar.
 - Smoke test de dependência externa ausente: `PATH=$TMPD` com symlinks só dos binários desejados (incluir `node`!) reproduz "gh não instalado" sem desinstalar nada.
+- `printError`/`printWarning`/`printSuccess` saem todos por `console.log` (via `emit`), nunca por `console.error` — teste que captura mensagem de erro espiona `console.log`.
+- Teste de comando que usa o registry de providers: `clearProviders()` + `registerProvider(fake)` no `beforeEach`. `ensureProvidersRegistered()` não sobrescreve o que já está registrado, então o fake sobrevive.
+- Saída estruturada de agente headless usa tag XML-ish (`<issue-draft>`, `<issue-body>`), nunca JSON: o conteúdo é markdown multi-linha e um erro de escaping viraria falha total. Parsing sempre pela **última** ocorrência da tag (agente que mostra o formato antes de preencher).
 
 ---
 
@@ -193,4 +196,31 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - Mock de `execa` por binário (`vi.mock('execa', () => ({ execa: vi.fn() }))` + `mockImplementation` que ramifica em `file`/`args[0]`) é o jeito de testar `init.ts`, que chama `execa` direto em vez de `run` de `utils/shell.ts`. Cast necessário: `as unknown as typeof execa` (os overloads de execa não casam com uma impl simples).
   - Capturar saída do logger em teste = `vi.spyOn(console, 'log')`: `emit` cai em `console.log` quando não há output callback. Sem TTY, `useColor()/useUnicode()` são false, então as linhas vêm com `[OK]`/`[FAIL]`/`[WARN]` e sem ANSI — asserção por substring é estável.
   - US-012 (`generate --local`) deve considerar passar `preferredProvider`/destino ao `runInit` também, se algum dia `generate` checar pré-requisitos.
+---
+
+## 2026-08-03 19:50 - US-012
+- `generate` passou a ser multi-destino: o agente apenas **rascunha** a Issue e os providers a criam no GitHub, localmente ou em ambos.
+- Arquivos criados:
+  - `src/issues/draft.ts` — `parseIssueDraft`, `IssueDraftParseError`, `DRAFT_TAG` (bloco `<issue-draft>` com `<title>`/`<labels>`/`<body>`).
+  - `src/issues/draft.test.ts` — 12 testes (bloco no meio de prosa, último bloco vence, corpo markdown multi-linha, CRLF, labels vazias/`(none)`, ausência de bloco/título/corpo/tag de fechamento).
+  - `src/commands/generate.test.ts` — 12 testes (destino default, config, override, `--local` sem tocar no GitHub, `--both` com espelho e ordem remoto→local, falha remota sem artefato local, falha do espelho citando a URL, headless falho, rascunho ilegível).
+- Arquivos alterados:
+  - `src/commands/generate.ts` — reescrito: `runGenerate(promptText, target?)`, `draftIssue` (headless → `parseIssueDraft`), `createBoth`, `createIssues`. `parseIssueUrl` removido.
+  - `prompts/generate.md` — sem `gh issue create`; instrui a checar duplicidade em `issues/*/metadata.json` **e** (se houver `gh`) `gh issue list`, e a emitir o bloco `<issue-draft>`.
+  - `src/issues/types.ts` — `IssueDraft` ganhou `id?: string` e `remote?: IssueRemoteRef` (ambos opcionais).
+  - `src/issues/providers/local.ts` — `create` honra `draft.id` (via `normalizeId`) e grava `draft.remote` no `metadata.json`; `remoteRef` do retorno reflete o espelho.
+  - `src/issues/cli-flags.ts` — `resolveGenerateTarget` + `GenerateTargetFlags`.
+  - `src/cli.ts` — `generate` recebeu `--github`/`--local`/`--both`, com `IssueFlagError` tratado antes de importar o comando.
+  - `src/issues/migration.test.ts` — o guarda de prompts agora proíbe os três `gh issue view|create|close` (antes só `view`) + teste de que `generate.md` emite o bloco parseável.
+  - `src/issues/providers/local.test.ts` — 4 testes novos (id explícito, id que escapa do diretório, `remote` persistido, colisão com id explícito).
+- Quality checks: `npm run check` e `npm test` (374 testes, 26 arquivos) passando. Smoke com `dist/`: `generate --help` lista as três flags; `--both --local` e `--local --github` falham com exit 1 e mensagem clara.
+- **Learnings for future iterations:**
+  - O formato do rascunho é **tag XML-ish**, não JSON: `<issue-draft><title>…</title><labels>…</labels><body>…</body></issue-draft>`. Escolhido porque o corpo é markdown multi-linha — JSON exigiria escaping e um erro de escaping viraria falha total. Casa com o `<issue-body>` já usado nos templates de fase.
+  - `parseIssueDraft` pega a **última** ocorrência de cada tag (`lastIndexOf`): agente que mostra o formato antes de preencher, ou que refaz o rascunho, teria a primeira tentativa capturada. Se algum dia o corpo precisar conter `</body>` literal, esse é o ponto a revisar.
+  - `IssueDraft.id` é o mecanismo de espelho: em `--both` o GitHub cria primeiro (ele é dono do número) e o local reusa o **mesmo id**. Sem isso, `issue-flow run <n>` veria duas Issues diferentes em vez de uma demanda em dois lugares.
+  - Ordem em `--both` é contrato, não detalhe: remoto primeiro ⇒ falha remota não deixa nada em disco; falha do espelho reporta a URL já criada. Há teste explícito para a ordem (`order` array).
+  - Providers que não suportam `draft.id`/`draft.remote` simplesmente os ignoram — a interface `IssueProvider` não mudou, então US-014 (provider fictício) continua válida.
+  - O hook `preAction` de `cli.ts` roda `resolveIssuesOverrides` sobre as opções de **todo** comando, inclusive `generate`. Por isso `--local --github` no generate já falha no hook (mensagem "pass only one"), antes de `resolveGenerateTarget` ver as flags. Combinações com `--both` são pegas só no comando.
+  - `printError` sai por `console.log` (via `emit`), não `console.error` — teste que captura mensagem de erro deve espionar `console.log`.
+  - Teste de comando que usa o registry: `clearProviders()` + `registerProvider(fake)` no `beforeEach`; `ensureProvidersRegistered()` (chamado por `runGenerate`) não sobrescreve o que já está registrado.
 ---
