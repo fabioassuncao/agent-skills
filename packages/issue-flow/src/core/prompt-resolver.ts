@@ -4,25 +4,35 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Resolve the absolute path to the package's prompts/ directory.
- * Works from both source (src/core/) and compiled (dist/) locations
- * by walking up the directory tree until the prompts/ folder is found.
+ * Resolve the absolute path to a directory shipped at the package root
+ * (e.g. 'prompts', 'web/public'). Works from both source (src/core/) and
+ * compiled (dist/) locations by walking up the directory tree until the
+ * named folder is found. Returns null when it cannot be located.
+ *
+ * `startDir` is injectable for tests; it defaults to this module's directory.
  */
-function getPromptsDir(): string {
-  const currentFile = fileURLToPath(import.meta.url);
-  let dir = dirname(currentFile);
+export function resolvePackageDir(name: string, startDir?: string): string | null {
+  let dir = startDir ?? dirname(fileURLToPath(import.meta.url));
 
   for (let i = 0; i < 5; i++) {
-    const candidate = join(dir, 'prompts');
+    const candidate = join(dir, name);
     if (existsSync(candidate)) {
       return candidate;
     }
     dir = dirname(dir);
   }
 
-  throw new Error(
-    'Could not locate the prompts/ directory. Ensure the package is installed correctly.',
-  );
+  return null;
+}
+
+function getPromptsDir(): string {
+  const dir = resolvePackageDir('prompts');
+  if (dir === null) {
+    throw new Error(
+      'Could not locate the prompts/ directory. Ensure the package is installed correctly.',
+    );
+  }
+  return dir;
 }
 
 /**

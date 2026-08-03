@@ -7,7 +7,7 @@
   "description": "Modo opcional (desligado por padrão) de monitoramento web em tempo real para sessões do pipeline: camada de publicação de estado (session-state.ts), snapshot versionado servido via HTTP (node:http puro) e em issues/N/session.json, interface web autocontida sem dependências novas, com impacto zero na execução.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-03T19:40:00Z",
+  "lastAttemptAt": "2026-08-03T19:50:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -144,8 +144,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "getPromptsDir() generalizado em resolvePackageDir(name, startDir?) (retorna null se não achar; getPromptsDir mantém o throw). Assets movidos de src/web/public/ para web/public/ na raiz do pacote (irmão de prompts/) — evita colisão do walk-up com src/web/ e serve o mesmo diretório em dev e no pacote publicado; server.ts resolve com resolvePackageDir('web/public') (assets lidos uma vez na subida, inalterado). \"web\" adicionado a files no package.json; npm pack --dry-run inclui web/public/*. 4 testes novos em prompt-resolver.test.ts, incluindo resolução de web/public e prompts/ a partir de dist/ (startDir injetável)."
     },
     {
       "id": "US-009",

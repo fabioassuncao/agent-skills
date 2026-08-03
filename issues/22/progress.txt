@@ -128,3 +128,18 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
   - O servidor lê os assets UMA vez na subida — editar CSS/JS exige reiniciar o processo para ver a mudança
   - US-008: substituir resolveDefaultPublicDir() por resolvePackageDir('web'); atenção que tsup só emite dist/cli.js — o diretório web/ precisa ser copiado/incluído no pacote (files do package.json) fora do bundle
 ---
+## 2026-08-03 16:50 - US-008
+- Empacotamento e resolução de assets da interface web:
+  - `getPromptsDir()` generalizado em `resolvePackageDir(name, startDir?)` exportado de src/core/prompt-resolver.ts: caminha até 5 níveis acima do módulo procurando o diretório nomeado; retorna null se não achar (getPromptsDir mantém o throw original); `startDir` injetável para testes
+  - Assets movidos de `src/web/public/` para `web/public/` na RAIZ do pacote (irmão de prompts/) via git mv — o mesmo diretório serve dev (walk-up de src/web/) e o pacote publicado (walk-up de dist/); server.ts usa `resolvePackageDir(join('web','public'))` no lugar de resolveDefaultPublicDir() (assets continuam lidos uma vez na subida)
+  - `"web"` adicionado a `files` no package.json; `npm pack --dry-run` confirma web/public/{index.html,app.css,app.js} no tarball
+  - Sanity check: `npm run build` + simulação do walk-up a partir de dist/ resolve web/public corretamente
+- Arquivos: src/core/prompt-resolver.ts, src/core/prompt-resolver.test.ts (+4 testes), src/web/server.ts, package.json, web/public/* (movidos de src/web/public/)
+- Checks: typecheck OK, biome OK, vitest 154/154 OK, npm pack inclui web/
+- **Learnings for future iterations:**
+  - NÃO usar resolvePackageDir('web'): o walk-up a partir de src/core acha src/web (código do servidor) antes da raiz — por isso o nome procurado é o caminho composto 'web/public'
+  - O startDir passado a resolvePackageDir não precisa existir (só os candidatos são testados com existsSync) — o teste "a partir de dist/" funciona mesmo sem build prévio
+  - tsup só emite dist/cli.js — qualquer asset estático novo precisa entrar em `files` do package.json como diretório de raiz (padrão prompts/ e web/)
+  - biome formatter quebra chamadas longas em múltiplas linhas automaticamente com `--write` (rodar antes do typecheck para evitar diffs surpresa)
+  - US-009: teste de regressão do modo desligado pode injetar publicDir/startDir e usar MemoryPublisher; padrão de injeção de fontes já existe em loadWebConfig, publishGitState e startWebServer
+---

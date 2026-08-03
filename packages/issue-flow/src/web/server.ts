@@ -1,11 +1,10 @@
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import chalk from 'chalk';
+import { resolvePackageDir } from '../core/prompt-resolver.js';
 import type { SessionPublisher } from '../core/session-state.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 
@@ -72,25 +71,6 @@ const STATIC_ROUTES: Record<string, { file: string; contentType: string }> = {
   '/app.js': { file: 'app.js', contentType: 'text/javascript; charset=utf-8' },
 };
 
-/**
- * Locate the static assets directory (src/web/public/ in development).
- * US-008 generalizes this into resolvePackageDir() for the published
- * package layout; returning null just makes the static routes answer 404.
- */
-function resolveDefaultPublicDir(): string | null {
-  const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const local = join(moduleDir, 'public');
-  if (existsSync(local)) return local;
-
-  let dir = moduleDir;
-  for (let i = 0; i < 5; i++) {
-    const candidate = join(dir, 'web', 'public');
-    if (existsSync(candidate)) return candidate;
-    dir = dirname(dir);
-  }
-  return null;
-}
-
 /** Assets are read once at startup; missing files simply 404. */
 async function loadStaticAssets(publicDir: string | null): Promise<Map<string, StaticAsset>> {
   const assets = new Map<string, StaticAsset>();
@@ -135,7 +115,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const version = options.version ?? readPackageVersion();
   const startedAtMs = Date.now();
 
-  const assets = await loadStaticAssets(options.publicDir ?? resolveDefaultPublicDir());
+  // The UI ships at the package root as web/public/ (sibling of prompts/),
+  // resolved the same way from src/ and from the published dist/ layout.
+  const assets = await loadStaticAssets(
+    options.publicDir ?? resolvePackageDir(join('web', 'public')),
+  );
 
   // JSON serialization memoized by publisher version; the version doubles as
   // the ETag, so an unchanged poll answers 304 with an empty body.
