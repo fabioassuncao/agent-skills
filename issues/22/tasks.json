@@ -7,7 +7,7 @@
   "description": "Modo opcional (desligado por padrão) de monitoramento web em tempo real para sessões do pipeline: camada de publicação de estado (session-state.ts), snapshot versionado servido via HTTP (node:http puro) e em issues/N/session.json, interface web autocontida sem dependências novas, com impacto zero na execução.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-03T19:20:00Z",
+  "lastAttemptAt": "2026-08-03T19:30:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -114,8 +114,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "startWebServer() em src/web/server.ts (node:http puro, zero dependências novas). Rotas GET /, /app.css, /app.js (assets lidos uma vez na inicialização; ausentes → 404), /api/status + /status.json (snapshot da memória, JSON memoizado por version(), ETag → 304 com corpo vazio), /api/sessions (v1 com um elemento), /api/health ({ok, uptime, version, refreshSeconds}), * → 404 JSON; POST /api/control/* reservado só em comentário. Headers no-store/nosniff/no-referrer/noindex em toda resposta. EADDRINUSE (e qualquer falha de listen) → warn + retorna null, pipeline segue sem servidor. server.unref(), close() idempotente em finally e em SIGINT/SIGTERM (re-raise do sinal). Host 0.0.0.0 → aviso de exposição à rede; URL de acesso impressa em destaque. Wiring em run.ts (sobe após setSessionPublisher, derruba no finally antes de publisher.close()). 12 testes em server.test.ts."
     },
     {
       "id": "US-007",

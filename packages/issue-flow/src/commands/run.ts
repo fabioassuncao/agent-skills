@@ -15,6 +15,7 @@ import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
 import { formatDuration, printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
+import { startWebServer, type WebServerHandle } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
@@ -40,7 +41,17 @@ export async function runPipeline(
     ? new FilePublisher(join(issueDir, 'session.json'), { logLimit: webConfig.logLimit })
     : new NullPublisher();
   setSessionPublisher(publisher);
-  // US-006 wires the HTTP server here (start when webConfig.enabled, stop in finally).
+
+  // A null handle (port in use, ...) means the pipeline runs without a server.
+  let webServer: WebServerHandle | null = null;
+  if (webConfig.enabled) {
+    webServer = await startWebServer({
+      publisher,
+      port: webConfig.port,
+      host: webConfig.host,
+      refreshSeconds: webConfig.refreshSeconds,
+    });
+  }
 
   let exitCode = 1;
   try {
@@ -52,6 +63,7 @@ export async function runPipeline(
       at: isoNow(),
       status: exitCode === 0 ? 'completed' : 'failed',
     });
+    await webServer?.close();
     await publisher.close();
     setSessionPublisher(undefined);
   }

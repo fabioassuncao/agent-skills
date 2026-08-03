@@ -90,3 +90,25 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
   - Publicar git:update ANTES de phase:end também cobre a fase pr: o PR criado por runPr já aparece no snapshot persistido ao fim da fase
   - `gh pr list --state all` mantém o PR visível após merge (não some do snapshot no fim do pipeline)
 ---
+## 2026-08-03 16:30 - US-006
+- Servidor HTTP do monitoramento em `src/web/server.ts` (novo diretório src/web/), node:http puro, nenhuma dependência de runtime nova:
+  - `startWebServer(options): Promise<WebServerHandle | null>` — retorna null em QUALQUER falha de listen (EADDRINUSE inclusive) com aviso; o pipeline segue sem servidor
+  - Rotas: GET / , /app.css, /app.js (estáticos lidos uma vez na inicialização de publicDir; arquivo ausente → 404), /api/status e /status.json (mesmo payload), /api/sessions (array com um elemento), /api/health ({ok, uptime, version, refreshSeconds}), demais → 404 JSON; POST /api/control/* apenas reservado em comentário
+  - Snapshot servido SEMPRE da memória (publisher.snapshot()); serialização memoizada por publisher.version(); ETag = `"<version>"`; If-None-Match igual → 304 corpo vazio
+  - Headers em toda resposta (inclusive 304/404): Cache-Control: no-store, X-Content-Type-Options: nosniff, Referrer-Policy: no-referrer, X-Robots-Tag: noindex, nofollow
+  - server.unref() após listen; handler embrulhado em try/catch (500 em erro, nunca crash); 'error' pós-listen só gera warn
+  - close() idempotente (nunca rejeita), remove listeners SIGINT/SIGTERM; handlers de sinal fecham o servidor e re-emitem o sinal (process.kill) para preservar o término default
+  - Host 0.0.0.0 → aviso explícito de exposição à rede local; URL de acesso impressa com chalk.bold.cyan via printInfo
+  - resolveDefaultPublicDir(): join(moduleDir, 'public') e fallback subindo diretórios procurando web/public — US-008 substitui por resolvePackageDir()
+  - Versão default via createRequire('../../package.json') (funciona de src/web/ e dist/web/); injetável por options.version
+- `src/commands/run.ts`: wiring no wrapper runPipeline — sobe o servidor quando webConfig.enabled (handle null = segue sem servidor), derruba em finally após session:end e antes de publisher.close()
+- Arquivos: src/web/server.ts (novo), src/web/server.test.ts (novo, 12 testes), src/commands/run.ts
+- Checks: typecheck OK, biome OK, vitest 149/149 OK
+- **Learnings for future iterations:**
+  - Testes de servidor: listen com port 0 + ler a porta real de server.address() evita colisões; fetch global do Node 22 funciona direto no vitest
+  - vi.spyOn(Server.prototype, 'unref') (node:http) permite testar o unref sem inspecionar internals
+  - server.closeAllConnections() no close() evita que keep-alive do fetch segure o fechamento
+  - Registrar listener de SIGINT/SIGTERM suprime o término default — obrigatório usar process.once + re-raise com process.kill(process.pid, signal) após fechar
+  - US-007: os três assets vão em src/web/public/ (index.html, app.css, app.js); o servidor já os serve com content-types corretos; /api/health expõe refreshSeconds para o default do seletor de polling; reiniciar o servidor recarrega os assets (lidos uma vez na subida)
+  - US-008: substituir resolveDefaultPublicDir() por resolvePackageDir('web') generalizado de getPromptsDir(); options.publicDir já permite teste isolado
+---
