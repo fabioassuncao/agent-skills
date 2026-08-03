@@ -33,6 +33,8 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Smoke test de dependência externa ausente: `PATH=$TMPD` com symlinks só dos binários desejados (incluir `node`!) reproduz "gh não instalado" sem desinstalar nada.
 - `printError`/`printWarning`/`printSuccess` saem todos por `console.log` (via `emit`), nunca por `console.error` — teste que captura mensagem de erro espiona `console.log`.
 - Teste de comando que usa o registry de providers: `clearProviders()` + `registerProvider(fake)` no `beforeEach`. `ensureProvidersRegistered()` não sobrescreve o que já está registrado, então o fake sobrevive.
+- Skill nova em `skills/<nome>/` = `SKILL.md` (frontmatter `name`/`description` em bloco `>`/`compatibility`) + `README.md`, e precisa entrar nas **três** tabelas de `docs/skills-and-agents.md` (componentes, portabilidade da instalação, "What works without the sub-agent"). Nada em `packages/issue-flow/src` carrega essas skills — `npm run check`/`npm test` não as validam.
+- Antes de documentar uma flag de CLI em skill/README/prompt, conferir que ela existe em `src/cli.ts` (ex.: não existe `--dry-run`).
 - Saída estruturada de agente headless usa tag XML-ish (`<issue-draft>`, `<issue-body>`), nunca JSON: o conteúdo é markdown multi-linha e um erro de escaping viraria falha total. Parsing sempre pela **última** ocorrência da tag (agente que mostra o formato antes de preencher).
 
 ---
