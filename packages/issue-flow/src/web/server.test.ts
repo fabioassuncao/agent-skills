@@ -147,6 +147,26 @@ describe('startWebServer', () => {
     expect(js.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
   });
 
+  it('serves the real UI assets when no publicDir is given (default resolution)', async () => {
+    const handle = await start();
+
+    const index = await fetch(`${handle.url}/`);
+    expect(index.status).toBe(200);
+    const html = await index.text();
+    expect(html).toContain('issue-flow');
+    expect(html).toContain('app.css');
+    expect(html).toContain('app.js');
+    // Self-contained UI: no external resources, works offline.
+    expect(html).not.toMatch(/https?:\/\/(?!github)/);
+
+    const css = await fetch(`${handle.url}/app.css`);
+    expect(css.status).toBe(200);
+
+    const js = await fetch(`${handle.url}/app.js`);
+    expect(js.status).toBe(200);
+    expect(await js.text()).toContain('api/status');
+  });
+
   it('answers 404 JSON for unknown routes, missing assets and non-GET methods', async () => {
     const handle = await start({ publicDir: join(tmpdir(), 'does-not-exist') });
 

@@ -1,0 +1,481 @@
+/* Interface do monitoramento web do issue-flow.
+   Autocontida: sem fontes externas, sem CDN — funciona offline. */
+
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --fg: #1a1f27;
+  --muted: #6b7280;
+  --border: #e2e5ea;
+  --accent: #4f46e5;
+  --ok: #16a34a;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --err: #dc2626;
+  --err-bg: #fee2e2;
+  --run: #2563eb;
+  --run-bg: #dbeafe;
+  --ok-bg: #dcfce7;
+  --idle-bg: #e5e7eb;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1218;
+    --card: #171c24;
+    --fg: #e5e9f0;
+    --muted: #8b93a1;
+    --border: #262d38;
+    --accent: #818cf8;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --warn-bg: #3a2d10;
+    --err: #f87171;
+    --err-bg: #3b1a1a;
+    --run: #60a5fa;
+    --run-bg: #172a45;
+    --ok-bg: #14301f;
+    --idle-bg: #262d38;
+    --shadow: none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px 16px 48px;
+  display: grid;
+  gap: 16px;
+}
+
+/* Itens de grid têm min-width automático: sem isto, um conteúdo largo
+   (logs, títulos longos) alarga todos os cards e cria scroll horizontal. */
+main > *,
+.columns > * {
+  min-width: 0;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* ---- Cabeçalho ---- */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.brand {
+  font-weight: 700;
+}
+
+.issue-link {
+  font-weight: 600;
+}
+
+#branch-line {
+  margin: 4px 0 0;
+}
+
+.header-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.timers {
+  display: flex;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.refresh-control,
+.log-filter-control {
+  font-size: 0.82rem;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+select {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+/* ---- Badges de status ---- */
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.status-idle {
+  background: var(--idle-bg);
+  color: var(--muted);
+}
+
+.status-running {
+  background: var(--run-bg);
+  color: var(--run);
+}
+
+.status-completed {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.status-failed {
+  background: var(--err-bg);
+  color: var(--err);
+}
+
+/* ---- Banner de desconexão ---- */
+
+.banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--err);
+  color: #fff;
+  text-align: center;
+  padding: 8px 16px;
+  font-weight: 600;
+}
+
+/* ---- Erros e avisos em destaque ---- */
+
+.alerts {
+  border-color: var(--err);
+}
+
+.alert-entry {
+  border-left: 3px solid var(--err);
+  padding: 4px 10px;
+  margin: 6px 0;
+  border-radius: 0 6px 6px 0;
+  background: var(--err-bg);
+}
+
+.alert-entry.level-warn {
+  border-left-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.alert-count {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
+/* ---- Progresso ---- */
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+progress {
+  flex: 1;
+  height: 10px;
+  accent-color: var(--accent);
+}
+
+.progress-percent {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5ch;
+  text-align: right;
+}
+
+#progress-counters {
+  margin: 8px 0 0;
+  font-size: 0.86rem;
+}
+
+/* ---- Executando agora ---- */
+
+.now-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+}
+
+.now-grid dt {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.now-grid dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--run);
+  margin-right: 6px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+}
+
+/* ---- Listas (fases, stories, commits, PRs, logs) ---- */
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plain-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.plain-list li:last-child {
+  border-bottom: none;
+}
+
+.item-icon {
+  flex: none;
+  width: 1.2em;
+  text-align: center;
+  font-weight: 700;
+}
+
+.icon-completed {
+  color: var(--ok);
+}
+
+.icon-running {
+  color: var(--run);
+}
+
+.icon-failed {
+  color: var(--err);
+}
+
+.icon-pending {
+  color: var(--muted);
+}
+
+.item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-error {
+  color: var(--err);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.item-side {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.story-id {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.commit-hash {
+  margin-right: 8px;
+}
+
+/* ---- Próximos passos ---- */
+
+#next-steps ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+#next-steps li {
+  padding: 2px 0;
+}
+
+/* ---- Logs ---- */
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.logs {
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.logs li {
+  border-bottom: none;
+  padding: 2px 0;
+  align-items: flex-start;
+}
+
+.log-time {
+  flex: none;
+  color: var(--muted);
+}
+
+.log-level {
+  flex: none;
+  width: 5ch;
+  font-weight: 700;
+}
+
+.level-info .log-level {
+  color: var(--muted);
+}
+
+.level-warn .log-level {
+  color: var(--warn);
+}
+
+.level-error .log-level {
+  color: var(--err);
+}
+
+.log-message {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- Diversos ---- */
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+  margin: 0;
+}
+
+.footer {
+  text-align: center;
+  font-size: 0.78rem;
+}
+
+.noscript {
+  max-width: 960px;
+  margin: 16px auto;
+  padding: 0 16px;
+}
+
+@media (min-width: 720px) {
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 719px) {
+  .columns {
+    display: grid;
+    gap: 16px;
+  }
+
+  .header-side {
+    align-items: flex-start;
+  }
+}

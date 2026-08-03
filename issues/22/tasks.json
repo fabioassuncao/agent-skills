@@ -7,7 +7,7 @@
   "description": "Modo opcional (desligado por padrão) de monitoramento web em tempo real para sessões do pipeline: camada de publicação de estado (session-state.ts), snapshot versionado servido via HTTP (node:http puro) e em issues/N/session.json, interface web autocontida sem dependências novas, com impacto zero na execução.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-03T19:30:00Z",
+  "lastAttemptAt": "2026-08-03T19:40:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -130,8 +130,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Interface em src/web/public/ (index.html, app.css, app.js): JS puro sem framework/CDN/recurso externo, texto dinâmico só via textContent. Todas as seções do critério (cabeçalho com link da issue/branch/badge/tempo real/estimativa rotulada, progresso com <progress> nativo, executando agora, fases, stories, commits e PRs com links derivados da URL da issue, logs com filtro por nível, erros/avisos em destaque, próximos passos). Seletor 3s/5s/10s/30s/pausar persistido em localStorage com default vindo de /api/health; polling suspenso com document.hidden, backoff exponencial (cap 60s) e banner de desconexão; ETag/If-None-Match com 304; prefers-color-scheme, aria-live=polite e título da aba com o percentual. Verificado no Chrome (claro/escuro, 500px, sem erros de console). +1 teste de resolução default dos assets em server.test.ts."
     },
     {
       "id": "US-008",
