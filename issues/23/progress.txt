@@ -14,6 +14,7 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Comandos git: rodar com `git -C <raiz-do-repo>` — o cwd do shell tende a ficar em `packages/issue-flow`.
 - Não existe nenhum `CLAUDE.md` no repositório; os aprendizados moram só neste arquivo.
 - Todo schema Zod novo com interface correspondente deve terminar em `satisfies z.ZodType<Interface>` (padrão de `sessionSnapshotSchema` e agora `issueMetadataSchema`).
+- Estado global de módulo (ex.: o `Map` do registry de providers) precisa de um helper de reset exportado e chamado em `beforeEach`; vitest isola módulos por arquivo de teste, não por teste.
 - `taskPlanSchema` é o contrato de arquivos já em disco: só afrouxar, nunca endurecer. `loadTaskPlan` faz `parse(...) as TaskPlan`, então defaults do Zod (ex.: `issueUrl` → `''`) chegam preenchidos aos consumidores.
 
 ---
@@ -47,4 +48,19 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `issueMetadataSchema` não tem defaults: `schemaVersion` é `z.literal(1)` obrigatório. US-005 (provider local) precisa gravar esse campo explicitamente ao criar `metadata.json`.
   - `remote` é um objeto opcional com os 4 campos obrigatórios entre si (`provider`, `ref`, `syncedAt`, `syncedContentHash`) — não dá para gravar só `ref`; US-012 (`--both`) precisa preencher os quatro.
   - O teste "rejects negative issueNumber" continua válido porque `-1` não casa nem com `int().positive()` nem com `string()`; strings vazias são rejeitadas por `z.string().min(1)`.
+---
+
+## 2026-08-03 18:45 - US-003
+- Criada a interface `IssueProvider` e o registry de providers.
+- Arquivos criados:
+  - `packages/issue-flow/src/issues/provider.ts` — interface `IssueProvider` (`name`, `isAvailable`, `get`, `create`, `close?`).
+  - `packages/issue-flow/src/issues/registry.ts` — `registerProvider`, `getProvider`, `getRegisteredSources`, `clearProviders`.
+  - `packages/issue-flow/src/issues/registry.test.ts` — 9 testes (registro, recuperação, substituição, origem desconhecida com/sem providers, `close` opcional, clear).
+- Quality checks: `npm run check` e `npm test` (200 testes, 16 arquivos) passando.
+- **Learnings for future iterations:**
+  - O critério do PRD "um provider somente-leitura implementa apenas get/isAvailable" conflita com a assinatura listada, onde `create` é obrigatório. Seguimos a assinatura: `create` obrigatório, `close?` opcional; provider somente-leitura deve lançar em `create`. Se US-012/US-014 precisarem de um provider sem `create`, tornar `create` opcional exige ajustar todos os chamadores.
+  - `registerProvider` sobrescreve a origem já registrada (last wins) — é o que permite trocar o provider real por um fake em teste (US-014).
+  - `clearProviders()` existe só para isolamento de teste; use em `beforeEach` sempre que registrar providers, senão o estado vaza entre testes do mesmo arquivo (vitest isola módulos por arquivo, não por teste).
+  - Vitest: `expect(x?.()).resolves` quebra quando o método opcional é `undefined` — envolver em `Promise.resolve(...)`.
+  - O registry nasce vazio; nenhum provider se auto-registra ainda. US-004/US-005 precisam decidir onde chamar `registerProvider` (provavelmente um `src/issues/index.ts` de bootstrap importado pelos comandos) — hoje `getProvider('github')` lança "No Issue providers are registered".
 ---
