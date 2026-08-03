@@ -224,3 +224,18 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `printError` sai por `console.log` (via `emit`), não `console.error` — teste que captura mensagem de erro deve espionar `console.log`.
   - Teste de comando que usa o registry: `clearProviders()` + `registerProvider(fake)` no `beforeEach`; `ensureProvidersRegistered()` (chamado por `runGenerate`) não sobrescreve o que já está registrado.
 ---
+
+## 2026-08-03 19:58 - US-013
+- Criada a skill `generate-local-issue` (autoria de Issues locais) e registrada na documentação.
+- Arquivos criados/alterados:
+  - `skills/generate-local-issue/SKILL.md` — workflow de 10 passos (ambiente sem `gh`, descoberta do projeto, idioma, análise, escopo, duplicidade contra `issues/*/metadata.json`, alocação de identificador, escrita de `issue.md` + `metadata.json`, verificação, retorno) + seção de edge cases.
+  - `skills/generate-local-issue/README.md` — uso, formato de arquivos, estrutura da Issue, requisitos.
+  - `docs/skills-and-agents.md` — nova linha na tabela de componentes, além das tabelas de instalação e de "What works without the sub-agent".
+- Quality checks: `npm run check` e `npm test` (374 testes, 26 arquivos) passando.
+- **Learnings for future iterations:**
+  - A skill documenta o contrato do `LocalFileIssueProvider`, não o reimplementa: qualquer mudança em `issueMetadataSchema`, em `parseIssueMarkdown` (H1 = primeira linha não vazia) ou em `hashIssueContent` desatualiza `skills/generate-local-issue/SKILL.md`. O `contentHash` é ensinado via one-liner `node -e` que replica o normalize (CRLF→LF + trim) e o payload `JSON.stringify({title, body})` — se o payload mudar, o one-liner precisa mudar junto.
+  - Não existe `--dry-run` em nenhum comando do CLI (`src/cli.ts`); verificar flags reais antes de documentá-las.
+  - `docs/skills-and-agents.md` lista as skills em **três** lugares (tabela de componentes ~linha 36, tabela de portabilidade da instalação e tabela "What works without the sub-agent"). Skill nova precisa entrar nas três.
+  - As skills de `skills/` não são carregadas por nenhum teste ou código de `packages/issue-flow/src` — são artefatos puros para Claude Code/Agent Skills; `npm run check` não as valida.
+  - Frontmatter padrão do repo: `name`, `description` (bloco `>` com gatilhos em inglês e pt-BR e um "Do NOT use..." para desambiguar de skill irmã) e `compatibility`.
+---
