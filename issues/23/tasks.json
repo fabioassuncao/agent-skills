@@ -7,7 +7,7 @@
   "description": "Abstrair a origem das Issues com uma camada de Issue Providers (GitHub e local), tornando o pipeline agnostico a origem: modelo de dominio Issue unico, registry de providers, resolver com politica de conflito, migracao dos prompts para placeholders e suporte a Issues locais em issues/<N>/issue.md + metadata.json, preservando 100% do comportamento atual para quem usa apenas GitHub.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-03T21:50:00Z",
+  "lastAttemptAt": "2026-08-03T21:58:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -107,7 +107,7 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Risco 3 do PRD: colisao de numeracao local x GitHub."
     },
     {

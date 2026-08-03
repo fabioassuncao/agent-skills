@@ -18,6 +18,9 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - `taskPlanSchema` é o contrato de arquivos já em disco: só afrouxar, nunca endurecer. `loadTaskPlan` faz `parse(...) as TaskPlan`, então defaults do Zod (ex.: `issueUrl` → `''`) chegam preenchidos aos consumidores.
 - Para código que executa binários externos, chamar sempre `run` de `src/utils/shell.ts` (nunca `execa` direto) — é o que permite `vi.mock('../../utils/shell.js', () => ({ run: vi.fn() }))` + `await import(...)` dinâmico, o padrão de teste de `src/utils/git.test.ts`.
 - Ao classificar stderr de CLI externo, nunca usar regex genérica (`/not found/`): `gh: command not found` casaria com "issue inexistente" e transformaria ambiente quebrado em resultado vazio silencioso. Casar frases completas e específicas.
+- Escrita atômica de qualquer artefato do pipeline: usar `writeFileAtomic` de `src/utils/fs.ts` (temp + rename + fallback EXDEV). Nunca chamar `writeFile` direto em arquivo que o pipeline recarrega.
+- Provider/serviço que precisa do project root deve receber `projectRoot` opcional no construtor e cair em `getProjectRoot()` só quando não informado — é o que torna os testes com `mkdtemp` possíveis sem mockar git.
+- Testes de provider baseado em arquivos usam `mkdtemp` real em `beforeEach` + `rm(..., { recursive: true, force: true })` em `afterEach`; só o shell (`run`) é mockado.
 
 ---
 
@@ -80,4 +83,24 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - O provider ainda **não se auto-registra** no registry (`registerProvider` não é chamado em lugar nenhum). US-005/US-007 precisam criar o bootstrap (ex.: `src/issues/index.ts`) importado pelos comandos; até lá `getProvider('github')` continua lançando.
   - `Issue.raw` guarda o payload cru do `gh` — útil para depuração, mas cuidado ao comparar `Issue` inteira com `toEqual` em testes futuros (use `toMatchObject`).
   - `prompts/*.md` ainda contêm `gh issue view` (analyze, prd, plan, review, pr) e `gh issue create` (generate) — é exatamente o que US-008/US-012 removem.
+---
+
+## 2026-08-03 18:58 - US-005
+- Implementado o `LocalFileIssueProvider`, que roda o pipeline sobre `issues/<id>/issue.md` + `metadata.json` sem nenhum acesso à rede.
+- Arquivos criados:
+  - `packages/issue-flow/src/utils/fs.ts` — `writeFileAtomic` (temp + rename + fallback EXDEV), extraído de `saveTaskPlan`.
+  - `packages/issue-flow/src/issues/providers/local.ts` — `LocalFileIssueProvider` (`get`, `create`, `close`, `isAvailable`, `allocateNumber`) + `parseIssueMarkdown` + singleton `localFileIssueProvider`.
+  - `packages/issue-flow/src/issues/providers/local.test.ts` — 29 testes.
+- Arquivos alterados:
+  - `packages/issue-flow/src/core/state-manager.ts` — `saveTaskPlan` passou a delegar para `writeFileAtomic` (comportamento idêntico, uma única implementação).
+- Quality checks: `npm run check` e `npm test` (248 testes, 18 arquivos) passando.
+- **Learnings for future iterations:**
+  - `contentHash` é **sempre recalculado** a partir do `issue.md` em disco; o `contentHash` gravado em `metadata.json` nunca é usado na leitura. Isso é proposital: um `issue.md` editado à mão precisa aparecer como divergente para US-007. Quem gravar metadata (US-012) deve manter o campo em dia mesmo assim.
+  - `Issue.source` retornado pelo provider local é **sempre** `'local'`, mesmo quando `metadata.source` diz `'github'` (espelho criado por `--both`). A origem da leitura é o que importa para o resolver; `metadata.source` continua acessível via `Issue.raw`.
+  - `allocateNumber()` é público de propósito: é o ponto de injeção para testar colisão (`vi.spyOn(provider, 'allocateNumber')`). Ele consulta `gh issue list` **e** `gh pr list` — Issues e PRs compartilham o mesmo contador no GitHub, então alocar só acima da maior Issue ainda colide com um PR. Falha/timeout do `gh` degrada para 0 (offline nunca bloqueia criação local).
+  - `parseIssueMarkdown` só promove a **primeira linha não vazia** a título quando ela é um H1; H1 no meio do texto fica no corpo. Se o `issue.md` não tiver H1, o título vem de `metadata.title` (ou fica vazio).
+  - Ids viram segmento de caminho: `normalizeId` rejeita `/`, `\`, `.`, `..` e string vazia antes de qualquer `join`. Qualquer provider novo baseado em arquivos deve repetir essa checagem.
+  - `title` de `get` é `headingTitle || metadata?.title` — H1 vence metadata. Se US-012 gravar título diferente do H1, a leitura devolve o do arquivo.
+  - Ainda **não há bootstrap de registry**: nem o provider do GitHub nem o local se auto-registram. US-007 continua precisando criar `src/issues/index.ts` (ou equivalente) chamando `registerProvider` para os dois.
+  - Em bloco de comentário JSDoc, nunca escrever o glob `issues/*` seguido de `/`: a sequência `*/` fecha o comentário e quebra o arquivo.
 ---
