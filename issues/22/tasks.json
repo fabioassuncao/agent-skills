@@ -7,7 +7,7 @@
   "description": "Modo opcional (desligado por padrão) de monitoramento web em tempo real para sessões do pipeline: camada de publicação de estado (session-state.ts), snapshot versionado servido via HTTP (node:http puro) e em issues/N/session.json, interface web autocontida sem dependências novas, com impacto zero na execução.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-03T19:00:33Z",
+  "lastAttemptAt": "2026-08-03T19:12:30Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -67,8 +67,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "loadWebConfig() em src/config.ts com cadeia flag CLI > env > .issue-flow.json (chave web) > defaults; fontes ausentes/inválidas degradam para defaults com aviso, nunca falham. Flags --web/--serve/--port/--host/--refresh/--web-log-limit/--web-no-logs registradas em run e execute via withWebOptions(), resolvidas no hook preAction com setWebCliOverrides(). 11 testes de precedência em config.test.ts."
     },
     {
       "id": "US-004",
@@ -83,8 +83,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Slot global getSessionPublisher()/setSessionPublisher() em src/core/session-publisher.ts (default NullPublisher). logger.ts: emit(line, level) encaminha log ao publisher (ANSI removido pelo reducer), saída de terminal intacta. run.ts: cria FilePublisher (issues/N/session.json) quando webConfig.enabled, emite session:start (com phases ativas), phase:start/end ao redor de cada runner (init retroativo), correction:cycle e session:end em finally. engine.ts: iteration:start/end, retry, stories:update. headless.ts: activity em tool_use. pipeline-renderer.ts e slots setOutputCallback/setStoryUpdateCallback intocados. A subida/derrubada do servidor HTTP fica na US-006 (ponto de wiring comentado em run.ts)."
     },
     {
       "id": "US-005",

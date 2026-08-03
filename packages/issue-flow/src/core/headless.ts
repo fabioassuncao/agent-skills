@@ -2,6 +2,8 @@ import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { execa } from 'execa';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
+import { getSessionPublisher } from './session-publisher.js';
+import { isoNow } from './state-manager.js';
 import { getOutputCallback, isVerbose } from './verbose.js';
 
 export interface HeadlessOptions {
@@ -113,6 +115,12 @@ function printStreamEvent(
 
       if (block.type === 'tool_use' && block.name) {
         const context = block.input ? getToolContext(block.name, block.input) : '';
+        getSessionPublisher().publish({
+          type: 'activity',
+          at: isoNow(),
+          tool: block.name,
+          detail: context || undefined,
+        });
         const toolName = block.name.padEnd(12);
 
         const prefix = colored ? chalk.dim(`  ${icons.connector}  `) : `  ${icons.connector}  `;

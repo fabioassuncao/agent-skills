@@ -11,6 +11,8 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
 - Timestamps: `isoNow()` de state-manager.ts (ISO sem milissegundos); eventos carregam `at: string` para manter reducers puros
 - Callback de stories no engine: `getStoryUpdateCallback()` recebe `UserStory[]` completo (src/core/engine.ts:282)
 - Zod 4 (^4.3.6): schemas em src/schemas.ts; usar `satisfies z.ZodType<Interface>` para travar schema ↔ interface TS; defaults via `.default()` fazem `parse({})` materializar a config padrão
+- Config em camadas: validar cada fonte parcial com `schema.partial().safeParse()` (defaults NÃO são aplicados), mergear por spread na ordem de precedência e parsear o merge com o schema completo no final
+- Slots globais de CLI: padrão setX() em módulo (como setVerbose em core/verbose.ts) — flags extraídas no hook preAction de cli.ts (ex.: setWebCliOverrides em config.ts)
 
 ## 2026-08-03 15:52 - US-001
 - Implementada a camada de publicação de estado em `packages/issue-flow/src/core/session-state.ts`:
@@ -42,4 +44,33 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
   - `webConfigSchema.parse({})` já materializa os defaults da US-003 — loadWebConfig() pode fazer merge de fontes parciais e parsear no final
   - Campos derivados (errors, warnings, estimatedRemainingSeconds, nextSteps) são todos recomputados no wrapper reduceSessionEvent, não em applyEvent — novos campos derivados devem seguir esse padrão
   - US-004: session:start deve receber `phases` de PIPELINE_PHASES (ou PIPELINE_PHASES_NO_BRANCH quando --no-branch) para que nextSteps saia correto
+---
+## 2026-08-03 16:05 - US-003
+- Implementada a configuração do monitoramento web:
+  - `loadWebConfig()` em `src/config.ts`: precedência flag CLI > env (ISSUE_FLOW_WEB, ISSUE_FLOW_WEB_PORT, ISSUE_FLOW_WEB_HOST, ISSUE_FLOW_WEB_REFRESH, ISSUE_FLOW_WEB_LOG_LIMIT) > `.issue-flow.json` (chave `web`) > defaults (false, 3737, 127.0.0.1, 5, 200, includeLogs=true)
+  - Fontes injetáveis (`cli`, `env`, `projectRoot`, `warn`) para testes; `.issue-flow.json` inteiramente opcional — ausência é silenciosa; JSON inválido, chave `web` inválida, env numérica inválida ou merge final inválido degradam com aviso, nunca lançam
+  - Flags em `src/cli.ts` nos comandos `run` e `execute` via `withWebOptions()`: --web, --serve (alias), --port, --host, --refresh, --web-log-limit, --web-no-logs; resolvidas no hook global preAction com `resolveWebOverrides()` + `setWebCliOverrides()` (slot em config.ts, mesmo padrão de setVerbose)
+- Arquivos: src/config.ts, src/cli.ts, src/config.test.ts (novo, 11 testes)
+- Checks: typecheck OK, biome lint OK, vitest 122/122 OK; help de run/execute confere as 7 flags
+- **Learnings for future iterations:**
+  - `webConfigSchema.partial().safeParse()` valida uma camada SEM aplicar defaults (optional curto-circuita o default) — perfeito para merge em camadas; o parse completo no final materializa os defaults
+  - Booleano de env: falsy = ['', '0', 'false', 'no', 'off'] (case-insensitive), qualquer outro valor = true
+  - Commander: `--web-no-logs` vira `opts.webNoLogs`; o hook preAction global recebe opts de qualquer comando (flags ausentes ficam undefined — extrair só o que foi setado)
+  - US-004/US-006: consumir com `await loadWebConfig()` (sem argumentos) em run.ts — os overrides de CLI já estarão no slot; avisar host 0.0.0.0 é responsabilidade do servidor (US-006)
+---
+## 2026-08-03 16:12 - US-004
+- Instrumentada a execução do pipeline com publicação de eventos:
+  - Novo slot global `src/core/session-publisher.ts` (setSessionPublisher/getSessionPublisher, default NullPublisher) — mesmo padrão de setVerbose; a publicação NÃO usa setOutputCallback/setStoryUpdateCallback e pipeline-renderer.ts não foi modificado
+  - `src/ui/logger.ts`: emit(line, level) com nível estruturado (printError=error, printWarning/printRetry=warn, demais=info); a linha vai crua ao publisher (o reducer do case 'log' já faz stripVTControlCharacters), saída de terminal byte a byte idêntica
+  - `src/commands/run.ts`: runPipeline virou wrapper que carrega loadWebConfig(), instala FilePublisher em issues/N/session.json quando enabled (NullPublisher caso contrário) e garante session:end + close() em finally; runPipelinePhases emite session:start (phases = activePhases, respeita --no-branch), fase init retroativa (timestamps reais), phase:start/end ao redor de cada runner via wrapper de runners, e correction:cycle no laço de correção do review
+  - `src/core/engine.ts`: iteration:start (após i++), retry (com delaySeconds/reason), stories:update + iteration:end no ponto do getStoryUpdateCallback()
+  - `src/core/headless.ts`: printStreamEvent() emite activity (tool + detail) ao detectar tool_use
+- Arquivos: src/core/session-publisher.ts (novo), src/core/session-publisher.test.ts (novo, 3 testes), src/ui/logger.ts, src/commands/run.ts, src/core/engine.ts, src/core/headless.ts
+- Checks: typecheck OK, biome OK, vitest 125/125 OK
+- **Learnings for future iterations:**
+  - executor.ts (usado pelo engine na fase execute) roda `claude --print` SEM stream-json — tool_use/activity só existe nas fases que usam runHeadless em modo verbose (prd/plan/review/pr); atividade granular na fase execute exigiria migrar executor.ts para stream-json (fora do escopo da issue)
+  - session:start só pode ser emitido depois de resolver --no-branch (a lista de fases depende disso); a fase init é publicada retroativamente com sessionStartedAt capturado antes de runInit()
+  - O wiring do servidor HTTP (US-006) tem ponto marcado em run.ts no wrapper runPipeline: subir após setSessionPublisher, derrubar no finally antes de close()
+  - loadWebConfig() roda no início de runPipeline mesmo com tudo desligado — é silencioso sem flags/env/arquivo (nenhuma saída extra no modo default)
+  - US-005: enriquecimento de commits/PRs deve acontecer nas fronteiras de fase (wrapper instrumentedRunners em run.ts) e no fim de iteração (engine.ts) — nunca por requisição HTTP
 ---

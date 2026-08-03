@@ -8,6 +8,7 @@ import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
 import { isTransientFailure, retryDelaySeconds } from '../utils/retry.js';
 import { executeClaude } from './executor.js';
 import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
+import { getSessionPublisher } from './session-publisher.js';
 import {
   allStoriesPass,
   clearLastError,
@@ -191,6 +192,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     }
 
     i++;
+    getSessionPublisher().publish({ type: 'iteration:start', at: isoNow(), iteration: i });
 
     // Re-read plan to get latest state
     plan = await loadTaskPlan(paths.prdFile);
@@ -241,6 +243,13 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
           config.backoffBaseSeconds,
           config.backoffMaxSeconds,
         );
+        getSessionPublisher().publish({
+          type: 'retry',
+          at: isoNow(),
+          attempt: retryCount,
+          delaySeconds,
+          reason: 'transient_claude_failure',
+        });
 
         if (isVerbose()) {
           emitLog('');
@@ -283,6 +292,12 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     if (storyUpdateCb) {
       storyUpdateCb(plan.userStories);
     }
+    getSessionPublisher().publish({
+      type: 'stories:update',
+      at: isoNow(),
+      stories: plan.userStories,
+    });
+    getSessionPublisher().publish({ type: 'iteration:end', at: isoNow(), iteration: i });
 
     // Check for completion signal
     if (result.output.includes('<promise>COMPLETE</promise>')) {
