@@ -104,3 +104,20 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - Ainda **não há bootstrap de registry**: nem o provider do GitHub nem o local se auto-registram. US-007 continua precisando criar `src/issues/index.ts` (ou equivalente) chamando `registerProvider` para os dois.
   - Em bloco de comentário JSDoc, nunca escrever o glob `issues/*` seguido de `/`: a sequência `*/` fecha o comentário e quebra o arquivo.
 ---
+
+## 2026-08-03 19:05 - US-006
+- Adicionada a configuração de providers lida da chave `issues` de `.issue-flow.json`, com precedência flag de CLI > arquivo > defaults.
+- Arquivos alterados:
+  - `packages/issue-flow/src/issues/types.ts` — `IssueGenerateTarget`, `IssueConflictPolicy` e a interface `IssuesConfig`.
+  - `packages/issue-flow/src/schemas.ts` — `issuesConfigSchema` (`satisfies z.ZodType<IssuesConfig>`), com defaults `github`/`github`/`ask`/`true`.
+  - `packages/issue-flow/src/config.ts` — `PROJECT_CONFIG_FILENAME` (+ alias `WEB_CONFIG_FILENAME`), `readProjectConfigFile` compartilhado, `setIssuesCliOverrides` e `loadIssuesConfig`.
+  - `packages/issue-flow/src/config.test.ts` — 11 testes novos em `loadIssuesConfig`.
+- Quality checks: `npm run check` e `npm test` (259 testes, 18 arquivos) passando.
+- **Learnings for future iterations:**
+  - A leitura de `.issue-flow.json` agora é única (`readProjectConfigFile`), que devolve `Record<string, unknown> | null` e já emite os avisos de JSON inválido / raiz não-objeto. Qualquer chave nova (ex.: uma futura `agents`) deve reusá-la — não reabrir o arquivo.
+  - `loadIssuesConfig` **não tem camada de env var** (diferente de `loadWebConfig`): o critério do PRD define só três camadas. Se alguém quiser `ISSUE_FLOW_ISSUES_*`, é decisão nova, não omissão.
+  - `WEB_CONFIG_FILENAME` virou alias de `PROJECT_CONFIG_FILENAME`; ambos exportados para não quebrar `config.test.ts`/`web/`. Código novo deve usar `PROJECT_CONFIG_FILENAME`.
+  - `satisfies z.ZodType<IssuesConfig>` funciona mesmo com `.default()` em todos os campos (zod v4 só amarra o tipo de saída) — o padrão do repo vale também para schemas de config.
+  - US-009 precisa mapear as flags para `setIssuesCliOverrides` no `preAction` de `src/cli.ts` (mesmo lugar de `setWebCliOverrides`, `src/cli.ts:95`): `--local`/`--github` → `preferredProvider`, `--prefer-local`/`--prefer-github`/`--ask` → `conflictPolicy`. Só incluir a chave quando o usuário passou a flag — chave presente com `undefined` sobrescreveria o arquivo no spread.
+  - `requireConfirmation` está definido e validado, mas ainda não é consumido por ninguém; US-007/US-012 devem usá-lo antes de fechar a issue.
+---

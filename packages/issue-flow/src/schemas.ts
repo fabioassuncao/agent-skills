@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { SessionSnapshot } from './core/session-state.js';
-import type { IssueMetadata } from './issues/types.js';
+import type { IssueMetadata, IssuesConfig } from './issues/types.js';
 
 /**
  * Zod schemas for validating tasks.json structure, Issue metadata, headless
@@ -185,6 +185,18 @@ export const webConfigSchema = z.object({
   logLimit: z.number().int().positive().default(200),
   includeLogs: z.boolean().default(true),
 });
+
+/**
+ * Resolved Issue provider configuration. Every field has a default that keeps
+ * the GitHub-only behaviour, so parsing an empty object yields the exact
+ * behaviour of releases without the provider layer.
+ */
+export const issuesConfigSchema = z.object({
+  defaultGenerateTarget: z.enum(['github', 'local', 'both']).default('github'),
+  preferredProvider: z.enum(['github', 'local']).default('github'),
+  conflictPolicy: z.enum(['ask', 'prefer-local', 'prefer-github']).default('ask'),
+  requireConfirmation: z.boolean().default(true),
+}) satisfies z.ZodType<IssuesConfig>;
 
 export type ValidatedTaskPlan = z.infer<typeof taskPlanSchema>;
 export type ValidatedIssueMetadata = z.infer<typeof issueMetadataSchema>;

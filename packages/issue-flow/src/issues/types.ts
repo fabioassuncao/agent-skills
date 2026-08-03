@@ -76,6 +76,27 @@ export interface IssueMetadata {
   remote?: IssueRemoteRef;
 }
 
+/** Destination(s) a generated Issue is created in. */
+export type IssueGenerateTarget = 'github' | 'local' | 'both';
+
+/** How to settle a divergence between a local Issue and its remote twin. */
+export type IssueConflictPolicy = 'ask' | 'prefer-local' | 'prefer-github';
+
+/**
+ * Resolved Issue provider configuration, read from the `issues` key of
+ * .issue-flow.json. Every field has a default that reproduces the pre-provider
+ * behaviour (GitHub only), so an absent file is indistinguishable from the
+ * previous releases.
+ *
+ * Kept in lockstep with `issuesConfigSchema` in src/schemas.ts.
+ */
+export interface IssuesConfig {
+  defaultGenerateTarget: IssueGenerateTarget;
+  preferredProvider: IssueSource;
+  conflictPolicy: IssueConflictPolicy;
+  requireConfirmation: boolean;
+}
+
 /**
  * Outcome of `resolveIssue`: the Issue the pipeline will work on, plus the
  * candidates that were considered, so callers can report divergence without
