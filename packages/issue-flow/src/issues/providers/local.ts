@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { access, mkdir, readdir, readFile, stat } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ZodError } from 'zod';
 import { isoNow } from '../../core/state-manager.js';
@@ -156,11 +156,26 @@ export class LocalFileIssueProvider implements IssueProvider {
     const id = draft.id === undefined ? String(await this.allocateNumber()) : normalizeId(draft.id);
     const dir = await this.issueDir(id);
 
-    if (await this.exists(join(dir, 'issue.md'))) {
-      throw new Error(
-        `Local issue '${id}' already exists at ${join(ISSUES_DIR, id, 'issue.md')}. ` +
-          'Remove it or pick another identifier before creating a new Issue.',
-      );
+    await mkdir(dir, { recursive: true });
+
+    // Exclusive create (the 'wx' flag, O_EXCL under the hood) instead of a
+    // check-then-write: two concurrent `create()` calls racing the same id
+    // would both pass a plain existence check before either writes, and the
+    // second would then silently overwrite the first through the atomic
+    // temp+rename writer. The OS now rejects the loser instead.
+    try {
+      await writeFile(join(dir, 'issue.md'), renderIssueMarkdown(draft.title, draft.body), {
+        encoding: 'utf-8',
+        flag: 'wx',
+      });
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new Error(
+          `Local issue '${id}' already exists at ${join(ISSUES_DIR, id, 'issue.md')}. ` +
+            'Remove it or pick another identifier before creating a new Issue.',
+        );
+      }
+      throw err;
     }
 
     const timestamp = isoNow();
@@ -178,8 +193,6 @@ export class LocalFileIssueProvider implements IssueProvider {
       ...(draft.remote ? { remote: draft.remote } : {}),
     };
 
-    await mkdir(dir, { recursive: true });
-    await writeFileAtomic(join(dir, 'issue.md'), renderIssueMarkdown(draft.title, draft.body));
     await this.writeMetadata(id, metadata);
 
     return {
@@ -251,15 +264,6 @@ export class LocalFileIssueProvider implements IssueProvider {
     return join(await this.issueDir(id), 'metadata.json');
   }
 
-  private async exists(path: string): Promise<boolean> {
-    try {
-      await access(path, constants.F_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   /** Parsed metadata.json, or `null` when the file is absent. */
   private async readMetadata(id: string): Promise<IssueMetadata | null> {
     const path = await this.metadataFile(id);
@@ -326,12 +330,22 @@ export class LocalFileIssueProvider implements IssueProvider {
   }
 }
 
+/** How many of the most-recently-created issues/PRs to inspect per probe. */
+const REMOTE_PROBE_SAMPLE_SIZE = 20;
+
 /**
  * Highest number already taken on GitHub, or 0 when the remote is unreachable.
  *
  * Issues and pull requests share one counter, so both are probed: allocating
  * above the newest Issue alone would still collide with an open PR. Every
  * failure degrades to 0 — being offline must not block local creation.
+ *
+ * `gh ... list` defaults to sorting by creation date descending, which lines
+ * up with number order in the overwhelming majority of repos — but that sort
+ * is an implementation detail, not a contract. Rather than trust that the
+ * single most-recent entry is also the highest-numbered one, a small sample
+ * is fetched and the max is taken across it, which also tolerates the rare
+ * case of a transferred issue whose creation date and number disagree.
  */
 async function highestRemoteNumber(): Promise<number> {
   const probes = [
@@ -344,14 +358,25 @@ async function highestRemoteNumber(): Promise<number> {
       try {
         const result = await run(
           'gh',
-          [...args, '--state', 'all', '--limit', '1', '--json', 'number'],
+          [
+            ...args,
+            '--state',
+            'all',
+            '--limit',
+            String(REMOTE_PROBE_SAMPLE_SIZE),
+            '--json',
+            'number',
+          ],
           { timeout: REMOTE_PROBE_TIMEOUT_MS },
         );
         if (result.exitCode !== 0) return 0;
 
         const parsed = JSON.parse(result.stdout);
         if (!Array.isArray(parsed)) return 0;
-        return typeof parsed[0]?.number === 'number' ? parsed[0].number : 0;
+        return parsed.reduce((max: number, entry: unknown) => {
+          const n = (entry as { number?: unknown } | null)?.number;
+          return typeof n === 'number' ? Math.max(max, n) : max;
+        }, 0);
       } catch {
         return 0;
       }

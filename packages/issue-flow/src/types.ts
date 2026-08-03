@@ -32,8 +32,12 @@ export interface TaskPlan {
   project: string;
   /** Numeric for GitHub Issues, string for local (possibly non-numeric) ids. */
   issueNumber: number | string;
-  /** Absent when the Issue has no remote counterpart (local-only demands). */
-  issueUrl?: string;
+  /**
+   * `''` when the Issue has no remote counterpart (local-only demands).
+   * Always a string once loaded through `taskPlanSchema`, which defaults the
+   * field — never actually `undefined` at runtime, unlike a plain optional.
+   */
+  issueUrl: string;
   branchName: string;
   noBranch?: boolean;
   description: string;

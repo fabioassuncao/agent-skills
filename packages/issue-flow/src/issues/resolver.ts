@@ -291,10 +291,13 @@ export async function resolveIssue(
   ensureProvidersRegistered();
   const sources = opts.sources ?? getRegisteredSources();
 
-  const candidates: Candidate[] = [];
-  for (const source of sources) {
-    candidates.push(await fetchCandidate(source, id, warn));
-  }
+  // Each origin is an independent I/O call (network for GitHub, disk for
+  // local); querying them concurrently instead of one-by-one keeps the total
+  // latency at the slowest origin instead of the sum of all of them, without
+  // changing which candidate wins (order is preserved by Promise.all).
+  const candidates: Candidate[] = await Promise.all(
+    sources.map((source) => fetchCandidate(source, id, warn)),
+  );
 
   const issueOf = (source: IssueSource): Issue | null =>
     candidates.find((candidate) => candidate.source === source)?.issue ?? null;
