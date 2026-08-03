@@ -82,6 +82,9 @@ npx issue-flow run 42 --from execute
 
 # Manual mode (artifacts only, no execution)
 npx issue-flow run 42 --mode manual
+
+# Watch the run live in the browser (see "Web Monitoring" below)
+npx issue-flow run 42 --web
 ```
 
 Executes all phases in order: **init** → **analyze** → **prd** → **plan** → **execute** → **review** → **pr**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, runs correction cycles (re-execute + re-review) up to `maxCorrectionCycles`.
@@ -159,6 +162,33 @@ npx issue-flow generate --prompt "Add dark mode support to the settings page"
 
 Analyzes the project and creates a detailed GitHub issue via Claude headless.
 
+## Web Monitoring
+
+`run` and `execute` support an optional (off by default) real-time monitoring mode: a local HTTP server (plain `node:http`, zero new dependencies) serves a self-contained, read-only web UI with live progress -- current phase and activity, user stories, commits, pull requests, logs, and time estimates.
+
+```bash
+# Enable with defaults (http://127.0.0.1:3737)
+npx issue-flow run 42 --web
+
+# Remote access over Tailscale: bind to your machine's Tailscale IP
+npx issue-flow run 42 --web --host 100.101.102.103
+```
+
+Each setting resolves with the precedence **CLI flag > environment variable > `.issue-flow.json` > default**:
+
+| CLI flag | Environment variable | `.issue-flow.json` key | Default |
+|----------|----------------------|------------------------|---------|
+| `--web` / `--serve` | `ISSUE_FLOW_WEB` | `web.enabled` | `false` |
+| `--port <n>` | `ISSUE_FLOW_WEB_PORT` | `web.port` | `3737` |
+| `--host <h>` | `ISSUE_FLOW_WEB_HOST` | `web.host` | `127.0.0.1` |
+| `--refresh <s>` | `ISSUE_FLOW_WEB_REFRESH` | `web.refreshSeconds` | `5` |
+| `--web-log-limit <n>` | `ISSUE_FLOW_WEB_LOG_LIMIT` | `web.logLimit` | `200` |
+| `--web-no-logs` | -- | `web.includeLogs` | logs included |
+
+Monitoring never affects the pipeline: with `--web` off the behavior is byte-for-byte identical, a busy port just skips the server with a warning, and killing the server mid-run has no effect on the execution. While enabled, the snapshot served at `/api/status` is also persisted to `issues/N/session.json` -- if your project commits the `issues/` directory, add `issues/*/session.json` to your `.gitignore`.
+
+For the full documentation (endpoints, `session.json` format, Tailscale setup), see the [root README](../../README.md#web-monitoring).
+
 ## Pipeline State
 
 Each issue's state is tracked in `issues/N/tasks.json`:
@@ -211,6 +241,11 @@ src/
     pipeline.ts           # Pipeline state machine
     state-manager.ts      # Typed CRUD for tasks.json
     prompt-resolver.ts    # Prompt resolution and templating
+    session-state.ts      # Session snapshot reducer and publishers
+    session-publisher.ts  # Global session publisher slot
+    session-git.ts        # Commit/PR enrichment for the snapshot
+  web/
+    server.ts             # Web monitoring HTTP server (assets in web/public/)
   ui/
     logger.ts             # Colored logging utilities
     progress.ts           # Progress bar and iteration headers

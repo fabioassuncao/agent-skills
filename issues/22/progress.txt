@@ -160,3 +160,14 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
   - Renderer mockado devolve overallElapsedSeconds fixo — a linha "Duration: 1s" fica determinística para a comparação byte a byte
   - US-010 é só documentação (README.md): seção do run, tabela flags/env/config, exemplo Tailscale, formato do session.json e dica de .gitignore
 ---
+## 2026-08-03 16:57 - US-010
+- Documentação do modo de monitoramento web:
+  - README raiz: `--web` nas tabelas de flags de `run` e `execute`; nova seção "Web Monitoring" com tabela de configuração (flag CLI | env | chave .issue-flow.json | default) e a precedência flag > env > arquivo > defaults; exemplo de `.issue-flow.json`; endpoints (/; /api/status; /status.json; /api/sessions; /api/health); exemplo de acesso remoto via Tailscale (bind no IP 100.x.y.z, com nota sobre o aviso de 0.0.0.0); formato abreviado de `issues/N/session.json`; orientação de adicionar `issues/*/session.json` ao .gitignore do projeto consumidor; `session.json` incluído na árvore de arquivos de issues/N/
+  - README do pacote (packages/issue-flow/README.md, exibido no npm): seção "Web Monitoring" compacta (mesma tabela + Tailscale + .gitignore) com link para a seção completa do README raiz; exemplo `--web` no comando run; árvore de Architecture atualizada com session-state.ts, session-publisher.ts, session-git.ts e web/server.ts
+- Arquivos: README.md (raiz), packages/issue-flow/README.md
+- Checks: typecheck OK, biome OK, vitest 158/158 OK (docs não afetam código)
+- **Learnings for future iterations:**
+  - O README raiz é a documentação principal; o de packages/issue-flow/ é o README do npm e deve espelhar de forma compacta com link relativo ../../README.md#anchor
+  - No README do pacote, seções novas de nível ## devem entrar DEPOIS do último ### de Commands (generate), senão quebram a hierarquia da lista de comandos
+  - Todas as 10 stories da issue #22 concluídas; issueStatus=completed, pipeline.executionCompleted=true
+---

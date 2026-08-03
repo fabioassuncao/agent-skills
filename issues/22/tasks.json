@@ -5,9 +5,9 @@
   "branchName": "issue/22-web-monitoring",
   "noBranch": false,
   "description": "Modo opcional (desligado por padrão) de monitoramento web em tempo real para sessões do pipeline: camada de publicação de estado (session-state.ts), snapshot versionado servido via HTTP (node:http puro) e em issues/N/session.json, interface web autocontida sem dependências novas, com impacto zero na execução.",
-  "issueStatus": "in_progress",
-  "completedAt": null,
-  "lastAttemptAt": "2026-08-03T19:52:30Z",
+  "issueStatus": "completed",
+  "completedAt": "2026-08-03T19:57:00Z",
+  "lastAttemptAt": "2026-08-03T19:57:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -15,7 +15,7 @@
     "analyzeCompleted": true,
     "prdCompleted": true,
     "jsonCompleted": true,
-    "executionCompleted": false,
+    "executionCompleted": true,
     "reviewCompleted": false,
     "prCreated": false
   },
@@ -171,8 +171,8 @@
         "Orientação para adicionar issues/*/session.json ao .gitignore do projeto consumidor, quando aplicável"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "README raiz: --web adicionado às tabelas de flags de run e execute, seção 'Web Monitoring' completa (tabela flag/env/.issue-flow.json/default com precedência, endpoints, exemplo Tailscale com --host 100.x.y.z e aviso sobre 0.0.0.0, formato abreviado do session.json, orientação de .gitignore issues/*/session.json) e session.json na árvore de issues/N/. README do pacote (npm): mesma seção compacta com link para o README raiz, exemplo --web em run e módulos novos (session-state, session-publisher, session-git, web/server) na árvore de Architecture."
     }
   ]
 }
