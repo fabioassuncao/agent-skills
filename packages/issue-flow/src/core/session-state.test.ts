@@ -481,3 +481,41 @@ describe('MemoryPublisher', () => {
     expect(warnings).toHaveLength(1);
   });
 });
+
+describe('git:update event', () => {
+  it('updates commits and pull requests', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'git:update',
+      at: '2026-08-03T12:05:00Z',
+      branch: 'issue/22-test',
+      baseBranch: 'main',
+      commits: [{ hash: 'abc1234', subject: 'feat: US-001 - First story' }],
+      pullRequests: [{ number: 30, url: 'https://github.com/test/test/pull/30', title: 'Fix' }],
+    });
+    expect(snap.git.branch).toBe('issue/22-test');
+    expect(snap.git.baseBranch).toBe('main');
+    expect(snap.git.commits).toEqual([{ hash: 'abc1234', subject: 'feat: US-001 - First story' }]);
+    expect(snap.pullRequests).toEqual([
+      { number: 30, url: 'https://github.com/test/test/pull/30', title: 'Fix' },
+    ]);
+    expect(snap.updatedAt).toBe('2026-08-03T12:05:00Z');
+  });
+
+  it('keeps previous values for omitted fields', () => {
+    const enriched = reduceSessionEvent(startedSnapshot(), {
+      type: 'git:update',
+      at: '2026-08-03T12:05:00Z',
+      commits: [{ hash: 'abc1234', subject: 'first' }],
+      pullRequests: [{ number: 30, url: 'https://example.com/30', title: 'PR' }],
+    });
+    const snap = reduceSessionEvent(enriched, {
+      type: 'git:update',
+      at: '2026-08-03T12:06:00Z',
+      baseBranch: 'develop',
+    });
+    expect(snap.git.branch).toBe('issue/22-test');
+    expect(snap.git.baseBranch).toBe('develop');
+    expect(snap.git.commits).toEqual([{ hash: 'abc1234', subject: 'first' }]);
+    expect(snap.pullRequests).toEqual([{ number: 30, url: 'https://example.com/30', title: 'PR' }]);
+  });
+});

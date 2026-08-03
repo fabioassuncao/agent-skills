@@ -8,6 +8,7 @@ import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
 import { isTransientFailure, retryDelaySeconds } from '../utils/retry.js';
 import { executeClaude } from './executor.js';
 import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
+import { publishGitState } from './session-git.js';
 import { getSessionPublisher } from './session-publisher.js';
 import {
   allStoriesPass,
@@ -298,6 +299,9 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       stories: plan.userStories,
     });
     getSessionPublisher().publish({ type: 'iteration:end', at: isoNow(), iteration: i });
+    // Low-frequency commit/PR enrichment: iteration end is one of the only
+    // two sanctioned points (the other is phase boundaries in run.ts).
+    await publishGitState(getSessionPublisher());
 
     // Check for completion signal
     if (result.output.includes('<promise>COMPLETE</promise>')) {

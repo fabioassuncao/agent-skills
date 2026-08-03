@@ -74,3 +74,19 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
   - loadWebConfig() roda no início de runPipeline mesmo com tudo desligado — é silencioso sem flags/env/arquivo (nenhuma saída extra no modo default)
   - US-005: enriquecimento de commits/PRs deve acontecer nas fronteiras de fase (wrapper instrumentedRunners em run.ts) e no fim de iteração (engine.ts) — nunca por requisição HTTP
 ---
+## 2026-08-03 16:20 - US-005
+- Rastreamento de commits e PRs durante a execução:
+  - `src/utils/git.ts`: `getBaseBranch()` (origin/HEAD via symbolic-ref, fallback para main/master local, default 'main', nunca lança) e `getCommitsSince(base)` (git log --pretty=format:%h%x09%s base..HEAD, retorna [] em falha; parse por primeiro TAB preserva TABs no subject)
+  - Novo evento `git:update` na união SessionEvent + case no reducer: merge parcial (campos omitidos preservam o valor anterior de branch/baseBranch/commits/pullRequests)
+  - `src/core/session-git.ts` (novo): `publishGitState(publisher, sources?)` com fontes injetáveis (currentBranch, baseBranch, commitsSince, pullRequests, now) — coleta tudo e publica um único git:update; `listPullRequests(branch)` via `gh pr list --head <branch> --state all --json number,url,title` com validação estrutural do JSON; NullPublisher curto-circuita ANTES de qualquer subprocess (impacto zero com --web desligado); try/catch engole qualquer falha
+  - `src/commands/run.ts`: enriquecimento após a fase init retroativa e, no wrapper instrumentedRunners, antes de cada phase:end (sucesso e falha) — o flush forçado do phase:end persiste o estado enriquecido
+  - `src/core/engine.ts`: enriquecimento após iteration:end (único outro ponto sancionado); nunca por requisição HTTP (US-006 serve o snapshot da memória)
+- Arquivos: src/utils/git.ts, src/utils/git.test.ts (novo, 6 testes), src/core/session-state.ts, src/core/session-state.test.ts (+2), src/core/session-git.ts (novo), src/core/session-git.test.ts (novo, 4 testes), src/commands/run.ts, src/core/engine.ts
+- Checks: typecheck OK, biome OK, vitest 137/137 OK
+- **Learnings for future iterations:**
+  - Mock de módulo com vitest: `vi.mock('./shell.js', () => ({ run: vi.fn() }))` + `await import()` no topo do arquivo de teste + `vi.mocked(run)` — padrão usado em git.test.ts
+  - Enriquecimento antes do phase:end aproveita o flush forçado do FilePublisher (o git:update sozinho seria throttled ~1s)
+  - `publishGitState` aceita `Partial<GitStateSources>` — US-006/US-009 podem reusar o padrão de injeção para testes sem git/gh reais
+  - Publicar git:update ANTES de phase:end também cobre a fase pr: o PR criado por runPr já aparece no snapshot persistido ao fim da fase
+  - `gh pr list --state all` mantém o PR visível após merge (não some do snapshot no fim do pipeline)
+---

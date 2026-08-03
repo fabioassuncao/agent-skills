@@ -47,6 +47,14 @@ export type SessionEvent =
   | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }
   | { type: 'correction:cycle'; at: string; cycle: number; maxCycles: number }
+  | {
+      type: 'git:update';
+      at: string;
+      branch?: string;
+      baseBranch?: string;
+      commits?: SessionCommit[];
+      pullRequests?: SessionPullRequest[];
+    }
   | { type: 'session:end'; at: string; status: 'completed' | 'failed'; error?: string };
 
 export interface SessionEnvironment {
@@ -415,6 +423,17 @@ function applyEvent(
       const logs = [...snapshot.logs, entry].slice(-Math.max(1, limit));
       return { ...snapshot, logs };
     }
+
+    case 'git:update':
+      return {
+        ...snapshot,
+        git: {
+          branch: event.branch ?? snapshot.git.branch,
+          baseBranch: event.baseBranch ?? snapshot.git.baseBranch,
+          commits: event.commits ?? snapshot.git.commits,
+        },
+        pullRequests: event.pullRequests ?? snapshot.pullRequests,
+      };
 
     case 'correction:cycle':
       return {

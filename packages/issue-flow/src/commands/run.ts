@@ -8,6 +8,7 @@ import {
   PipelineManager,
   type PipelinePhase,
 } from '../core/pipeline.js';
+import { publishGitState } from '../core/session-git.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
@@ -144,6 +145,7 @@ async function runPipelinePhases(
   });
   publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
   publisher.publish({ type: 'phase:end', at: isoNow(), phase: 'init', success: true });
+  await publishGitState(publisher);
 
   // Determine starting phase
   let startPhase: PipelinePhase = 'prd';
@@ -265,7 +267,9 @@ async function runPipelinePhases(
   };
 
   // Publish phase:start/phase:end around every runner without touching the
-  // listr2 renderer (pipeline-renderer.ts stays publication-free).
+  // listr2 renderer (pipeline-renderer.ts stays publication-free). Commit/PR
+  // enrichment happens only at these boundaries (and at iteration end, in
+  // engine.ts) — never per HTTP request.
   const instrumentedRunners = Object.fromEntries(
     Object.entries(runners).map(([phase, fn]) => [
       phase,
@@ -273,8 +277,10 @@ async function runPipelinePhases(
         publisher.publish({ type: 'phase:start', at: isoNow(), phase });
         try {
           await fn();
+          await publishGitState(publisher);
           publisher.publish({ type: 'phase:end', at: isoNow(), phase, success: true });
         } catch (err) {
+          await publishGitState(publisher);
           publisher.publish({
             type: 'phase:end',
             at: isoNow(),
