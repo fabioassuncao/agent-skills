@@ -38,7 +38,10 @@ export async function runPipeline(
 
   const webConfig = await loadWebConfig();
   const publisher: SessionPublisher = webConfig.enabled
-    ? new FilePublisher(join(issueDir, 'session.json'), { logLimit: webConfig.logLimit })
+    ? new FilePublisher(join(issueDir, 'session.json'), {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+      })
     : new NullPublisher();
   setSessionPublisher(publisher);
 

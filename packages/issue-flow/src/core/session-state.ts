@@ -1,6 +1,4 @@
-import { copyFile, mkdtemp, rename, unlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rename, writeFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
 import type { UserStory } from '../types.js';
 
@@ -273,15 +271,16 @@ function applyEvent(
   options?: SessionReducerOptions,
 ): SessionSnapshot {
   switch (event.type) {
-    case 'session:start':
+    case 'session:start': {
+      const initial = createInitialSnapshot();
       return {
-        ...createInitialSnapshot(),
+        ...initial,
         sessionId: event.sessionId,
         issue: { number: event.issueNumber, url: event.issueUrl ?? null },
         status: 'running',
         startedAt: event.at,
         progress: {
-          ...createInitialSnapshot().progress,
+          ...initial.progress,
           phasesTotal: event.phases.length,
         },
         phases: event.phases.map((name) => ({
@@ -295,6 +294,7 @@ function applyEvent(
         git: { branch: event.branch ?? null, baseBranch: event.baseBranch ?? null, commits: [] },
         environment: event.environment ?? null,
       };
+    }
 
     case 'phase:start': {
       const known = snapshot.phases.some((p) => p.name === event.phase);
@@ -503,6 +503,11 @@ export class NullPublisher implements SessionPublisher {
 export interface MemoryPublisherOptions extends SessionReducerOptions {
   /** Called at most once, on the first internal failure. */
   onWarn?: (message: string) => void;
+  /**
+   * When false, log events are dropped before reaching the snapshot, so no
+   * log line is ever published (session.json or HTTP). Default true.
+   */
+  includeLogs?: boolean;
 }
 
 /**
@@ -515,13 +520,16 @@ export class MemoryPublisher implements SessionPublisher {
   private warned = false;
   private readonly onWarn: (message: string) => void;
   private readonly reducerOptions: SessionReducerOptions;
+  private readonly includeLogs: boolean;
 
   constructor(options: MemoryPublisherOptions = {}) {
     this.onWarn = options.onWarn ?? ((message) => process.stderr.write(`${message}\n`));
     this.reducerOptions = { logLimit: options.logLimit };
+    this.includeLogs = options.includeLogs ?? true;
   }
 
   publish(event: SessionEvent): void {
+    if (event.type === 'log' && !this.includeLogs) return;
     try {
       this.state = reduceSessionEvent(this.state, event, this.reducerOptions);
       this.versionCounter++;
@@ -566,10 +574,9 @@ export interface FilePublisherOptions extends MemoryPublisherOptions {
 /**
  * Publisher that mirrors the snapshot to issues/N/session.json.
  *
- * Writes are atomic (mkdtemp + rename, copyFile fallback for EXDEV — same
- * pattern as state-manager.ts) and throttled; terminal events (phase:end,
- * session:end) force an immediate write. All I/O failures are swallowed
- * after a single warning.
+ * Writes are atomic (write-to-temp + rename) and throttled; terminal events
+ * (phase:end, session:end) force an immediate write. All I/O failures are
+ * swallowed after a single warning.
  */
 export class FilePublisher extends MemoryPublisher {
   private readonly filePath: string;
@@ -647,24 +654,14 @@ export class FilePublisher extends MemoryPublisher {
 }
 
 /**
- * Atomic write (write-to-temp + rename), mirroring saveTaskPlan in
- * state-manager.ts. EXDEV: rename fails across devices (common on Windows),
- * fall back to copyFile.
+ * Atomic write: write to a temp file next to the target, then rename. The
+ * same-directory temp keeps the rename on a single filesystem (rename is
+ * atomic; no EXDEV fallback needed, unlike an os.tmpdir() temp on Linux
+ * tmpfs) and leaves nothing behind. The FilePublisher write chain is the
+ * single writer, so the fixed .tmp name never races.
  */
 async function atomicWriteFile(path: string, content: string): Promise<void> {
-  const tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-session-'));
-  const tmpFile = join(tmpDir, 'session.json');
-
+  const tmpFile = `${path}.tmp`;
   await writeFile(tmpFile, content, 'utf-8');
-
-  try {
-    await rename(tmpFile, path);
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-      await copyFile(tmpFile, path);
-      await unlink(tmpFile);
-    } else {
-      throw err;
-    }
-  }
+  await rename(tmpFile, path);
 }

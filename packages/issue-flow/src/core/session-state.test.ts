@@ -1,7 +1,11 @@
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { UserStory } from '../types.js';
 import {
   createInitialSnapshot,
+  FilePublisher,
   MemoryPublisher,
   NullPublisher,
   reduceSessionEvent,
@@ -479,6 +483,80 @@ describe('MemoryPublisher', () => {
     expect(() => publisher.publish(broken)).not.toThrow();
     expect(() => publisher.publish(broken)).not.toThrow();
     expect(warnings).toHaveLength(1);
+  });
+
+  it('drops log events without bumping the version when includeLogs is false', () => {
+    const publisher = new MemoryPublisher({ includeLogs: false });
+    publisher.publish({
+      type: 'session:start',
+      at: '2026-08-03T12:00:00Z',
+      sessionId: 's',
+      issueNumber: 1,
+      phases: ['init'],
+    });
+    publisher.publish({ type: 'log', at: '2026-08-03T12:00:01Z', level: 'error', message: 'x' });
+    expect(publisher.version()).toBe(1);
+    expect(publisher.snapshot().logs).toEqual([]);
+    expect(publisher.snapshot().errors).toEqual([]);
+    // Non-log events still flow normally.
+    expect(publisher.snapshot().status).toBe('running');
+  });
+});
+
+describe('FilePublisher', () => {
+  async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
+    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-state-test-'));
+    try {
+      await fn(dir);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('writes the snapshot to disk without leaving a temp file behind', async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, 'session.json');
+      const publisher = new FilePublisher(filePath, { throttleMs: 0, onWarn: () => {} });
+      publisher.publish({
+        type: 'session:start',
+        at: '2026-08-03T12:00:00Z',
+        sessionId: 's',
+        issueNumber: 1,
+        phases: ['init'],
+      });
+      await publisher.close();
+
+      const written = JSON.parse(await readFile(filePath, 'utf-8')) as SessionSnapshot;
+      expect(written.sessionId).toBe('s');
+      expect(written.status).toBe('running');
+      // Atomic write cleans up after itself: only session.json remains.
+      expect(await readdir(dir)).toEqual(['session.json']);
+    });
+  });
+
+  it('honors includeLogs=false: published file contains no logs', async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, 'session.json');
+      const publisher = new FilePublisher(filePath, {
+        throttleMs: 0,
+        includeLogs: false,
+        onWarn: () => {},
+      });
+      publisher.publish({
+        type: 'session:start',
+        at: '2026-08-03T12:00:00Z',
+        sessionId: 's',
+        issueNumber: 1,
+        phases: ['init'],
+      });
+      publisher.publish({ type: 'log', at: '2026-08-03T12:00:01Z', level: 'info', message: 'x' });
+      await publisher.close();
+
+      const written = JSON.parse(await readFile(filePath, 'utf-8')) as SessionSnapshot;
+      expect(written.logs).toEqual([]);
+      expect(written.errors).toEqual([]);
+      expect(written.warnings).toEqual([]);
+    });
   });
 });
 

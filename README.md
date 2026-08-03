@@ -243,6 +243,7 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
 
 ```gitignore
 issues/*/session.json
+issues/*/session.json.tmp
 ```
 
 ## Pipeline State & File Structure
