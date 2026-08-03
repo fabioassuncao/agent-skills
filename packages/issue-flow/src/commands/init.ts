@@ -118,17 +118,17 @@ async function checkGit(): Promise<CheckResult> {
 /**
  * Verify the prerequisites of the pipeline.
  *
- * `source` is the resolved Issue origin. With a local origin nothing in the
- * pipeline shells out to `gh`, so a missing or unauthenticated gh is reported
- * as a warning instead of failing the environment. `claude` and `git` stay
- * blocking for every origin, and the default ('github') keeps the previous
- * behaviour byte for byte.
+ * `source` is the Issue origin the run is headed for. `gh` only blocks when
+ * that origin is GitHub: no other origin shells out to it, so a missing or
+ * unauthenticated gh is reported as a warning instead of failing the
+ * environment. `claude` and `git` stay blocking for every origin, and the
+ * default ('github') keeps the previous behaviour byte for byte.
  */
 export async function runInit(source: IssueSource = 'github'): Promise<number> {
   printInfo('Checking prerequisites...\n');
 
   const results = await Promise.all([checkClaude(), checkGh(), checkGit()]);
-  const isBlocking = (r: CheckResult): boolean => r.key !== 'gh' || source !== 'local';
+  const isBlocking = (r: CheckResult): boolean => r.key !== 'gh' || source === 'github';
 
   for (const r of results) {
     if (r.passed) {
@@ -139,7 +139,7 @@ export async function runInit(source: IssueSource = 'github'): Promise<number> {
         console.log(`    ${r.hint}`);
       }
     } else {
-      printWarning(`${r.name}: ${r.detail} (not required for local issues)`);
+      printWarning(`${r.name}: ${r.detail} (not required for ${source} issues)`);
     }
   }
 

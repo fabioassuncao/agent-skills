@@ -35,6 +35,9 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Teste de comando que usa o registry de providers: `clearProviders()` + `registerProvider(fake)` no `beforeEach`. `ensureProvidersRegistered()` não sobrescreve o que já está registrado, então o fake sobrevive.
 - Skill nova em `skills/<nome>/` = `SKILL.md` (frontmatter `name`/`description` em bloco `>`/`compatibility`) + `README.md`, e precisa entrar nas **três** tabelas de `docs/skills-and-agents.md` (componentes, portabilidade da instalação, "What works without the sub-agent"). Nada em `packages/issue-flow/src` carrega essas skills — `npm run check`/`npm test` não as validam.
 - Antes de documentar uma flag de CLI em skill/README/prompt, conferir que ela existe em `src/cli.ts` (ex.: não existe `--dry-run`).
+- `IssueSource` é união **aberta** (`BuiltinIssueSource | (string & {})`): um provider de fora registra o próprio nome. Nunca indexar `Record<IssueSource, X>` direto — usar helper com fallback (padrão `sourceLabel` em `src/issues/resolver.ts`), senão a mensagem sai com `undefined`.
+- Lógica que escolhe entre origens deve ser escrita sobre **os candidatos que responderam** (array filtrado), nunca sobre uma lista fixa de origens: `candidates.get('local')`/`get('github')` hardcoded torna qualquer provider novo invisível.
+- Checagem de ambiente específica de uma origem usa igualdade positiva (`source === 'github'`), nunca negativa (`source !== 'local'`) — a negativa bloqueia toda origem futura.
 - Saída estruturada de agente headless usa tag XML-ish (`<issue-draft>`, `<issue-body>`), nunca JSON: o conteúdo é markdown multi-linha e um erro de escaping viraria falha total. Parsing sempre pela **última** ocorrência da tag (agente que mostra o formato antes de preencher).
 
 ---
@@ -240,4 +243,27 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `docs/skills-and-agents.md` lista as skills em **três** lugares (tabela de componentes ~linha 36, tabela de portabilidade da instalação e tabela "What works without the sub-agent"). Skill nova precisa entrar nas três.
   - As skills de `skills/` não são carregadas por nenhum teste ou código de `packages/issue-flow/src` — são artefatos puros para Claude Code/Agent Skills; `npm run check` não as valida.
   - Frontmatter padrão do repo: `name`, `description` (bloco `>` com gatilhos em inglês e pt-BR e um "Do NOT use..." para desambiguar de skill irmã) e `compatibility`.
+---
+
+## 2026-08-03 20:12 - US-014
+- Prova executável de extensibilidade: um `MemoryIssueProvider` definido **no teste** é registrado no registry e o pipeline real (comandos reais + templates reais em disco) roda de ponta a ponta sobre essa origem inventada.
+- Escrever a prova expôs dois pontos em que a camada **não** era extensível; os dois foram corrigidos sem alterar comportamento de `github`/`local` (390 testes passando, nenhum teste existente reescrito):
+  1. `IssueSource` era união fechada `'github' | 'local'` — nenhum provider de fora conseguia se registrar. Virou `BuiltinIssueSource | (string & {})`.
+  2. `resolveIssue` decidia sobre `candidates.get('local')` / `get('github')` — uma origem nova era lida e depois descartada ("not found"). Agora a matriz opera sobre os candidatos que responderam.
+- Arquivos criados:
+  - `src/issues/extensibility.test.ts` — 9 testes: `MemoryIssueProvider` completo, resolução sem configuração, fase avulsa (`runAnalyze`) com placeholders, referência do provider no template, `runPipeline` inteiro (prd/plan/review/pr reais + init real), leitura única + fechamento pelo provider, ausência de escrita no GitHub, omissão do `Closes #N`, e o guarda "nenhum arquivo de `src/commands/` nem template de `prompts/` menciona a origem nova".
+- Arquivos alterados:
+  - `src/issues/types.ts` — `BuiltinIssueSource` + `IssueSource` aberto.
+  - `src/issues/resolver.ts` — `Candidate` carrega `source`; `sourceLabel`/`promptLabel`/`listSources` com fallback; matriz genérica (nenhum/um/vários candidatos); `conflictPolicy` que aponta para origem sem versão avisa em vez de escolher em nome dela; prompt numerado dinamicamente (`[N] Cancel`).
+  - `src/commands/init.ts` — `gh` bloqueia com `source === 'github'` (antes `source !== 'local'`); aviso passou a citar a origem (`(not required for <source> issues)`).
+  - `src/issues/resolver.test.ts` — bloco novo com 5 testes de três origens; `src/commands/init.test.ts` — 2 testes de origem custom.
+- Quality checks: `npm run check` e `npm test` (390 testes, 27 arquivos) passando. Smoke com `dist/`: `init` e `init --local` aprovam o ambiente; `analyze 999999` falha com `Issue '999999' not found in any registered origin (GitHub: not found; local: not found)` — rótulos preservados.
+- **Learnings for future iterations:**
+  - O teste de guarda foi validado por mutação: injetar `const probe = 'memory'` em `src/commands/analyze.ts` faz o guarda falhar apontando o arquivo. Guarda textual sem prova de mutação não vale nada.
+  - Mensagens do resolver foram preservadas byte a byte para o par local/GitHub porque `listSources(found)` com `sources = ['local','github']` reproduz "local and GitHub" e o prompt numerado reproduz `[1] Local  [2] GitHub  [3] Cancel`. Em produção a ordem é a de registro do bootstrap (`github` primeiro), então a frase aparece como "GitHub and local" — ordem é da consulta, não fixa.
+  - **Limitação conhecida (não resolvida aqui):** `issuesConfigSchema.preferredProvider` é `z.enum(['github','local'])`, então uma origem custom **não pode ser declarada preferida** em `.issue-flow.json` nem por flag. Consequência prática: `run.ts` chama `runInit('github')` e um usuário cujo único provider é custom ainda precisa de `gh` instalado. Afrouxar o enum quebraria o teste "falls back to defaults with a warning" de `config.test.ts` (proteção contra typo) — é uma decisão de produto, não um esquecimento. O teste de extensibilidade contorna rodando com `gh` presente e a Issue inexistente no GitHub.
+  - **Achado em `src/commands/pr.ts`:** `issueClosesLine` decide pelo `remoteRef !== null`. Uma origem custom que publique um `remoteRef` não-GitHub (ex.: `memory://42`) geraria `Closes #<number>` num PR do GitHub, apontando para uma Issue alheia. O `MemoryIssueProvider` do teste usa `remoteRef: null` (contrato correto para origem sem contraparte remota), então o caso não é exercitado — se algum provider real publicar referência não-GitHub, a condição precisa virar "existe contraparte no GitHub".
+  - `ResolvedIssue.local`/`.github` continuam sendo só as duas builtin: numa resolução por origem custom os dois são `null` e `issue`/`source` carregam a verdade. Quem precisar do candidato de uma origem arbitrária terá de estender o tipo.
+  - Rodar o pipeline de verdade em teste custa 4 mocks: `../core/headless.js` (o agente, que precisa **escrever os artefatos** que cada fase valida — prd.md, tasks.json), `execa` (todo binário), `../commands/execute.js` (o engine) e `../ui/pipeline-renderer.js` (determinismo). `init` e as fases prd/plan/review/pr rodam reais.
+  - Ao mockar `execa` para o pipeline inteiro, ramificar por `(file, args)` e devolver `{stdout, stderr, exitCode}`: `run` de `utils/shell.ts` usa `reject: false`, então o mock **não deve lançar** para simular falha — deve devolver `exitCode` diferente de zero.
 ---

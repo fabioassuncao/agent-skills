@@ -40,7 +40,7 @@ function mockEnv({ claude = true, gh = 'ok', git = true }: FakeEnv = {}): void {
 }
 
 /** Run init capturing every terminal line (emit falls back to console.log). */
-async function runCaptured(source?: 'github' | 'local'): Promise<{
+async function runCaptured(source?: string): Promise<{
   code: number;
   output: string;
 }> {
@@ -154,5 +154,27 @@ describe('runInit — origem local (US-011)', () => {
     const outsideRepo = await runCaptured('local');
     expect(outsideRepo.code).toBe(1);
     expect(outsideRepo.output).toContain('(not a git repository)');
+  });
+});
+
+describe('runInit — origem registrada por um provider novo (US-014)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('gh só bloqueia a origem github: uma origem nova não é reprovada por ele', async () => {
+    mockEnv({ gh: 'missing' });
+    const { code, output } = await runCaptured('memory');
+
+    expect(code).toBe(0);
+    expect(output).toContain('gh CLI: gh not found (not required for memory issues)');
+  });
+
+  it('claude e git seguem bloqueantes para a origem nova', async () => {
+    mockEnv({ claude: false, gh: 'missing' });
+    const { code, output } = await runCaptured('memory');
+
+    expect(code).toBe(1);
+    expect(output).toContain('claude CLI: claude not found');
   });
 });

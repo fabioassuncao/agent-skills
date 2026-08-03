@@ -42,16 +42,36 @@ export interface ResolveIssueOptions {
 /** How many invalid answers are tolerated before the prompt gives up. */
 const MAX_PROMPT_ATTEMPTS = 3;
 
-/** Label shown to users for each origin. */
-const SOURCE_LABELS: Record<IssueSource, string> = {
+/**
+ * Labels shown to users for the built-in origins. An origin registered from
+ * outside this package is displayed under its own name, so a new provider needs
+ * no entry here.
+ */
+const SOURCE_LABELS: Record<string, string> = {
   github: 'GitHub',
   local: 'local',
 };
 
+function sourceLabel(source: IssueSource): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
+/** Same label, capitalized for the numbered prompt ('local' -> 'Local'). */
+function promptLabel(source: IssueSource): string {
+  const label = sourceLabel(source);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 interface Candidate {
+  source: IssueSource;
   issue: Issue | null;
   /** Why the origin produced nothing, used only to explain a total miss. */
   reason: string | null;
+}
+
+/** A candidate that actually produced an Issue. */
+interface FoundCandidate extends Candidate {
+  issue: Issue;
 }
 
 function errorMessage(err: unknown): string {
@@ -75,28 +95,28 @@ async function fetchCandidate(
   try {
     provider = getProvider(source);
   } catch (err) {
-    return { issue: null, reason: errorMessage(err) };
+    return { source, issue: null, reason: errorMessage(err) };
   }
 
   let available: boolean;
   try {
     available = await provider.isAvailable();
   } catch (err) {
-    return { issue: null, reason: `provider unavailable (${errorMessage(err)})` };
+    return { source, issue: null, reason: `provider unavailable (${errorMessage(err)})` };
   }
   if (!available) {
-    return { issue: null, reason: 'provider unavailable' };
+    return { source, issue: null, reason: 'provider unavailable' };
   }
 
   try {
     const issue = await provider.get(id);
-    return { issue, reason: issue === null ? 'not found' : null };
+    return { source, issue, reason: issue === null ? 'not found' : null };
   } catch (err) {
     const reason = errorMessage(err);
     // A real failure (network, auth, corrupted metadata) must be visible even
     // when the other origin answers.
-    warn(`Could not read issue '${id}' from ${SOURCE_LABELS[source]}: ${reason}`);
-    return { issue: null, reason };
+    warn(`Could not read issue '${id}' from ${sourceLabel(source)}: ${reason}`);
+    return { source, issue: null, reason };
   }
 }
 
@@ -105,13 +125,22 @@ function shortHash(hash: string): string {
   return hex.slice(0, 12);
 }
 
-/** One line per origin describing what differs, without dumping both bodies. */
+/** One line per origin describing what differs, without dumping every body. */
 function describeCandidate(source: IssueSource, issue: Issue): string {
   const lines = issue.body.length === 0 ? 0 : issue.body.split('\n').length;
   return (
-    `  ${SOURCE_LABELS[source].padEnd(6)} title: "${issue.title}" | body: ${lines} line(s), ` +
+    `  ${sourceLabel(source).padEnd(6)} title: "${issue.title}" | body: ${lines} line(s), ` +
     `${issue.body.length} char(s) | updated: ${issue.updatedAt} | hash: ${shortHash(issue.contentHash)}`
   );
+}
+
+/** 'local and GitHub', 'local, GitHub and memory' — origins in query order. */
+function listSources(candidates: FoundCandidate[]): string {
+  const labels = candidates.map((candidate) => sourceLabel(candidate.source));
+  if (labels.length <= 1) {
+    return labels.join('');
+  }
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
 
 /**
@@ -164,31 +193,42 @@ function createLineReader(
     });
 }
 
-/** Interactive choice between the two divergent versions. */
+/**
+ * Interactive choice between the divergent versions.
+ *
+ * The options are numbered from the origins that actually answered, so a third
+ * provider simply shows up as `[3] Memory` without this function knowing which
+ * origins exist. Cancel is always the last option.
+ */
 async function promptChoice(
+  sources: IssueSource[],
   stdin: NodeJS.ReadableStream,
   stdout: NodeJS.WritableStream,
   warn: (message: string) => void,
 ): Promise<IssueSource | 'cancel'> {
+  const options = sources.map((source, index) => `[${index + 1}] ${promptLabel(source)}`);
+  const cancelOption = sources.length + 1;
+  const query = `Which version should be used? ${options.join('  ')}  [${cancelOption}] Cancel: `;
+  const numbers = Array.from({ length: cancelOption }, (_, index) => String(index + 1));
+  const accepted = `${numbers.slice(0, -1).join(', ')} or ${numbers[numbers.length - 1]}`;
+
   const rl = createInterface({ input: stdin, output: stdout });
   const ask = createLineReader(rl, stdout);
   try {
     for (let attempt = 0; attempt < MAX_PROMPT_ATTEMPTS; attempt++) {
-      const answer = await ask('Which version should be used? [1] Local  [2] GitHub  [3] Cancel: ');
+      const answer = await ask(query);
       if (answer === null) {
         return 'cancel';
       }
       const choice = answer.trim();
-      if (choice === '1') {
-        return 'local';
+      const picked = sources[Number(choice) - 1];
+      if (choice.length > 0 && picked !== undefined) {
+        return picked;
       }
-      if (choice === '2') {
-        return 'github';
-      }
-      if (choice === '3') {
+      if (choice === String(cancelOption)) {
         return 'cancel';
       }
-      warn(`Invalid choice: '${choice}'. Enter 1, 2 or 3.`);
+      warn(`Invalid choice: '${choice}'. Enter ${accepted}.`);
     }
     return 'cancel';
   } finally {
@@ -212,18 +252,33 @@ function buildResolved(
   return { issue, source, local, github, divergent };
 }
 
+/** Origin `conflictPolicy` points at, or `null` for 'ask'. */
+function policyTarget(policy: IssuesConfig['conflictPolicy']): IssueSource | null {
+  if (policy === 'prefer-local') {
+    return 'local';
+  }
+  if (policy === 'prefer-github') {
+    return 'github';
+  }
+  return null;
+}
+
 /**
  * Single entry point every command uses to decide which Issue the pipeline
  * works on.
  *
+ * The logic is written against the origins that answered, never against a fixed
+ * list of sources: registering a new provider is enough for it to take part in
+ * the resolution, be reported in a divergence and appear in the prompt.
+ *
  * Scenarios:
  * - only one origin has it -> that one, no questions asked;
- * - both, same contentHash -> equivalence is reported and the preferred origin
- *   wins, without a prompt;
- * - both, different content -> the divergence is reported and `conflictPolicy`
- *   decides (`ask` prompts on a TTY, falls back to `preferredProvider` with a
- *   warning anywhere else);
- * - neither -> IssueResolutionError, which carries the CLI exit code.
+ * - several, same contentHash -> equivalence is reported and the preferred
+ *   origin wins, without a prompt;
+ * - several, different content -> the divergence is reported and
+ *   `conflictPolicy` decides (`ask` prompts on a TTY, falls back to
+ *   `preferredProvider` with a warning anywhere else);
+ * - none -> IssueResolutionError, which carries the CLI exit code.
  */
 export async function resolveIssue(
   id: string,
@@ -236,78 +291,91 @@ export async function resolveIssue(
   ensureProvidersRegistered();
   const sources = opts.sources ?? getRegisteredSources();
 
-  const candidates = new Map<IssueSource, Candidate>();
+  const candidates: Candidate[] = [];
   for (const source of sources) {
-    candidates.set(source, await fetchCandidate(source, id, warn));
+    candidates.push(await fetchCandidate(source, id, warn));
   }
 
-  const local = candidates.get('local')?.issue ?? null;
-  const github = candidates.get('github')?.issue ?? null;
+  const issueOf = (source: IssueSource): Issue | null =>
+    candidates.find((candidate) => candidate.source === source)?.issue ?? null;
+  const local = issueOf('local');
+  const github = issueOf('github');
 
-  if (local === null && github === null) {
-    const details = [...candidates.entries()]
-      .map(([source, candidate]) => `${SOURCE_LABELS[source]}: ${candidate.reason ?? 'not found'}`)
+  const found = candidates.filter(
+    (candidate): candidate is FoundCandidate => candidate.issue !== null,
+  );
+
+  if (found.length === 0) {
+    const details = candidates
+      .map((candidate) => `${sourceLabel(candidate.source)}: ${candidate.reason ?? 'not found'}`)
       .join('; ');
     const where = details.length > 0 ? ` (${details})` : '';
     throw new IssueResolutionError(`Issue '${id}' not found in any registered origin${where}`);
   }
 
-  if (local !== null && github === null) {
-    return buildResolved(local, 'local', local, github, false);
-  }
-  if (github !== null && local === null) {
-    return buildResolved(github, 'github', local, github, false);
+  const build = (candidate: FoundCandidate, divergent: boolean): ResolvedIssue =>
+    buildResolved(candidate.issue, candidate.source, local, github, divergent);
+
+  const firstFound = found[0] as FoundCandidate;
+  if (found.length === 1) {
+    return build(firstFound, false);
   }
 
-  // Both origins have it — from here on neither is null.
-  const localIssue = local as Issue;
-  const githubIssue = github as Issue;
-  const preferred = config.preferredProvider;
-  const pick = (source: IssueSource, divergent: boolean): ResolvedIssue =>
-    buildResolved(
-      source === 'local' ? localIssue : githubIssue,
-      source,
-      localIssue,
-      githubIssue,
-      divergent,
-    );
+  // Several origins have it. The preferred one wins whenever it is among them;
+  // otherwise the first origin queried does, so an unrelated preference never
+  // leaves the pipeline without an Issue.
+  const preferred =
+    found.find((candidate) => candidate.source === config.preferredProvider) ?? firstFound;
 
-  if (localIssue.contentHash === githubIssue.contentHash) {
+  const distinct = new Set(found.map((candidate) => candidate.issue.contentHash));
+  if (distinct.size === 1) {
     info(
-      `Issue '${id}' has identical content in local and GitHub; using ${SOURCE_LABELS[preferred]}.`,
+      `Issue '${id}' has identical content in ${listSources(found)}; using ${sourceLabel(preferred.source)}.`,
     );
-    return pick(preferred, false);
+    return build(preferred, false);
   }
 
   info(`Issue '${id}' differs between origins:`);
-  info(describeCandidate('local', localIssue));
-  info(describeCandidate('github', githubIssue));
-
-  if (config.conflictPolicy === 'prefer-local') {
-    info(`Conflict policy 'prefer-local': using the local version.`);
-    return pick('local', true);
+  for (const candidate of found) {
+    info(describeCandidate(candidate.source, candidate.issue));
   }
-  if (config.conflictPolicy === 'prefer-github') {
-    info(`Conflict policy 'prefer-github': using the GitHub version.`);
-    return pick('github', true);
+
+  const target = policyTarget(config.conflictPolicy);
+  if (target !== null) {
+    const chosen = found.find((candidate) => candidate.source === target);
+    if (chosen !== undefined) {
+      info(`Conflict policy '${config.conflictPolicy}': using the ${sourceLabel(target)} version.`);
+      return build(chosen, true);
+    }
+    // The policy names an origin that has no version of this Issue: say so
+    // instead of silently picking for the user under its name.
+    warn(
+      `Conflict policy '${config.conflictPolicy}' does not apply to Issue '${id}' ` +
+        `(${sourceLabel(target)} has no version of it); using ${sourceLabel(preferred.source)}.`,
+    );
+    return build(preferred, true);
   }
 
   const interactive = opts.interactive ?? isInteractiveByDefault();
   if (!interactive) {
     warn(
       `Divergent Issue '${id}' and conflict policy 'ask' in a non-interactive environment; ` +
-        `using the preferred provider (${SOURCE_LABELS[preferred]}).`,
+        `using the preferred provider (${sourceLabel(preferred.source)}).`,
     );
-    return pick(preferred, true);
+    return build(preferred, true);
   }
 
   const choice = await promptChoice(
+    found.map((candidate) => candidate.source),
     opts.stdin ?? process.stdin,
     opts.stdout ?? process.stdout,
     warn,
   );
   if (choice === 'cancel') {
-    throw new IssueResolutionError(`Cancelled: Issue '${id}' diverges between local and GitHub.`);
+    throw new IssueResolutionError(
+      `Cancelled: Issue '${id}' diverges between ${listSources(found)}.`,
+    );
   }
-  return pick(choice, true);
+  const picked = found.find((candidate) => candidate.source === choice) as FoundCandidate;
+  return build(picked, true);
 }

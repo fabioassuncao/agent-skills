@@ -390,4 +390,116 @@ describe('resolveIssue', () => {
       });
     });
   });
+
+  /**
+   * The matrix is written against the origins that answered, not against the
+   * two built-in ones, so a provider registered from outside takes part in it
+   * like any other.
+   */
+  describe('origins beyond the built-in two', () => {
+    const THREE: IssueSource[] = ['local', 'github', 'memory'];
+
+    it('uses a third origin when it is the only one with the Issue', async () => {
+      const memory = makeIssue('memory', 'From memory', 'Body');
+      registerProvider(fakeProvider('local'));
+      registerProvider(fakeProvider('github'));
+      registerProvider(fakeProvider('memory', { issue: memory }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig(),
+        sources: THREE,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('memory');
+      expect(resolved.issue).toBe(memory);
+      expect(resolved.divergent).toBe(false);
+    });
+
+    it('reports every divergent origin, not just local and GitHub', async () => {
+      registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Local', 'A') }));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Remote', 'B') }));
+      registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Memory', 'C') }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'prefer-github' }),
+        sources: THREE,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('github');
+      const reported = info.mock.calls.map((call) => call[0] as string).join('\n');
+      expect(reported).toContain('Memory');
+    });
+
+    it('the prompt numbers every origin that answered', async () => {
+      registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Local', 'A') }));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Remote', 'B') }));
+      registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Memory', 'C') }));
+
+      const asked: string[] = [];
+      const stdout = new Writable({
+        write(chunk, _encoding, callback) {
+          asked.push(String(chunk));
+          callback();
+        },
+      });
+      const stdin = new PassThrough();
+      stdin.write('3\n');
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'ask' }),
+        sources: THREE,
+        interactive: true,
+        stdin,
+        stdout,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('memory');
+      expect(asked.join('')).toContain('[3] Memory  [4] Cancel');
+    });
+
+    it('warns when the conflict policy names an origin that has no version', async () => {
+      registerProvider(fakeProvider('local'));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Remote', 'B') }));
+      registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Memory', 'C') }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'prefer-local', preferredProvider: 'github' }),
+        sources: THREE,
+        info,
+        warn,
+      });
+
+      // Silently picking under the name of an origin that has nothing would be
+      // the one thing the resolver must never do.
+      expect(resolved.source).toBe('github');
+      expect(resolved.divergent).toBe(true);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('does not apply'));
+    });
+
+    it('identical content across three origins never prompts', async () => {
+      registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Same', 'Body') }));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Same', 'Body') }));
+      registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Same', 'Body') }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ preferredProvider: 'local', conflictPolicy: 'ask' }),
+        sources: THREE,
+        interactive: true,
+        stdin: new PassThrough(),
+        stdout: sinkStream(),
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('local');
+      expect(resolved.divergent).toBe(false);
+      expect(info).toHaveBeenCalledWith(expect.stringContaining('local, GitHub and memory'));
+    });
+  });
 });

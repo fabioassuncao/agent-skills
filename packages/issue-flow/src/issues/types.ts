@@ -6,8 +6,18 @@
  * the demand came from.
  */
 
-/** Registered Issue origins. */
-export type IssueSource = 'github' | 'local';
+/** Origins that ship with issue-flow. */
+export type BuiltinIssueSource = 'github' | 'local';
+
+/**
+ * Any registered Issue origin.
+ *
+ * The built-ins are spelled out so they keep autocompletion, and the open
+ * `string` arm is what makes the layer extensible: a provider registered from
+ * outside this package carries its own name through the registry, the resolver
+ * and the prompts without this union (or any command) being edited.
+ */
+export type IssueSource = BuiltinIssueSource | (string & {});
 
 /** Lifecycle state, normalized across providers (GitHub reports OPEN/CLOSED). */
 export type IssueState = 'open' | 'closed';
