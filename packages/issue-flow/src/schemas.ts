@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import type { SessionSnapshot } from './core/session-state.js';
+import type { IssueMetadata } from './issues/types.js';
 
 /**
- * Zod schemas for validating tasks.json structure, headless invocation
- * outputs, the web monitoring session snapshot and the web configuration.
+ * Zod schemas for validating tasks.json structure, Issue metadata, headless
+ * invocation outputs, the web monitoring session snapshot and the web
+ * configuration.
  */
 
 export const userStorySchema = z.object({
@@ -31,10 +33,41 @@ const lastErrorSchema = z.object({
   at: z.string(),
 });
 
+/**
+ * Persisted metadata for an Issue stored on disk (issues/<id>/metadata.json).
+ * `satisfies` keeps this schema in lockstep with the IssueMetadata interface in
+ * src/issues/types.ts — changing one without the other fails the typecheck.
+ */
+export const issueMetadataSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().min(1),
+  number: z.number().int().positive().nullable(),
+  source: z.enum(['github', 'local']),
+  title: z.string(),
+  labels: z.array(z.string()),
+  state: z.enum(['open', 'closed']),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  contentHash: z.string(),
+  remote: z
+    .object({
+      provider: z.enum(['github', 'local']),
+      ref: z.string(),
+      syncedAt: z.string(),
+      syncedContentHash: z.string(),
+    })
+    .optional(),
+}) satisfies z.ZodType<IssueMetadata>;
+
+/**
+ * tasks.json structure. Deliberately permissive: plans written by older
+ * versions must keep loading, so `issueUrl` is optional (Issues with no remote
+ * have no URL) and `issueNumber` accepts non-numeric local identifiers.
+ */
 export const taskPlanSchema = z.object({
   project: z.string(),
-  issueNumber: z.number().int().positive(),
-  issueUrl: z.string(),
+  issueNumber: z.union([z.number().int().positive(), z.string().min(1)]),
+  issueUrl: z.string().optional().default(''),
   branchName: z.string(),
   noBranch: z.boolean().optional().default(false),
   description: z.string(),
@@ -154,6 +187,7 @@ export const webConfigSchema = z.object({
 });
 
 export type ValidatedTaskPlan = z.infer<typeof taskPlanSchema>;
+export type ValidatedIssueMetadata = z.infer<typeof issueMetadataSchema>;
 export type ValidatedHeadlessResult = z.infer<typeof headlessResultSchema>;
 export type ValidatedSessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
 export type WebConfig = z.infer<typeof webConfigSchema>;

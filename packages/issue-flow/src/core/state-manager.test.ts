@@ -93,6 +93,67 @@ describe('state-manager', () => {
     it('should throw on missing file', async () => {
       await expect(loadTaskPlan(join(tmpDir, 'missing.json'))).rejects.toThrow();
     });
+
+    // Regression guard: plans written by 0.4.4/0.5.2 must keep loading verbatim.
+    it('should load a tasks.json written by an older version', async () => {
+      const legacyPlan = {
+        project: 'issue-flow',
+        issueNumber: 22,
+        issueUrl: 'https://github.com/fabioassuncao/issue-flow/issues/22',
+        branchName: 'issue/22-web-monitor',
+        noBranch: false,
+        description: 'Legacy plan',
+        issueStatus: 'in_progress',
+        completedAt: null,
+        lastAttemptAt: '2026-07-01T12:00:00Z',
+        lastError: null,
+        correctionCycle: 0,
+        maxCorrectionCycles: 3,
+        pipeline: {
+          analyzeCompleted: true,
+          prdCompleted: true,
+          jsonCompleted: true,
+          executionCompleted: false,
+          reviewCompleted: false,
+          prCreated: false,
+        },
+        userStories: [
+          {
+            id: 'US-001',
+            title: 'Legacy story',
+            description: 'As a user...',
+            acceptanceCriteria: ['Criterion 1'],
+            priority: 1,
+            passes: true,
+            notes: '',
+          },
+        ],
+      };
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(legacyPlan, null, 2), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      expect(loaded.issueNumber).toBe(22);
+      expect(loaded.issueUrl).toBe('https://github.com/fabioassuncao/issue-flow/issues/22');
+    });
+
+    it('should load a tasks.json without issueUrl', async () => {
+      const { issueUrl: _omitted, ...plan } = createMinimalPlan();
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(plan), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      expect(loaded.issueUrl).toBe('');
+    });
+
+    it('should load a tasks.json with a non-numeric local issueNumber', async () => {
+      const plan = createMinimalPlan({ issueNumber: 'auth-refactor', issueUrl: '' });
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(plan), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      expect(loaded.issueNumber).toBe('auth-refactor');
+    });
   });
 
   describe('saveTaskPlan', () => {

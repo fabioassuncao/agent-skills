@@ -30,8 +30,10 @@ export interface PipelineState {
 
 export interface TaskPlan {
   project: string;
-  issueNumber: number;
-  issueUrl: string;
+  /** Numeric for GitHub Issues, string for local (possibly non-numeric) ids. */
+  issueNumber: number | string;
+  /** Absent when the Issue has no remote counterpart (local-only demands). */
+  issueUrl?: string;
   branchName: string;
   noBranch?: boolean;
   description: string;

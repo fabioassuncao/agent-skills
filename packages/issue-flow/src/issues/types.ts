@@ -43,6 +43,40 @@ export interface IssueDraft {
 }
 
 /**
+ * Pointer from a locally stored Issue to its counterpart in another origin,
+ * plus the content hash captured at sync time so divergence can be detected
+ * without querying the remote again.
+ */
+export interface IssueRemoteRef {
+  provider: IssueSource;
+  /** Remote identifier (URL for GitHub). */
+  ref: string;
+  syncedAt: string;
+  /** `contentHash` of the remote Issue when it was last synced. */
+  syncedContentHash: string;
+}
+
+/**
+ * On-disk shape of `issues/<id>/metadata.json`. Mirrors `Issue` minus the body
+ * (which lives in issue.md) and plus the optional remote pointer.
+ *
+ * Kept in lockstep with `issueMetadataSchema` in src/schemas.ts via `satisfies`.
+ */
+export interface IssueMetadata {
+  schemaVersion: 1;
+  id: string;
+  number: number | null;
+  source: IssueSource;
+  title: string;
+  labels: string[];
+  state: IssueState;
+  createdAt: string;
+  updatedAt: string;
+  contentHash: string;
+  remote?: IssueRemoteRef;
+}
+
+/**
  * Outcome of `resolveIssue`: the Issue the pipeline will work on, plus the
  * candidates that were considered, so callers can report divergence without
  * querying the providers again.

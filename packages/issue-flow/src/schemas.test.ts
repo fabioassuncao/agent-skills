@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialSnapshot, reduceSessionEvent } from './core/session-state.js';
 import {
   headlessResultSchema,
+  issueMetadataSchema,
   pipelineStateSchema,
   sessionSnapshotSchema,
   taskPlanSchema,
@@ -74,6 +75,86 @@ describe('taskPlanSchema', () => {
     const plan = { ...validTaskPlan(), issueNumber: -1 };
     const result = taskPlanSchema.safeParse(plan);
     expect(result.success).toBe(false);
+  });
+
+  it('defaults issueUrl to an empty string when absent', () => {
+    const { issueUrl: _omitted, ...plan } = validTaskPlan();
+    const result = taskPlanSchema.safeParse(plan);
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.issueUrl).toBe('');
+  });
+
+  it('accepts a non-numeric local issueNumber', () => {
+    const plan = { ...validTaskPlan(), issueNumber: 'local-auth-refactor' };
+    const result = taskPlanSchema.safeParse(plan);
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.issueNumber).toBe('local-auth-refactor');
+  });
+
+  it('rejects an empty issueNumber string', () => {
+    const plan = { ...validTaskPlan(), issueNumber: '' };
+    const result = taskPlanSchema.safeParse(plan);
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('issueMetadataSchema', () => {
+  function validMetadata() {
+    return {
+      schemaVersion: 1 as const,
+      id: '23',
+      number: 23,
+      source: 'github' as const,
+      title: 'Issue providers',
+      labels: ['enhancement'],
+      state: 'open' as const,
+      createdAt: '2026-08-01T10:00:00Z',
+      updatedAt: '2026-08-02T10:00:00Z',
+      contentHash: 'sha256:abc',
+    };
+  }
+
+  it('validates metadata without the remote pointer', () => {
+    expect(issueMetadataSchema.safeParse(validMetadata()).success).toBe(true);
+  });
+
+  it('validates metadata with the remote pointer', () => {
+    const metadata = {
+      ...validMetadata(),
+      source: 'local' as const,
+      remote: {
+        provider: 'github' as const,
+        ref: 'https://github.com/test/test/issues/23',
+        syncedAt: '2026-08-02T10:00:00Z',
+        syncedContentHash: 'sha256:abc',
+      },
+    };
+    expect(issueMetadataSchema.safeParse(metadata).success).toBe(true);
+  });
+
+  it('accepts a null number for non-numeric local ids', () => {
+    const metadata = { ...validMetadata(), id: 'auth-refactor', number: null, source: 'local' };
+    expect(issueMetadataSchema.safeParse(metadata).success).toBe(true);
+  });
+
+  it('rejects an unknown schemaVersion', () => {
+    expect(issueMetadataSchema.safeParse({ ...validMetadata(), schemaVersion: 2 }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects an unknown source and an unknown state', () => {
+    expect(issueMetadataSchema.safeParse({ ...validMetadata(), source: 'gitlab' }).success).toBe(
+      false,
+    );
+    expect(issueMetadataSchema.safeParse({ ...validMetadata(), state: 'merged' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects an incomplete remote pointer', () => {
+    const metadata = { ...validMetadata(), remote: { provider: 'github', ref: 'url' } };
+    expect(issueMetadataSchema.safeParse(metadata).success).toBe(false);
   });
 });
 

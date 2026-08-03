@@ -12,6 +12,9 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Nunca usar caractere NUL literal em arquivo fonte — o arquivo vira binário para grep/git. Preferir payload canônico (JSON.stringify) quando precisar de separador inequívoco.
 - Zod v4 é a versão em uso; `satisfies z.ZodType<T>` é o padrão do repo para manter schema e interface em sincronia (ver `sessionSnapshotSchema` em `src/schemas.ts`).
 - Comandos git: rodar com `git -C <raiz-do-repo>` — o cwd do shell tende a ficar em `packages/issue-flow`.
+- Não existe nenhum `CLAUDE.md` no repositório; os aprendizados moram só neste arquivo.
+- Todo schema Zod novo com interface correspondente deve terminar em `satisfies z.ZodType<Interface>` (padrão de `sessionSnapshotSchema` e agora `issueMetadataSchema`).
+- `taskPlanSchema` é o contrato de arquivos já em disco: só afrouxar, nunca endurecer. `loadTaskPlan` faz `parse(...) as TaskPlan`, então defaults do Zod (ex.: `issueUrl` → `''`) chegam preenchidos aos consumidores.
 
 ---
 
@@ -27,4 +30,21 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `hashIssueContent` hasheia `JSON.stringify({ title, body })` normalizados (CRLF/CR → LF + trim). Há um teste com digest fixado (`Hello`/`World` → `sha256:ea4dd410...`): se ele quebrar, o contrato de hash mudou e todo `contentHash` gravado em `issues/*/metadata.json` fica inválido — mudar de propósito ou não mudar.
   - `IssueDraft.labels` é obrigatório (`string[]`), não opcional — quem constrói draft deve passar `[]`.
   - `Issue.number` é `number | null` desde já, para IDs locais não numéricos (relevante em US-010, que publica `issue.number` como `null` no `session.json`).
+---
+
+## 2026-08-03 18:41 - US-002
+- Adicionado `issueMetadataSchema` (formato de `issues/<id>/metadata.json`) e afrouxado o `taskPlanSchema`.
+- Arquivos alterados:
+  - `packages/issue-flow/src/issues/types.ts` — novas interfaces `IssueRemoteRef` e `IssueMetadata`.
+  - `packages/issue-flow/src/schemas.ts` — `issueMetadataSchema` (com `satisfies z.ZodType<IssueMetadata>`), `issueUrl` opcional com default `''`, `issueNumber` como união número/string, novo tipo `ValidatedIssueMetadata`.
+  - `packages/issue-flow/src/types.ts` — `TaskPlan.issueUrl?: string` e `TaskPlan.issueNumber: number | string`.
+  - `packages/issue-flow/src/schemas.test.ts` — 4 testes novos em `taskPlanSchema` + bloco `issueMetadataSchema` (6 testes).
+  - `packages/issue-flow/src/core/state-manager.test.ts` — 3 testes de regressão em `loadTaskPlan` (plano legado 0.4.4/0.5.2, plano sem `issueUrl`, id local não numérico).
+- Quality checks: `npm run check` e `npm test` (191 testes, 15 arquivos) passando.
+- **Learnings for future iterations:**
+  - `TaskPlan.issueNumber` agora é `number | string`. Qualquer código novo que faça aritmética ou compare com número precisa normalizar (`String(plan.issueNumber)`). Hoje nenhum arquivo de `src/` fora de `types.ts`/`schemas.ts` lê `plan.issueNumber` — os comandos usam a string vinda do CLI (`issue.replace(/^#/, '')`).
+  - `run.ts:95` ainda publica `Number.parseInt(issueNumber, 10) || 0` no evento `session:start`; US-010 exige trocar por `null` para ids locais — o `sessionSnapshotSchema` já aceita `issue.number` nulo, mas o tipo do evento em `core/session-state.ts:33` é `issueNumber: number` e precisará virar `number | null`.
+  - `issueMetadataSchema` não tem defaults: `schemaVersion` é `z.literal(1)` obrigatório. US-005 (provider local) precisa gravar esse campo explicitamente ao criar `metadata.json`.
+  - `remote` é um objeto opcional com os 4 campos obrigatórios entre si (`provider`, `ref`, `syncedAt`, `syncedContentHash`) — não dá para gravar só `ref`; US-012 (`--both`) precisa preencher os quatro.
+  - O teste "rejects negative issueNumber" continua válido porque `-1` não casa nem com `int().positive()` nem com `string()`; strings vazias são rejeitadas por `z.string().min(1)`.
 ---
