@@ -5,6 +5,8 @@ import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
+import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
+import type { Issue, ResolvedIssue } from '../issues/types.js';
 import { printError, printSuccess } from '../ui/logger.js';
 import { isTransientFailure } from '../utils/retry.js';
 
@@ -16,10 +18,27 @@ function parsePrUrl(output: string): string | null {
   return match?.[1] ?? null;
 }
 
-export async function runPr(issue: string): Promise<number> {
+/**
+ * The `Closes #N` line for the PR body, empty when the Issue has no remote
+ * counterpart: GitHub only understands the reference for Issues it hosts, and
+ * an invented `#N` would silently point at an unrelated Issue.
+ */
+function issueClosesLine(issue: Issue, fallbackId: string): string {
+  if (issue.remoteRef === null) {
+    return '';
+  }
+  return `Closes #${issue.number ?? fallbackId}`;
+}
+
+export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   const issueDir = join('issues', issueNumber);
   const tasksPath = join(issueDir, 'tasks.json');
+
+  const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
+  if (!resolution.ok) {
+    return resolution.code;
+  }
 
   // Get current branch
   let branchName: string;
@@ -40,6 +59,8 @@ export async function runPr(issue: string): Promise<number> {
     __ISSUE_NUMBER__: issueNumber,
     __BRANCH_NAME__: branchName,
     __TASKS_PATH__: tasksPath,
+    __ISSUE_CLOSES__: issueClosesLine(resolution.resolved.issue, issueNumber),
+    ...issuePlaceholders(resolution.resolved),
   });
 
   let headlessOutput = '';

@@ -3,6 +3,8 @@ import { runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
+import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
+import type { ResolvedIssue } from '../issues/types.js';
 import { printError, printSuccess } from '../ui/logger.js';
 
 export interface ReviewResult {
@@ -40,15 +42,21 @@ function parseReviewResult(output: string): ReviewResult {
   };
 }
 
-export async function runReview(issue: string): Promise<number> {
+export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   const issueDir = join('issues', issueNumber);
   const tasksPath = join(issueDir, 'tasks.json');
+
+  const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
+  if (!resolution.ok) {
+    return resolution.code;
+  }
 
   const template = await loadPrompt('review');
   const prompt = applyPlaceholders(template, {
     __ISSUE_NUMBER__: issueNumber,
     __TASKS_PATH__: tasksPath,
+    ...issuePlaceholders(resolution.resolved),
   });
 
   const result = await runHeadless({
