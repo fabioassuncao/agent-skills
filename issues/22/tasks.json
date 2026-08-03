@@ -7,7 +7,7 @@
   "description": "Modo opcional (desligado por padrão) de monitoramento web em tempo real para sessões do pipeline: camada de publicação de estado (session-state.ts), snapshot versionado servido via HTTP (node:http puro) e em issues/N/session.json, interface web autocontida sem dependências novas, com impacto zero na execução.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-03T18:58:25Z",
+  "lastAttemptAt": "2026-08-03T19:00:33Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
