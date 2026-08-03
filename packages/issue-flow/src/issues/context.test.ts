@@ -115,7 +115,23 @@ describe('resolveCommandIssue', () => {
     const outcome = await resolveCommandIssue('23');
 
     expect(outcome).toEqual({ ok: true, resolved });
-    expect(mockedResolve).toHaveBeenCalledWith('23');
+    expect(mockedResolve).toHaveBeenCalledWith('23', undefined);
+  });
+
+  it('forwards resolver options so the configuration is loaded only once', async () => {
+    const resolved = makeResolved(makeIssue());
+    mockedResolve.mockResolvedValue(resolved);
+    const config = {
+      defaultGenerateTarget: 'github',
+      preferredProvider: 'local',
+      conflictPolicy: 'ask',
+      requireConfirmation: true,
+    } as const;
+
+    const outcome = await resolveCommandIssue('23', undefined, { config });
+
+    expect(outcome).toEqual({ ok: true, resolved });
+    expect(mockedResolve).toHaveBeenCalledWith('23', { config });
   });
 
   it('propagates the exit code carried by IssueResolutionError', async () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { loadWebConfig } from '../config.js';
+import { loadIssuesConfig, loadWebConfig } from '../config.js';
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASES_NO_BRANCH,
@@ -117,10 +117,14 @@ async function runPipelinePhases(
 
   printInfo(`Starting pipeline for issue #${issueNumber} (mode: ${mode})`);
 
+  // Loaded before the checks so init knows which origin the user is heading
+  // for: with a local one, a missing gh must not fail the environment.
+  const issuesConfig = await loadIssuesConfig();
+
   // Phase 1: Init check
   printInfo('Running prerequisite checks...');
   const sessionStartedAt = isoNow();
-  const initCode = await runInit();
+  const initCode = await runInit(issuesConfig.preferredProvider);
   if (initCode !== 0) {
     publishSessionStart(PIPELINE_PHASES, sessionStartedAt);
     publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
@@ -138,7 +142,7 @@ async function runPipelinePhases(
   // The origin is settled once, here, and the decision travels to every phase.
   // Resolving per phase would query the providers five times and could ask the
   // user about the same divergence five times.
-  const resolution = await resolveCommandIssue(issueNumber);
+  const resolution = await resolveCommandIssue(issueNumber, undefined, { config: issuesConfig });
   if (!resolution.ok) {
     return resolution.code;
   }

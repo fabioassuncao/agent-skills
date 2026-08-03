@@ -4,7 +4,7 @@ import { type AddressInfo, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setWebCliOverrides } from '../config.js';
+import { setIssuesCliOverrides, setWebCliOverrides } from '../config.js';
 import { sessionSnapshotSchema } from '../schemas.js';
 import type { WebServerHandle, WebServerOptions } from '../web/server.js';
 
@@ -69,6 +69,7 @@ import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
 import { startWebServer } from '../web/server.js';
 import { runExecute } from './execute.js';
+import { runInit } from './init.js';
 import { runPlan } from './plan.js';
 import { runPr } from './pr.js';
 import { runPrd } from './prd.js';
@@ -162,6 +163,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
       delete process.env[name];
     }
     setWebCliOverrides({});
+    setIssuesCliOverrides({});
     serverHandles.length = 0;
     vi.clearAllMocks();
     vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
@@ -171,6 +173,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
   afterEach(async () => {
     await Promise.all(serverHandles.map((h) => h.close()));
     setWebCliOverrides({});
+    setIssuesCliOverrides({});
     for (const [name, value] of savedEnv) {
       if (value === undefined) {
         delete process.env[name];
@@ -332,5 +335,21 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     const raw = await readFile(join(tmp, 'issues', 'auth-refactor', 'session.json'), 'utf-8');
     const snapshot = sessionSnapshotSchema.parse(JSON.parse(raw));
     expect(snapshot.issue.number).toBeNull();
+  });
+
+  it('sem flags, a checagem de pré-requisitos roda com a origem github', async () => {
+    const { code } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(vi.mocked(runInit)).toHaveBeenCalledWith('github');
+  });
+
+  it('com --local, a checagem de pré-requisitos roda com a origem local (US-011)', async () => {
+    setIssuesCliOverrides({ preferredProvider: 'local' });
+
+    const { code } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(vi.mocked(runInit)).toHaveBeenCalledWith('local');
   });
 });

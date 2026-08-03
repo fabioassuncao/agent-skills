@@ -29,6 +29,8 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Teste de guarda contra shell-out precisa cobrir as duas formas de escrita: string literal (`'gh issue close'`) e argv (`execa('gh', ['issue', ...])`) — o código antigo usava a segunda.
 - Comando de fase recebe `resolvedIssue?` como 2º parâmetro: `run.ts` resolve uma vez e propaga; uso avulso do subcomando resolve sozinho.
 - Flag nova de CLI: mapeamento puro em `src/issues/cli-flags.ts` (testável) + helper de declaração (`withIssueOptions`) em `src/cli.ts`. Nunca colocar lógica em `cli.ts`, que roda `program.parse()` no import.
+- Checagem de ambiente que pode virar opcional deve carregar uma chave estável (`CheckResult.key`), nunca ser filtrada pelo texto de `name` — o label é mensagem para o usuário e pode mudar.
+- Smoke test de dependência externa ausente: `PATH=$TMPD` com symlinks só dos binários desejados (incluir `node`!) reproduz "gh não instalado" sem desinstalar nada.
 
 ---
 
@@ -172,4 +174,23 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `session:start.issueNumber` é `number | null`. `sessionSnapshotSchema` já aceitava null; o tipo do evento é que estava restrito.
   - As flags `--local/--github` continuam mapeando para `preferredProvider` (não restringem `sources`): as duas origens seguem sendo consultadas e a preferida vence. Se algum dia "consulte só esta origem" for desejado, passar `sources` a partir das flags é a mudança.
   - `prompts/generate.md` ainda contém `gh issue create` — é o único `gh issue *` restante nos templates e é exatamente o escopo de US-012. O teste de guarda de prompts só proíbe `gh issue view`, então US-012 deve estendê-lo.
+---
+
+## 2026-08-03 19:45 - US-011
+- `init` deixou de reprovar o ambiente por ausência de `gh` quando a origem da Issue é local; `claude` e `git` seguem bloqueantes em qualquer origem.
+- Arquivos alterados:
+  - `src/commands/init.ts` — `CheckResult.key` ('claude' | 'gh' | 'git'), `runInit(source: IssueSource = 'github')` e predicado `isBlocking`; gh reprovado com origem local vira `printWarning` com sufixo "(not required for local issues)" e sai do cálculo de `allPassed`.
+  - `src/cli.ts` — comando `init` recebeu `withIssueOptions` e passa `preferredProvider` de `loadIssuesConfig()` para `runInit`.
+  - `src/commands/run.ts` — `loadIssuesConfig()` carregado antes do init, `runInit(issuesConfig.preferredProvider)` e a mesma config repassada ao resolver.
+  - `src/issues/context.ts` — `resolveCommandIssue(id, preResolved?, options?)` repassa `ResolveIssueOptions` ao resolver.
+- Arquivos criados:
+  - `src/commands/init.test.ts` — 9 testes (GitHub: ok, gh ausente, gh não autenticado, default == `github` explícito; local: gh ausente, gh não autenticado, gh ok, claude bloqueante, git bloqueante).
+- Testes adicionais: 2 em `run.test.ts` (origem propagada ao `runInit`) e 1 em `context.test.ts` (repasse de options).
+- Quality checks: `npm run check` e `npm test` (333 testes, 24 arquivos) passando. Smoke real com `PATH` sem `gh`: `init` → exit 1 com `[FAIL] gh CLI`; `init --local` → exit 0 com `[WARN] ... (not required for local issues)`.
+- **Learnings for future iterations:**
+  - `runInit` recebe o **provider preferido da configuração** (`loadIssuesConfig().preferredProvider`), não o resultado de `resolveIssue`: em `run.ts` o init roda antes da resolução (a resolução é a fase seguinte e o init existe para dar erro cedo). Consequência aceita: usuário sem `gh` e sem `--local`/config continua reprovando, mesmo que a Issue só exista localmente — é exatamente o "GitHub reprova como hoje" da AC.
+  - `run.ts` agora carrega `loadIssuesConfig()` uma vez e injeta em `resolveCommandIssue(..., { config })`: sem isso, `.issue-flow.json` seria lido duas vezes e um JSON inválido geraria aviso duplicado.
+  - Mock de `execa` por binário (`vi.mock('execa', () => ({ execa: vi.fn() }))` + `mockImplementation` que ramifica em `file`/`args[0]`) é o jeito de testar `init.ts`, que chama `execa` direto em vez de `run` de `utils/shell.ts`. Cast necessário: `as unknown as typeof execa` (os overloads de execa não casam com uma impl simples).
+  - Capturar saída do logger em teste = `vi.spyOn(console, 'log')`: `emit` cai em `console.log` quando não há output callback. Sem TTY, `useColor()/useUnicode()` são false, então as linhas vêm com `[OK]`/`[FAIL]`/`[WARN]` e sem ANSI — asserção por substring é estável.
+  - US-012 (`generate --local`) deve considerar passar `preferredProvider`/destino ao `runInit` também, se algum dia `generate` checar pré-requisitos.
 ---

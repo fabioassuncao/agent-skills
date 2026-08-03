@@ -1,5 +1,5 @@
 import { printError } from '../ui/logger.js';
-import { IssueResolutionError, resolveIssue } from './resolver.js';
+import { IssueResolutionError, type ResolveIssueOptions, resolveIssue } from './resolver.js';
 import type { Issue, ResolvedIssue } from './types.js';
 
 /**
@@ -50,17 +50,21 @@ export type CommandIssue = { ok: true; resolved: ResolvedIssue } | { ok: false; 
  * `preResolved` short-circuits the lookup: the pipeline decides the origin once
  * and passes the decision down, so a phase never re-queries the providers (and
  * never asks the user twice about the same divergence).
+ *
+ * `options` forwards resolver options — `run.ts` passes the configuration it
+ * already loaded so `.issue-flow.json` is read (and warned about) only once.
  */
 export async function resolveCommandIssue(
   id: string,
   preResolved?: ResolvedIssue,
+  options?: ResolveIssueOptions,
 ): Promise<CommandIssue> {
   if (preResolved !== undefined) {
     return { ok: true, resolved: preResolved };
   }
 
   try {
-    return { ok: true, resolved: await resolveIssue(id) };
+    return { ok: true, resolved: await resolveIssue(id, options) };
   } catch (err) {
     if (err instanceof IssueResolutionError) {
       printError(err.message);

@@ -122,11 +122,15 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 });
 
 // ── init ────────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program.command('init').description('Verify that all prerequisites (claude, gh, git) are met'),
+withIssueOptions(
+  withGlobalOptions(
+    program.command('init').description('Verify that all prerequisites (claude, gh, git) are met'),
+  ),
 ).action(async () => {
+  const { loadIssuesConfig } = await import('./config.js');
   const { runInit } = await import('./commands/init.js');
-  const code = await runInit();
+  const { preferredProvider } = await loadIssuesConfig();
+  const code = await runInit(preferredProvider);
   process.exit(code);
 });
 
