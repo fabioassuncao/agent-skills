@@ -7,7 +7,7 @@
   "description": "Modo opcional (desligado por padrão) de monitoramento web em tempo real para sessões do pipeline: camada de publicação de estado (session-state.ts), snapshot versionado servido via HTTP (node:http puro) e em issues/N/session.json, interface web autocontida sem dependências novas, com impacto zero na execução.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-03T19:50:00Z",
+  "lastAttemptAt": "2026-08-03T19:52:30Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -159,8 +159,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Teste de regressão em src/commands/run.test.ts (4 testes): sem flags não sobe servidor (spy em startWebServer) nem cria issues/N/session.json (nem o diretório issues/); saída do terminal com --web é idêntica à do modo desligado exceto a única linha da URL do servidor (comparação byte a byte das linhas capturadas); com --web, session.json final valida contra sessionSnapshotSchema com status=completed e todas as fases completed; matar o servidor no meio da execução (handle.close() dentro do runner de execute) não afeta o pipeline (exit 0) e o estado final ainda é gravado. Suíte completa: typecheck OK, biome OK, vitest 158/158; package.json sem dependências de runtime novas."
     },
     {
       "id": "US-010",

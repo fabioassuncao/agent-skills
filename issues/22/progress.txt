@@ -143,3 +143,20 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
   - biome formatter quebra chamadas longas em múltiplas linhas automaticamente com `--write` (rodar antes do typecheck para evitar diffs surpresa)
   - US-009: teste de regressão do modo desligado pode injetar publicDir/startDir e usar MemoryPublisher; padrão de injeção de fontes já existe em loadWebConfig, publishGitState e startWebServer
 ---
+## 2026-08-03 16:53 - US-009
+- Garantia de impacto zero e qualidade — teste de regressão em `src/commands/run.test.ts` (4 testes):
+  - Modo desligado (sem flags): `startWebServer` nunca é chamado (spy via mock parcial de ../web/server.js) e nenhum arquivo é criado (nem issues/N/session.json, nem o diretório issues/)
+  - Byte a byte: pipeline roda duas vezes no mesmo cwd temporário (web off e web on em porta livre); as linhas capturadas de console.log são idênticas exceto a ÚNICA linha "Web monitor running at <url>" — prova que a instrumentação não adiciona nada à saída do terminal
+  - Estado final: com --web, issues/42/session.json valida contra sessionSnapshotSchema, status=completed, endedAt preenchido, todas as fases completed
+  - Resiliência: runExecute mockado faz fetch em /api/status (200), chama handle.close() no meio da execução e confirma que o fetch seguinte falha; o pipeline termina com exit 0 e o estado final ainda é gravado (publisher independe do servidor); o close() duplo do finally é idempotente
+- Arquivos: src/commands/run.test.ts (novo)
+- Checks: typecheck OK, biome OK, vitest 158/158 OK; package.json intocado (nenhuma dependência de runtime nova)
+- **Learnings for future iterations:**
+  - runPipeline usa caminhos relativos (issues/N) — testes precisam de process.chdir para um mkdtemp; vitest 3 usa pool 'forks' por default, então chdir funciona
+  - Mock parcial com handle real: vi.mock('../web/server.js', async (importOriginal) => ...) embrulhando o startWebServer real e capturando os handles num array compartilhado — permite matar o servidor de dentro de um runner mockado
+  - Mockar 'execa' globalmente também neutraliza getProjectRoot() (shell.run devolve exitCode 1 → readWebConfigFile degrada para {}) — nenhum subprocess real roda no teste
+  - FilePublisher NÃO cria o diretório de destino — issues/N precisa existir (no fluxo real o runInit/runPrd cria; nos testes, mkdir recursive)
+  - Saída do terminal em teste é determinística: sem TTY, useColor/useUnicode retornam false (ícones ASCII, sem ANSI) e chalk fica em level 0
+  - Renderer mockado devolve overallElapsedSeconds fixo — a linha "Duration: 1s" fica determinística para a comparação byte a byte
+  - US-010 é só documentação (README.md): seção do run, tabela flags/env/config, exemplo Tailscale, formato do session.json e dica de .gitignore
+---
