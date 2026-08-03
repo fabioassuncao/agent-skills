@@ -66,6 +66,9 @@ src/
   web/
     server.ts             # HTTP server for `run --web`
 
+scripts/
+  git-version.mjs         # preversion/postversion hooks: release commit + tag
+
 prompts/*.md              # Prompt templates  (packaged, runtime asset)
 web/public/               # Monitoring dashboard (packaged, runtime asset)
 ```
@@ -182,7 +185,14 @@ machine by a maintainer with publish rights on the `issue-flow` npm package.
   Hand-editing is what caused 0.4.3 and 0.4.4 to reach npm without a git tag,
   leaving the repository and the registry out of sync.
 - **Every published version gets a git tag and a GitHub Release.** Tags are
-  `vX.Y.Z` and are created by `npm version`; they must be pushed.
+  `vX.Y.Z`, created by the `postversion` hook, and must be pushed.
+- **`npm version` alone does not tag in this repository.** npm only performs the
+  git step when it finds a `.git` directory inside the package folder; here
+  `.git` lives at the monorepo root, so npm rewrites `package.json` and stops —
+  no commit, no tag, no warning. That is the actual root cause of the missing
+  0.4.3/0.4.4 tags. The `preversion`/`postversion` hooks in `package.json`
+  (`scripts/git-version.mjs`) restore the expected behavior: they refuse to bump
+  on a dirty tree, then create the release commit and the annotated tag.
 - **`CHANGELOG.md` is updated before the version bump**, not after. Its section
   for the new version is the body of the GitHub Release.
 - The quality gate lives in the manifest, not in CI: `npm publish` runs
@@ -227,7 +237,8 @@ npm whoami
 git add CHANGELOG.md
 git commit -m "docs: changelog for vX.Y.Z"
 
-# 4. Bump the version — creates the bump commit AND the vX.Y.Z tag
+# 4. Bump the version. preversion checks the tree is clean; postversion creates
+#    the release commit and the annotated vX.Y.Z tag.
 cd packages/issue-flow
 npm version patch      # or minor / major
 
@@ -270,6 +281,7 @@ git reset --hard HEAD~1
 | `npm ERR! 401 Unauthorized` | Expired token in `~/.npmrc` | Run `npm login` again |
 | `npm ERR! 403 Forbidden` | Account without publish rights on the package | Check package ownership with `npm owner ls issue-flow` |
 | `npm ERR! 403 ... cannot publish over previously published version` | Version already in the registry | Bump again with `npm version patch`; published versions are immutable |
-| `npm version` fails with "Git working directory not clean" | Uncommitted changes | Commit or stash first — the bump commit must contain only the manifest change |
+| `npm version` fails with "Working tree is not clean" | Uncommitted changes | Commit or stash first — the release commit must contain only the manifest change |
+| `npm version` bumped the files but created no commit or tag | The `preversion`/`postversion` hooks were bypassed (e.g. `--ignore-scripts`) | Revert the manifest change and re-run `npm version` without `--ignore-scripts` |
 | Published package missing `prompts/` or `web/public/` | New asset directory not added to `files` in `package.json` | Add it, verify with `npm pack --dry-run`, publish a patch |
 | Tag pushed but nothing published | Expected — there is no publish workflow | Run `npm publish` locally as described above |

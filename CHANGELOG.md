@@ -38,6 +38,12 @@ that were tagged but never published to the registry are marked as such.
 
 ### Fixed
 
+- `npm version` no longer bumps the manifest without creating a commit and a
+  tag. npm only runs its git step when it finds a `.git` directory inside the
+  package folder; in this monorepo `.git` is at the root, so the bump was
+  silently untagged — the root cause of 0.4.3 and 0.4.4 reaching npm with no
+  tag. `preversion`/`postversion` hooks (`scripts/git-version.mjs`) now refuse
+  to bump a dirty tree and create the release commit and annotated tag.
 - `prepack` and `prepublishOnly` scripts added to the package manifest, so
   `npm publish` always rebuilds `dist/` and gates on lint, typecheck, and tests.
   Previously a stale or missing `dist/` could be published silently.
