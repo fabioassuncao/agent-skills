@@ -64,6 +64,9 @@ npx issue-flow run 42 --from execute
 
 # Run on the current branch (no branch creation, no PR)
 npx issue-flow run 42 --no-branch
+
+# Watch the run live in the browser (see "Web Monitoring" below)
+npx issue-flow run 42 --web
 ```
 
 Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> **review** -> **pr**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, runs correction cycles (re-execute + re-review) up to `maxCorrectionCycles`.
@@ -73,6 +76,7 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--mode <mode>` | Execution mode: `auto` (default) or `manual` |
 | `--from <phase>` | Resume from a specific phase |
 | `--no-branch` | Run on the current branch without creating a new branch or PR |
+| `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `-v, --verbose` | Show Claude progress output in real time |
 
 ### `init` -- Check prerequisites
@@ -131,6 +135,7 @@ Runs the iterative agent loop. Each iteration is a fresh Claude instance that pi
 | `--max-iterations N` | Stop after N iterations (default: unlimited) |
 | `--retry-limit N` | Retry transient Claude failures up to N consecutive times (default: 10) |
 | `--retry-forever` | Retry transient Claude failures indefinitely |
+| `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 
 ### `review` -- Validate the implementation
 
@@ -148,6 +153,99 @@ npx issue-flow pr 42
 
 Creates a well-structured PR referencing the issue, with summary and test plan.
 
+## Web Monitoring
+
+`run` and `execute` support an optional (off by default) real-time monitoring mode: a local HTTP server serves a self-contained web UI showing live progress -- current phase and activity, user stories, commits, pull requests, logs, errors, and time estimates. The page is read-only, works offline (no CDN, no external resources), and polls the server at a configurable interval.
+
+```bash
+# Enable with defaults (http://127.0.0.1:3737)
+npx issue-flow run 42 --web
+
+# Custom port and polling interval
+npx issue-flow run 42 --web --port 8080 --refresh 10
+```
+
+Monitoring never affects the pipeline: publishing failures are swallowed with a single warning, a busy port (`EADDRINUSE`) just skips the server, and killing the server or closing the browser mid-run has no effect on the execution. With `--web` off, the terminal output and behavior are byte-for-byte identical to previous versions.
+
+### Configuration
+
+Each setting resolves with the precedence **CLI flag > environment variable > `.issue-flow.json` > default**:
+
+| CLI flag | Environment variable | `.issue-flow.json` key | Default |
+|----------|----------------------|------------------------|---------|
+| `--web` / `--serve` | `ISSUE_FLOW_WEB` | `web.enabled` | `false` |
+| `--port <n>` | `ISSUE_FLOW_WEB_PORT` | `web.port` | `3737` |
+| `--host <h>` | `ISSUE_FLOW_WEB_HOST` | `web.host` | `127.0.0.1` |
+| `--refresh <s>` | `ISSUE_FLOW_WEB_REFRESH` | `web.refreshSeconds` | `5` |
+| `--web-log-limit <n>` | `ISSUE_FLOW_WEB_LOG_LIMIT` | `web.logLimit` | `200` |
+| `--web-no-logs` | -- | `web.includeLogs` | logs included |
+
+`.issue-flow.json` lives at the project root and is entirely optional -- a missing file or invalid content falls back to the defaults with a warning:
+
+```json
+{
+  "web": {
+    "enabled": true,
+    "port": 3737,
+    "host": "127.0.0.1",
+    "refreshSeconds": 5,
+    "logLimit": 200,
+    "includeLogs": true
+  }
+}
+```
+
+The server exposes `GET /` (the UI), `GET /api/status` (the JSON snapshot, also at `/status.json`), `GET /api/sessions`, and `GET /api/health`.
+
+### Remote access via Tailscale
+
+The server binds to `127.0.0.1` by default (local access only). To watch a run from another device -- e.g. your phone, over [Tailscale](https://tailscale.com) -- bind to your machine's Tailscale IP (`100.x.y.z`):
+
+```bash
+npx issue-flow run 42 --web --host 100.101.102.103
+# then open http://100.101.102.103:3737 from any device in your tailnet
+```
+
+Binding to `0.0.0.0` also works but exposes the server to your entire local network -- the CLI prints an explicit warning when you do. The interface is strictly read-only (no control endpoints), but prefer the Tailscale IP over `0.0.0.0` when possible.
+
+### `issues/N/session.json`
+
+When monitoring is enabled, the same snapshot served over HTTP is also persisted to `issues/N/session.json` (atomic writes, throttled to ~1s, final state flushed at the end of the run). Abridged format:
+
+```json
+{
+  "schemaVersion": 1,
+  "sessionId": "…",
+  "readOnly": true,
+  "issue": { "number": 42, "url": "https://github.com/owner/repo/issues/42" },
+  "status": "running",
+  "startedAt": "2026-08-03T16:00:00Z",
+  "elapsedSeconds": 754,
+  "estimatedRemainingSeconds": 420,
+  "progress": { "percent": 45, "phasesCompleted": 3, "phasesTotal": 6, "storiesCompleted": 4, "storiesTotal": 10 },
+  "currentPhase": "execute",
+  "currentActivity": { "story": "US-005", "tool": "Bash", "detail": "npm test", "since": "…" },
+  "phases": [{ "name": "init", "status": "completed", "durationSeconds": 12, "error": null }],
+  "stories": [{ "id": "US-001", "title": "…", "priority": 1, "passes": true, "completedAt": "…" }],
+  "execution": { "iteration": 5, "retries": 0, "correctionCycle": 0, "maxCorrectionCycles": 3 },
+  "git": { "branch": "issue/42-dark-mode", "baseBranch": "main", "commits": [{ "hash": "abc1234", "subject": "feat: …" }] },
+  "pullRequests": [{ "number": 43, "url": "…", "title": "…" }],
+  "logs": [{ "at": "…", "level": "info", "message": "…" }],
+  "errors": [],
+  "warnings": [],
+  "lastError": null,
+  "nextSteps": ["review", "pr"],
+  "environment": { "node": "v22.0.0", "platform": "darwin" }
+}
+```
+
+`session.json` is a runtime artifact -- if your project commits the `issues/` directory, add it to your `.gitignore`:
+
+```gitignore
+issues/*/session.json
+issues/*/session.json.tmp
+```
+
 ## Pipeline State & File Structure
 
 Each issue's state is tracked in `issues/N/tasks.json`:
@@ -158,6 +256,7 @@ issues/42/
   tasks.json     # Task plan with pipeline state and user stories
   progress.txt   # Execution log
   analysis.md    # Issue analysis (optional, from standalone analyze command)
+  session.json   # Live session snapshot (only with web monitoring enabled)
 ```
 
 The `pipeline` field tracks which phases have completed, enabling resume from any point:

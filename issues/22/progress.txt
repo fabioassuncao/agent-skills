@@ -1,0 +1,173 @@
+# Issue Flow Progress Log
+Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
+---
+
+## Codebase Patterns
+- Pacote real fica em `packages/issue-flow/` (monorepo); rodar npm scripts a partir desse diretório
+- Escrita atômica de JSON: mkdtemp em os.tmpdir() + writeFile + rename, com fallback copyFile+unlink para EXDEV (padrão de `saveTaskPlan` em src/core/state-manager.ts)
+- Strip de ANSI: usar `stripVTControlCharacters` de node:util (Node >= 22), não regex manual
+- Lint/format: biome — rodar `npx biome check --write src/` antes de commitar (formatter é estrito: quebra ternários longos)
+- Testes: vitest, arquivos `*.test.ts` colocados ao lado do código em src/ (excluídos do tsc via tsconfig exclude)
+- Timestamps: `isoNow()` de state-manager.ts (ISO sem milissegundos); eventos carregam `at: string` para manter reducers puros
+- Callback de stories no engine: `getStoryUpdateCallback()` recebe `UserStory[]` completo (src/core/engine.ts:282)
+- Zod 4 (^4.3.6): schemas em src/schemas.ts; usar `satisfies z.ZodType<Interface>` para travar schema ↔ interface TS; defaults via `.default()` fazem `parse({})` materializar a config padrão
+- Config em camadas: validar cada fonte parcial com `schema.partial().safeParse()` (defaults NÃO são aplicados), mergear por spread na ordem de precedência e parsear o merge com o schema completo no final
+- Slots globais de CLI: padrão setX() em módulo (como setVerbose em core/verbose.ts) — flags extraídas no hook preAction de cli.ts (ex.: setWebCliOverrides em config.ts)
+
+## 2026-08-03 15:52 - US-001
+- Implementada a camada de publicação de estado em `packages/issue-flow/src/core/session-state.ts`:
+  - União `SessionEvent` (session:start, phase:start/end, iteration:start/end, retry, stories:update, activity, log, correction:cycle, session:end), todos com `at: string` para manter o reducer puro
+  - Interface `SessionPublisher` (publish síncrono, snapshot, version, flush, close)
+  - `reduceSessionEvent()`: reducer puro sem I/O; errors/warnings derivados do ring buffer de logs a cada redução (não são buffers separados); ANSI removido via stripVTControlCharacters; timestamps inválidos não geram NaN
+  - `NullPublisher` (default, no-op total), `MemoryPublisher` (base, versão monotônica, warn única) e `FilePublisher` (escrita atômica mkdtemp+rename com fallback EXDEV, throttle default 1000ms, flush forçado em phase:end/session:end, timer com unref, cadeia de writes serializada)
+  - Tipo `SessionSnapshot` já no formato alvo da US-002 (schemaVersion 1, readOnly, capabilities, progress, execution, git, pullRequests, nextSteps, environment) — US-002 só precisa adicionar schemas Zod + estimatedRemainingSeconds + derivação de nextSteps
+- Arquivos: `src/core/session-state.ts` (novo), `src/core/session-state.test.ts` (novo, 21 testes)
+- Checks: typecheck OK, biome lint OK, vitest 98/98 OK
+- **Learnings for future iterations:**
+  - O repositório raiz não tem package.json; tudo roda em `packages/issue-flow/`
+  - Biome formatter reprova ternários com objetos inline longos — rodar `biome check --write` resolve
+  - Nos testes com ANSI é preciso usar o byte ESC real (\x1b) na string, não o texto literal "[31m"
+  - `publish()` engole erros via warnOnce; testar falha interna passando evento malformado (ex.: stories: null)
+  - US-002 deve mover/validar o snapshot com Zod em src/schemas.ts e derivar estimatedRemainingSeconds (média das stories concluídas × pendentes, null com < 2 amostras) e nextSteps a partir de PIPELINE_PHASES (respeitar PIPELINE_PHASES_NO_BRANCH da issue #20)
+---
+## 2026-08-03 15:58 - US-002
+- Completado o formato do snapshot e adicionados os schemas Zod:
+  - `SessionStorySnapshot` ganhou `completedAt` (carimbado quando a story vira passes=true durante a sessão; null para stories já aprovadas na primeira observação; limpo se regredir para false)
+  - `estimatedRemainingSeconds`: média das durações in-session (gaps entre conclusões consecutivas, primeira medida a partir de startedAt) × stories pendentes; null com < 2 conclusões in-session
+  - `nextSteps`: derivado das fases com status pending (a lista de fases vem do evento session:start, cujo caller passa PIPELINE_PHASES ou PIPELINE_PHASES_NO_BRANCH — respeita --no-branch); vazio quando status=completed
+  - Ambos recomputados no pós-processamento de reduceSessionEvent, junto com errors/warnings
+  - `src/schemas.ts`: `sessionSnapshotSchema` com `satisfies z.ZodType<SessionSnapshot>` (mudança na interface sem mudar o schema quebra o typecheck) e `webConfigSchema` com defaults (false, 3737, 127.0.0.1, 5, 200, includeLogs=true) — parse({}) devolve os defaults, pronto para US-003
+- Arquivos: src/core/session-state.ts, src/core/session-state.test.ts (+6 testes), src/schemas.ts, src/schemas.test.ts (+9 testes)
+- Checks: typecheck OK, biome OK, vitest 111/111 OK
+- **Learnings for future iterations:**
+  - Projeto usa Zod 4 (^4.3.6); `satisfies z.ZodType<T>` funciona e mantém o tipo ZodObject específico
+  - `webConfigSchema.parse({})` já materializa os defaults da US-003 — loadWebConfig() pode fazer merge de fontes parciais e parsear no final
+  - Campos derivados (errors, warnings, estimatedRemainingSeconds, nextSteps) são todos recomputados no wrapper reduceSessionEvent, não em applyEvent — novos campos derivados devem seguir esse padrão
+  - US-004: session:start deve receber `phases` de PIPELINE_PHASES (ou PIPELINE_PHASES_NO_BRANCH quando --no-branch) para que nextSteps saia correto
+---
+## 2026-08-03 16:05 - US-003
+- Implementada a configuração do monitoramento web:
+  - `loadWebConfig()` em `src/config.ts`: precedência flag CLI > env (ISSUE_FLOW_WEB, ISSUE_FLOW_WEB_PORT, ISSUE_FLOW_WEB_HOST, ISSUE_FLOW_WEB_REFRESH, ISSUE_FLOW_WEB_LOG_LIMIT) > `.issue-flow.json` (chave `web`) > defaults (false, 3737, 127.0.0.1, 5, 200, includeLogs=true)
+  - Fontes injetáveis (`cli`, `env`, `projectRoot`, `warn`) para testes; `.issue-flow.json` inteiramente opcional — ausência é silenciosa; JSON inválido, chave `web` inválida, env numérica inválida ou merge final inválido degradam com aviso, nunca lançam
+  - Flags em `src/cli.ts` nos comandos `run` e `execute` via `withWebOptions()`: --web, --serve (alias), --port, --host, --refresh, --web-log-limit, --web-no-logs; resolvidas no hook global preAction com `resolveWebOverrides()` + `setWebCliOverrides()` (slot em config.ts, mesmo padrão de setVerbose)
+- Arquivos: src/config.ts, src/cli.ts, src/config.test.ts (novo, 11 testes)
+- Checks: typecheck OK, biome lint OK, vitest 122/122 OK; help de run/execute confere as 7 flags
+- **Learnings for future iterations:**
+  - `webConfigSchema.partial().safeParse()` valida uma camada SEM aplicar defaults (optional curto-circuita o default) — perfeito para merge em camadas; o parse completo no final materializa os defaults
+  - Booleano de env: falsy = ['', '0', 'false', 'no', 'off'] (case-insensitive), qualquer outro valor = true
+  - Commander: `--web-no-logs` vira `opts.webNoLogs`; o hook preAction global recebe opts de qualquer comando (flags ausentes ficam undefined — extrair só o que foi setado)
+  - US-004/US-006: consumir com `await loadWebConfig()` (sem argumentos) em run.ts — os overrides de CLI já estarão no slot; avisar host 0.0.0.0 é responsabilidade do servidor (US-006)
+---
+## 2026-08-03 16:12 - US-004
+- Instrumentada a execução do pipeline com publicação de eventos:
+  - Novo slot global `src/core/session-publisher.ts` (setSessionPublisher/getSessionPublisher, default NullPublisher) — mesmo padrão de setVerbose; a publicação NÃO usa setOutputCallback/setStoryUpdateCallback e pipeline-renderer.ts não foi modificado
+  - `src/ui/logger.ts`: emit(line, level) com nível estruturado (printError=error, printWarning/printRetry=warn, demais=info); a linha vai crua ao publisher (o reducer do case 'log' já faz stripVTControlCharacters), saída de terminal byte a byte idêntica
+  - `src/commands/run.ts`: runPipeline virou wrapper que carrega loadWebConfig(), instala FilePublisher em issues/N/session.json quando enabled (NullPublisher caso contrário) e garante session:end + close() em finally; runPipelinePhases emite session:start (phases = activePhases, respeita --no-branch), fase init retroativa (timestamps reais), phase:start/end ao redor de cada runner via wrapper de runners, e correction:cycle no laço de correção do review
+  - `src/core/engine.ts`: iteration:start (após i++), retry (com delaySeconds/reason), stories:update + iteration:end no ponto do getStoryUpdateCallback()
+  - `src/core/headless.ts`: printStreamEvent() emite activity (tool + detail) ao detectar tool_use
+- Arquivos: src/core/session-publisher.ts (novo), src/core/session-publisher.test.ts (novo, 3 testes), src/ui/logger.ts, src/commands/run.ts, src/core/engine.ts, src/core/headless.ts
+- Checks: typecheck OK, biome OK, vitest 125/125 OK
+- **Learnings for future iterations:**
+  - executor.ts (usado pelo engine na fase execute) roda `claude --print` SEM stream-json — tool_use/activity só existe nas fases que usam runHeadless em modo verbose (prd/plan/review/pr); atividade granular na fase execute exigiria migrar executor.ts para stream-json (fora do escopo da issue)
+  - session:start só pode ser emitido depois de resolver --no-branch (a lista de fases depende disso); a fase init é publicada retroativamente com sessionStartedAt capturado antes de runInit()
+  - O wiring do servidor HTTP (US-006) tem ponto marcado em run.ts no wrapper runPipeline: subir após setSessionPublisher, derrubar no finally antes de close()
+  - loadWebConfig() roda no início de runPipeline mesmo com tudo desligado — é silencioso sem flags/env/arquivo (nenhuma saída extra no modo default)
+  - US-005: enriquecimento de commits/PRs deve acontecer nas fronteiras de fase (wrapper instrumentedRunners em run.ts) e no fim de iteração (engine.ts) — nunca por requisição HTTP
+---
+## 2026-08-03 16:20 - US-005
+- Rastreamento de commits e PRs durante a execução:
+  - `src/utils/git.ts`: `getBaseBranch()` (origin/HEAD via symbolic-ref, fallback para main/master local, default 'main', nunca lança) e `getCommitsSince(base)` (git log --pretty=format:%h%x09%s base..HEAD, retorna [] em falha; parse por primeiro TAB preserva TABs no subject)
+  - Novo evento `git:update` na união SessionEvent + case no reducer: merge parcial (campos omitidos preservam o valor anterior de branch/baseBranch/commits/pullRequests)
+  - `src/core/session-git.ts` (novo): `publishGitState(publisher, sources?)` com fontes injetáveis (currentBranch, baseBranch, commitsSince, pullRequests, now) — coleta tudo e publica um único git:update; `listPullRequests(branch)` via `gh pr list --head <branch> --state all --json number,url,title` com validação estrutural do JSON; NullPublisher curto-circuita ANTES de qualquer subprocess (impacto zero com --web desligado); try/catch engole qualquer falha
+  - `src/commands/run.ts`: enriquecimento após a fase init retroativa e, no wrapper instrumentedRunners, antes de cada phase:end (sucesso e falha) — o flush forçado do phase:end persiste o estado enriquecido
+  - `src/core/engine.ts`: enriquecimento após iteration:end (único outro ponto sancionado); nunca por requisição HTTP (US-006 serve o snapshot da memória)
+- Arquivos: src/utils/git.ts, src/utils/git.test.ts (novo, 6 testes), src/core/session-state.ts, src/core/session-state.test.ts (+2), src/core/session-git.ts (novo), src/core/session-git.test.ts (novo, 4 testes), src/commands/run.ts, src/core/engine.ts
+- Checks: typecheck OK, biome OK, vitest 137/137 OK
+- **Learnings for future iterations:**
+  - Mock de módulo com vitest: `vi.mock('./shell.js', () => ({ run: vi.fn() }))` + `await import()` no topo do arquivo de teste + `vi.mocked(run)` — padrão usado em git.test.ts
+  - Enriquecimento antes do phase:end aproveita o flush forçado do FilePublisher (o git:update sozinho seria throttled ~1s)
+  - `publishGitState` aceita `Partial<GitStateSources>` — US-006/US-009 podem reusar o padrão de injeção para testes sem git/gh reais
+  - Publicar git:update ANTES de phase:end também cobre a fase pr: o PR criado por runPr já aparece no snapshot persistido ao fim da fase
+  - `gh pr list --state all` mantém o PR visível após merge (não some do snapshot no fim do pipeline)
+---
+## 2026-08-03 16:30 - US-006
+- Servidor HTTP do monitoramento em `src/web/server.ts` (novo diretório src/web/), node:http puro, nenhuma dependência de runtime nova:
+  - `startWebServer(options): Promise<WebServerHandle | null>` — retorna null em QUALQUER falha de listen (EADDRINUSE inclusive) com aviso; o pipeline segue sem servidor
+  - Rotas: GET / , /app.css, /app.js (estáticos lidos uma vez na inicialização de publicDir; arquivo ausente → 404), /api/status e /status.json (mesmo payload), /api/sessions (array com um elemento), /api/health ({ok, uptime, version, refreshSeconds}), demais → 404 JSON; POST /api/control/* apenas reservado em comentário
+  - Snapshot servido SEMPRE da memória (publisher.snapshot()); serialização memoizada por publisher.version(); ETag = `"<version>"`; If-None-Match igual → 304 corpo vazio
+  - Headers em toda resposta (inclusive 304/404): Cache-Control: no-store, X-Content-Type-Options: nosniff, Referrer-Policy: no-referrer, X-Robots-Tag: noindex, nofollow
+  - server.unref() após listen; handler embrulhado em try/catch (500 em erro, nunca crash); 'error' pós-listen só gera warn
+  - close() idempotente (nunca rejeita), remove listeners SIGINT/SIGTERM; handlers de sinal fecham o servidor e re-emitem o sinal (process.kill) para preservar o término default
+  - Host 0.0.0.0 → aviso explícito de exposição à rede local; URL de acesso impressa com chalk.bold.cyan via printInfo
+  - resolveDefaultPublicDir(): join(moduleDir, 'public') e fallback subindo diretórios procurando web/public — US-008 substitui por resolvePackageDir()
+  - Versão default via createRequire('../../package.json') (funciona de src/web/ e dist/web/); injetável por options.version
+- `src/commands/run.ts`: wiring no wrapper runPipeline — sobe o servidor quando webConfig.enabled (handle null = segue sem servidor), derruba em finally após session:end e antes de publisher.close()
+- Arquivos: src/web/server.ts (novo), src/web/server.test.ts (novo, 12 testes), src/commands/run.ts
+- Checks: typecheck OK, biome OK, vitest 149/149 OK
+- **Learnings for future iterations:**
+  - Testes de servidor: listen com port 0 + ler a porta real de server.address() evita colisões; fetch global do Node 22 funciona direto no vitest
+  - vi.spyOn(Server.prototype, 'unref') (node:http) permite testar o unref sem inspecionar internals
+  - server.closeAllConnections() no close() evita que keep-alive do fetch segure o fechamento
+  - Registrar listener de SIGINT/SIGTERM suprime o término default — obrigatório usar process.once + re-raise com process.kill(process.pid, signal) após fechar
+  - US-007: os três assets vão em src/web/public/ (index.html, app.css, app.js); o servidor já os serve com content-types corretos; /api/health expõe refreshSeconds para o default do seletor de polling; reiniciar o servidor recarrega os assets (lidos uma vez na subida)
+  - US-008: substituir resolveDefaultPublicDir() por resolvePackageDir('web') generalizado de getPromptsDir(); options.publicDir já permite teste isolado
+---
+## 2026-08-03 16:40 - US-007
+- Interface web do monitoramento em `src/web/public/` (index.html, app.css, app.js) — JS puro, sem framework, sem CDN, nenhum recurso externo (funciona offline; até o favicon é `data:,` para suprimir o 404):
+  - Todas as seções do critério: cabeçalho (link da issue, branch ← base, badge de status, tempo decorrido em tempo real via ticker de 1s, estimativa rotulada "(estimativa)"), progresso global (`<progress>` nativo + percentual + contadores), "executando agora" (fase com pulso animado, story, ferramenta, detalhe, "há Xs"), fases (ícone/duração/erro), user stories (✓/○ + completedAt), commits e PRs com links, logs recentes (mais novos primeiro) com filtro por nível, erros/avisos em destaque no topo (últimos 3 de cada + lastError), próximos passos
+  - Seletor de polling 3s/5s/10s/30s/pausar persistido em localStorage (`issue-flow:refresh-seconds`); default vem de /api/health.refreshSeconds (localStorage tem precedência); polling com If-None-Match (304 = não re-renderiza), suspenso com document.hidden, backoff exponencial 2^n capado em 60s + banner "desconectado" em falha
+  - Tema claro/escuro via prefers-color-scheme (variáveis CSS), aria-live="polite" nos blocos alerts/progresso/executando-agora, título da aba = "NN% · #issue · issue-flow" (✓/✗ ao terminar)
+  - Segurança: todo texto dinâmico via textContent/createTextNode — nunca innerHTML com dados do snapshot; links de commit derivados da URL da issue (regex `/issues/N$` → raiz do repo)
+- Verificação no Chrome (chrome-devtools MCP + harness tsx com MemoryPublisher): temas claro e escuro OK, 500px sem overflow, zero erros de console, filtro de logs e persistência do seletor testados via script
+- Arquivos: src/web/public/index.html (novo), src/web/public/app.css (novo), src/web/public/app.js (novo), src/web/server.test.ts (+1 teste: resolução default do publicDir serve os assets reais)
+- Checks: typecheck OK, biome OK, vitest 150/150 OK
+- **Learnings for future iterations:**
+  - biome e tsc só cobrem `src/**/*.ts` (biome.json files.includes) — os assets de public/ não passam por lint/format automático
+  - Grid CSS: os cards filhos de `main` (display:grid) precisam de `min-width: 0`, senão qualquer conteúdo largo (logs mono) alarga todos os cards e cria scroll horizontal em telas estreitas
+  - Harness de preview manual: `npx -y tsx arquivo.mts` (extensão .mts obrigatória — .ts em /tmp é tratado como CJS e top-level await quebra); MemoryPublisher + startWebServer({port: 4545}) + setInterval de logs mantém o processo vivo (o servidor é unref'd)
+  - O servidor lê os assets UMA vez na subida — editar CSS/JS exige reiniciar o processo para ver a mudança
+  - US-008: substituir resolveDefaultPublicDir() por resolvePackageDir('web'); atenção que tsup só emite dist/cli.js — o diretório web/ precisa ser copiado/incluído no pacote (files do package.json) fora do bundle
+---
+## 2026-08-03 16:50 - US-008
+- Empacotamento e resolução de assets da interface web:
+  - `getPromptsDir()` generalizado em `resolvePackageDir(name, startDir?)` exportado de src/core/prompt-resolver.ts: caminha até 5 níveis acima do módulo procurando o diretório nomeado; retorna null se não achar (getPromptsDir mantém o throw original); `startDir` injetável para testes
+  - Assets movidos de `src/web/public/` para `web/public/` na RAIZ do pacote (irmão de prompts/) via git mv — o mesmo diretório serve dev (walk-up de src/web/) e o pacote publicado (walk-up de dist/); server.ts usa `resolvePackageDir(join('web','public'))` no lugar de resolveDefaultPublicDir() (assets continuam lidos uma vez na subida)
+  - `"web"` adicionado a `files` no package.json; `npm pack --dry-run` confirma web/public/{index.html,app.css,app.js} no tarball
+  - Sanity check: `npm run build` + simulação do walk-up a partir de dist/ resolve web/public corretamente
+- Arquivos: src/core/prompt-resolver.ts, src/core/prompt-resolver.test.ts (+4 testes), src/web/server.ts, package.json, web/public/* (movidos de src/web/public/)
+- Checks: typecheck OK, biome OK, vitest 154/154 OK, npm pack inclui web/
+- **Learnings for future iterations:**
+  - NÃO usar resolvePackageDir('web'): o walk-up a partir de src/core acha src/web (código do servidor) antes da raiz — por isso o nome procurado é o caminho composto 'web/public'
+  - O startDir passado a resolvePackageDir não precisa existir (só os candidatos são testados com existsSync) — o teste "a partir de dist/" funciona mesmo sem build prévio
+  - tsup só emite dist/cli.js — qualquer asset estático novo precisa entrar em `files` do package.json como diretório de raiz (padrão prompts/ e web/)
+  - biome formatter quebra chamadas longas em múltiplas linhas automaticamente com `--write` (rodar antes do typecheck para evitar diffs surpresa)
+  - US-009: teste de regressão do modo desligado pode injetar publicDir/startDir e usar MemoryPublisher; padrão de injeção de fontes já existe em loadWebConfig, publishGitState e startWebServer
+---
+## 2026-08-03 16:53 - US-009
+- Garantia de impacto zero e qualidade — teste de regressão em `src/commands/run.test.ts` (4 testes):
+  - Modo desligado (sem flags): `startWebServer` nunca é chamado (spy via mock parcial de ../web/server.js) e nenhum arquivo é criado (nem issues/N/session.json, nem o diretório issues/)
+  - Byte a byte: pipeline roda duas vezes no mesmo cwd temporário (web off e web on em porta livre); as linhas capturadas de console.log são idênticas exceto a ÚNICA linha "Web monitor running at <url>" — prova que a instrumentação não adiciona nada à saída do terminal
+  - Estado final: com --web, issues/42/session.json valida contra sessionSnapshotSchema, status=completed, endedAt preenchido, todas as fases completed
+  - Resiliência: runExecute mockado faz fetch em /api/status (200), chama handle.close() no meio da execução e confirma que o fetch seguinte falha; o pipeline termina com exit 0 e o estado final ainda é gravado (publisher independe do servidor); o close() duplo do finally é idempotente
+- Arquivos: src/commands/run.test.ts (novo)
+- Checks: typecheck OK, biome OK, vitest 158/158 OK; package.json intocado (nenhuma dependência de runtime nova)
+- **Learnings for future iterations:**
+  - runPipeline usa caminhos relativos (issues/N) — testes precisam de process.chdir para um mkdtemp; vitest 3 usa pool 'forks' por default, então chdir funciona
+  - Mock parcial com handle real: vi.mock('../web/server.js', async (importOriginal) => ...) embrulhando o startWebServer real e capturando os handles num array compartilhado — permite matar o servidor de dentro de um runner mockado
+  - Mockar 'execa' globalmente também neutraliza getProjectRoot() (shell.run devolve exitCode 1 → readWebConfigFile degrada para {}) — nenhum subprocess real roda no teste
+  - FilePublisher NÃO cria o diretório de destino — issues/N precisa existir (no fluxo real o runInit/runPrd cria; nos testes, mkdir recursive)
+  - Saída do terminal em teste é determinística: sem TTY, useColor/useUnicode retornam false (ícones ASCII, sem ANSI) e chalk fica em level 0
+  - Renderer mockado devolve overallElapsedSeconds fixo — a linha "Duration: 1s" fica determinística para a comparação byte a byte
+  - US-010 é só documentação (README.md): seção do run, tabela flags/env/config, exemplo Tailscale, formato do session.json e dica de .gitignore
+---
+## 2026-08-03 16:57 - US-010
+- Documentação do modo de monitoramento web:
+  - README raiz: `--web` nas tabelas de flags de `run` e `execute`; nova seção "Web Monitoring" com tabela de configuração (flag CLI | env | chave .issue-flow.json | default) e a precedência flag > env > arquivo > defaults; exemplo de `.issue-flow.json`; endpoints (/; /api/status; /status.json; /api/sessions; /api/health); exemplo de acesso remoto via Tailscale (bind no IP 100.x.y.z, com nota sobre o aviso de 0.0.0.0); formato abreviado de `issues/N/session.json`; orientação de adicionar `issues/*/session.json` ao .gitignore do projeto consumidor; `session.json` incluído na árvore de arquivos de issues/N/
+  - README do pacote (packages/issue-flow/README.md, exibido no npm): seção "Web Monitoring" compacta (mesma tabela + Tailscale + .gitignore) com link para a seção completa do README raiz; exemplo `--web` no comando run; árvore de Architecture atualizada com session-state.ts, session-publisher.ts, session-git.ts e web/server.ts
+- Arquivos: README.md (raiz), packages/issue-flow/README.md
+- Checks: typecheck OK, biome OK, vitest 158/158 OK (docs não afetam código)
+- **Learnings for future iterations:**
+  - O README raiz é a documentação principal; o de packages/issue-flow/ é o README do npm e deve espelhar de forma compacta com link relativo ../../README.md#anchor
+  - No README do pacote, seções novas de nível ## devem entrar DEPOIS do último ### de Commands (generate), senão quebram a hierarquia da lista de comandos
+  - Todas as 10 stories da issue #22 concluídas; issueStatus=completed, pipeline.executionCompleted=true
+---

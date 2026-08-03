@@ -1,15 +1,21 @@
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { execa } from 'execa';
+import { loadWebConfig } from '../config.js';
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASES_NO_BRANCH,
   PipelineManager,
   type PipelinePhase,
 } from '../core/pipeline.js';
+import { publishGitState } from '../core/session-git.js';
+import { setSessionPublisher } from '../core/session-publisher.js';
+import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
 import { formatDuration, printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
+import { startWebServer, type WebServerHandle } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
@@ -29,23 +35,100 @@ export async function runPipeline(
 ): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   const issueDir = join('issues', issueNumber);
+
+  const webConfig = await loadWebConfig();
+  const publisher: SessionPublisher = webConfig.enabled
+    ? new FilePublisher(join(issueDir, 'session.json'), {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+      })
+    : new NullPublisher();
+  setSessionPublisher(publisher);
+
+  // A null handle (port in use, ...) means the pipeline runs without a server.
+  let webServer: WebServerHandle | null = null;
+  if (webConfig.enabled) {
+    webServer = await startWebServer({
+      publisher,
+      port: webConfig.port,
+      host: webConfig.host,
+      refreshSeconds: webConfig.refreshSeconds,
+    });
+  }
+
+  let exitCode = 1;
+  try {
+    exitCode = await runPipelinePhases(issueNumber, issueDir, mode, publisher, from, noBranch);
+    return exitCode;
+  } finally {
+    publisher.publish({
+      type: 'session:end',
+      at: isoNow(),
+      status: exitCode === 0 ? 'completed' : 'failed',
+    });
+    await webServer?.close();
+    await publisher.close();
+    setSessionPublisher(undefined);
+  }
+}
+
+async function runPipelinePhases(
+  issueNumber: string,
+  issueDir: string,
+  mode: string,
+  publisher: SessionPublisher,
+  from?: string,
+  noBranch?: boolean,
+): Promise<number> {
   const tasksPath = join(issueDir, 'tasks.json');
+  const sessionId = randomUUID();
+
+  const publishSessionStart = (
+    phases: readonly string[],
+    at: string,
+    info?: { issueUrl?: string; branch?: string },
+  ): void => {
+    publisher.publish({
+      type: 'session:start',
+      at,
+      sessionId,
+      issueNumber: Number.parseInt(issueNumber, 10) || 0,
+      issueUrl: info?.issueUrl,
+      branch: info?.branch,
+      phases: [...phases],
+      environment: { node: process.version, platform: process.platform },
+    });
+  };
 
   printInfo(`Starting pipeline for issue #${issueNumber} (mode: ${mode})`);
 
   // Phase 1: Init check
   printInfo('Running prerequisite checks...');
+  const sessionStartedAt = isoNow();
   const initCode = await runInit();
   if (initCode !== 0) {
+    publishSessionStart(PIPELINE_PHASES, sessionStartedAt);
+    publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
+    publisher.publish({
+      type: 'phase:end',
+      at: isoNow(),
+      phase: 'init',
+      success: false,
+      error: 'Prerequisites not met',
+    });
     printError('Prerequisites not met. Fix the issues above and try again.');
     return 1;
   }
 
   // Resolve noBranch mode: persisted value takes precedence on resume
   let effectiveNoBranch = noBranch ?? false;
+  let planIssueUrl: string | undefined;
+  let planBranch: string | undefined;
   try {
     const existingPlan = await loadTaskPlan(tasksPath);
     const persistedNoBranch = existingPlan.noBranch ?? false;
+    planIssueUrl = existingPlan.issueUrl || undefined;
+    planBranch = existingPlan.branchName || undefined;
 
     // Only warn when the user explicitly passed a flag that conflicts with the persisted value
     if (noBranch !== undefined && noBranch !== persistedNoBranch) {
@@ -68,6 +151,16 @@ export async function runPipeline(
 
   const activePhases = effectiveNoBranch ? PIPELINE_PHASES_NO_BRANCH : PIPELINE_PHASES;
   const phaseOrder = effectiveNoBranch ? RUNNABLE_PHASES_NO_BRANCH : RUNNABLE_PHASES;
+
+  // The phase list is only known after resolving --no-branch, so the init
+  // phase (which already ran) is published retroactively with real timestamps.
+  publishSessionStart(activePhases, sessionStartedAt, {
+    issueUrl: planIssueUrl,
+    branch: planBranch,
+  });
+  publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
+  publisher.publish({ type: 'phase:end', at: isoNow(), phase: 'init', success: true });
+  await publishGitState(publisher);
 
   // Determine starting phase
   let startPhase: PipelinePhase = 'prd';
@@ -160,6 +253,7 @@ export async function runPipeline(
       while (code !== 0 && cycle < maxCycles) {
         cycle++;
         printWarning(`Review failed. Starting correction cycle ${cycle}/${maxCycles}...`);
+        publisher.publish({ type: 'correction:cycle', at: isoNow(), cycle, maxCycles });
 
         // Update correction cycle in tasks.json
         try {
@@ -187,12 +281,40 @@ export async function runPipeline(
     pr: makeRunner(() => runPr(issueNumber), 'pr'),
   };
 
+  // Publish phase:start/phase:end around every runner without touching the
+  // listr2 renderer (pipeline-renderer.ts stays publication-free). Commit/PR
+  // enrichment happens only at these boundaries (and at iteration end, in
+  // engine.ts) — never per HTTP request.
+  const instrumentedRunners = Object.fromEntries(
+    Object.entries(runners).map(([phase, fn]) => [
+      phase,
+      async () => {
+        publisher.publish({ type: 'phase:start', at: isoNow(), phase });
+        try {
+          await fn();
+          await publishGitState(publisher);
+          publisher.publish({ type: 'phase:end', at: isoNow(), phase, success: true });
+        } catch (err) {
+          await publishGitState(publisher);
+          publisher.publish({
+            type: 'phase:end',
+            at: isoNow(),
+            phase,
+            success: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          throw err;
+        }
+      },
+    ]),
+  );
+
   // Run pipeline with listr2 renderer — startup header printed above, summary below
   const result = await runPipelineWithRenderer({
     phases: phaseOrder,
     startIndex: startIdx,
     verbose: isVerbose(),
-    runners,
+    runners: instrumentedRunners,
     tasksPath,
   });
 

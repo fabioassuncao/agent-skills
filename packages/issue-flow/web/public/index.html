@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" href="data:," />
+  <title>issue-flow</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div id="banner-disconnected" class="banner" role="alert" hidden>
+    Desconectado do servidor — tentando reconectar…
+  </div>
+
+  <main>
+    <header class="card header">
+      <div class="header-main">
+        <h1>
+          <span class="brand">issue-flow</span>
+          <a id="issue-link" class="issue-link" target="_blank" rel="noopener" hidden>#—</a>
+        </h1>
+        <p id="branch-line" class="muted mono"></p>
+      </div>
+      <div class="header-side">
+        <span id="status-badge" class="badge status-idle">aguardando</span>
+        <div class="timers">
+          <span id="elapsed" title="Tempo decorrido">—</span>
+          <span id="estimate" class="muted" hidden></span>
+        </div>
+        <label class="refresh-control">
+          Atualizar
+          <select id="refresh-select" aria-label="Intervalo de atualização"></select>
+        </label>
+      </div>
+    </header>
+
+    <section id="alerts" class="card alerts" aria-live="polite" hidden>
+      <h2>Erros e avisos</h2>
+      <div id="alerts-body"></div>
+    </section>
+
+    <section class="card" aria-live="polite">
+      <h2>Progresso</h2>
+      <div class="progress-row">
+        <progress id="progress-bar" max="100" value="0"></progress>
+        <span id="progress-percent" class="progress-percent">0%</span>
+      </div>
+      <p id="progress-counters" class="muted"></p>
+    </section>
+
+    <section class="card" aria-live="polite">
+      <h2>Executando agora</h2>
+      <div id="now"></div>
+    </section>
+
+    <div class="columns">
+      <section class="card">
+        <h2>Fases</h2>
+        <ol id="phases" class="plain-list"></ol>
+      </section>
+      <section class="card">
+        <h2>Próximos passos</h2>
+        <div id="next-steps"></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>User stories</h2>
+      <ol id="stories" class="plain-list"></ol>
+    </section>
+
+    <div class="columns">
+      <section class="card">
+        <h2>Commits</h2>
+        <ul id="commits" class="plain-list"></ul>
+      </section>
+      <section class="card">
+        <h2>Pull requests</h2>
+        <ul id="pull-requests" class="plain-list"></ul>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Logs recentes</h2>
+        <label class="log-filter-control">
+          Nível
+          <select id="log-filter" aria-label="Filtro por nível de log">
+            <option value="all">todos</option>
+            <option value="info">info</option>
+            <option value="warn">avisos</option>
+            <option value="error">erros</option>
+          </select>
+        </label>
+      </div>
+      <ol id="logs" class="plain-list logs"></ol>
+    </section>
+
+    <footer class="muted footer">
+      <span id="session-meta"></span>
+    </footer>
+  </main>
+
+  <noscript>
+    <p class="noscript">Esta interface precisa de JavaScript. O estado bruto está disponível em
+      <a href="status.json">status.json</a>.</p>
+  </noscript>
+
+  <script src="app.js"></script>
+</body>
+</html>

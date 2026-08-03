@@ -22,7 +22,8 @@
   },
   "files": [
     "dist",
-    "prompts"
+    "prompts",
+    "web"
   ],
   "keywords": [
     "ai",

@@ -1,5 +1,8 @@
 import chalk from 'chalk';
 import ora, { type Ora } from 'ora';
+import { getSessionPublisher } from '../core/session-publisher.js';
+import type { SessionLogLevel } from '../core/session-state.js';
+import { isoNow } from '../core/state-manager.js';
 import { getOutputCallback } from '../core/verbose.js';
 
 /**
@@ -72,8 +75,12 @@ export function getTermWidth(): number {
 /**
  * Emit a line of output. Routes through the global output callback when
  * running inside a listr2 task context, otherwise falls back to console.log.
+ *
+ * Also forwards the line to the session publisher with its structured level;
+ * ANSI codes are stripped by the reducer, so terminal output stays untouched.
  */
-function emit(line: string): void {
+function emit(line: string, level: SessionLogLevel = 'info'): void {
+  getSessionPublisher().publish({ type: 'log', at: isoNow(), level, message: line });
   const cb = getOutputCallback();
   if (cb) {
     cb(line);
@@ -94,27 +101,27 @@ export function printSuccess(message: string): void {
 export function printError(message: string): void {
   const icons = getIcons();
   if (useColor()) {
-    emit(chalk.red(`${icons.fail} ${message}`));
+    emit(chalk.red(`${icons.fail} ${message}`), 'error');
   } else {
-    emit(`${icons.fail} ${message}`);
+    emit(`${icons.fail} ${message}`, 'error');
   }
 }
 
 export function printWarning(message: string): void {
   const icons = getIcons();
   if (useColor()) {
-    emit(chalk.yellow(`${icons.warn} ${message}`));
+    emit(chalk.yellow(`${icons.warn} ${message}`), 'warn');
   } else {
-    emit(`${icons.warn} ${message}`);
+    emit(`${icons.warn} ${message}`, 'warn');
   }
 }
 
 export function printRetry(message: string): void {
   const icons = getIcons();
   if (useColor()) {
-    emit(chalk.yellow(`${icons.retry} ${message}`));
+    emit(chalk.yellow(`${icons.retry} ${message}`), 'warn');
   } else {
-    emit(`${icons.retry} ${message}`);
+    emit(`${icons.retry} ${message}`, 'warn');
   }
 }
 

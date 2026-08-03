@@ -1,0 +1,5 @@
+.DS_Store
+
+# Estado transiente do monitoramento web (issue-flow run --web)
+issues/*/session.json
+issues/*/session.json.tmp

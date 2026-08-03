@@ -1,6 +1,8 @@
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
+import { setWebCliOverrides } from './config.js';
 import { setGlobalTimeout, setVerbose } from './core/verbose.js';
+import type { WebConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
 
 const require = createRequire(import.meta.url);
@@ -30,6 +32,49 @@ function withGlobalOptions(cmd: Command): Command {
     );
 }
 
+/**
+ * Add web monitoring options to a subcommand (run and execute only).
+ * The values are resolved into CLI overrides by the preAction hook below;
+ * loadWebConfig() applies the flag > env > file > defaults precedence.
+ */
+function withWebOptions(cmd: Command): Command {
+  return cmd
+    .option('--web', 'Enable the web monitoring server')
+    .option('--serve', 'Alias for --web')
+    .option('--port <n>', 'Web server port (default: 3737)', parseInteger)
+    .option('--host <h>', 'Web server host (default: 127.0.0.1)')
+    .option('--refresh <s>', 'Suggested UI polling interval in seconds', parseInteger)
+    .option('--web-log-limit <n>', 'Max log entries kept in the snapshot', parseInteger)
+    .option('--web-no-logs', 'Exclude logs from the published snapshot');
+}
+
+/**
+ * Extract the web-related CLI flags from a command's options, keeping only
+ * the ones the user actually set.
+ */
+function resolveWebOverrides(opts: Record<string, unknown>): Partial<WebConfig> {
+  const overrides: Partial<WebConfig> = {};
+  if (opts.web === true || opts.serve === true) {
+    overrides.enabled = true;
+  }
+  if (opts.port !== undefined) {
+    overrides.port = opts.port as number;
+  }
+  if (opts.host !== undefined) {
+    overrides.host = opts.host as string;
+  }
+  if (opts.refresh !== undefined) {
+    overrides.refreshSeconds = opts.refresh as number;
+  }
+  if (opts.webLogLimit !== undefined) {
+    overrides.logLimit = opts.webLogLimit as number;
+  }
+  if (opts.webNoLogs === true) {
+    overrides.includeLogs = false;
+  }
+  return overrides;
+}
+
 const program = new Command();
 
 program
@@ -47,6 +92,7 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
   if (opts.timeout !== undefined) {
     setGlobalTimeout(opts.timeout * 1000);
   }
+  setWebCliOverrides(resolveWebOverrides(opts));
 });
 
 // ── init ────────────────────────────────────────────────────────────────────
@@ -71,14 +117,16 @@ withGlobalOptions(
 });
 
 // ── run ─────────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program
-    .command('run')
-    .description('Execute the full pipeline: prd → plan → execute → review → pr')
-    .argument('<issue>', 'Issue number')
-    .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
-    .option('--from <phase>', 'Resume from a specific phase')
-    .option('--no-branch', 'Run pipeline on current branch without creating a new branch or PR'),
+withWebOptions(
+  withGlobalOptions(
+    program
+      .command('run')
+      .description('Execute the full pipeline: prd → plan → execute → review → pr')
+      .argument('<issue>', 'Issue number')
+      .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
+      .option('--from <phase>', 'Resume from a specific phase')
+      .option('--no-branch', 'Run pipeline on current branch without creating a new branch or PR'),
+  ),
 ).action(async (issue: string, options: { mode: string; from?: string; noBranch?: boolean }) => {
   const { runPipeline } = await import('./commands/run.js');
   const code = await runPipeline(issue, options.mode, options.from, options.noBranch);
@@ -122,19 +170,25 @@ withGlobalOptions(
 });
 
 // ── execute ─────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program
-    .command('execute')
-    .description('Run the iterative story execution loop (issue-flow engine)')
-    .option('--issue <number>', 'Issue number — reads artifacts from issues/N/')
-    .option('--max-iterations <number>', 'Stop after N iterations', parseInteger)
-    .option(
-      '--retry-limit <number>',
-      'Retry transient Claude failures up to N consecutive times',
-      parseInteger,
-    )
-    .option('--retry-forever', 'Retry transient Claude failures indefinitely')
-    .argument('[max-iterations]', 'Backward-compatible alias for --max-iterations N', parseInteger),
+withWebOptions(
+  withGlobalOptions(
+    program
+      .command('execute')
+      .description('Run the iterative story execution loop (issue-flow engine)')
+      .option('--issue <number>', 'Issue number — reads artifacts from issues/N/')
+      .option('--max-iterations <number>', 'Stop after N iterations', parseInteger)
+      .option(
+        '--retry-limit <number>',
+        'Retry transient Claude failures up to N consecutive times',
+        parseInteger,
+      )
+      .option('--retry-forever', 'Retry transient Claude failures indefinitely')
+      .argument(
+        '[max-iterations]',
+        'Backward-compatible alias for --max-iterations N',
+        parseInteger,
+      ),
+  ),
 ).action(
   async (
     positionalMaxIter: number | undefined,

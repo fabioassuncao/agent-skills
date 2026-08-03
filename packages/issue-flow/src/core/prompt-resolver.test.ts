@@ -1,5 +1,9 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
+import { applyPlaceholders, loadPrompt, resolvePackageDir } from './prompt-resolver.js';
+
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('applyPlaceholders', () => {
   it('should replace __PRD_FILE__ placeholder', () => {
@@ -46,6 +50,26 @@ describe('applyPlaceholders', () => {
   it('should handle empty template', () => {
     const result = applyPlaceholders('', { __PRD_FILE__: '/path' });
     expect(result).toBe('');
+  });
+});
+
+describe('resolvePackageDir', () => {
+  it('resolves prompts/ from the source tree (src/core/)', () => {
+    expect(resolvePackageDir('prompts')).toBe(join(packageRoot, 'prompts'));
+  });
+
+  it('resolves web/public from the compiled dist/ layout', () => {
+    const resolved = resolvePackageDir(join('web', 'public'), join(packageRoot, 'dist'));
+    expect(resolved).toBe(join(packageRoot, 'web', 'public'));
+  });
+
+  it('resolves prompts/ from the compiled dist/ layout', () => {
+    const resolved = resolvePackageDir('prompts', join(packageRoot, 'dist'));
+    expect(resolved).toBe(join(packageRoot, 'prompts'));
+  });
+
+  it('returns null when the directory cannot be located', () => {
+    expect(resolvePackageDir('definitely-not-a-package-dir')).toBeNull();
   });
 });
 
