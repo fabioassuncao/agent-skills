@@ -1,0 +1,178 @@
+{
+  "project": "issue-flow",
+  "issueNumber": 22,
+  "issueUrl": "https://github.com/fabioassuncao/issue-flow/issues/22",
+  "branchName": "issue/22-web-monitoring",
+  "noBranch": false,
+  "description": "Modo opcional (desligado por padrão) de monitoramento web em tempo real para sessões do pipeline: camada de publicação de estado (session-state.ts), snapshot versionado servido via HTTP (node:http puro) e em issues/N/session.json, interface web autocontida sem dependências novas, com impacto zero na execução.",
+  "issueStatus": "in_progress",
+  "completedAt": null,
+  "lastAttemptAt": "2026-08-03T18:47:23Z",
+  "lastError": null,
+  "correctionCycle": 0,
+  "maxCorrectionCycles": 3,
+  "pipeline": {
+    "analyzeCompleted": true,
+    "prdCompleted": true,
+    "jsonCompleted": true,
+    "executionCompleted": false,
+    "reviewCompleted": false,
+    "prCreated": false
+  },
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Camada de publicação de estado (src/core/session-state.ts)",
+      "description": "Como mantenedor do pipeline, quero uma camada de eventos + snapshot desacoplada da execução, para que qualquer superfície (arquivo, HTTP, futuros webhooks) consuma um único formato de estado.",
+      "acceptanceCriteria": [
+        "Novo módulo src/core/session-state.ts com a união SessionEvent (session:start, phase:start/end, iteration:start/end, retry, stories:update, activity, log, correction:cycle, session:end) e a interface SessionPublisher (publish, snapshot, version, flush, close)",
+        "publish() é síncrono, sem await e sem throw; reduz o evento sobre o snapshot em memória via reducer puro",
+        "NullPublisher é o default: com --web desligado, cada ponto de instrumentação custa uma comparação e um retorno",
+        "FilePublisher escreve issues/N/session.json com escrita atômica (mkdtemp + rename, fallback copyFile para EXDEV), reaproveitando o padrão de state-manager.ts, com throttle (default 1000ms, configurável); eventos terminais (phase:end, session:end) forçam flush",
+        "Logs mantidos em ring buffer limitado (default 200 entradas) — memória constante em execuções de horas; mensagens armazenadas sem códigos ANSI",
+        "Toda I/O do publisher em try/catch, com aviso emitido uma única vez; falha de monitoramento jamais propaga erro à execução",
+        "version() retorna contador monotônico (base do ETag)",
+        "Testes unitários do reducer em session-state.test.ts, sem I/O",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Implementado em src/core/session-state.ts com reducer puro, NullPublisher, MemoryPublisher e FilePublisher (escrita atômica + throttle). 21 testes unitários em session-state.test.ts."
+    },
+    {
+      "id": "US-002",
+      "title": "Formato do snapshot e schemas Zod",
+      "description": "Como consumidor do estado (UI, integrações), quero um payload único, versionado e validado, servido idêntico pelo arquivo e pelo endpoint.",
+      "acceptanceCriteria": [
+        "Snapshot com schemaVersion: 1, sessionId, readOnly: true, capabilities: [], dados da issue, status (idle | running | completed | failed), timestamps, elapsedSeconds, progress (percentual, contadores de fases e stories), currentPhase, currentActivity (story + ferramenta + detalhe + since), phases[] (com durações e erro), stories[], execution (iteração, retries, ciclo de correção), git (branch, base, commits), pullRequests[], logs[], errors[], warnings[], lastError, nextSteps[] e environment",
+        "estimatedRemainingSeconds = média das durações das stories concluídas × stories pendentes; publicado como null com menos de duas amostras",
+        "errors/warnings são fatias derivadas do mesmo ring buffer de logs, não buffers separados",
+        "nextSteps derivado de PIPELINE_PHASES a partir de currentPhase (src/core/pipeline.ts), respeitando o modo --no-branch (issue #20)",
+        "Schemas Zod do snapshot e da configuração web adicionados em src/schemas.ts; o payload servido valida contra o schema",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Configuração: flags CLI, env e .issue-flow.json",
+      "description": "Como operador, quero ativar e ajustar o monitoramento por flag, variável de ambiente ou arquivo de configuração, com precedência clara.",
+      "acceptanceCriteria": [
+        "Flags registradas em src/cli.ts nos comandos run e execute, resolvidas no hook preAction: --web / --serve (alias), --port <n>, --host <h>, --refresh <s>, --web-log-limit <n>, --web-no-logs",
+        "Precedência: flag CLI > env (ISSUE_FLOW_WEB, ISSUE_FLOW_WEB_PORT, ISSUE_FLOW_WEB_HOST, ISSUE_FLOW_WEB_REFRESH, ISSUE_FLOW_WEB_LOG_LIMIT) > arquivo .issue-flow.json (chaves web.enabled, web.port, web.host, web.refreshSeconds, web.logLimit, web.includeLogs) > defaults (false, 3737, 127.0.0.1, 5, 200, logs incluídos)",
+        "loadWebConfig() em src/config.ts implementa a cadeia; .issue-flow.json é inteiramente opcional — ausência ou conteúdo inválido cai para os defaults com um aviso, sem falhar",
+        "Testes cobrindo a precedência",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Instrumentação da execução",
+      "description": "Como operador, quero que o estado publicado reflita fielmente o que o pipeline está fazendo, sem alterar o comportamento do terminal.",
+      "acceptanceCriteria": [
+        "src/ui/logger.ts: emit() passa a receber nível estruturado (info/warn/error) e encaminha ao publisher com ANSI removido; a saída do terminal permanece idêntica",
+        "src/commands/run.ts: emite session:start, phase:start/phase:end ao redor de cada runner, correction:cycle no laço de correção e session:end no encerramento; sobe/derruba o servidor",
+        "src/core/engine.ts: emite iteration:start/end, retry e stories:update (no ponto onde já chama getStoryUpdateCallback())",
+        "src/core/headless.ts: printStreamEvent() emite activity (ferramenta + detalhe) ao detectar tool_use",
+        "Os slots globais setOutputCallback/setStoryUpdateCallback não são usados pela publicação; src/ui/pipeline-renderer.ts não é modificado",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Rastreamento de commits e PRs durante a execução",
+      "description": "Como operador, quero ver na interface os commits produzidos e o PR aberto, sem esperar o fim do pipeline.",
+      "acceptanceCriteria": [
+        "src/utils/git.ts ganha getCommitsSince(base) e getBaseBranch()",
+        "git.commits e pullRequests são atualizados apenas em fronteiras de fase e ao fim de cada iteração (enriquecimento de baixa frequência) — nunca por requisição HTTP",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Servidor HTTP (src/web/server.ts)",
+      "description": "Como operador, quero um endpoint HTTP resiliente que sirva o estado sem jamais afetar o pipeline.",
+      "acceptanceCriteria": [
+        "node:http puro; nenhuma dependência de runtime nova no package.json",
+        "Rotas: GET / (index.html), GET /app.css, GET /app.js, GET /api/status, GET /status.json (alias), GET /api/sessions (lista; v1 com um elemento), GET /api/health ({ ok, uptime, version }), * → 404 JSON; namespace POST /api/control/* reservado em comentário, não registrado",
+        "Serve o snapshot da memória (nunca relê o arquivo); serialização JSON memoizada por versão; ETag = version() → poll sem mudança responde 304 com corpo vazio",
+        "Headers: Cache-Control: no-store, X-Content-Type-Options: nosniff, Referrer-Policy: no-referrer, X-Robots-Tag: noindex, nofollow",
+        "EADDRINUSE nunca derruba o pipeline: aviso no log e execução segue sem servidor (com teste)",
+        "server.unref(); fechamento explícito em finally e em SIGINT/SIGTERM; o processo encerra sem travar ao fim do pipeline (com teste)",
+        "Host default 127.0.0.1; ao receber 0.0.0.0, imprime aviso explícito de exposição à rede local; na subida, imprime a URL de acesso em destaque",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Interface web (src/web/public/)",
+      "description": "Como operador, quero abrir uma página no navegador (via Tailscale) e entender imediatamente o estado da execução.",
+      "acceptanceCriteria": [
+        "Três arquivos estáticos (index.html, app.css, app.js), JS puro, sem framework, sem CDN, sem qualquer recurso externo — funciona offline",
+        "Seções: cabeçalho (issue com link, branch, badge de status, tempo decorrido em tempo real, estimativa restante rotulada como estimativa); progresso global (<progress> nativo, percentual, contadores); 'executando agora' (fase, story, ferramenta, detalhe, há quanto tempo); fases (status, duração, erro); user stories; commits e PRs (links); logs recentes com filtro por nível; erros e avisos em destaque no topo quando existirem; próximos passos",
+        "Seletor de intervalo de polling (3s/5s/10s/30s/pausar) persistido em localStorage, default vindo da configuração do servidor",
+        "Polling suspenso quando document.hidden; backoff progressivo e banner 'desconectado' em falha de fetch",
+        "Tema claro/escuro via prefers-color-scheme; aria-live=\"polite\" nos blocos dinâmicos; título da aba refletindo o progresso",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Empacotamento e resolução de assets",
+      "description": "Como usuário do pacote publicado no npm, quero que a interface web funcione tanto em desenvolvimento (src/) quanto no pacote instalado (dist/).",
+      "acceptanceCriteria": [
+        "getPromptsDir() generalizado em resolvePackageDir(name) (src/core/prompt-resolver.ts), reaproveitado por prompts/ e web/; assets lidos uma vez na inicialização",
+        "\"web\" incluído em files no package.json; npm pack --dry-run inclui web/",
+        "Teste que resolve o diretório web/ a partir de dist/",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Garantia de impacto zero e qualidade",
+      "description": "Como mantenedor, quero garantir que o modo desligado é indistinguível do comportamento atual e que a suíte permanece verde.",
+      "acceptanceCriteria": [
+        "issue-flow run 42 (sem flags) não sobe servidor, não cria session.json e produz saída de terminal byte a byte idêntica à atual (teste de regressão)",
+        "Matar o servidor / fechar o navegador durante a execução não afeta o pipeline",
+        "Ao término, issues/N/session.json contém o estado final",
+        "npm run typecheck, npm run lint e npm test passam; nenhuma dependência de runtime nova",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Documentação",
+      "description": "Como usuário, quero documentação clara do novo modo.",
+      "acceptanceCriteria": [
+        "README.md atualizado: seção do comando run, tabela de flags/env/config, exemplo de uso com Tailscale (IP 100.x.y.z) e formato do session.json",
+        "Orientação para adicionar issues/*/session.json ao .gitignore do projeto consumidor, quando aplicável"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# Issue Flow Progress Log
+Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
+---
+
+## Codebase Patterns
+- Pacote real fica em `packages/issue-flow/` (monorepo); rodar npm scripts a partir desse diretório
+- Escrita atômica de JSON: mkdtemp em os.tmpdir() + writeFile + rename, com fallback copyFile+unlink para EXDEV (padrão de `saveTaskPlan` em src/core/state-manager.ts)
+- Strip de ANSI: usar `stripVTControlCharacters` de node:util (Node >= 22), não regex manual
+- Lint/format: biome — rodar `npx biome check --write src/` antes de commitar (formatter é estrito: quebra ternários longos)
+- Testes: vitest, arquivos `*.test.ts` colocados ao lado do código em src/ (excluídos do tsc via tsconfig exclude)
+- Timestamps: `isoNow()` de state-manager.ts (ISO sem milissegundos); eventos carregam `at: string` para manter reducers puros
+- Callback de stories no engine: `getStoryUpdateCallback()` recebe `UserStory[]` completo (src/core/engine.ts:282)
+
+## 2026-08-03 15:52 - US-001
+- Implementada a camada de publicação de estado em `packages/issue-flow/src/core/session-state.ts`:
+  - União `SessionEvent` (session:start, phase:start/end, iteration:start/end, retry, stories:update, activity, log, correction:cycle, session:end), todos com `at: string` para manter o reducer puro
+  - Interface `SessionPublisher` (publish síncrono, snapshot, version, flush, close)
+  - `reduceSessionEvent()`: reducer puro sem I/O; errors/warnings derivados do ring buffer de logs a cada redução (não são buffers separados); ANSI removido via stripVTControlCharacters; timestamps inválidos não geram NaN
+  - `NullPublisher` (default, no-op total), `MemoryPublisher` (base, versão monotônica, warn única) e `FilePublisher` (escrita atômica mkdtemp+rename com fallback EXDEV, throttle default 1000ms, flush forçado em phase:end/session:end, timer com unref, cadeia de writes serializada)
+  - Tipo `SessionSnapshot` já no formato alvo da US-002 (schemaVersion 1, readOnly, capabilities, progress, execution, git, pullRequests, nextSteps, environment) — US-002 só precisa adicionar schemas Zod + estimatedRemainingSeconds + derivação de nextSteps
+- Arquivos: `src/core/session-state.ts` (novo), `src/core/session-state.test.ts` (novo, 21 testes)
+- Checks: typecheck OK, biome lint OK, vitest 98/98 OK
+- **Learnings for future iterations:**
+  - O repositório raiz não tem package.json; tudo roda em `packages/issue-flow/`
+  - Biome formatter reprova ternários com objetos inline longos — rodar `biome check --write` resolve
+  - Nos testes com ANSI é preciso usar o byte ESC real (\x1b) na string, não o texto literal "[31m"
+  - `publish()` engole erros via warnOnce; testar falha interna passando evento malformado (ex.: stories: null)
+  - US-002 deve mover/validar o snapshot com Zod em src/schemas.ts e derivar estimatedRemainingSeconds (média das stories concluídas × pendentes, null com < 2 amostras) e nextSteps a partir de PIPELINE_PHASES (respeitar PIPELINE_PHASES_NO_BRANCH da issue #20)
+---
