@@ -275,7 +275,9 @@ npm test
 npm run dev
 ```
 
-For the full development setup, local testing, and NPM publishing guide, see [CONTRIBUTING.md](CONTRIBUTING.md).
+For the full development setup and local testing guide, see [CONTRIBUTING.md](CONTRIBUTING.md).
+The official release procedure (changelog, version bump, tag, `npm publish`, GitHub
+Release) is documented in [CONTRIBUTING.md → Release process](CONTRIBUTING.md#release-process).
 
 ## Credits
 

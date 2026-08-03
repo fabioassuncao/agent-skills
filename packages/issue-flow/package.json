@@ -15,7 +15,9 @@
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
-    "check": "biome check --write src/ && tsc --noEmit"
+    "check": "biome check --write src/ && tsc --noEmit",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm test"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -37,6 +39,11 @@
     "github"
   ],
   "license": "MIT",
+  "author": "Fábio Assunção",
+  "homepage": "https://github.com/fabioassuncao/issue-flow#readme",
+  "bugs": {
+    "url": "https://github.com/fabioassuncao/issue-flow/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/fabioassuncao/issue-flow.git",

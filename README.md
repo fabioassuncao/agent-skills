@@ -294,7 +294,14 @@ npm test
 npm run dev
 ```
 
-For the full development setup, local testing, and NPM publishing guide, see [CONTRIBUTING.md](packages/issue-flow/CONTRIBUTING.md).
+For the full development setup and local testing guide, see [CONTRIBUTING.md](packages/issue-flow/CONTRIBUTING.md).
+
+### Releases
+
+Releases are published manually to npm by a maintainer. The official procedure —
+changelog, version bump, tag, `npm publish`, and GitHub Release — is documented in
+[CONTRIBUTING.md → Release process](packages/issue-flow/CONTRIBUTING.md#release-process).
+Version history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Skills & Agents (Traditional Usage)
 
@@ -312,4 +319,4 @@ For full documentation on skills, the sub-agent, installation via `npx skills ad
 
 ## License
 
-MIT
+[MIT](LICENSE)

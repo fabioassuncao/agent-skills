@@ -49,16 +49,31 @@ src/
     headless.ts           # Typed wrapper for claude -p
     pipeline.ts           # Pipeline state machine
     state-manager.ts      # Typed CRUD for tasks.json
-    prompt-resolver.ts    # Prompt resolution and templating
+    prompt-resolver.ts    # Prompt and packaged asset resolution
+    session-state.ts      # Session snapshot model (web monitoring)
+    session-publisher.ts  # Atomic writes of issues/{N}/session.json
+    session-git.ts        # Commit and PR tracking during a run
+    verbose.ts            # Global verbosity and timeout flags
   ui/
     logger.ts             # Colored logging with ASCII fallback
     progress.ts           # Progress bar and iteration headers
+    pipeline-renderer.ts  # listr2 pipeline rendering
     summary.ts            # Box drawing and summaries
   utils/
     shell.ts              # Shell command execution wrapper
     git.ts                # Git operations (repo root detection)
     retry.ts              # Transient failure detection and backoff
+  web/
+    server.ts             # HTTP server for `run --web`
+
+prompts/*.md              # Prompt templates  (packaged, runtime asset)
+web/public/               # Monitoring dashboard (packaged, runtime asset)
 ```
+
+`prompts/` and `web/public/` are resolved at runtime relative to the installed
+package (see `core/prompt-resolver.ts`), which is why both are listed in the
+`files` field of `package.json`. Adding a new runtime asset directory means
+adding it there too, otherwise it works locally and breaks once installed.
 
 ## Available scripts
 
@@ -95,6 +110,12 @@ Runs tests in `src/**/*.test.ts` via Vitest. Current coverage:
 - `pipeline.test.ts` - Phase transitions and resume logic
 - `headless.test.ts` - Headless invocation wrapper
 - `schemas.test.ts` - Zod schema validation
+- `config.test.ts` - Configuration resolution (CLI flags, env, `.issue-flow.json`)
+- `session-state.test.ts` / `session-publisher.test.ts` - Snapshot model and atomic publishing
+- `session-git.test.ts` - Commit and PR tracking
+- `web/server.test.ts` - Monitoring HTTP server
+- `git.test.ts` - Git helpers
+- `run.test.ts` - `run` command orchestration
 
 ### 2. Manual CLI testing
 
@@ -136,197 +157,119 @@ npx --prefix packages/issue-flow issue-flow --help
 ### 5. Package testing before publishing
 
 ```bash
-# Generate the tarball without publishing
+# Generate the tarball without publishing (runs prepack -> npm run build)
 npm pack
 
-# Check the contents (should contain only dist/ and prompts/)
+# Check the contents: dist/, prompts/, web/public/, package.json, README, LICENSE
 tar -tzf issue-flow-*.tgz
 
 # Test installation from the tarball
 cd /tmp
-npm install /path/to/issue-flow-0.3.0.tgz
+npm install /path/to/issue-flow-0.5.0.tgz
 npx issue-flow --help
 ```
 
-## Publishing to NPM
+## Release process
 
-### Pre-checklist
+Releases are **manual**. There is no CI job that publishes to npm — the only
+workflow in the repository is `.github/workflows/ci.yml` (lint, typecheck, test,
+build on pushes and pull requests). Everything below is run from a local
+machine by a maintainer with publish rights on the `issue-flow` npm package.
 
-Before publishing, make sure everything passes:
+### Ground rules
 
-```bash
-# 1. Tests passing
-npm test
+- **Never edit `version` in `package.json` by hand.** Always use `npm version`.
+  Hand-editing is what caused 0.4.3 and 0.4.4 to reach npm without a git tag,
+  leaving the repository and the registry out of sync.
+- **Every published version gets a git tag and a GitHub Release.** Tags are
+  `vX.Y.Z` and are created by `npm version`; they must be pushed.
+- **`CHANGELOG.md` is updated before the version bump**, not after. Its section
+  for the new version is the body of the GitHub Release.
+- The quality gate lives in the manifest, not in CI: `npm publish` runs
+  `prepublishOnly` (lint + typecheck + tests) and then `prepack`
+  (`npm run build`). A failing check aborts the publish, and `dist/` is always
+  rebuilt from the current sources — a stale build cannot be published.
 
-# 2. Types correct
-npm run typecheck
-
-# 3. Clean build
-npm run build
-
-# 4. Check the package contents
-npm pack --dry-run
-```
-
-### NPM login
-
-```bash
-# Authenticate (only needed once)
-npm login
-
-# Check who is logged in
-npm whoami
-```
-
-### Version bump
-
-Use `npm version` to update the version in `package.json` and create a git tag:
-
-```bash
-# Patch (2.0.0 -> 2.0.1) - bug fixes
-npm version patch
-
-# Minor (2.0.0 -> 2.1.0) - new backward-compatible features
-npm version minor
-
-# Major (2.0.0 -> 3.0.0) - breaking changes
-npm version major
-```
-
-### Publish
-
-```bash
-# Publish to the public registry
-npm publish
-
-# If it's the first publication and the name is scoped
-npm publish --access public
-```
-
-### Post-publication verification
-
-```bash
-# Clear npx cache and test
-npx --yes issue-flow@latest --help
-
-# Check the registry
-npm info issue-flow
-```
-
-### Post-publication checklist
-
-- [ ] `npx issue-flow@latest --help` works
-- [ ] Correct version appears in `npm info issue-flow`
-- [ ] Git tag created and pushed (`git push --tags`)
-
-## Versioning (SemVer)
+### Versioning (SemVer)
 
 | Type | When to use | Example |
 |------|------------|---------|
 | **patch** | Bug fix, text adjustment | Fix transient error detection |
-| **minor** | New backward-compatible feature | Add `--verbose` flag |
-| **major** | Breaking change | Change tasks.json format |
+| **minor** | New backward-compatible feature | Add the `--web` monitoring dashboard |
+| **major** | Breaking change | Change the `tasks.json` format |
 
-## Full release flow
+### One-time setup
 
 ```bash
-# 1. Make sure you are on an up-to-date main branch
+# Authenticate against the public registry
+npm login
+
+# Confirm the account (must have publish rights on issue-flow)
+npm whoami
+```
+
+The token stored in `~/.npmrc` expires. If `npm whoami` returns
+`401 Unauthorized`, run `npm login` again.
+
+### Release steps
+
+```bash
+# 1. Start from a clean, up-to-date main
 git checkout main
 git pull
+git status            # must be clean
 
-# 2. Run the full checklist
-npm test && npm run typecheck && npm run build
+# 2. Confirm you are authenticated
+npm whoami
 
-# 3. Version bump (creates commit + tag)
-npm version patch  # or minor/major
+# 3. Update CHANGELOG.md at the repository root: add the new version section
+#    (Added / Changed / Fixed / Removed) and its link at the bottom.
+git add CHANGELOG.md
+git commit -m "docs: changelog for vX.Y.Z"
 
-# 4. Publish
+# 4. Bump the version — creates the bump commit AND the vX.Y.Z tag
+cd packages/issue-flow
+npm version patch      # or minor / major
+
+# 5. Publish — runs prepublishOnly (lint, typecheck, test) and prepack (build)
 npm publish
 
-# 5. Push the commit and the tag
+# 6. Push the commits and the tag
 git push && git push --tags
 
-# 6. Verify
-npx --yes issue-flow@latest --help
+# 7. Create the GitHub Release. Copy the CHANGELOG section for this version
+#    into a file and use it as the release body.
+gh release create vX.Y.Z --title "vX.Y.Z" --notes-file /tmp/notes.md --latest
+
+# 8. Verify
+npm view issue-flow version
+npx --yes issue-flow@latest --version
 ```
 
-## Automated Deploy (GitHub Actions)
-
-The repository has a workflow at `.github/workflows/publish.yml` that automatically publishes to NPM whenever a version tag is pushed.
-
-### How it works
-
-The pipeline is triggered by tags matching the `v*.*.*` format (e.g., `v0.3.1`, `v1.0.0`). When a new tag is detected, the workflow runs:
-
-1. **Lint** (`npm run lint`) - Checks code style and patterns
-2. **Typecheck** (`npm run typecheck`) - Validates TypeScript types
-3. **Tests** (`npm test`) - Runs unit tests
-4. **Build** (`npm run build`) - Generates the ESM bundle in `dist/`
-5. **Pack dry-run** (`npm pack --dry-run`) - Verifies the package contents
-6. **Publish** (`npm publish --access public`) - Publishes to the NPM registry
-
-If any step fails, the publish is automatically aborted.
-
-### Initial setup (one-time only)
-
-#### 1. Create an NPM token
-
-1. Go to https://www.npmjs.com/settings/tokens
-2. Click **Generate New Token**
-3. Select the **Automation** type (does not require 2FA on publish)
-4. Copy the generated token
-
-#### 2. Configure the secret on GitHub
-
-1. Go to the repository on GitHub
-2. Navigate to **Settings > Secrets and variables > Actions**
-3. Click **New repository secret**
-4. Name: `NPM_TOKEN`
-5. Value: paste the token generated in the previous step
-6. Click **Add secret**
-
-### Automated release flow
-
-After the initial setup, the release flow is:
+If step 5 fails, undo the bump before pushing anything:
 
 ```bash
-# 1. Make sure you are on an up-to-date main branch
-git checkout main
-git pull
-
-# 2. Navigate to the package directory
-cd packages/issue-flow
-
-# 3. Version bump (creates commit + tag automatically)
-npm version patch  # or minor/major
-
-# 4. Push the commit and the tag (triggers the pipeline)
-git push && git push --tags
+git tag -d vX.Y.Z
+git reset --hard HEAD~1
 ```
 
-GitHub Actions takes care of the rest: lint, typecheck, tests, build, and publish.
+### Post-release checklist
 
-### Monitoring the pipeline
-
-Follow the execution at:
-
-```
-https://github.com/fabioassuncao/issue-flow/actions
-```
-
-Or via GitHub CLI:
-
-```bash
-gh run list --workflow=publish.yml
-gh run watch  # follow in real time
-```
+- [ ] `npm view issue-flow version` reports the new version
+- [ ] `npx --yes issue-flow@latest --version` reports the new version
+- [ ] `npx --yes issue-flow@latest init` runs (validates that `prompts/` and
+      `web/public/` resolve correctly from the installed package)
+- [ ] Tag visible in `git ls-remote --tags origin`
+- [ ] GitHub Release created and marked as *Latest*
+- [ ] `CHANGELOG.md` section matches what was actually shipped
 
 ### Troubleshooting
 
 | Problem | Likely cause | Solution |
 |---------|-------------|----------|
-| `npm ERR! 401 Unauthorized` | Invalid or expired NPM token | Generate a new token and update the `NPM_TOKEN` secret |
-| `npm ERR! 403 Forbidden` | No permission to publish the package | Check that the token has publish permission and you are the package owner |
-| `npm ERR! 403 ... cannot publish over previously published version` | Version already exists in the registry | Run a new bump with `npm version patch` |
-| Tests failing in CI | Environment difference (Node version, OS) | Check the workflow logs and fix the tests locally |
-| Build fails in CI | Missing or incompatible dependency | Run `npm install && npm run build` locally to reproduce |
+| `npm ERR! 401 Unauthorized` | Expired token in `~/.npmrc` | Run `npm login` again |
+| `npm ERR! 403 Forbidden` | Account without publish rights on the package | Check package ownership with `npm owner ls issue-flow` |
+| `npm ERR! 403 ... cannot publish over previously published version` | Version already in the registry | Bump again with `npm version patch`; published versions are immutable |
+| `npm version` fails with "Git working directory not clean" | Uncommitted changes | Commit or stash first — the bump commit must contain only the manifest change |
+| Published package missing `prompts/` or `web/public/` | New asset directory not added to `files` in `package.json` | Add it, verify with `npm pack --dry-run`, publish a patch |
+| Tag pushed but nothing published | Expected — there is no publish workflow | Run `npm publish` locally as described above |
