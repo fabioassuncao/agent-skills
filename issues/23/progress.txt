@@ -16,6 +16,8 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Todo schema Zod novo com interface correspondente deve terminar em `satisfies z.ZodType<Interface>` (padrão de `sessionSnapshotSchema` e agora `issueMetadataSchema`).
 - Estado global de módulo (ex.: o `Map` do registry de providers) precisa de um helper de reset exportado e chamado em `beforeEach`; vitest isola módulos por arquivo de teste, não por teste.
 - `taskPlanSchema` é o contrato de arquivos já em disco: só afrouxar, nunca endurecer. `loadTaskPlan` faz `parse(...) as TaskPlan`, então defaults do Zod (ex.: `issueUrl` → `''`) chegam preenchidos aos consumidores.
+- Para código que executa binários externos, chamar sempre `run` de `src/utils/shell.ts` (nunca `execa` direto) — é o que permite `vi.mock('../../utils/shell.js', () => ({ run: vi.fn() }))` + `await import(...)` dinâmico, o padrão de teste de `src/utils/git.test.ts`.
+- Ao classificar stderr de CLI externo, nunca usar regex genérica (`/not found/`): `gh: command not found` casaria com "issue inexistente" e transformaria ambiente quebrado em resultado vazio silencioso. Casar frases completas e específicas.
 
 ---
 
@@ -63,4 +65,19 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `clearProviders()` existe só para isolamento de teste; use em `beforeEach` sempre que registrar providers, senão o estado vaza entre testes do mesmo arquivo (vitest isola módulos por arquivo, não por teste).
   - Vitest: `expect(x?.()).resolves` quebra quando o método opcional é `undefined` — envolver em `Promise.resolve(...)`.
   - O registry nasce vazio; nenhum provider se auto-registra ainda. US-004/US-005 precisam decidir onde chamar `registerProvider` (provavelmente um `src/issues/index.ts` de bootstrap importado pelos comandos) — hoje `getProvider('github')` lança "No Issue providers are registered".
+---
+
+## 2026-08-03 18:50 - US-004
+- Implementado o `GitHubIssueProvider`, movendo a leitura da Issue do GitHub de prompt/CLI para código TypeScript testável.
+- Arquivos criados:
+  - `packages/issue-flow/src/issues/providers/github.ts` — classe `GitHubIssueProvider` + singleton `githubIssueProvider` (`get`, `create`, `close`, `isAvailable`).
+  - `packages/issue-flow/src/issues/providers/github.test.ts` — 19 testes com `run` mockado (mapeamento, CLOSED→closed, id com `#`, body/labels ausentes, issue inexistente, gh ausente, falha de auth, JSON inválido, create com/sem labels, falhas de create, close ok/erro, isAvailable nos 4 caminhos).
+- Quality checks: `npm run check` (biome + tsc) e `npm test` (219 testes, 17 arquivos) passando.
+- **Learnings for future iterations:**
+  - `get` distingue "não existe" (retorna `null`) de "ambiente quebrado" (lança) só pelo texto do stderr. As frases aceitas como not-found estão em `NOT_FOUND_PATTERN`; se o `gh` mudar a mensagem, o sintoma será uma issue existente virando `null`. Manter a regex específica a issues.
+  - `create` faz duas chamadas: `gh issue create` e, em seguida, `get(<número extraído da URL>)` para devolver a `Issue` completa com timestamps e `contentHash` reais. Quem mockar `create` em teste precisa preparar **dois** `mockResolvedValueOnce`.
+  - `isAvailable()` usa `timeout: 10_000` nas duas sondagens, espelhando `checkGh` em `src/commands/init.ts:34`. US-011 deve reusar o provider em vez de duplicar essa checagem no `init`.
+  - O provider ainda **não se auto-registra** no registry (`registerProvider` não é chamado em lugar nenhum). US-005/US-007 precisam criar o bootstrap (ex.: `src/issues/index.ts`) importado pelos comandos; até lá `getProvider('github')` continua lançando.
+  - `Issue.raw` guarda o payload cru do `gh` — útil para depuração, mas cuidado ao comparar `Issue` inteira com `toEqual` em testes futuros (use `toMatchObject`).
+  - `prompts/*.md` ainda contêm `gh issue view` (analyze, prd, plan, review, pr) e `gh issue create` (generate) — é exatamente o que US-008/US-012 removem.
 ---
