@@ -1,0 +1,30 @@
+# Issue Flow Progress Log
+Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
+---
+
+## Codebase Patterns
+- Todo o código fica em `packages/issue-flow/` (monorepo). Rodar `npm run check` e `npm test` SEMPRE de dentro desse diretório, não da raiz.
+- Testes ficam ao lado do código como `*.test.ts` (vitest `include: ['src/**/*.test.ts']`), nunca em um diretório `tests/`.
+- Imports internos usam extensão `.js` (ESM + `moduleResolution: bundler`): `import { x } from './hash.js'`.
+- Biome: aspas simples, `trailingCommas: all`, `lineWidth: 100`, indent 2 espaços, `useNodejsImportProtocol` obrigatório (`node:crypto`, não `crypto`).
+- `tsconfig.json` exclui `**/*.test.ts` do typecheck; erros de tipo em testes só aparecem ao rodar `vitest`.
+- Código e comentários em inglês; comunicação com o usuário e este log em pt-BR.
+- Nunca usar caractere NUL literal em arquivo fonte — o arquivo vira binário para grep/git. Preferir payload canônico (JSON.stringify) quando precisar de separador inequívoco.
+- Zod v4 é a versão em uso; `satisfies z.ZodType<T>` é o padrão do repo para manter schema e interface em sincronia (ver `sessionSnapshotSchema` em `src/schemas.ts`).
+- Comandos git: rodar com `git -C <raiz-do-repo>` — o cwd do shell tende a ficar em `packages/issue-flow`.
+
+---
+
+## 2026-08-03 18:36 - US-001
+- Implementado o modelo de domínio agnóstico de origem e o hash de conteúdo compartilhado entre providers.
+- Arquivos criados:
+  - `packages/issue-flow/src/issues/types.ts` — `IssueSource`, `IssueState`, `Issue`, `IssueDraft`, `ResolvedIssue`.
+  - `packages/issue-flow/src/issues/hash.ts` — `hashIssueContent(title, body)` retornando `sha256:<hex>`.
+  - `packages/issue-flow/src/issues/hash.test.ts` — 10 testes.
+- Quality checks: `npm run check` (biome + tsc) e `npm test` (179 testes, 15 arquivos) passando.
+- **Learnings for future iterations:**
+  - `ResolvedIssue` foi definido como `{ issue, source, local, github, divergent }` — o PRD não especifica os campos, só o retorno de `resolveIssue`. US-007 deve consumir exatamente esse shape (ou ajustá-lo junto com os consumidores).
+  - `hashIssueContent` hasheia `JSON.stringify({ title, body })` normalizados (CRLF/CR → LF + trim). Há um teste com digest fixado (`Hello`/`World` → `sha256:ea4dd410...`): se ele quebrar, o contrato de hash mudou e todo `contentHash` gravado em `issues/*/metadata.json` fica inválido — mudar de propósito ou não mudar.
+  - `IssueDraft.labels` é obrigatório (`string[]`), não opcional — quem constrói draft deve passar `[]`.
+  - `Issue.number` é `number | null` desde já, para IDs locais não numéricos (relevante em US-010, que publica `issue.number` como `null` no `session.json`).
+---
