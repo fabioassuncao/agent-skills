@@ -1,7 +1,14 @@
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
-import { setWebCliOverrides } from './config.js';
+import { resolveNoBranch } from './cli-options.js';
+import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
 import { setGlobalTimeout, setVerbose } from './core/verbose.js';
+import {
+  IssueFlagError,
+  resolveGenerateTarget,
+  resolveIssuesOverrides,
+} from './issues/cli-flags.js';
+import type { IssueGenerateTarget } from './issues/types.js';
 import type { WebConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
 
@@ -49,6 +56,22 @@ function withWebOptions(cmd: Command): Command {
 }
 
 /**
+ * Add the Issue provider options to a subcommand.
+ *
+ * Declared once here (like withWebOptions) so no command repeats the flag
+ * list; the preAction hook below turns them into config overrides, and
+ * loadIssuesConfig() applies the flag > .issue-flow.json > defaults precedence.
+ */
+function withIssueOptions(cmd: Command): Command {
+  return cmd
+    .option('--local', 'Prefer the local file Issue provider')
+    .option('--github', 'Prefer the GitHub Issue provider')
+    .option('--prefer-local', 'On divergence, use the local version without asking')
+    .option('--prefer-github', 'On divergence, use the GitHub version without asking')
+    .option('--ask', 'On divergence, ask which version to use (interactive only)');
+}
+
+/**
  * Extract the web-related CLI flags from a command's options, keeping only
  * the ones the user actually set.
  */
@@ -93,14 +116,27 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
     setGlobalTimeout(opts.timeout * 1000);
   }
   setWebCliOverrides(resolveWebOverrides(opts));
+  try {
+    setIssuesCliOverrides(resolveIssuesOverrides(opts));
+  } catch (error) {
+    if (error instanceof IssueFlagError) {
+      printError(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
 });
 
 // ── init ────────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program.command('init').description('Verify that all prerequisites (claude, gh, git) are met'),
+withIssueOptions(
+  withGlobalOptions(
+    program.command('init').description('Verify that all prerequisites (claude, gh, git) are met'),
+  ),
 ).action(async () => {
+  const { loadIssuesConfig } = await import('./config.js');
   const { runInit } = await import('./commands/init.js');
-  const code = await runInit();
+  const { preferredProvider } = await loadIssuesConfig();
+  const code = await runInit(preferredProvider);
   process.exit(code);
 });
 
@@ -108,37 +144,58 @@ withGlobalOptions(
 withGlobalOptions(
   program
     .command('generate')
-    .description('Create a GitHub issue via Claude Code Headless')
-    .requiredOption('--prompt <text>', 'Issue description text'),
-).action(async (options: { prompt: string }) => {
+    .description('Draft an issue via Claude Code Headless and create it')
+    .requiredOption('--prompt <text>', 'Issue description text')
+    .option('--github', 'Create the issue on GitHub')
+    .option('--local', 'Create the issue under issues/<n>/ only')
+    .option('--both', 'Create the issue on GitHub and mirror it locally'),
+).action(async (options: { prompt: string; github?: boolean; local?: boolean; both?: boolean }) => {
+  let target: IssueGenerateTarget | undefined;
+  try {
+    target = resolveGenerateTarget(options);
+  } catch (error) {
+    if (error instanceof IssueFlagError) {
+      printError(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
+
   const { runGenerate } = await import('./commands/generate.js');
-  const code = await runGenerate(options.prompt);
+  const code = await runGenerate(options.prompt, target);
   process.exit(code);
 });
 
 // ── run ─────────────────────────────────────────────────────────────────────
 withWebOptions(
-  withGlobalOptions(
-    program
-      .command('run')
-      .description('Execute the full pipeline: prd → plan → execute → review → pr')
-      .argument('<issue>', 'Issue number')
-      .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
-      .option('--from <phase>', 'Resume from a specific phase')
-      .option('--no-branch', 'Run pipeline on current branch without creating a new branch or PR'),
+  withIssueOptions(
+    withGlobalOptions(
+      program
+        .command('run')
+        .description('Execute the full pipeline: prd → plan → execute → review → pr')
+        .argument('<issue>', 'Issue number')
+        .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
+        .option('--from <phase>', 'Resume from a specific phase')
+        .option(
+          '--no-branch',
+          'Run pipeline on current branch without creating a new branch or PR',
+        ),
+    ),
   ),
-).action(async (issue: string, options: { mode: string; from?: string; noBranch?: boolean }) => {
+).action(async (issue: string, options: { mode: string; from?: string; branch?: boolean }) => {
   const { runPipeline } = await import('./commands/run.js');
-  const code = await runPipeline(issue, options.mode, options.from, options.noBranch);
+  const code = await runPipeline(issue, options.mode, options.from, resolveNoBranch(options));
   process.exit(code);
 });
 
 // ── analyze ─────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program
-    .command('analyze')
-    .description('Analyze a GitHub issue via Claude Code Headless')
-    .argument('<issue>', 'Issue number'),
+withIssueOptions(
+  withGlobalOptions(
+    program
+      .command('analyze')
+      .description('Analyze an issue via Claude Code Headless')
+      .argument('<issue>', 'Issue number'),
+  ),
 ).action(async (issue: string) => {
   const { runAnalyze } = await import('./commands/analyze.js');
   const code = await runAnalyze(issue);
@@ -146,11 +203,13 @@ withGlobalOptions(
 });
 
 // ── prd ─────────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program
-    .command('prd')
-    .description('Generate a PRD from an analyzed issue via Claude Code Headless')
-    .argument('<issue>', 'Issue number'),
+withIssueOptions(
+  withGlobalOptions(
+    program
+      .command('prd')
+      .description('Generate a PRD from an analyzed issue via Claude Code Headless')
+      .argument('<issue>', 'Issue number'),
+  ),
 ).action(async (issue: string) => {
   const { runPrd } = await import('./commands/prd.js');
   const code = await runPrd(issue);
@@ -158,11 +217,13 @@ withGlobalOptions(
 });
 
 // ── plan ────────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program
-    .command('plan')
-    .description('Convert a PRD to a tasks.json task plan via Claude Code Headless')
-    .argument('<issue>', 'Issue number'),
+withIssueOptions(
+  withGlobalOptions(
+    program
+      .command('plan')
+      .description('Convert a PRD to a tasks.json task plan via Claude Code Headless')
+      .argument('<issue>', 'Issue number'),
+  ),
 ).action(async (issue: string) => {
   const { runPlan } = await import('./commands/plan.js');
   const code = await runPlan(issue);
@@ -211,11 +272,13 @@ withWebOptions(
 );
 
 // ── review ──────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program
-    .command('review')
-    .description('Validate an issue resolution via Claude Code Headless')
-    .argument('<issue>', 'Issue number'),
+withIssueOptions(
+  withGlobalOptions(
+    program
+      .command('review')
+      .description('Validate an issue resolution via Claude Code Headless')
+      .argument('<issue>', 'Issue number'),
+  ),
 ).action(async (issue: string) => {
   const { runReview } = await import('./commands/review.js');
   const code = await runReview(issue);
@@ -223,11 +286,13 @@ withGlobalOptions(
 });
 
 // ── pr ──────────────────────────────────────────────────────────────────────
-withGlobalOptions(
-  program
-    .command('pr')
-    .description('Create a pull request via Claude Code Headless')
-    .argument('<issue>', 'Issue number'),
+withIssueOptions(
+  withGlobalOptions(
+    program
+      .command('pr')
+      .description('Create a pull request via Claude Code Headless')
+      .argument('<issue>', 'Issue number'),
+  ),
 ).action(async (issue: string) => {
   const { runPr } = await import('./commands/pr.js');
   const code = await runPr(issue);

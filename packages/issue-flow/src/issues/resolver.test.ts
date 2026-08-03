@@ -1,0 +1,505 @@
+import { PassThrough, Writable } from 'node:stream';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { hashIssueContent } from './hash.js';
+import type { IssueProvider } from './provider.js';
+import { clearProviders, registerProvider } from './registry.js';
+import { IssueResolutionError, resolveIssue } from './resolver.js';
+import type { Issue, IssueSource, IssuesConfig } from './types.js';
+
+const BOTH: IssueSource[] = ['local', 'github'];
+
+function makeIssue(source: IssueSource, title: string, body: string): Issue {
+  return {
+    id: '23',
+    number: 23,
+    title,
+    body,
+    labels: ['enhancement'],
+    state: 'open',
+    source,
+    remoteRef: source === 'github' ? 'https://github.com/acme/repo/issues/23' : null,
+    createdAt: '2026-08-01T10:00:00Z',
+    updatedAt: source === 'github' ? '2026-08-02T10:00:00Z' : '2026-08-03T10:00:00Z',
+    contentHash: hashIssueContent(title, body),
+  };
+}
+
+interface FakeOptions {
+  issue?: Issue | null;
+  available?: boolean;
+  getError?: Error;
+}
+
+function fakeProvider(name: IssueSource, options: FakeOptions = {}): IssueProvider {
+  return {
+    name,
+    isAvailable: async () => options.available ?? true,
+    get: async () => {
+      if (options.getError) {
+        throw options.getError;
+      }
+      return options.issue ?? null;
+    },
+    create: async () => {
+      throw new Error('not implemented');
+    },
+  };
+}
+
+function makeConfig(overrides: Partial<IssuesConfig> = {}): IssuesConfig {
+  return {
+    defaultGenerateTarget: 'github',
+    preferredProvider: 'github',
+    conflictPolicy: 'ask',
+    requireConfirmation: true,
+    ...overrides,
+  };
+}
+
+/** Discards everything readline writes while prompting. */
+function sinkStream(): Writable {
+  return new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+}
+
+describe('resolveIssue', () => {
+  let info: ReturnType<typeof vi.fn>;
+  let warn: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    clearProviders();
+    info = vi.fn();
+    warn = vi.fn();
+  });
+
+  describe('single origin', () => {
+    it('uses the local Issue when only local has it', async () => {
+      const local = makeIssue('local', 'Local title', 'Local body');
+      registerProvider(fakeProvider('local', { issue: local }));
+      registerProvider(fakeProvider('github'));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig(),
+        sources: BOTH,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('local');
+      expect(resolved.issue).toBe(local);
+      expect(resolved.github).toBeNull();
+      expect(resolved.divergent).toBe(false);
+    });
+
+    it('uses the GitHub Issue when only GitHub has it, even if local is preferred', async () => {
+      const github = makeIssue('github', 'Remote title', 'Remote body');
+      registerProvider(fakeProvider('local'));
+      registerProvider(fakeProvider('github', { issue: github }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ preferredProvider: 'local' }),
+        sources: BOTH,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('github');
+      expect(resolved.issue).toBe(github);
+      expect(resolved.local).toBeNull();
+      expect(resolved.divergent).toBe(false);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('skips an unavailable provider instead of failing', async () => {
+      const local = makeIssue('local', 'Local title', 'Local body');
+      registerProvider(fakeProvider('local', { issue: local }));
+      registerProvider(fakeProvider('github', { available: false }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig(),
+        sources: BOTH,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('local');
+    });
+
+    it('warns and continues when one origin fails but the other answers', async () => {
+      const local = makeIssue('local', 'Local title', 'Local body');
+      registerProvider(fakeProvider('local', { issue: local }));
+      registerProvider(fakeProvider('github', { getError: new Error('network unreachable') }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig(),
+        sources: BOTH,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('local');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('network unreachable'));
+    });
+  });
+
+  describe('no origin', () => {
+    it('throws IssueResolutionError with a non-zero exit code', async () => {
+      registerProvider(fakeProvider('local'));
+      registerProvider(fakeProvider('github'));
+
+      const error = await resolveIssue('23', {
+        config: makeConfig(),
+        sources: BOTH,
+        info,
+        warn,
+      }).catch((err) => err);
+
+      expect(error).toBeInstanceOf(IssueResolutionError);
+      expect((error as IssueResolutionError).exitCode).toBe(1);
+      expect((error as IssueResolutionError).message).toContain("Issue '23' not found");
+    });
+
+    it('reports why each origin produced nothing', async () => {
+      registerProvider(fakeProvider('local'));
+      registerProvider(fakeProvider('github', { getError: new Error('gh auth required') }));
+
+      const error = await resolveIssue('23', {
+        config: makeConfig(),
+        sources: BOTH,
+        info,
+        warn,
+      }).catch((err) => err as IssueResolutionError);
+
+      expect((error as IssueResolutionError).message).toContain('gh auth required');
+      expect((error as IssueResolutionError).message).toContain('local: not found');
+    });
+  });
+
+  describe('both origins with identical content', () => {
+    beforeEach(() => {
+      registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Same', 'Same body') }));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Same', 'Same body') }));
+    });
+
+    it('reports the equivalence and follows the preferred provider', async () => {
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ preferredProvider: 'github' }),
+        sources: BOTH,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('github');
+      expect(resolved.divergent).toBe(false);
+      expect(info).toHaveBeenCalledWith(expect.stringContaining('identical content'));
+    });
+
+    it('never prompts, even with conflictPolicy ask on a TTY', async () => {
+      const stdin = new PassThrough();
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ preferredProvider: 'local', conflictPolicy: 'ask' }),
+        sources: BOTH,
+        interactive: true,
+        stdin,
+        stdout: sinkStream(),
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('local');
+      expect(resolved.divergent).toBe(false);
+    });
+  });
+
+  describe('both origins with divergent content', () => {
+    beforeEach(() => {
+      registerProvider(
+        fakeProvider('local', { issue: makeIssue('local', 'Local title', 'Local body') }),
+      );
+      registerProvider(
+        fakeProvider('github', { issue: makeIssue('github', 'Remote title', 'Remote body') }),
+      );
+    });
+
+    it('reports the divergence with both versions', async () => {
+      await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'prefer-github' }),
+        sources: BOTH,
+        info,
+        warn,
+      });
+
+      const reported = info.mock.calls.map((call) => call[0] as string).join('\n');
+      expect(reported).toContain('differs between origins');
+      expect(reported).toContain('Local title');
+      expect(reported).toContain('Remote title');
+    });
+
+    it('prefer-local uses the local version without prompting', async () => {
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'prefer-local' }),
+        sources: BOTH,
+        interactive: true,
+        stdin: new PassThrough(),
+        stdout: sinkStream(),
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('local');
+      expect(resolved.divergent).toBe(true);
+    });
+
+    it('prefer-github uses the remote version without prompting', async () => {
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'prefer-github', preferredProvider: 'local' }),
+        sources: BOTH,
+        interactive: true,
+        stdin: new PassThrough(),
+        stdout: sinkStream(),
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('github');
+      expect(resolved.divergent).toBe(true);
+    });
+
+    it('falls back to the preferred provider outside a TTY, with a warning', async () => {
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'ask', preferredProvider: 'github' }),
+        sources: BOTH,
+        interactive: false,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('github');
+      expect(resolved.divergent).toBe(true);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('non-interactive'));
+    });
+
+    it('honours preferredProvider local in a non-interactive environment', async () => {
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'ask', preferredProvider: 'local' }),
+        sources: BOTH,
+        interactive: false,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('local');
+    });
+
+    describe('interactive prompt', () => {
+      function answer(...lines: string[]): PassThrough {
+        const stdin = new PassThrough();
+        for (const line of lines) {
+          stdin.write(`${line}\n`);
+        }
+        return stdin;
+      }
+
+      it('option 1 selects the local version', async () => {
+        const resolved = await resolveIssue('23', {
+          config: makeConfig({ conflictPolicy: 'ask' }),
+          sources: BOTH,
+          interactive: true,
+          stdin: answer('1'),
+          stdout: sinkStream(),
+          info,
+          warn,
+        });
+
+        expect(resolved.source).toBe('local');
+        expect(resolved.divergent).toBe(true);
+      });
+
+      it('option 2 selects the GitHub version', async () => {
+        const resolved = await resolveIssue('23', {
+          config: makeConfig({ conflictPolicy: 'ask', preferredProvider: 'local' }),
+          sources: BOTH,
+          interactive: true,
+          stdin: answer('2'),
+          stdout: sinkStream(),
+          info,
+          warn,
+        });
+
+        expect(resolved.source).toBe('github');
+      });
+
+      it('option 3 cancels with a non-zero exit code', async () => {
+        const error = await resolveIssue('23', {
+          config: makeConfig({ conflictPolicy: 'ask' }),
+          sources: BOTH,
+          interactive: true,
+          stdin: answer('3'),
+          stdout: sinkStream(),
+          info,
+          warn,
+        }).catch((err) => err as IssueResolutionError);
+
+        expect(error).toBeInstanceOf(IssueResolutionError);
+        expect((error as IssueResolutionError).exitCode).not.toBe(0);
+        expect((error as IssueResolutionError).message).toContain('Cancelled');
+      });
+
+      it('re-asks after an invalid answer', async () => {
+        const stdin = new PassThrough();
+        const retryWarn = vi.fn((message: string) => {
+          if (message.includes('Invalid choice')) {
+            stdin.write('2\n');
+          }
+        });
+        stdin.write('x\n');
+
+        const resolved = await resolveIssue('23', {
+          config: makeConfig({ conflictPolicy: 'ask' }),
+          sources: BOTH,
+          interactive: true,
+          stdin,
+          stdout: sinkStream(),
+          info,
+          warn: retryWarn,
+        });
+
+        expect(resolved.source).toBe('github');
+        expect(retryWarn).toHaveBeenCalledWith(expect.stringContaining('Invalid choice'));
+      });
+
+      it('cancels when stdin closes without an answer', async () => {
+        const stdin = new PassThrough();
+        stdin.end();
+
+        const error = await resolveIssue('23', {
+          config: makeConfig({ conflictPolicy: 'ask' }),
+          sources: BOTH,
+          interactive: true,
+          stdin,
+          stdout: sinkStream(),
+          info,
+          warn,
+        }).catch((err) => err as IssueResolutionError);
+
+        expect(error).toBeInstanceOf(IssueResolutionError);
+        expect((error as IssueResolutionError).message).toContain('Cancelled');
+      });
+    });
+  });
+
+  /**
+   * The matrix is written against the origins that answered, not against the
+   * two built-in ones, so a provider registered from outside takes part in it
+   * like any other.
+   */
+  describe('origins beyond the built-in two', () => {
+    const THREE: IssueSource[] = ['local', 'github', 'memory'];
+
+    it('uses a third origin when it is the only one with the Issue', async () => {
+      const memory = makeIssue('memory', 'From memory', 'Body');
+      registerProvider(fakeProvider('local'));
+      registerProvider(fakeProvider('github'));
+      registerProvider(fakeProvider('memory', { issue: memory }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig(),
+        sources: THREE,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('memory');
+      expect(resolved.issue).toBe(memory);
+      expect(resolved.divergent).toBe(false);
+    });
+
+    it('reports every divergent origin, not just local and GitHub', async () => {
+      registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Local', 'A') }));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Remote', 'B') }));
+      registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Memory', 'C') }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'prefer-github' }),
+        sources: THREE,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('github');
+      const reported = info.mock.calls.map((call) => call[0] as string).join('\n');
+      expect(reported).toContain('Memory');
+    });
+
+    it('the prompt numbers every origin that answered', async () => {
+      registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Local', 'A') }));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Remote', 'B') }));
+      registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Memory', 'C') }));
+
+      const asked: string[] = [];
+      const stdout = new Writable({
+        write(chunk, _encoding, callback) {
+          asked.push(String(chunk));
+          callback();
+        },
+      });
+      const stdin = new PassThrough();
+      stdin.write('3\n');
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'ask' }),
+        sources: THREE,
+        interactive: true,
+        stdin,
+        stdout,
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('memory');
+      expect(asked.join('')).toContain('[3] Memory  [4] Cancel');
+    });
+
+    it('warns when the conflict policy names an origin that has no version', async () => {
+      registerProvider(fakeProvider('local'));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Remote', 'B') }));
+      registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Memory', 'C') }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'prefer-local', preferredProvider: 'github' }),
+        sources: THREE,
+        info,
+        warn,
+      });
+
+      // Silently picking under the name of an origin that has nothing would be
+      // the one thing the resolver must never do.
+      expect(resolved.source).toBe('github');
+      expect(resolved.divergent).toBe(true);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('does not apply'));
+    });
+
+    it('identical content across three origins never prompts', async () => {
+      registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Same', 'Body') }));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Same', 'Body') }));
+      registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Same', 'Body') }));
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ preferredProvider: 'local', conflictPolicy: 'ask' }),
+        sources: THREE,
+        interactive: true,
+        stdin: new PassThrough(),
+        stdout: sinkStream(),
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('local');
+      expect(resolved.divergent).toBe(false);
+      expect(info).toHaveBeenCalledWith(expect.stringContaining('local, GitHub and memory'));
+    });
+  });
+});

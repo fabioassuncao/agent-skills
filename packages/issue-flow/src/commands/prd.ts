@@ -5,13 +5,20 @@ import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
+import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
+import type { ResolvedIssue } from '../issues/types.js';
 import { printError, printSuccess } from '../ui/logger.js';
 import { isTransientFailure } from '../utils/retry.js';
 
-export async function runPrd(issue: string): Promise<number> {
+export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   const issueDir = join('issues', issueNumber);
   const prdPath = join(issueDir, 'prd.md');
+
+  const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
+  if (!resolution.ok) {
+    return resolution.code;
+  }
 
   await mkdir(issueDir, { recursive: true });
 
@@ -19,6 +26,7 @@ export async function runPrd(issue: string): Promise<number> {
   const prompt = applyPlaceholders(template, {
     __ISSUE_NUMBER__: issueNumber,
     __PRD_PATH__: prdPath,
+    ...issuePlaceholders(resolution.resolved),
   });
 
   const outcome = await runPhaseWithRetry({

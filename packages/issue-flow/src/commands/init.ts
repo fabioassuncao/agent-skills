@@ -1,7 +1,12 @@
 import { execa } from 'execa';
-import { printError, printInfo, printSuccess } from '../ui/logger.js';
+import type { IssueSource } from '../issues/types.js';
+import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
+
+/** Stable identifier of a check, used to decide whether it blocks. */
+type CheckKey = 'claude' | 'gh' | 'git';
 
 interface CheckResult {
+  key: CheckKey;
   name: string;
   passed: boolean;
   detail: string;
@@ -13,9 +18,10 @@ async function checkClaude(): Promise<CheckResult> {
     const proc = await execa('claude', ['--version'], { reject: false, timeout: 10_000 });
     if (proc.exitCode === 0) {
       const version = proc.stdout?.toString().trim() ?? 'unknown';
-      return { name: 'claude CLI', passed: true, detail: version };
+      return { key: 'claude', name: 'claude CLI', passed: true, detail: version };
     }
     return {
+      key: 'claude',
       name: 'claude CLI',
       passed: false,
       detail: 'claude command failed',
@@ -23,6 +29,7 @@ async function checkClaude(): Promise<CheckResult> {
     };
   } catch {
     return {
+      key: 'claude',
       name: 'claude CLI',
       passed: false,
       detail: 'claude not found',
@@ -36,6 +43,7 @@ async function checkGh(): Promise<CheckResult> {
     const proc = await execa('gh', ['--version'], { reject: false, timeout: 10_000 });
     if (proc.exitCode !== 0) {
       return {
+        key: 'gh',
         name: 'gh CLI',
         passed: false,
         detail: 'gh command failed',
@@ -48,15 +56,17 @@ async function checkGh(): Promise<CheckResult> {
     const auth = await execa('gh', ['auth', 'status'], { reject: false, timeout: 10_000 });
     if (auth.exitCode !== 0) {
       return {
+        key: 'gh',
         name: 'gh CLI',
         passed: false,
         detail: `${version} (not authenticated)`,
         hint: 'Run: gh auth login',
       };
     }
-    return { name: 'gh CLI', passed: true, detail: `${version} (authenticated)` };
+    return { key: 'gh', name: 'gh CLI', passed: true, detail: `${version} (authenticated)` };
   } catch {
     return {
+      key: 'gh',
       name: 'gh CLI',
       passed: false,
       detail: 'gh not found',
@@ -70,6 +80,7 @@ async function checkGit(): Promise<CheckResult> {
     const proc = await execa('git', ['--version'], { reject: false, timeout: 10_000 });
     if (proc.exitCode !== 0) {
       return {
+        key: 'git',
         name: 'git',
         passed: false,
         detail: 'git command failed',
@@ -85,15 +96,17 @@ async function checkGit(): Promise<CheckResult> {
     });
     if (repo.exitCode !== 0) {
       return {
+        key: 'git',
         name: 'git',
         passed: false,
         detail: `${version} (not a git repository)`,
         hint: 'Run this command inside a git repository',
       };
     }
-    return { name: 'git', passed: true, detail: `${version} (inside repo)` };
+    return { key: 'git', name: 'git', passed: true, detail: `${version} (inside repo)` };
   } catch {
     return {
+      key: 'git',
       name: 'git',
       passed: false,
       detail: 'git not found',
@@ -102,23 +115,35 @@ async function checkGit(): Promise<CheckResult> {
   }
 }
 
-export async function runInit(): Promise<number> {
+/**
+ * Verify the prerequisites of the pipeline.
+ *
+ * `source` is the Issue origin the run is headed for. `gh` only blocks when
+ * that origin is GitHub: no other origin shells out to it, so a missing or
+ * unauthenticated gh is reported as a warning instead of failing the
+ * environment. `claude` and `git` stay blocking for every origin, and the
+ * default ('github') keeps the previous behaviour byte for byte.
+ */
+export async function runInit(source: IssueSource = 'github'): Promise<number> {
   printInfo('Checking prerequisites...\n');
 
   const results = await Promise.all([checkClaude(), checkGh(), checkGit()]);
+  const isBlocking = (r: CheckResult): boolean => r.key !== 'gh' || source === 'github';
 
   for (const r of results) {
     if (r.passed) {
       printSuccess(`${r.name}: ${r.detail}`);
-    } else {
+    } else if (isBlocking(r)) {
       printError(`${r.name}: ${r.detail}`);
       if (r.hint) {
         console.log(`    ${r.hint}`);
       }
+    } else {
+      printWarning(`${r.name}: ${r.detail} (not required for ${source} issues)`);
     }
   }
 
-  const allPassed = results.every((r) => r.passed);
+  const allPassed = results.filter(isBlocking).every((r) => r.passed);
   console.log('');
   if (allPassed) {
     printSuccess('All prerequisites met. Ready to run the pipeline.');

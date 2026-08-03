@@ -1,0 +1,390 @@
+import { constants } from 'node:fs';
+import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { ZodError } from 'zod';
+import { isoNow } from '../../core/state-manager.js';
+import { issueMetadataSchema } from '../../schemas.js';
+import { writeFileAtomic } from '../../utils/fs.js';
+import { getProjectRoot } from '../../utils/git.js';
+import { run } from '../../utils/shell.js';
+import { hashIssueContent } from '../hash.js';
+import type { IssueProvider } from '../provider.js';
+import type { Issue, IssueDraft, IssueMetadata } from '../types.js';
+
+/** Directory (relative to the project root) holding one folder per Issue. */
+const ISSUES_DIR = 'issues';
+
+/** Timeout for the optional remote probes done while allocating an identifier. */
+const REMOTE_PROBE_TIMEOUT_MS = 10_000;
+
+function isNotFound(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+/**
+ * Identifiers become path segments, so anything that could escape the issues
+ * directory is rejected before it reaches `join`.
+ */
+function normalizeId(id: string): string {
+  const normalized = id.trim().replace(/^#/, '');
+  if (normalized.length === 0) {
+    throw new Error('Local issue identifier cannot be empty');
+  }
+  if (/[/\\]/.test(normalized) || normalized === '.' || normalized === '..') {
+    throw new Error(`Invalid local issue identifier: '${id}'`);
+  }
+  return normalized;
+}
+
+function toNumber(id: string): number | null {
+  return /^\d+$/.test(id) ? Number.parseInt(id, 10) : null;
+}
+
+/**
+ * Title lives in the leading H1, body is everything after it.
+ *
+ * Only the first non-empty line is considered: an H1 further down belongs to
+ * the body (issue descriptions routinely use headings), so promoting it would
+ * silently retitle the Issue.
+ */
+export function parseIssueMarkdown(content: string): { title: string; body: string } {
+  const lines = content.replace(/\r\n?/g, '\n').split('\n');
+  const headingIndex = lines.findIndex((line) => line.trim().length > 0);
+  const heading = headingIndex === -1 ? undefined : lines[headingIndex].match(/^#[ \t]+(.*)$/);
+
+  if (!heading) {
+    return { title: '', body: lines.join('\n').trim() };
+  }
+
+  return {
+    title: heading[1].trim(),
+    body: lines
+      .slice(headingIndex + 1)
+      .join('\n')
+      .trim(),
+  };
+}
+
+function renderIssueMarkdown(title: string, body: string): string {
+  return `# ${title}\n\n${body.trim()}\n`;
+}
+
+/**
+ * Issue provider backed by plain files under `issues/<id>/`.
+ *
+ * Enables the whole pipeline without any network access: no gh, no remote, no
+ * authentication. `issue.md` is the source of truth for the content and
+ * `metadata.json` for everything else; the content hash is always recomputed
+ * from the file so a hand-edited issue.md is never reported as unchanged.
+ */
+export class LocalFileIssueProvider implements IssueProvider {
+  readonly name = 'local' as const;
+
+  private readonly configuredRoot?: string;
+  private cachedRoot?: string;
+
+  constructor(projectRoot?: string) {
+    this.configuredRoot = projectRoot;
+  }
+
+  /** True whenever the project directory exists and is writable. Never throws. */
+  async isAvailable(): Promise<boolean> {
+    try {
+      await access(await this.root(), constants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async get(id: string): Promise<Issue | null> {
+    const issueId = normalizeId(id);
+    const markdownPath = await this.issueFile(issueId);
+
+    let raw: string;
+    try {
+      raw = await readFile(markdownPath, 'utf-8');
+    } catch (err: unknown) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
+
+    const { title: headingTitle, body } = parseIssueMarkdown(raw);
+    const metadata = await this.readMetadata(issueId);
+    const title = headingTitle || metadata?.title || '';
+
+    if (metadata) {
+      return {
+        id: metadata.id,
+        number: metadata.number,
+        title,
+        body,
+        labels: metadata.labels,
+        state: metadata.state,
+        source: 'local',
+        remoteRef: metadata.remote?.ref ?? null,
+        createdAt: metadata.createdAt,
+        updatedAt: metadata.updatedAt,
+        contentHash: hashIssueContent(title, body),
+        raw: metadata,
+      };
+    }
+
+    // metadata.json is optional: an issue.md dropped in by hand still works,
+    // with timestamps taken from the file itself.
+    const stats = await stat(markdownPath);
+    return {
+      id: issueId,
+      number: toNumber(issueId),
+      title,
+      body,
+      labels: [],
+      state: 'open',
+      source: 'local',
+      remoteRef: null,
+      createdAt: stats.birthtime.toISOString(),
+      updatedAt: stats.mtime.toISOString(),
+      contentHash: hashIssueContent(title, body),
+    };
+  }
+
+  async create(draft: IssueDraft): Promise<Issue> {
+    // An explicit id is how a mirror keeps the identifier of the Issue it
+    // mirrors: allocating a fresh one would make `issue-flow run <n>` see two
+    // unrelated Issues instead of one demand in two places.
+    const id = draft.id === undefined ? String(await this.allocateNumber()) : normalizeId(draft.id);
+    const dir = await this.issueDir(id);
+
+    await mkdir(dir, { recursive: true });
+
+    // Exclusive create (the 'wx' flag, O_EXCL under the hood) instead of a
+    // check-then-write: two concurrent `create()` calls racing the same id
+    // would both pass a plain existence check before either writes, and the
+    // second would then silently overwrite the first through the atomic
+    // temp+rename writer. The OS now rejects the loser instead.
+    try {
+      await writeFile(join(dir, 'issue.md'), renderIssueMarkdown(draft.title, draft.body), {
+        encoding: 'utf-8',
+        flag: 'wx',
+      });
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new Error(
+          `Local issue '${id}' already exists at ${join(ISSUES_DIR, id, 'issue.md')}. ` +
+            'Remove it or pick another identifier before creating a new Issue.',
+        );
+      }
+      throw err;
+    }
+
+    const timestamp = isoNow();
+    const metadata: IssueMetadata = {
+      schemaVersion: 1,
+      id,
+      number: toNumber(id),
+      source: 'local',
+      title: draft.title,
+      labels: draft.labels,
+      state: 'open',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      contentHash: hashIssueContent(draft.title, draft.body),
+      ...(draft.remote ? { remote: draft.remote } : {}),
+    };
+
+    await this.writeMetadata(id, metadata);
+
+    return {
+      id,
+      number: metadata.number,
+      title: draft.title,
+      body: draft.body.trim(),
+      labels: draft.labels,
+      state: 'open',
+      source: 'local',
+      remoteRef: draft.remote?.ref ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      contentHash: metadata.contentHash,
+      raw: metadata,
+    };
+  }
+
+  async close(id: string): Promise<void> {
+    const issue = await this.get(id);
+    if (!issue) {
+      throw new Error(`Local issue '${normalizeId(id)}' not found under ${ISSUES_DIR}/`);
+    }
+
+    const issueId = normalizeId(id);
+    const existing = await this.readMetadata(issueId);
+
+    await this.writeMetadata(issueId, {
+      schemaVersion: 1,
+      id: issue.id,
+      number: issue.number,
+      source: existing?.source ?? 'local',
+      title: issue.title,
+      labels: issue.labels,
+      state: 'closed',
+      createdAt: issue.createdAt,
+      updatedAt: isoNow(),
+      contentHash: issue.contentHash,
+      ...(existing?.remote ? { remote: existing.remote } : {}),
+    });
+  }
+
+  /**
+   * Next free identifier: above every local number and, when GitHub answers,
+   * above every remote one too. Sharing a numbering space with the remote is
+   * what makes a naive `localMax + 1` collide the moment someone opens an Issue
+   * on GitHub.
+   */
+  async allocateNumber(): Promise<number> {
+    const [local, remote] = await Promise.all([this.highestLocalNumber(), highestRemoteNumber()]);
+    return Math.max(local, remote) + 1;
+  }
+
+  private async root(): Promise<string> {
+    if (this.configuredRoot !== undefined) return this.configuredRoot;
+    this.cachedRoot ??= await getProjectRoot();
+    return this.cachedRoot;
+  }
+
+  private async issueDir(id: string): Promise<string> {
+    return join(await this.root(), ISSUES_DIR, id);
+  }
+
+  private async issueFile(id: string): Promise<string> {
+    return join(await this.issueDir(id), 'issue.md');
+  }
+
+  private async metadataFile(id: string): Promise<string> {
+    return join(await this.issueDir(id), 'metadata.json');
+  }
+
+  /** Parsed metadata.json, or `null` when the file is absent. */
+  private async readMetadata(id: string): Promise<IssueMetadata | null> {
+    const path = await this.metadataFile(id);
+    const relative = join(ISSUES_DIR, id, 'metadata.json');
+
+    let raw: string;
+    try {
+      raw = await readFile(path, 'utf-8');
+    } catch (err: unknown) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err: unknown) {
+      throw new Error(`Invalid JSON in ${relative}: ${(err as Error).message}`);
+    }
+
+    try {
+      return issueMetadataSchema.parse(parsed);
+    } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        const details = err.issues
+          .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+          .join('\n');
+        throw new Error(`Invalid issue metadata at ${relative}:\n${details}`);
+      }
+      throw err;
+    }
+  }
+
+  private async writeMetadata(id: string, metadata: IssueMetadata): Promise<void> {
+    await writeFileAtomic(await this.metadataFile(id), `${JSON.stringify(metadata, null, 2)}\n`);
+  }
+
+  /** Highest number across every issues/<id>/metadata.json and numeric directory name. */
+  private async highestLocalNumber(): Promise<number> {
+    const dir = join(await this.root(), ISSUES_DIR);
+
+    let entries: string[];
+    try {
+      entries = (await readdir(dir, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+    } catch (err: unknown) {
+      if (isNotFound(err)) return 0;
+      throw err;
+    }
+
+    const numbers = await Promise.all(
+      entries.map(async (name) => {
+        const fromName = toNumber(name) ?? 0;
+        // A directory whose metadata is unreadable still occupies its number.
+        const fromMetadata = await this.readMetadata(name)
+          .then((metadata) => metadata?.number ?? 0)
+          .catch(() => 0);
+        return Math.max(fromName, fromMetadata);
+      }),
+    );
+
+    return numbers.reduce((max, value) => Math.max(max, value), 0);
+  }
+}
+
+/** How many of the most-recently-created issues/PRs to inspect per probe. */
+const REMOTE_PROBE_SAMPLE_SIZE = 20;
+
+/**
+ * Highest number already taken on GitHub, or 0 when the remote is unreachable.
+ *
+ * Issues and pull requests share one counter, so both are probed: allocating
+ * above the newest Issue alone would still collide with an open PR. Every
+ * failure degrades to 0 — being offline must not block local creation.
+ *
+ * `gh ... list` defaults to sorting by creation date descending, which lines
+ * up with number order in the overwhelming majority of repos — but that sort
+ * is an implementation detail, not a contract. Rather than trust that the
+ * single most-recent entry is also the highest-numbered one, a small sample
+ * is fetched and the max is taken across it, which also tolerates the rare
+ * case of a transferred issue whose creation date and number disagree.
+ */
+async function highestRemoteNumber(): Promise<number> {
+  const probes = [
+    ['issue', 'list'],
+    ['pr', 'list'],
+  ];
+
+  const results = await Promise.all(
+    probes.map(async (args) => {
+      try {
+        const result = await run(
+          'gh',
+          [
+            ...args,
+            '--state',
+            'all',
+            '--limit',
+            String(REMOTE_PROBE_SAMPLE_SIZE),
+            '--json',
+            'number',
+          ],
+          { timeout: REMOTE_PROBE_TIMEOUT_MS },
+        );
+        if (result.exitCode !== 0) return 0;
+
+        const parsed = JSON.parse(result.stdout);
+        if (!Array.isArray(parsed)) return 0;
+        return parsed.reduce((max: number, entry: unknown) => {
+          const n = (entry as { number?: unknown } | null)?.number;
+          return typeof n === 'number' ? Math.max(max, n) : max;
+        }, 0);
+      } catch {
+        return 0;
+      }
+    }),
+  );
+
+  return results.reduce((max, value) => Math.max(max, value), 0);
+}
+
+/** Shared instance resolving the project root lazily via git. */
+export const localFileIssueProvider = new LocalFileIssueProvider();

@@ -30,7 +30,8 @@ export type SessionEvent =
       type: 'session:start';
       at: string;
       sessionId: string;
-      issueNumber: number;
+      /** `null` for local identifiers that are not numbers. */
+      issueNumber: number | null;
       issueUrl?: string;
       branch?: string;
       baseBranch?: string;

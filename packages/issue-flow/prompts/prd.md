@@ -1,10 +1,23 @@
-You are generating a Product Requirements Document (PRD) for GitHub issue #__ISSUE_NUMBER__ in this repository.
+You are generating a Product Requirements Document (PRD) for issue #__ISSUE_NUMBER__ in this repository.
+
+The issue content is already resolved and given below — do NOT fetch it, and do
+not assume it lives on GitHub.
+
+- Source: __ISSUE_SOURCE__
+- Reference: __ISSUE_URL__
+- Title: __ISSUE_TITLE__
+- Labels: __ISSUE_LABELS__
+
+Issue body:
+
+<issue-body>
+__ISSUE_BODY__
+</issue-body>
 
 Steps:
-1. Fetch the issue data using: gh issue view __ISSUE_NUMBER__ --json title,body,labels,comments
-2. If the file issues/__ISSUE_NUMBER__/analysis.md exists, read it for additional context
-3. Analyze the codebase to understand the context
-4. Generate a structured PRD
+1. If the file issues/__ISSUE_NUMBER__/analysis.md exists, read it for additional context
+2. Analyze the codebase to understand the context
+3. Generate a structured PRD
 
 Save the PRD to __PRD_PATH__ with this structure:
 

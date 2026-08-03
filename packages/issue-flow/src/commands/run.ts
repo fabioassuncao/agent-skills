@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { loadWebConfig } from '../config.js';
+import { loadIssuesConfig, loadWebConfig } from '../config.js';
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASES_NO_BRANCH,
@@ -13,6 +13,8 @@ import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
+import { resolveCommandIssue } from '../issues/context.js';
+import { getProvider } from '../issues/registry.js';
 import { formatDuration, printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { startWebServer, type WebServerHandle } from '../web/server.js';
@@ -22,6 +24,16 @@ import { runPlan } from './plan.js';
 import { runPr } from './pr.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
+
+/**
+ * Numeric form of an identifier, or `null` when the origin uses a non-numeric
+ * one. Published as-is in session.json: a local id like 'auth-refactor' has no
+ * number, and reporting it as 0 would claim an Issue that does not exist.
+ */
+function toIssueNumber(id: string): number | null {
+  const parsed = Number.parseInt(id, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
 
 /** Runnable phase lists (excluding 'init' which is handled separately). */
 const RUNNABLE_PHASES: PipelinePhase[] = ['prd', 'plan', 'execute', 'review', 'pr'];
@@ -83,6 +95,9 @@ async function runPipelinePhases(
   const tasksPath = join(issueDir, 'tasks.json');
   const sessionId = randomUUID();
 
+  // Refined with the provider's own number once the Issue is resolved.
+  let publishedIssueNumber = toIssueNumber(issueNumber);
+
   const publishSessionStart = (
     phases: readonly string[],
     at: string,
@@ -92,7 +107,7 @@ async function runPipelinePhases(
       type: 'session:start',
       at,
       sessionId,
-      issueNumber: Number.parseInt(issueNumber, 10) || 0,
+      issueNumber: publishedIssueNumber,
       issueUrl: info?.issueUrl,
       branch: info?.branch,
       phases: [...phases],
@@ -102,10 +117,14 @@ async function runPipelinePhases(
 
   printInfo(`Starting pipeline for issue #${issueNumber} (mode: ${mode})`);
 
+  // Loaded before the checks so init knows which origin the user is heading
+  // for: with a local one, a missing gh must not fail the environment.
+  const issuesConfig = await loadIssuesConfig();
+
   // Phase 1: Init check
   printInfo('Running prerequisite checks...');
   const sessionStartedAt = isoNow();
-  const initCode = await runInit();
+  const initCode = await runInit(issuesConfig.preferredProvider);
   if (initCode !== 0) {
     publishSessionStart(PIPELINE_PHASES, sessionStartedAt);
     publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
@@ -119,6 +138,16 @@ async function runPipelinePhases(
     printError('Prerequisites not met. Fix the issues above and try again.');
     return 1;
   }
+
+  // The origin is settled once, here, and the decision travels to every phase.
+  // Resolving per phase would query the providers five times and could ask the
+  // user about the same divergence five times.
+  const resolution = await resolveCommandIssue(issueNumber, undefined, { config: issuesConfig });
+  if (!resolution.ok) {
+    return resolution.code;
+  }
+  const resolvedIssue = resolution.resolved;
+  publishedIssueNumber = resolvedIssue.issue.number;
 
   // Resolve noBranch mode: persisted value takes precedence on resume
   let effectiveNoBranch = noBranch ?? false;
@@ -155,7 +184,7 @@ async function runPipelinePhases(
   // The phase list is only known after resolving --no-branch, so the init
   // phase (which already ran) is published retroactively with real timestamps.
   publishSessionStart(activePhases, sessionStartedAt, {
-    issueUrl: planIssueUrl,
+    issueUrl: planIssueUrl ?? resolvedIssue.issue.remoteRef ?? undefined,
     branch: planBranch,
   });
   publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
@@ -221,9 +250,9 @@ async function runPipelinePhases(
   };
 
   const runners: Record<string, () => Promise<void>> = {
-    prd: makeRunner(() => runPrd(issueNumber), 'prd'),
+    prd: makeRunner(() => runPrd(issueNumber, resolvedIssue), 'prd'),
     plan: async () => {
-      await makeRunner(() => runPlan(issueNumber), 'plan')();
+      await makeRunner(() => runPlan(issueNumber, resolvedIssue), 'plan')();
       // Persist noBranch into the newly created tasks.json
       if (effectiveNoBranch) {
         try {
@@ -246,7 +275,7 @@ async function runPipelinePhases(
         /* use default */
       }
 
-      let code = await runReview(issueNumber);
+      let code = await runReview(issueNumber, resolvedIssue);
 
       // Auto-correction loop on failure
       let cycle = 0;
@@ -271,14 +300,14 @@ async function runPipelinePhases(
         }
 
         // Re-review
-        code = await runReview(issueNumber);
+        code = await runReview(issueNumber, resolvedIssue);
       }
 
       if (code !== 0) {
         throw new Error(`Review failed after ${maxCycles} correction cycles`);
       }
     },
-    pr: makeRunner(() => runPr(issueNumber), 'pr'),
+    pr: makeRunner(() => runPr(issueNumber, resolvedIssue), 'pr'),
   };
 
   // Publish phase:start/phase:end around every runner without touching the
@@ -323,17 +352,22 @@ async function runPipelinePhases(
     return 1;
   }
 
-  // Close the issue
-  printInfo('Closing issue...');
+  // Close the issue through whoever owns it. A provider without close() (a
+  // read-only origin) has nothing to do here, so the step is simply skipped.
   try {
-    await execa('gh', ['issue', 'close', issueNumber], { reject: false });
+    const provider = getProvider(resolvedIssue.source);
+    if (provider.close !== undefined) {
+      printInfo('Closing issue...');
+      await provider.close(issueNumber);
+    }
   } catch {
     printWarning('Failed to close issue automatically');
   }
 
-  // Get PR URL for summary (skip in --no-branch mode)
+  // Get PR URL for summary. Only GitHub-hosted Issues have a pull request to
+  // look up, and --no-branch never opens one.
   let prUrl = 'unknown';
-  if (!effectiveNoBranch) {
+  if (!effectiveNoBranch && resolvedIssue.source === 'github') {
     try {
       const proc = await execa(
         'gh',

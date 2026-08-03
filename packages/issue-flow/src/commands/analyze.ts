@@ -4,12 +4,19 @@ import { runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
+import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
+import type { ResolvedIssue } from '../issues/types.js';
 import { printError, printInfo, printSuccess } from '../ui/logger.js';
 
-export async function runAnalyze(issue: string): Promise<number> {
+export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   const issueDir = join('issues', issueNumber);
   const analysisPath = join(issueDir, 'analysis.md');
+
+  const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
+  if (!resolution.ok) {
+    return resolution.code;
+  }
 
   await mkdir(issueDir, { recursive: true });
 
@@ -17,6 +24,9 @@ export async function runAnalyze(issue: string): Promise<number> {
   const prompt = applyPlaceholders(template, {
     __ISSUE_NUMBER__: issueNumber,
     __ANALYSIS_PATH__: analysisPath,
+    // Last: the Issue content is substituted in but never scanned again, so a
+    // body that happens to contain a placeholder is left untouched.
+    ...issuePlaceholders(resolution.resolved),
   });
 
   const result = await runHeadless({

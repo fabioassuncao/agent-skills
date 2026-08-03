@@ -14,6 +14,10 @@ Issue Flow uses a **sub-agent + skills** architecture:
 - Auto-correction loop: review finds issues -> fix -> re-review (up to 3 cycles)
 - Pipeline state tracking enables resumption from any phase
 
+### Issue sources
+
+The issue can live on GitHub or in the repository itself (`issues/<N>/issue.md` + `issues/<N>/metadata.json`). Both `generate-issue` / `generate-local-issue` and the `resolve-issue` sub-agent work with either origin: when `issues/{N}/issue.md` exists, it is the statement to work from and `gh` is not needed. The CLI implements the same idea as a provider layer with conflict resolution -- see [Issue Sources](../README.md#issue-sources-providers) for the file format, the flags, and the `issues` key of `.issue-flow.json`.
+
 ### Skills vs Sub-agent: how they are invoked
 
 Skills and sub-agents are invoked differently in Claude Code:
@@ -34,6 +38,7 @@ Skills and sub-agents are invoked differently in Claude Code:
 |-----------|------|-------------|
 | [`resolve-issue`](../.claude/agents/resolve-issue.md) | **Sub-agent** | Orchestrates the full pipeline end-to-end with mode support and auto-correction loop. |
 | [`generate-issue`](../skills/generate-issue/) | Skill | Generates architect-quality GitHub issues from short instructions with duplicate detection and label management. |
+| [`generate-local-issue`](../skills/generate-local-issue/) | Skill | Generates architect-quality issues as local files (`issues/<N>/issue.md` + `metadata.json`) with no GitHub involved. |
 | [`analyze-issue`](../skills/analyze-issue/) | Skill | Analyzes a GitHub issue to extract context, scope, affected areas, and complexity. Standalone use only -- not part of the default pipeline. |
 | [`generate-prd`](../skills/generate-prd/) | Skill | Generates a structured PRD with user stories, acceptance criteria, and functional requirements. |
 | [`convert-prd-to-json`](../skills/convert-prd-to-json/) | Skill | Converts a PRD markdown file into a structured JSON task plan for autonomous execution. |
@@ -112,6 +117,8 @@ The pipeline can start from a short natural-language request such as "create an 
 - creates the issue with `gh`
 
 Output: a published GitHub issue that is ready to be planned and executed.
+
+With no GitHub access (offline, no remote, or a demand that is not public yet), use `generate-local-issue` instead: it writes `issues/<N>/issue.md` and `issues/<N>/metadata.json`, and the rest of the pipeline is identical.
 </details>
 
 <details>
@@ -181,7 +188,7 @@ Issue Flow has two types of components with different installation methods:
 
 | Component | Type | Portable | Claude Code required |
 |-----------|------|----------|---------------------|
-| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `generate-issue` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
+| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `generate-issue`, `generate-local-issue` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
 | `resolve-issue` (orchestrator) | Sub-agent (`agents/`) | **No** -- exclusive to Claude Code | **Yes** |
 
 ### Full installation (sub-agent + all skills)
@@ -233,6 +240,7 @@ Without the `resolve-issue` sub-agent, each skill can still be used independentl
 | Capability | Available without sub-agent? |
 |-----------|------------------------------|
 | Create issues (`generate-issue`) | Yes |
+| Create local issues (`generate-local-issue`) | Yes |
 | Analyze issues (`analyze-issue`) | Yes |
 | Generate PRDs (`generate-prd`) | Yes |
 | Convert PRD to JSON (`convert-prd-to-json`) | Yes |

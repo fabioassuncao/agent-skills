@@ -1,13 +1,25 @@
-You are reviewing whether GitHub issue #__ISSUE_NUMBER__ has been fully resolved.
+You are reviewing whether issue #__ISSUE_NUMBER__ has been fully resolved.
 
 IMPORTANT: You are running in --orchestrator mode. Do NOT close the issue directly. Only report results.
 
+The issue content is already resolved and given below — do NOT fetch it:
+
+- Source: __ISSUE_SOURCE__
+- Reference: __ISSUE_URL__
+- Title: __ISSUE_TITLE__
+- Labels: __ISSUE_LABELS__
+
+Issue body:
+
+<issue-body>
+__ISSUE_BODY__
+</issue-body>
+
 Steps:
-1. Fetch the issue data using: gh issue view __ISSUE_NUMBER__ --json title,body,labels
-2. Read the task plan from __TASKS_PATH__ to understand what was supposed to be implemented
-3. Analyze the codebase to verify all acceptance criteria are met
-4. Run the project's test suite and typecheck
-5. Check for regressions
+1. Read the task plan from __TASKS_PATH__ to understand what was supposed to be implemented
+2. Analyze the codebase to verify all acceptance criteria are met
+3. Run the project's test suite and typecheck
+4. Check for regressions
 
 At the end, output your result in this exact format:
 

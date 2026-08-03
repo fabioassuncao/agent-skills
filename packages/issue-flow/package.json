@@ -1,6 +1,6 @@
 {
   "name": "issue-flow",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Unified CLI for orchestrating the full issue-flow pipeline via Claude Code Headless",
   "type": "module",
   "bin": {
@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke": "bash scripts/smoke-issue-providers.sh",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
