@@ -147,7 +147,7 @@ export const sessionSnapshotSchema = z.object({
 export const webConfigSchema = z.object({
   enabled: z.boolean().default(false),
   port: z.number().int().min(1).max(65535).default(3737),
-  host: z.string().min(1).default('127.0.0.1'),
+  host: z.string().min(1).default('0.0.0.0'),
   refreshSeconds: z.number().positive().default(5),
   logLimit: z.number().int().positive().default(200),
   includeLogs: z.boolean().default(true),

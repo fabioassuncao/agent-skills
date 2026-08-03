@@ -42,7 +42,7 @@ function withWebOptions(cmd: Command): Command {
     .option('--web', 'Enable the web monitoring server')
     .option('--serve', 'Alias for --web')
     .option('--port <n>', 'Web server port (default: 3737)', parseInteger)
-    .option('--host <h>', 'Web server host (default: 127.0.0.1)')
+    .option('--host <h>', 'Web server host (default: 0.0.0.0)')
     .option('--refresh <s>', 'Suggested UI polling interval in seconds', parseInteger)
     .option('--web-log-limit <n>', 'Max log entries kept in the snapshot', parseInteger)
     .option('--web-no-logs', 'Exclude logs from the published snapshot');

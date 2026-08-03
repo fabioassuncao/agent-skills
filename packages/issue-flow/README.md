@@ -167,11 +167,11 @@ Analyzes the project and creates a detailed GitHub issue via Claude headless.
 `run` and `execute` support an optional (off by default) real-time monitoring mode: a local HTTP server (plain `node:http`, zero new dependencies) serves a self-contained, read-only web UI with live progress -- current phase and activity, user stories, commits, pull requests, logs, and time estimates.
 
 ```bash
-# Enable with defaults (http://127.0.0.1:3737)
+# Enable with defaults -- binds to 0.0.0.0:3737, reachable from your LAN/VPN
 npx issue-flow run 42 --web
 
-# Remote access over Tailscale: bind to your machine's Tailscale IP
-npx issue-flow run 42 --web --host 100.101.102.103
+# Restrict to this machine only
+npx issue-flow run 42 --web --host 127.0.0.1
 ```
 
 Each setting resolves with the precedence **CLI flag > environment variable > `.issue-flow.json` > default**:
@@ -180,7 +180,7 @@ Each setting resolves with the precedence **CLI flag > environment variable > `.
 |----------|----------------------|------------------------|---------|
 | `--web` / `--serve` | `ISSUE_FLOW_WEB` | `web.enabled` | `false` |
 | `--port <n>` | `ISSUE_FLOW_WEB_PORT` | `web.port` | `3737` |
-| `--host <h>` | `ISSUE_FLOW_WEB_HOST` | `web.host` | `127.0.0.1` |
+| `--host <h>` | `ISSUE_FLOW_WEB_HOST` | `web.host` | `0.0.0.0` |
 | `--refresh <s>` | `ISSUE_FLOW_WEB_REFRESH` | `web.refreshSeconds` | `5` |
 | `--web-log-limit <n>` | `ISSUE_FLOW_WEB_LOG_LIMIT` | `web.logLimit` | `200` |
 | `--web-no-logs` | -- | `web.includeLogs` | logs included |

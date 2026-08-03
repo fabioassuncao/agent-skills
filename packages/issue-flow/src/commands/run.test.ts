@@ -136,7 +136,10 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(offCode).toBe(0);
 
     await mkdir(join(tmp, 'issues', '42'), { recursive: true });
-    setWebCliOverrides({ enabled: true, port: await getFreePort() });
+    // host pinned to loopback: this test is about US-009 (zero pipeline
+    // impact from monitoring), not about the 0.0.0.0 security warning,
+    // which is covered separately in web/server.test.ts.
+    setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
     const { code: onCode, lines: onLines } = await runCaptured();
     expect(onCode).toBe(0);
 

@@ -1,10 +1,12 @@
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { runHeadless } from '../core/headless.js';
+import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { printError, printSuccess } from '../ui/logger.js';
+import { isTransientFailure } from '../utils/retry.js';
 
 /**
  * Extract a PR URL from headless output.
@@ -40,21 +42,39 @@ export async function runPr(issue: string): Promise<number> {
     __TASKS_PATH__: tasksPath,
   });
 
-  const result = await runHeadless({
-    prompt,
-    maxTurns: 15,
-    timeout: getGlobalTimeout() ?? 300_000,
-    outputFormat: 'text',
-    allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
-    statusMessage: `Creating PR for issue #${issueNumber}...`,
+  let headlessOutput = '';
+
+  const outcome = await runPhaseWithRetry({
+    phase: 'pr',
+    attempt: async () => {
+      const result = await runHeadless({
+        prompt,
+        maxTurns: 15,
+        timeout: getGlobalTimeout() ?? 300_000,
+        outputFormat: 'text',
+        allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
+        statusMessage: `Creating PR for issue #${issueNumber}...`,
+      });
+
+      if (!result.success) {
+        return {
+          ok: false,
+          transient: isTransientFailure(1, result.error ?? ''),
+          error: `PR creation failed: ${result.error}`,
+        };
+      }
+
+      headlessOutput = result.result;
+      return { ok: true };
+    },
   });
 
-  if (!result.success) {
-    printError(`PR creation failed: ${result.error}`);
+  if (!outcome.ok) {
+    printError(outcome.error ?? `PR creation failed for issue #${issueNumber}`);
     return 1;
   }
 
-  const prUrl = parsePrUrl(result.result);
+  const prUrl = parsePrUrl(headlessOutput);
 
   // Update pipeline state
   try {

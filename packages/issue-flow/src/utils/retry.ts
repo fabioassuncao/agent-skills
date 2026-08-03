@@ -65,3 +65,10 @@ export function retryDelaySeconds(
   const delay = baseSeconds * 2 ** (attempt - 1);
   return Math.min(delay, maxSeconds);
 }
+
+/**
+ * Sleep for a given number of seconds.
+ */
+export function sleep(seconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+}

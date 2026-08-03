@@ -29,7 +29,7 @@ describe('loadWebConfig', () => {
     expect(config).toEqual({
       enabled: false,
       port: 3737,
-      host: '127.0.0.1',
+      host: '0.0.0.0',
       refreshSeconds: 5,
       logLimit: 200,
       includeLogs: true,

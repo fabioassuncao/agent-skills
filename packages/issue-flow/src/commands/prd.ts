@@ -1,10 +1,12 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runHeadless } from '../core/headless.js';
+import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { printError, printSuccess } from '../ui/logger.js';
+import { isTransientFailure } from '../utils/retry.js';
 
 export async function runPrd(issue: string): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
@@ -19,29 +21,44 @@ export async function runPrd(issue: string): Promise<number> {
     __PRD_PATH__: prdPath,
   });
 
-  const result = await runHeadless({
-    prompt,
-    maxTurns: 25,
-    timeout: getGlobalTimeout() ?? 300_000,
-    outputFormat: 'text',
-    allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
-    statusMessage: `Generating PRD for issue #${issueNumber}...`,
+  const outcome = await runPhaseWithRetry({
+    phase: 'prd',
+    attempt: async () => {
+      const result = await runHeadless({
+        prompt,
+        maxTurns: 25,
+        timeout: getGlobalTimeout() ?? 300_000,
+        outputFormat: 'text',
+        allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
+        statusMessage: `Generating PRD for issue #${issueNumber}...`,
+      });
+
+      if (!result.success) {
+        return {
+          ok: false,
+          transient: isTransientFailure(1, result.error ?? ''),
+          error: `PRD generation failed: ${result.error}`,
+        };
+      }
+
+      // Verify the file was created. A brief grace period absorbs a lag
+      // between the Write tool completing and this process seeing it; if it
+      // still isn't there, treat it as recoverable and let the phase retry.
+      try {
+        const content = await readFileWithGrace(prdPath);
+        if (content.length < 10) {
+          return { ok: false, transient: true, error: 'PRD file was created but appears empty' };
+        }
+      } catch {
+        return { ok: false, transient: true, error: `PRD file was not created at ${prdPath}` };
+      }
+
+      return { ok: true };
+    },
   });
 
-  if (!result.success) {
-    printError(`PRD generation failed: ${result.error}`);
-    return 1;
-  }
-
-  // Verify the file was created
-  try {
-    const content = await readFile(prdPath, 'utf-8');
-    if (content.length < 10) {
-      printError('PRD file was created but appears empty');
-      return 1;
-    }
-  } catch {
-    printError(`PRD file was not created at ${prdPath}`);
+  if (!outcome.ok) {
+    printError(outcome.error ?? `PRD generation failed for issue #${issueNumber}`);
     return 1;
   }
 

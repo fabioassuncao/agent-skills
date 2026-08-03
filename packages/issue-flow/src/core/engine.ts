@@ -5,7 +5,7 @@ import type { EngineConfig, ResolvedPaths, TaskPlan } from '../types.js';
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
 import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
-import { isTransientFailure, retryDelaySeconds } from '../utils/retry.js';
+import { isTransientFailure, retryDelaySeconds, sleep } from '../utils/retry.js';
 import { executeClaude } from './executor.js';
 import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
 import { publishGitState } from './session-git.js';
@@ -23,13 +23,6 @@ import {
   trimErrorMessage,
 } from './state-manager.js';
 import { getOutputCallback, getStoryUpdateCallback, isVerbose } from './verbose.js';
-
-/**
- * Sleep for a given number of seconds.
- */
-function sleep(seconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-}
 
 /**
  * Emit a message through the output callback if available, otherwise console.log.

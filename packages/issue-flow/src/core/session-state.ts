@@ -1,4 +1,5 @@
-import { rename, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { UserStory } from '../types.js';
 
@@ -559,7 +560,9 @@ export class MemoryPublisher implements SessionPublisher {
     this.warned = true;
     const message = err instanceof Error ? err.message : String(err);
     try {
-      this.onWarn(`issue-flow: web monitoring disabled itself after an error: ${message}`);
+      this.onWarn(
+        `issue-flow: web monitoring hit an error (will keep retrying silently): ${message}`,
+      );
     } catch {
       // Even a failing warn callback must not propagate to the pipeline.
     }
@@ -659,8 +662,14 @@ export class FilePublisher extends MemoryPublisher {
  * atomic; no EXDEV fallback needed, unlike an os.tmpdir() temp on Linux
  * tmpfs) and leaves nothing behind. The FilePublisher write chain is the
  * single writer, so the fixed .tmp name never races.
+ *
+ * The target directory (issues/N/) may not exist yet the first time a fresh
+ * issue publishes — pipeline phases create it lazily, and this can be the
+ * very first write. mkdir recursive is idempotent, so it's cheap to ensure
+ * on every write rather than relying on call order elsewhere.
  */
 async function atomicWriteFile(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
   const tmpFile = `${path}.tmp`;
   await writeFile(tmpFile, content, 'utf-8');
   await rename(tmpFile, path);

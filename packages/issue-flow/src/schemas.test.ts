@@ -224,7 +224,7 @@ describe('webConfigSchema', () => {
     expect(result).toEqual({
       enabled: false,
       port: 3737,
-      host: '127.0.0.1',
+      host: '0.0.0.0',
       refreshSeconds: 5,
       logLimit: 200,
       includeLogs: true,
@@ -235,7 +235,7 @@ describe('webConfigSchema', () => {
     const result = webConfigSchema.parse({ enabled: true, port: 8080 });
     expect(result.enabled).toBe(true);
     expect(result.port).toBe(8080);
-    expect(result.host).toBe('127.0.0.1');
+    expect(result.host).toBe('0.0.0.0');
   });
 
   it('rejects an out-of-range port', () => {

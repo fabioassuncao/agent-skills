@@ -1,11 +1,13 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runHeadless } from '../core/headless.js';
+import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { taskPlanSchema } from '../schemas.js';
 import { printError, printSuccess } from '../ui/logger.js';
+import { isTransientFailure } from '../utils/retry.js';
 
 export async function runPlan(issue: string): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
@@ -32,45 +34,62 @@ export async function runPlan(issue: string): Promise<number> {
 
   await mkdir(issueDir, { recursive: true });
 
-  const result = await runHeadless({
-    prompt,
-    maxTurns: 25,
-    timeout: getGlobalTimeout() ?? 300_000,
-    outputFormat: 'text',
-    allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
-    statusMessage: `Converting PRD to task plan for issue #${issueNumber}...`,
+  const outcome = await runPhaseWithRetry({
+    phase: 'plan',
+    attempt: async () => {
+      const result = await runHeadless({
+        prompt,
+        maxTurns: 25,
+        timeout: getGlobalTimeout() ?? 300_000,
+        outputFormat: 'text',
+        allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
+        statusMessage: `Converting PRD to task plan for issue #${issueNumber}...`,
+      });
+
+      if (!result.success) {
+        return {
+          ok: false,
+          transient: isTransientFailure(1, result.error ?? ''),
+          error: `Task plan generation failed: ${result.error}`,
+        };
+      }
+
+      // Verify the file was created, tolerating a brief FS-visibility lag.
+      let rawContent: string;
+      try {
+        rawContent = await readFileWithGrace(tasksPath);
+      } catch {
+        return { ok: false, transient: true, error: `tasks.json was not created at ${tasksPath}` };
+      }
+
+      // Validate JSON structure — a content defect, not a timing issue, but
+      // still worth a bounded retry since it's a fresh Claude invocation.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawContent);
+      } catch {
+        return { ok: false, transient: true, error: 'tasks.json contains invalid JSON' };
+      }
+
+      // Validate with zod schema
+      const validation = taskPlanSchema.safeParse(parsed);
+      if (!validation.success) {
+        const issues = validation.error.issues
+          .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
+          .join('\n');
+        return {
+          ok: false,
+          transient: true,
+          error: `tasks.json does not match expected schema:\n${issues}`,
+        };
+      }
+
+      return { ok: true };
+    },
   });
 
-  if (!result.success) {
-    printError(`Task plan generation failed: ${result.error}`);
-    return 1;
-  }
-
-  // Validate the created file
-  let rawContent: string;
-  try {
-    rawContent = await readFile(tasksPath, 'utf-8');
-  } catch {
-    printError(`tasks.json was not created at ${tasksPath}`);
-    return 1;
-  }
-
-  // Validate JSON structure
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawContent);
-  } catch {
-    printError('tasks.json contains invalid JSON');
-    return 1;
-  }
-
-  // Validate with zod schema
-  const validation = taskPlanSchema.safeParse(parsed);
-  if (!validation.success) {
-    const issues = validation.error.issues
-      .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
-    printError(`tasks.json does not match expected schema:\n${issues}`);
+  if (!outcome.ok) {
+    printError(outcome.error ?? `Task plan generation failed for issue #${issueNumber}`);
     return 1;
   }
 
