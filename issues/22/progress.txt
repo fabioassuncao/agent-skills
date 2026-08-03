@@ -10,6 +10,7 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
 - Testes: vitest, arquivos `*.test.ts` colocados ao lado do código em src/ (excluídos do tsc via tsconfig exclude)
 - Timestamps: `isoNow()` de state-manager.ts (ISO sem milissegundos); eventos carregam `at: string` para manter reducers puros
 - Callback de stories no engine: `getStoryUpdateCallback()` recebe `UserStory[]` completo (src/core/engine.ts:282)
+- Zod 4 (^4.3.6): schemas em src/schemas.ts; usar `satisfies z.ZodType<Interface>` para travar schema ↔ interface TS; defaults via `.default()` fazem `parse({})` materializar a config padrão
 
 ## 2026-08-03 15:52 - US-001
 - Implementada a camada de publicação de estado em `packages/issue-flow/src/core/session-state.ts`:
@@ -26,4 +27,19 @@ Started: Mon Aug 03 2026 15:47:23 GMT-0300 (Horário Padrão de Brasília)
   - Nos testes com ANSI é preciso usar o byte ESC real (\x1b) na string, não o texto literal "[31m"
   - `publish()` engole erros via warnOnce; testar falha interna passando evento malformado (ex.: stories: null)
   - US-002 deve mover/validar o snapshot com Zod em src/schemas.ts e derivar estimatedRemainingSeconds (média das stories concluídas × pendentes, null com < 2 amostras) e nextSteps a partir de PIPELINE_PHASES (respeitar PIPELINE_PHASES_NO_BRANCH da issue #20)
+---
+## 2026-08-03 15:58 - US-002
+- Completado o formato do snapshot e adicionados os schemas Zod:
+  - `SessionStorySnapshot` ganhou `completedAt` (carimbado quando a story vira passes=true durante a sessão; null para stories já aprovadas na primeira observação; limpo se regredir para false)
+  - `estimatedRemainingSeconds`: média das durações in-session (gaps entre conclusões consecutivas, primeira medida a partir de startedAt) × stories pendentes; null com < 2 conclusões in-session
+  - `nextSteps`: derivado das fases com status pending (a lista de fases vem do evento session:start, cujo caller passa PIPELINE_PHASES ou PIPELINE_PHASES_NO_BRANCH — respeita --no-branch); vazio quando status=completed
+  - Ambos recomputados no pós-processamento de reduceSessionEvent, junto com errors/warnings
+  - `src/schemas.ts`: `sessionSnapshotSchema` com `satisfies z.ZodType<SessionSnapshot>` (mudança na interface sem mudar o schema quebra o typecheck) e `webConfigSchema` com defaults (false, 3737, 127.0.0.1, 5, 200, includeLogs=true) — parse({}) devolve os defaults, pronto para US-003
+- Arquivos: src/core/session-state.ts, src/core/session-state.test.ts (+6 testes), src/schemas.ts, src/schemas.test.ts (+9 testes)
+- Checks: typecheck OK, biome OK, vitest 111/111 OK
+- **Learnings for future iterations:**
+  - Projeto usa Zod 4 (^4.3.6); `satisfies z.ZodType<T>` funciona e mantém o tipo ZodObject específico
+  - `webConfigSchema.parse({})` já materializa os defaults da US-003 — loadWebConfig() pode fazer merge de fontes parciais e parsear no final
+  - Campos derivados (errors, warnings, estimatedRemainingSeconds, nextSteps) são todos recomputados no wrapper reduceSessionEvent, não em applyEvent — novos campos derivados devem seguir esse padrão
+  - US-004: session:start deve receber `phases` de PIPELINE_PHASES (ou PIPELINE_PHASES_NO_BRANCH quando --no-branch) para que nextSteps saia correto
 ---

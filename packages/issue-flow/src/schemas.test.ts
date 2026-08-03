@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { createInitialSnapshot, reduceSessionEvent } from './core/session-state.js';
 import {
   headlessResultSchema,
   pipelineStateSchema,
+  sessionSnapshotSchema,
   taskPlanSchema,
   userStorySchema,
+  webConfigSchema,
 } from './schemas.js';
 
 function validTaskPlan() {
@@ -151,5 +154,97 @@ describe('headlessResultSchema', () => {
   it('rejects missing fields', () => {
     const result = headlessResultSchema.safeParse({ success: true });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('sessionSnapshotSchema', () => {
+  it('validates the initial snapshot', () => {
+    const result = sessionSnapshotSchema.safeParse(createInitialSnapshot());
+    expect(result.success).toBe(true);
+  });
+
+  it('validates a snapshot produced by the reducer', () => {
+    let snap = reduceSessionEvent(createInitialSnapshot(), {
+      type: 'session:start',
+      at: '2026-08-03T12:00:00Z',
+      sessionId: 'abc',
+      issueNumber: 22,
+      issueUrl: 'https://github.com/test/test/issues/22',
+      branch: 'issue/22-test',
+      baseBranch: 'main',
+      phases: ['init', 'prd', 'execute'],
+      environment: { node: 'v22.0.0', platform: 'darwin' },
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'phase:start',
+      at: '2026-08-03T12:00:05Z',
+      phase: 'init',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:00:10Z',
+      stories: [
+        {
+          id: 'US-001',
+          title: 'Story',
+          description: 'Desc',
+          acceptanceCriteria: [],
+          priority: 1,
+          passes: false,
+          notes: '',
+        },
+      ],
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'log',
+      at: '2026-08-03T12:00:15Z',
+      level: 'warn',
+      message: 'careful',
+    });
+    const result = sessionSnapshotSchema.safeParse(snap);
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a payload with a wrong schemaVersion', () => {
+    const snapshot = { ...createInitialSnapshot(), schemaVersion: 2 };
+    const result = sessionSnapshotSchema.safeParse(snapshot);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a payload without readOnly: true', () => {
+    const snapshot = { ...createInitialSnapshot(), readOnly: false };
+    const result = sessionSnapshotSchema.safeParse(snapshot);
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('webConfigSchema', () => {
+  it('fills in the documented defaults for an empty object', () => {
+    const result = webConfigSchema.parse({});
+    expect(result).toEqual({
+      enabled: false,
+      port: 3737,
+      host: '127.0.0.1',
+      refreshSeconds: 5,
+      logLimit: 200,
+      includeLogs: true,
+    });
+  });
+
+  it('accepts partial overrides', () => {
+    const result = webConfigSchema.parse({ enabled: true, port: 8080 });
+    expect(result.enabled).toBe(true);
+    expect(result.port).toBe(8080);
+    expect(result.host).toBe('127.0.0.1');
+  });
+
+  it('rejects an out-of-range port', () => {
+    expect(webConfigSchema.safeParse({ port: 0 }).success).toBe(false);
+    expect(webConfigSchema.safeParse({ port: 70000 }).success).toBe(false);
+    expect(webConfigSchema.safeParse({ port: 12.5 }).success).toBe(false);
+  });
+
+  it('rejects a non-positive refreshSeconds', () => {
+    expect(webConfigSchema.safeParse({ refreshSeconds: 0 }).success).toBe(false);
   });
 });

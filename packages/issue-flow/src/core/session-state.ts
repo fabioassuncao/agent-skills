@@ -74,6 +74,11 @@ export interface SessionStorySnapshot {
   title: string;
   priority: number;
   passes: boolean;
+  /**
+   * When the story flipped to passing during this session; null for stories
+   * that were already passing at session start (their duration is unknown).
+   */
+  completedAt: string | null;
 }
 
 export interface SessionActivity {
@@ -191,11 +196,48 @@ function computePercent(phasesCompleted: number, phasesTotal: number): number {
 }
 
 /**
+ * Estimated seconds until all stories pass: average duration of the stories
+ * completed during this session × pending stories. Durations are the gaps
+ * between consecutive completions (the first is measured from startedAt).
+ * Published as null with fewer than two samples.
+ */
+function estimateRemainingSeconds(snapshot: SessionSnapshot): number | null {
+  const completions = snapshot.stories
+    .map((story) => (story.completedAt === null ? Number.NaN : Date.parse(story.completedAt)))
+    .filter((ms) => !Number.isNaN(ms))
+    .sort((a, b) => a - b);
+  if (completions.length < 2) return null;
+
+  const startMs = snapshot.startedAt === null ? Number.NaN : Date.parse(snapshot.startedAt);
+  const boundaries = Number.isNaN(startMs) ? completions : [startMs, ...completions];
+  const durations: number[] = [];
+  for (let i = 1; i < boundaries.length; i++) {
+    durations.push(Math.max(0, boundaries[i] - boundaries[i - 1]));
+  }
+  if (durations.length === 0) return null;
+
+  const averageMs = durations.reduce((sum, d) => sum + d, 0) / durations.length;
+  const pending = snapshot.stories.filter((story) => !story.passes).length;
+  return Math.round((averageMs * pending) / 1000);
+}
+
+/**
+ * Remaining pipeline phases, in order. The phase list originates from the
+ * session:start event, whose caller passes PIPELINE_PHASES (or
+ * PIPELINE_PHASES_NO_BRANCH in --no-branch mode) from src/core/pipeline.ts.
+ */
+function deriveNextSteps(snapshot: SessionSnapshot): string[] {
+  if (snapshot.status === 'completed') return [];
+  return snapshot.phases.filter((phase) => phase.status === 'pending').map((phase) => phase.name);
+}
+
+/**
  * Fold a SessionEvent into a SessionSnapshot. Pure: never mutates the input
  * and performs no I/O. Unknown event types return the snapshot unchanged.
  *
  * errors/warnings are derived slices of the logs ring buffer, recomputed on
- * each reduction — they are never accumulated separately.
+ * each reduction — they are never accumulated separately. The same applies
+ * to estimatedRemainingSeconds and nextSteps.
  */
 export function reduceSessionEvent(
   snapshot: SessionSnapshot,
@@ -210,8 +252,10 @@ export function reduceSessionEvent(
     ...next,
     updatedAt: event.at,
     elapsedSeconds,
+    estimatedRemainingSeconds: estimateRemainingSeconds(next),
     errors: next.logs.filter((entry) => entry.level === 'error'),
     warnings: next.logs.filter((entry) => entry.level === 'warn'),
+    nextSteps: deriveNextSteps(next),
   };
 }
 
@@ -319,12 +363,24 @@ function applyEvent(
       };
 
     case 'stories:update': {
-      const stories = event.stories.map((story) => ({
-        id: story.id,
-        title: story.title,
-        priority: story.priority,
-        passes: story.passes,
-      }));
+      const previous = new Map(snapshot.stories.map((story) => [story.id, story]));
+      const stories = event.stories.map((story) => {
+        const before = previous.get(story.id);
+        // Stamp the flip to passing; stories already passing when first seen
+        // keep null (completed before this session, duration unknown).
+        const completedAt = !story.passes
+          ? null
+          : before && !before.passes
+            ? event.at
+            : (before?.completedAt ?? null);
+        return {
+          id: story.id,
+          title: story.title,
+          priority: story.priority,
+          passes: story.passes,
+          completedAt,
+        };
+      });
       return {
         ...snapshot,
         stories,

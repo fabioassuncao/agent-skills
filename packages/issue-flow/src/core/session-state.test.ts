@@ -158,11 +158,120 @@ describe('reduceSessionEvent', () => {
       ],
     });
     expect(snap.stories).toEqual([
-      { id: 'US-001', title: 'First story', priority: 1, passes: true },
-      { id: 'US-002', title: 'Second', priority: 2, passes: false },
+      { id: 'US-001', title: 'First story', priority: 1, passes: true, completedAt: null },
+      { id: 'US-002', title: 'Second', priority: 2, passes: false, completedAt: null },
     ]);
     expect(snap.progress.storiesCompleted).toBe(1);
     expect(snap.progress.storiesTotal).toBe(2);
+  });
+
+  it('stories:update stamps completedAt only when a story flips to passing', () => {
+    // First seen already passing: completed before this session, no stamp.
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001', passes: true }), makeStory({ id: 'US-002' })],
+    });
+    expect(snap.stories[0].completedAt).toBeNull();
+
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:10:00Z',
+      stories: [
+        makeStory({ id: 'US-001', passes: true }),
+        makeStory({ id: 'US-002', passes: true }),
+      ],
+    });
+    expect(snap.stories[0].completedAt).toBeNull();
+    expect(snap.stories[1].completedAt).toBe('2026-08-03T12:10:00Z');
+
+    // Flipping back to failing clears the stamp.
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:20:00Z',
+      stories: [
+        makeStory({ id: 'US-001', passes: true }),
+        makeStory({ id: 'US-002', passes: false }),
+      ],
+    });
+    expect(snap.stories[1].completedAt).toBeNull();
+  });
+
+  it('estimatedRemainingSeconds is null with fewer than two in-session completions', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' }), makeStory({ id: 'US-002', priority: 2 })],
+    });
+    expect(snap.estimatedRemainingSeconds).toBeNull();
+
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:10:00Z',
+      stories: [
+        makeStory({ id: 'US-001', passes: true }),
+        makeStory({ id: 'US-002', priority: 2 }),
+      ],
+    });
+    expect(snap.estimatedRemainingSeconds).toBeNull();
+  });
+
+  it('estimatedRemainingSeconds averages in-session story durations times pending stories', () => {
+    // Session starts 12:00. US-001 completes 12:10 (600s), US-002 12:30 (1200s).
+    // Average 900s × 2 pending stories = 1800s.
+    const stories = [
+      makeStory({ id: 'US-001' }),
+      makeStory({ id: 'US-002', priority: 2 }),
+      makeStory({ id: 'US-003', priority: 3 }),
+      makeStory({ id: 'US-004', priority: 4 }),
+    ];
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:00:30Z',
+      stories,
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:10:00Z',
+      stories: stories.map((s) => (s.id === 'US-001' ? { ...s, passes: true } : s)),
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:30:00Z',
+      stories: stories.map((s) =>
+        s.id !== 'US-003' && s.id !== 'US-004' ? { ...s, passes: true } : s,
+      ),
+    });
+    expect(snap.estimatedRemainingSeconds).toBe(1800);
+  });
+
+  it('derives nextSteps from the pending phases', () => {
+    let snap = startedSnapshot();
+    expect(snap.nextSteps).toEqual(['init', 'prd', 'execute']);
+
+    snap = reduceSessionEvent(snap, {
+      type: 'phase:start',
+      at: '2026-08-03T12:00:05Z',
+      phase: 'init',
+    });
+    expect(snap.nextSteps).toEqual(['prd', 'execute']);
+
+    snap = reduceSessionEvent(snap, {
+      type: 'phase:end',
+      at: '2026-08-03T12:00:10Z',
+      phase: 'init',
+      success: true,
+    });
+    expect(snap.nextSteps).toEqual(['prd', 'execute']);
+  });
+
+  it('nextSteps is empty once the session completes', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'session:end',
+      at: '2026-08-03T13:00:00Z',
+      status: 'completed',
+    });
+    expect(snap.nextSteps).toEqual([]);
   });
 
   it('activity sets currentActivity and preserves `since` when unchanged', () => {
