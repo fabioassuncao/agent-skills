@@ -25,6 +25,10 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Nunca usar `rl.question` em loop: o readline descarta linhas que chegam entre duas perguntas (entrada pipada/typed-ahead se perde e o teste trava). Usar fila de eventos `'line'` + resolução em `'close'` (padrão `createLineReader` em `src/issues/resolver.ts`).
 - Todo prompt interativo precisa de um caminho não-interativo determinístico: `interactive` injetável com default `process.stdin.isTTY && !CI`. Nada pode bloquear CI/headless.
 - Erros de domínio que viram exit code do CLI usam classe própria com campo `exitCode` (`IssueResolutionError`), em vez de o chamador inventar o código.
+- Em `applyPlaceholders`, espalhar os placeholders de conteúdo da Issue (`...issuePlaceholders(...)`) sempre por ÚLTIMO no objeto: valores injetados por último não são varridos de novo, então corpo de Issue nunca dispara substituição acidental.
+- Teste de guarda contra shell-out precisa cobrir as duas formas de escrita: string literal (`'gh issue close'`) e argv (`execa('gh', ['issue', ...])`) — o código antigo usava a segunda.
+- Comando de fase recebe `resolvedIssue?` como 2º parâmetro: `run.ts` resolve uma vez e propaga; uso avulso do subcomando resolve sozinho.
+- Flag nova de CLI: mapeamento puro em `src/issues/cli-flags.ts` (testável) + helper de declaração (`withIssueOptions`) em `src/cli.ts`. Nunca colocar lógica em `cli.ts`, que roda `program.parse()` no import.
 
 ---
 
@@ -142,4 +146,30 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `IssueResolutionError.exitCode` é 1 tanto para "não encontrada" quanto para cancelamento no prompt. US-009/US-010 devem propagar `err.exitCode` em vez de retornar 1 fixo.
   - O prompt lê linhas via fila de eventos `'line'` (`createLineReader`), não `rl.question`: `question` perde a linha que chega entre duas perguntas, o que travava o teste de re-pergunta. EOF resolve `null` → cancela.
   - `requireConfirmation` continua sem consumidor (US-012 deve usá-lo); o resolver não pergunta nada quando não há divergência.
+---
+
+## 2026-08-03 19:35 - US-008, US-009 e US-010 (bloco atômico)
+- Pipeline passou a ser agnóstico de origem de ponta a ponta: os comandos resolvem a Issue via `resolveIssue` e os templates recebem o conteúdo já resolvido.
+- **Por que três histórias numa iteração:** o próprio PRD marca US-008 e US-009 como "bloco atômico" (migrar os prompts sem injetar os placeholders produziria análise vazia silenciosa). US-010 entrou junto porque a AC de US-009 exige que nenhum arquivo de `src/commands/` chame `gh issue close` — e isso mora em `run.ts`, que é o escopo de US-010. Os commits foram ordenados para que cada um deixe o repositório funcionando: US-009 (comandos injetam placeholders que os templates ainda ignoram) → US-010 (run.ts) → US-008 (templates passam a consumir).
+- Arquivos criados:
+  - `src/issues/context.ts` — `issuePlaceholders`, `issueReference`, `localIssueRef` e `resolveCommandIssue` (ponte resolver → prompt, com tradução de erro em exit code).
+  - `src/issues/cli-flags.ts` — `resolveIssuesOverrides` + `IssueFlagError` (mapeamento puro das flags, testável fora do `cli.ts`).
+  - `src/issues/context.test.ts` (10 testes), `src/issues/cli-flags.test.ts` (11 testes), `src/issues/migration.test.ts` (13 testes de guarda).
+- Arquivos alterados:
+  - `src/commands/{analyze,prd,plan,review,pr}.ts` — assinatura `(issue, resolvedIssue?)`, resolução no início, placeholders no prompt.
+  - `src/commands/pr.ts` — `issueClosesLine()` produz `__ISSUE_CLOSES__` (vazio quando não há `remoteRef`).
+  - `src/commands/run.ts` — resolução única após o `init`, propagação às fases, fechamento via `provider.close?.()`, `gh pr list` só quando a origem é GitHub, `issue.number` publicado como `null` para id não numérico.
+  - `src/core/session-state.ts` — `session:start.issueNumber` agora é `number | null`.
+  - `src/cli.ts` — helper `withIssueOptions` (--local/--github/--prefer-local/--prefer-github/--ask) aplicado a run/analyze/prd/plan/review/pr + `setIssuesCliOverrides` no `preAction`.
+  - `prompts/{analyze,prd,plan,review,pr}.md` — sem `gh issue view`; consomem `__ISSUE_TITLE__`, `__ISSUE_BODY__`, `__ISSUE_LABELS__`, `__ISSUE_SOURCE__`, `__ISSUE_URL__`.
+- Quality checks: `npm run check` e `npm test` (321 testes, 23 arquivos) passando. Smoke manual: `node dist/cli.js analyze --help`, `run --help` e `analyze 1 --local --github` (falha com exit 1 e mensagem clara).
+- **Learnings for future iterations:**
+  - Ordem importa em `applyPlaceholders`: os placeholders da Issue são espalhados **por último** em cada comando, então o corpo da Issue (conteúdo não confiável) nunca é varrido em busca de outros placeholders. Qualquer comando novo deve manter `...issuePlaceholders(...)` no fim do objeto.
+  - `pr.md` usa um sexto placeholder, `__ISSUE_CLOSES__`, calculado em `pr.ts`: a omissão do `Closes #N` para Issue local é determinística, não depende do modelo interpretar uma condicional.
+  - Teste de guarda textual de shell-out precisa cobrir **as duas formas**: `'gh issue close'` em texto e o argv `execa('gh', ['issue', ...])`. O código antigo usava a segunda — uma busca só pela primeira teria passado sem nada ter sido migrado.
+  - `run.test.ts` mocka `../issues/resolver.js` e `../issues/registry.js` com `importOriginal` (preserva `IssueResolutionError` real) e define os defaults no `beforeEach` **depois** de `vi.clearAllMocks()` — `clearAllMocks` limpa chamadas, não implementações, mas a ordem evita depender disso.
+  - `runPrd/runPlan/runReview/runPr/runAnalyze` agora aceitam `resolvedIssue?` como 2º parâmetro. Quem chamar sem ele (uso avulso do subcomando) resolve por conta própria; `run.ts` sempre passa, garantindo uma resolução por execução.
+  - `session:start.issueNumber` é `number | null`. `sessionSnapshotSchema` já aceitava null; o tipo do evento é que estava restrito.
+  - As flags `--local/--github` continuam mapeando para `preferredProvider` (não restringem `sources`): as duas origens seguem sendo consultadas e a preferida vence. Se algum dia "consulte só esta origem" for desejado, passar `sources` a partir das flags é a mudança.
+  - `prompts/generate.md` ainda contém `gh issue create` — é o único `gh issue *` restante nos templates e é exatamente o escopo de US-012. O teste de guarda de prompts só proíbe `gh issue view`, então US-012 deve estendê-lo.
 ---
