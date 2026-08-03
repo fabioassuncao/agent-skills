@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
+import { resolveNoBranch } from './cli-options.js';
 import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
 import { setGlobalTimeout, setVerbose } from './core/verbose.js';
 import {
@@ -181,9 +182,9 @@ withWebOptions(
         ),
     ),
   ),
-).action(async (issue: string, options: { mode: string; from?: string; noBranch?: boolean }) => {
+).action(async (issue: string, options: { mode: string; from?: string; branch?: boolean }) => {
   const { runPipeline } = await import('./commands/run.js');
-  const code = await runPipeline(issue, options.mode, options.from, options.noBranch);
+  const code = await runPipeline(issue, options.mode, options.from, resolveNoBranch(options));
   process.exit(code);
 });
 

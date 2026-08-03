@@ -39,6 +39,10 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Lógica que escolhe entre origens deve ser escrita sobre **os candidatos que responderam** (array filtrado), nunca sobre uma lista fixa de origens: `candidates.get('local')`/`get('github')` hardcoded torna qualquer provider novo invisível.
 - Checagem de ambiente específica de uma origem usa igualdade positiva (`source === 'github'`), nunca negativa (`source !== 'local'`) — a negativa bloqueia toda origem futura.
 - Saída estruturada de agente headless usa tag XML-ish (`<issue-draft>`, `<issue-body>`), nunca JSON: o conteúdo é markdown multi-linha e um erro de escaping viraria falha total. Parsing sempre pela **última** ocorrência da tag (agente que mostra o formato antes de preencher).
+- Opção negada do commander (`--no-x`) chega como `{ x: false }`, nunca como `{ noX: true }`. Mapear em `src/cli-options.ts` (puro e testável), nunca ler `options.noX` direto.
+- `npm run smoke` (`scripts/smoke-issue-providers.sh`) roda o binário real (`dist/cli.js` + `prompts/` + listr2 + providers) com stubs de `claude`/`gh`. Todo teste unitário de `run.ts` mocka o resolver e pula o commander — mexeu em `cli.ts` ou em template de `prompts/`, rodar o smoke.
+- Nunca documentar comportamento que o código não tem: chave de config validada mas não consumida (`requireConfirmation`) vai para o README com a ressalva explícita.
+- `CHANGELOG.md` não tem seção `Unreleased`: a seção de versão nasce no release (`CONTRIBUTING.md`). Não escrever entrada fora desse fluxo.
 
 ---
 
@@ -266,4 +270,27 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `ResolvedIssue.local`/`.github` continuam sendo só as duas builtin: numa resolução por origem custom os dois são `null` e `issue`/`source` carregam a verdade. Quem precisar do candidato de uma origem arbitrária terá de estender o tipo.
   - Rodar o pipeline de verdade em teste custa 4 mocks: `../core/headless.js` (o agente, que precisa **escrever os artefatos** que cada fase valida — prd.md, tasks.json), `execa` (todo binário), `../commands/execute.js` (o engine) e `../ui/pipeline-renderer.js` (determinismo). `init` e as fases prd/plan/review/pr rodam reais.
   - Ao mockar `execa` para o pipeline inteiro, ramificar por `(file, args)` e devolver `{stdout, stderr, exitCode}`: `run` de `utils/shell.ts` usa `reject: false`, então o mock **não deve lançar** para simular falha — deve devolver `exitCode` diferente de zero.
+---
+
+## 2026-08-03 20:27 - US-015
+- Documentação da camada de providers e validação final da issue #23 (última história).
+- Arquivos alterados:
+  - `README.md` — nova seção **Issue Sources (Providers)** (tabela de providers, matriz de resolução/conflito, flags, chave `issues` de `.issue-flow.json`, formato de `issue.md` + `metadata.json`); `generate` com os três destinos; `init --local`; Requirements com `gh` opcional; **Pipeline State & File Structure** com `issue.md`/`metadata.json` e a subseção **Versioning `issues/`**; Development com `npm run smoke`.
+  - `docs/skills-and-agents.md` — subseção "Issue sources" na arquitetura e alternativa `generate-local-issue` no walkthrough.
+  - `agents/resolve-issue.md` — decisão de origem antes da Phase 1, título do branch vindo do `issue.md` quando a origem é local, e fechamento local via `metadata.json` em vez de `gh issue close`.
+  - `packages/issue-flow/package.json` — script `smoke`.
+- Arquivos criados:
+  - `packages/issue-flow/scripts/smoke-issue-providers.sh` — 51 asserções em 3 cenários end-to-end sobre o CLI **buildado**, com stubs determinísticos de `claude` e `gh` (sem rede, sem tokens): (A) GitHub puro sem flags e sem `.issue-flow.json`, (B) local puro com `--no-branch` e `gh` não autenticado, (C) ambas as origens com divergência + `generate --both`.
+  - `packages/issue-flow/src/cli-options.ts` e `cli-options.test.ts` — `resolveNoBranch`.
+- **Bug pré-existente encontrado pelo smoke test (também presente em `main`):** `--no-branch` nunca chegava ao `runPipeline`. O commander guarda opção negada sob o nome positivo (`{ branch: false }`), mas `cli.ts` lia `options.noBranch`, sempre `undefined` — o pipeline criava branch e abria PR mesmo com a flag. Corrigido com `resolveNoBranch` (mapeia `branch === false` → `true`, e ausência da flag → `undefined`, preservando "modo persistido vence no resume").
+- Quality checks: `npm run check` e `npm test` (393 testes, 28 arquivos) passando; `npm run smoke` com 51/51 asserções verdes.
+- **Learnings for future iterations:**
+  - Opção negada do commander (`--no-x`) chega como `{ x: false }`, **nunca** como `{ noX: true }`. Qualquer flag `--no-*` nova precisa do mapeamento em `src/cli-options.ts` (e do teste que parseia com um `Command` real — foi ele que fixou o comportamento).
+  - O smoke script é o único teste que exercita o binário de verdade: `dist/cli.js` + `prompts/` em disco + listr2 + resolver + providers. Ele achou em minutos um bug que 393 testes unitários não pegavam, porque todo teste de `run.ts` mocka o resolver e chama `runPipeline` direto, pulando a camada do commander. Ao mexer em `cli.ts`, rodar `npm run smoke`.
+  - Stub de `claude` discrimina a fase pela **primeira linha do prompt** ("You are analyzing issue", "You are converting a PRD", ...). Se algum template mudar a primeira linha, o stub cai no `*)` e falha explicitamente (`unrecognized prompt`) em vez de passar silenciosamente — proposital.
+  - `analyze` grava a saída do headless em `analysis.md` quando o agente não cria o arquivo; por isso o stub ecoa o prompt e as asserções conseguem provar qual corpo (remoto ou local) venceu a resolução.
+  - Truque do plano de tarefas no stub: `tasks.json` com todas as histórias `passes: true` faz o `runEngine` sair em 0 na hora (early-exit "All user stories already pass"), sem invocar o agente — é o que torna a fase `execute` barata no smoke.
+  - `new_workspace` roda em `$( )`, ou seja, subshell: variáveis atribuídas lá dentro morrem. Quem chama é que precisa registrar o diretório em `WORKSPACES`, senão os `mktemp -d` vazam.
+  - `requireConfirmation` de `.issue-flow.json` continua **validado mas não consumido**; o README diz isso explicitamente em vez de omitir — documentar como se funcionasse seria pior que documentar a lacuna.
+  - `CHANGELOG.md` não usa seção `Unreleased`: por `CONTRIBUTING.md`, a seção de versão é escrita no momento do release. Não adicionar entrada por conta própria.
 ---

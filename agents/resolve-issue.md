@@ -63,6 +63,15 @@ The user will provide either:
 
 Extract `ISSUE_NUMBER` from whichever format is given.
 
+### Issue origin
+
+Decide the origin **once**, before Phase 1, and use it for the rest of the pipeline:
+
+- If `issues/{ISSUE_NUMBER}/issue.md` exists → `ISSUE_SOURCE=local`. The title is the H1 (first non-empty line), the body is everything after it, and `issues/{ISSUE_NUMBER}/metadata.json` carries the metadata. Never call `gh` for the issue content.
+- Otherwise → `ISSUE_SOURCE=github`, read through `gh issue view`.
+
+If both exist and their content differs, show both to the user and ask which one to work from before proceeding — never pick silently.
+
 ---
 
 ## Phase 0: Check for Existing Work in Progress
@@ -115,9 +124,16 @@ Extract `ISSUE_NUMBER` from whichever format is given.
 
 ## Phase 1: Create Branch
 
-Create a working branch for this issue:
+Create a working branch for this issue. Take the title from the origin decided above:
 ```bash
+# ISSUE_SOURCE=local
+ISSUE_TITLE=$(sed -n 's/^# //p' issues/{ISSUE_NUMBER}/issue.md | head -1)
+
+# ISSUE_SOURCE=github
 ISSUE_TITLE=$(gh issue view {ISSUE_NUMBER} --json title -q '.title')
+```
+
+```bash
 SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g' | cut -c1-50)
 BRANCH_NAME="issue/{ISSUE_NUMBER}-${SLUG}"
 
@@ -331,10 +347,14 @@ The create-pr skill will:
 
 **After the PR URL is returned:**
 
-1. Close the issue with a summary comment:
+1. Close the issue through its origin:
+
 ```bash
+# ISSUE_SOURCE=github
 gh issue close {ISSUE_NUMBER} --comment "Resolved via PR: {PR_URL}"
 ```
+
+For `ISSUE_SOURCE=local`, there is nothing to close remotely: set `"state": "closed"` and refresh `"updatedAt"` in `issues/{ISSUE_NUMBER}/metadata.json`, leaving every other field untouched.
 
 2. Set `issueStatus: "completed"` and `completedAt` to current ISO timestamp in tasks.json.
 

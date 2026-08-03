@@ -14,6 +14,10 @@ Issue Flow uses a **sub-agent + skills** architecture:
 - Auto-correction loop: review finds issues -> fix -> re-review (up to 3 cycles)
 - Pipeline state tracking enables resumption from any phase
 
+### Issue sources
+
+The issue can live on GitHub or in the repository itself (`issues/<N>/issue.md` + `issues/<N>/metadata.json`). Both `generate-issue` / `generate-local-issue` and the `resolve-issue` sub-agent work with either origin: when `issues/{N}/issue.md` exists, it is the statement to work from and `gh` is not needed. The CLI implements the same idea as a provider layer with conflict resolution -- see [Issue Sources](../README.md#issue-sources-providers) for the file format, the flags, and the `issues` key of `.issue-flow.json`.
+
 ### Skills vs Sub-agent: how they are invoked
 
 Skills and sub-agents are invoked differently in Claude Code:
@@ -113,6 +117,8 @@ The pipeline can start from a short natural-language request such as "create an 
 - creates the issue with `gh`
 
 Output: a published GitHub issue that is ready to be planned and executed.
+
+With no GitHub access (offline, no remote, or a demand that is not public yet), use `generate-local-issue` instead: it writes `issues/<N>/issue.md` and `issues/<N>/metadata.json`, and the rest of the pipeline is identical.
 </details>
 
 <details>
