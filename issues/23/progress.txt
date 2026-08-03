@@ -21,6 +21,10 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
 - Escrita atômica de qualquer artefato do pipeline: usar `writeFileAtomic` de `src/utils/fs.ts` (temp + rename + fallback EXDEV). Nunca chamar `writeFile` direto em arquivo que o pipeline recarrega.
 - Provider/serviço que precisa do project root deve receber `projectRoot` opcional no construtor e cair em `getProjectRoot()` só quando não informado — é o que torna os testes com `mkdtemp` possíveis sem mockar git.
 - Testes de provider baseado em arquivos usam `mkdtemp` real em `beforeEach` + `rm(..., { recursive: true, force: true })` em `afterEach`; só o shell (`run`) é mockado.
+- Serviço que imprime para o usuário deve receber sinks injetáveis (`info`/`warn`, default `printInfo`/`printWarning`) — é o que permite asserção de mensagem em teste sem espionar o logger global.
+- Nunca usar `rl.question` em loop: o readline descarta linhas que chegam entre duas perguntas (entrada pipada/typed-ahead se perde e o teste trava). Usar fila de eventos `'line'` + resolução em `'close'` (padrão `createLineReader` em `src/issues/resolver.ts`).
+- Todo prompt interativo precisa de um caminho não-interativo determinístico: `interactive` injetável com default `process.stdin.isTTY && !CI`. Nada pode bloquear CI/headless.
+- Erros de domínio que viram exit code do CLI usam classe própria com campo `exitCode` (`IssueResolutionError`), em vez de o chamador inventar o código.
 
 ---
 
@@ -120,4 +124,22 @@ Started: Mon Aug 03 2026 18:34:40 GMT-0300 (Horário Padrão de Brasília)
   - `satisfies z.ZodType<IssuesConfig>` funciona mesmo com `.default()` em todos os campos (zod v4 só amarra o tipo de saída) — o padrão do repo vale também para schemas de config.
   - US-009 precisa mapear as flags para `setIssuesCliOverrides` no `preAction` de `src/cli.ts` (mesmo lugar de `setWebCliOverrides`, `src/cli.ts:95`): `--local`/`--github` → `preferredProvider`, `--prefer-local`/`--prefer-github`/`--ask` → `conflictPolicy`. Só incluir a chave quando o usuário passou a flag — chave presente com `undefined` sobrescreveria o arquivo no spread.
   - `requireConfirmation` está definido e validado, mas ainda não é consumido por ninguém; US-007/US-012 devem usá-lo antes de fechar a issue.
+---
+
+## 2026-08-03 19:12 - US-007
+- Implementado o `resolveIssue`, ponto único de decisão de origem da Issue, com a matriz completa de cenários (só local, só GitHub, ambas iguais, ambas divergentes, nenhuma) e o bootstrap do registry.
+- Arquivos criados:
+  - `packages/issue-flow/src/issues/bootstrap.ts` — `ensureProvidersRegistered()` (idempotente e não-destrutivo).
+  - `packages/issue-flow/src/issues/resolver.ts` — `resolveIssue`, `IssueResolutionError`, `ResolveIssueOptions`.
+  - `packages/issue-flow/src/issues/resolver.test.ts` — 18 testes.
+  - `packages/issue-flow/src/issues/bootstrap.test.ts` — 3 testes.
+- Quality checks: `npm run check` e `npm test` (280 testes, 20 arquivos) passando.
+- **Learnings for future iterations:**
+  - `ensureProvidersRegistered()` **não sobrescreve** origem já registrada — é o que permite ao teste (e a US-014) instalar um provider fake antes do primeiro `resolveIssue`. `resolveIssue` chama ensure sempre; para isolar teste, registre os fakes em `beforeEach` e passe `sources` explicitamente.
+  - `ResolveIssueOptions.sources` limita as origens consultadas. Sem ele, o resolver consulta **todas** as registradas (github + local), inclusive rodando `gh` de verdade — qualquer teste novo que chame `resolveIssue` precisa passar `sources` ou mockar o shell.
+  - Origem indisponível (`isAvailable() === false`) ou com erro de leitura **não** aborta: vira candidato nulo com "reason", e as reasons aparecem na mensagem do erro final. Assim ambiente quebrado nunca é reportado como "issue inexistente" (mesmo princípio do `NOT_FOUND_PATTERN` do provider GitHub).
+  - `--local`/`--github` (US-009) mapeiam para `preferredProvider`, então o resolver **continua consultando as duas origens**. Se a intenção de US-009 for "consulte só esta origem", será preciso passar `sources` a partir das flags — decisão explícita, não omissão.
+  - `IssueResolutionError.exitCode` é 1 tanto para "não encontrada" quanto para cancelamento no prompt. US-009/US-010 devem propagar `err.exitCode` em vez de retornar 1 fixo.
+  - O prompt lê linhas via fila de eventos `'line'` (`createLineReader`), não `rl.question`: `question` perde a linha que chega entre duas perguntas, o que travava o teste de re-pergunta. EOF resolve `null` → cancela.
+  - `requireConfirmation` continua sem consumidor (US-012 deve usá-lo); o resolver não pergunta nada quando não há divergência.
 ---
