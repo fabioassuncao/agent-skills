@@ -9,6 +9,23 @@ import type { IssueMetadata, IssuesConfig } from './issues/types.js';
  * configuration.
  */
 
+/**
+ * Token/cost metrics of a single `claude` invocation, mirroring ClaudeUsage in
+ * src/core/metrics.ts. Every field is optional: the CLI only reports what it
+ * knows, and an absent field means "not reported", never zero.
+ */
+export const claudeUsageSchema = z.object({
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  cacheReadTokens: z.number().optional(),
+  cacheCreationTokens: z.number().optional(),
+  costUsd: z.number().optional(),
+}) satisfies z.ZodType<ClaudeUsage>;
+
+/**
+ * The metrics fields are additive and optional: plans written before they
+ * existed keep parsing, and nothing is filled in with artificial zeros.
+ */
 export const userStorySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -17,6 +34,8 @@ export const userStorySchema = z.object({
   priority: z.number().int().positive(),
   passes: z.boolean(),
   notes: z.string(),
+  ...claudeUsageSchema.shape,
+  durationSeconds: z.number().optional(),
 });
 
 export const pipelineStateSchema = z.object({
@@ -120,19 +139,6 @@ export const taskPlanSchema = z.object({
   prReview: prReviewStateSchema.optional(),
   userStories: z.array(userStorySchema),
 });
-
-/**
- * Token/cost metrics of a single `claude` invocation, mirroring ClaudeUsage in
- * src/core/metrics.ts. Every field is optional: the CLI only reports what it
- * knows, and an absent field means "not reported", never zero.
- */
-export const claudeUsageSchema = z.object({
-  inputTokens: z.number().optional(),
-  outputTokens: z.number().optional(),
-  cacheReadTokens: z.number().optional(),
-  cacheCreationTokens: z.number().optional(),
-  costUsd: z.number().optional(),
-}) satisfies z.ZodType<ClaudeUsage>;
 
 export const headlessResultSchema = z.object({
   success: z.boolean(),

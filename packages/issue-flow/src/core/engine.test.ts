@@ -16,6 +16,22 @@ vi.mock('../utils/retry.js', async (importOriginal) => {
 // installed; it carries no engine logic worth exercising here.
 vi.mock('./session-git.js', () => ({ publishGitState: vi.fn(async () => {}) }));
 
+// Lets a single test make one specific write fail, to prove that persisting
+// story metrics can never change the outcome of an iteration.
+const writeFailure = vi.hoisted(() => ({ whenContaining: null as string | null }));
+vi.mock('../utils/fs.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/fs.js')>();
+  return {
+    ...actual,
+    writeFileAtomic: vi.fn(async (path: string, content: string) => {
+      if (writeFailure.whenContaining !== null && content.includes(writeFailure.whenContaining)) {
+        throw new Error('ENOSPC: no space left on device');
+      }
+      await actual.writeFileAtomic(path, content);
+    }),
+  };
+});
+
 const claudeResult = vi.hoisted(() => ({
   current: { exitCode: 0, output: '', cost: null } as ClaudeResult,
 }));
@@ -92,6 +108,7 @@ describe('runEngine — pending-correction guard', () => {
       projectRoot: tmpDir,
     };
     mockExecuteClaude.mockClear();
+    writeFailure.whenContaining = null;
   });
 
   afterEach(async () => {
@@ -203,6 +220,7 @@ describe('runEngine — execute-phase metrics', () => {
       projectRoot: tmpDir,
     };
     mockExecuteClaude.mockClear();
+    writeFailure.whenContaining = null;
 
     publisher = new RecordingPublisher({ onWarn: () => {} });
     setSessionPublisher(publisher);
@@ -404,5 +422,69 @@ describe('runEngine — execute-phase metrics', () => {
     expect(stories[0].durationSeconds).toBeGreaterThanOrEqual(0);
     expect(metricsEvents().filter((e) => e.scope === 'iteration')).toHaveLength(0);
     expect(publisher.snapshot().metrics.totalInputTokens).toBeNull();
+  });
+
+  it('persists the story shares to tasks.json', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false), makeStory('US-002', 2, false)));
+    agentCompleting(['US-001', 'US-002'], '<promise>COMPLETE</promise>', {
+      inputTokens: 10,
+      outputTokens: 4,
+      cacheReadTokens: 100,
+      costUsd: 1,
+    });
+
+    await runEngine(baseConfig, paths);
+
+    const [first, second] = (await readPlan()).userStories;
+    expect(first).toMatchObject({
+      inputTokens: 5,
+      outputTokens: 2,
+      cacheReadTokens: 50,
+      costUsd: 0.5,
+    });
+    expect(first?.durationSeconds).toBeGreaterThanOrEqual(0);
+    expect(second).toMatchObject({ inputTokens: 5, costUsd: 0.5 });
+  });
+
+  it('accumulates onto metrics a story already carried from an earlier run', async () => {
+    await writePlan(
+      pendingPlan({ ...makeStory('US-001', 1, false), inputTokens: 100, durationSeconds: 60 }),
+    );
+    agentCompleting(['US-001'], '<promise>COMPLETE</promise>', { inputTokens: 8, costUsd: 0.2 });
+
+    await runEngine(baseConfig, paths);
+
+    const story = (await readPlan()).userStories[0]!;
+    expect(story.inputTokens).toBe(108);
+    expect(story.costUsd).toBe(0.2);
+    expect(story.durationSeconds).toBeGreaterThanOrEqual(60);
+  });
+
+  it('writes no metric fields when no story completed in the iteration', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    claudeResult.current = { exitCode: 0, output: 'still working', cost: { inputTokens: 7 } };
+
+    await runEngine(baseConfig, paths);
+
+    const story = (await readPlan()).userStories[0]!;
+    expect(story).not.toHaveProperty('inputTokens');
+    expect(story).not.toHaveProperty('durationSeconds');
+  });
+
+  it('leaves the iteration outcome intact when persisting the metrics fails', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    agentCompleting(['US-001'], '<promise>COMPLETE</promise>', { inputTokens: 8, costUsd: 0.2 });
+    // Only the metrics write carries this field; every other save goes through.
+    writeFailure.whenContaining = '"inputTokens"';
+
+    const code = await runEngine(baseConfig, paths);
+
+    expect(code).toBe(0);
+    const plan = await readPlan();
+    expect(plan.issueStatus).toBe('completed');
+    expect(plan.userStories[0]!.passes).toBe(true);
+    expect(plan.userStories[0]).not.toHaveProperty('inputTokens');
+    // The session events are unaffected: only the file write failed.
+    expect(metricsEvents().filter((e) => e.scope === 'story')).toHaveLength(1);
   });
 });

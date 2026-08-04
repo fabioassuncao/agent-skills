@@ -73,3 +73,11 @@ Publication order in the loop matters: `stories:update` →
 `metrics:update` (story) → `iteration:end` → `metrics:update` (iteration). The
 story events must come after `stories:update`, which rebuilds the stories
 array, or the reducer drops them.
+
+The same shares are also written to `tasks.json` by `applyStoryMetrics()`
+(state-manager), so they survive the session and are readable with web
+monitoring off. That write is wrapped in a try/catch and the in-memory plan
+only advances on success: persisting metrics is observational and must never
+change an iteration's outcome. `UserStory`'s metric fields are optional and
+accumulate by summing — an absent field means "not reported", so a plan from a
+run that predates them never gains artificial zeros.

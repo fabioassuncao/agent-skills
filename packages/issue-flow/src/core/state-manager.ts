@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { ZodError } from 'zod';
 import { taskPlanSchema } from '../schemas.js';
-import type { LastError, PipelineState, TaskPlan } from '../types.js';
+import type { LastError, PipelineState, TaskPlan, UserStory } from '../types.js';
 import { writeFileAtomic } from '../utils/fs.js';
+import { type ClaudeUsage, sumUsage } from './metrics.js';
 
 /**
  * Get the current ISO timestamp.
@@ -97,6 +98,41 @@ export function markStoryPassing(plan: TaskPlan, storyId: string): TaskPlan {
     userStories: plan.userStories.map((story) =>
       story.id === storyId ? { ...story, passes: true } : story,
     ),
+  };
+}
+
+/**
+ * Accumulate a usage share (and duration) onto the given stories.
+ *
+ * Pure, like the rest of this module: returns a new plan and never touches the
+ * input. Accumulation is summing and treats `undefined` as "not reported": a
+ * field neither the story nor the share carries stays absent, so a plan written
+ * by a CLI that reports no usage never gains artificial zeros.
+ *
+ * The share is what `divideUsage()` already split across the stories that
+ * completed in the same execute iteration — see core/engine.ts.
+ */
+export function applyStoryMetrics(
+  plan: TaskPlan,
+  storyIds: string[],
+  share: ClaudeUsage,
+  durationSeconds?: number,
+): TaskPlan {
+  if (storyIds.length === 0) return plan;
+
+  const targets = new Set(storyIds);
+
+  return {
+    ...plan,
+    userStories: plan.userStories.map((story) => {
+      if (!targets.has(story.id)) return story;
+
+      const updated: UserStory = { ...story, ...sumUsage(story, share) };
+      if (story.durationSeconds !== undefined || durationSeconds !== undefined) {
+        updated.durationSeconds = (story.durationSeconds ?? 0) + (durationSeconds ?? 0);
+      }
+      return updated;
+    }),
   };
 }
 

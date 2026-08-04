@@ -18,6 +18,7 @@ import {
 import { getSessionPublisher } from './session-publisher.js';
 import {
   allStoriesPass,
+  applyStoryMetrics,
   clearLastError,
   hasPendingCorrection,
   initializeState,
@@ -338,6 +339,18 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       const storySeconds = Math.round(iterationSeconds / completedStoryIds.length);
       for (const storyId of completedStoryIds) {
         publishStoryMetrics(storyId, storyShare, storySeconds);
+      }
+
+      // The same shares also land on tasks.json, so the numbers outlive the
+      // session and are readable with web monitoring off. Persisting them is
+      // observational: a write failure must never change the iteration's
+      // outcome, so the plan in memory only advances when the write succeeded.
+      const planWithMetrics = applyStoryMetrics(plan, completedStoryIds, storyShare, storySeconds);
+      try {
+        await saveTaskPlan(paths.prdFile, planWithMetrics);
+        plan = planWithMetrics;
+      } catch {
+        // Metrics are a nice-to-have; the iteration succeeded regardless.
       }
     }
 
