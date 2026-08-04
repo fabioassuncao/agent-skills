@@ -83,6 +83,12 @@ They are module state, so any test that publishes metrics must call
 `resetRunUsageTotals()` in `afterEach`, or later tests in the same file inherit
 the counters.
 
+This is safe only under the current one-issue-per-process model. If Issue Flow
+ever grows a mode that processes multiple issues in the same Node process (a
+batch runner or daemon), these counters must be scoped per run (e.g. threaded
+through a context object) instead of living at module scope, or usage from one
+issue would leak into another's terminal summary.
+
 ## Story-level metrics are an approximation
 
 The CLI reports a single usage per invocation, and one execute iteration can
