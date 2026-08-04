@@ -1,8 +1,8 @@
 # src/storage
 
 Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands through
-`resolveIssuePaths()` (`analyze`, `prd` and `plan` so far; the remaining ones are still being
-migrated off `getIssueDir()`).
+`resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr` and `pr-review` so far; `run`,
+`execute` and the local Issue provider are still being migrated off `getIssueDir()`).
 
 ## Rules
 
@@ -69,7 +69,11 @@ migrated off `getIssueDir()`).
   drives a **command** (rather than a storage helper) has to set it on the real `process.env` and
   restore it afterwards — commands call `resolveIssuePaths()` with no options, so the `{ env }` seam
   never reaches them. Pair it with `resetStorageResolutionCache()` in `beforeEach`, or the previous
-  case's project resolution leaks into the next one.
+  case's project resolution leaks into the next one. This applies to any test whose call graph
+  *reaches* a resolver, not only to the ones that assert on paths: `run.test.ts` writes into the
+  real `~/.issue-flow` the moment the summary calls `prReviewDir()`. When a file has several
+  `describe` blocks with their own hooks, put the `ISSUE_FLOW_HOME` setup in **file-level**
+  `beforeEach`/`afterEach` (they run around each block's own hooks) so no block can forget it.
 - `paths.test.ts` mocks only `getRemoteUrl` from `../utils/git.js` (via `importOriginal` spread) so
   the real `normalizeRemoteUrl` keeps being exercised.
 - Filesystem walks use `readdir(dir, { withFileTypes: true })` and act only on `isDirectory()` /

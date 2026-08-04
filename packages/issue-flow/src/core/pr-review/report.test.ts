@@ -3,18 +3,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// prReviewDir() resolves the repository root through `git rev-parse`, which
-// goes through execa — the mock answers with the temporary root.
-const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
+// prReviewDir() resolves the repository root through `git rev-parse` and the
+// project id through `git remote get-url origin`, both via execa — the mock
+// answers with the temporary root and a stable remote.
+const mockRepo = vi.hoisted(() => ({ root: '', remote: 'https://github.com/acme/widgets.git' }));
 vi.mock('execa', () => ({
   execa: vi.fn(async (file: string, args: string[] = []) => {
     if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
-      return { stdout: mockProjectRoot.current, exitCode: 0 };
+      return { stdout: mockRepo.root, exitCode: 0 };
+    }
+    if (file === 'git' && args[0] === 'remote' && args[1] === 'get-url') {
+      return { stdout: mockRepo.remote, exitCode: 0 };
     }
     return { stdout: '', exitCode: 0 };
   }),
 }));
 
+import { GLOBAL_ROOT_ENV } from '../../storage/paths.js';
+import { resetStorageResolutionCache, resolveIssuePaths } from '../../storage/resolve.js';
 import {
   buildReportMarkdown,
   parseFindings,
@@ -259,26 +265,44 @@ describe('buildReportMarkdown', () => {
 
 describe('artifact directory', () => {
   let root = '';
+  let globalHome = '';
+  let previousHome: string | undefined;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'issue-flow-pr-review-'));
-    mockProjectRoot.current = root;
+    globalHome = await mkdtemp(join(tmpdir(), 'issue-flow-home-'));
+    mockRepo.root = root;
+
+    // prReviewDir() calls resolveIssuePaths() with no options, so the override
+    // has to reach it through the real process environment.
+    previousHome = process.env[GLOBAL_ROOT_ENV];
+    process.env[GLOBAL_ROOT_ENV] = globalHome;
+    resetStorageResolutionCache();
   });
 
   afterEach(async () => {
+    resetStorageResolutionCache();
+    if (previousHome === undefined) delete process.env[GLOBAL_ROOT_ENV];
+    else process.env[GLOBAL_ROOT_ENV] = previousHome;
+
     await rm(root, { recursive: true, force: true });
+    await rm(globalHome, { recursive: true, force: true });
   });
 
-  it('uses issues/<N>/pr-review/ when an issue is associated', async () => {
-    expect(await prReviewDir({ issue: '25', pullRequest: 184 })).toBe(
-      join(root, 'issues', '25', 'pr-review'),
-    );
+  it('uses the global issues/<N>/pr-review/ when an issue is associated', async () => {
+    const dir = await prReviewDir({ issue: '25', pullRequest: 184 });
+
+    expect(dir).toBe((await resolveIssuePaths('25')).prReviewDir);
+    expect(dir.startsWith(globalHome)).toBe(true);
+    expect(dir).not.toContain(root);
   });
 
-  it('uses issues/pr-<N>/pr-review/ when there is no issue', async () => {
-    expect(await prReviewDir({ pullRequest: 184 })).toBe(
-      join(root, 'issues', 'pr-184', 'pr-review'),
-    );
+  it('uses the synthetic issues/pr-<N>/pr-review/ when there is no issue', async () => {
+    const dir = await prReviewDir({ pullRequest: 184 });
+
+    expect(dir).toBe((await resolveIssuePaths('pr-184')).prReviewDir);
+    expect(dir.startsWith(globalHome)).toBe(true);
+    expect(dir.endsWith(join('pr-184', 'pr-review'))).toBe(true);
   });
 });
 

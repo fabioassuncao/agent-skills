@@ -1,8 +1,8 @@
-import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { resolveIssuePaths } from '../../storage/resolve.js';
 import type { PullRequestRef } from '../../types.js';
 import { printInfo, printWarning } from '../../ui/logger.js';
-import { getCurrentBranch, getIssueDir } from '../../utils/git.js';
+import { getCurrentBranch } from '../../utils/git.js';
 import { listPullRequests } from '../session-git.js';
 import { getSessionPublisher } from '../session-publisher.js';
 import type { SessionPullRequest } from '../session-state.js';
@@ -84,13 +84,13 @@ const SOURCE_LABELS: Record<PullRequestSource, string> = {
 };
 
 /**
- * `plan.pullRequest` of issues/<N>/tasks.json. Best-effort: a missing plan, an
- * invalid one or a plan written before the `pr` phase ran is simply "no
- * candidate", never a failure — the next source still gets its turn.
+ * `plan.pullRequest` of the issue's global tasks.json. Best-effort: a missing
+ * plan, an invalid one or a plan written before the `pr` phase ran is simply
+ * "no candidate", never a failure — the next source still gets its turn.
  */
 async function loadPlanPullRequest(issue: string): Promise<PullRequestRef | null> {
   try {
-    const plan = await loadTaskPlan(join(await getIssueDir(issue), 'tasks.json'));
+    const plan = await loadTaskPlan((await resolveIssuePaths(issue)).tasksFile);
     return plan.pullRequest ?? null;
   } catch {
     return null;

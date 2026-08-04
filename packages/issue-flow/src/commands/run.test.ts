@@ -35,6 +35,12 @@ vi.mock('execa', () => ({
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
       return { stdout: mockBranch.current, exitCode: 0 };
     }
+    // No remote: the project id is derived from the temporary root's path,
+    // which keeps it deterministic per test instead of picking up whatever the
+    // generic branch below happens to return.
+    if (file === 'git' && args[0] === 'remote' && args[1] === 'get-url') {
+      return { stdout: '', exitCode: 1 };
+    }
     return { stdout: '' };
   }),
 }));
@@ -100,6 +106,8 @@ import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
+import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
 import type { TaskPlan } from '../types.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { startWebServer } from '../web/server.js';
@@ -111,6 +119,30 @@ import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
 import { runPipeline } from './run.js';
+
+/**
+ * `prReviewDir()` already resolves through the global storage, so every test in
+ * this file needs `ISSUE_FLOW_HOME` pointed at a throwaway directory — without
+ * it the suite writes into the developer's real `~/.issue-flow`. The hooks are
+ * file-level on purpose: they run before/after each `describe`'s own hooks, so
+ * no block can forget them.
+ */
+let globalHome: string;
+let previousGlobalHome: string | undefined;
+
+beforeEach(async () => {
+  globalHome = await mkdtemp(join(tmpdir(), 'issue-flow-home-'));
+  previousGlobalHome = process.env[GLOBAL_ROOT_ENV];
+  process.env[GLOBAL_ROOT_ENV] = globalHome;
+  resetStorageResolutionCache();
+});
+
+afterEach(async () => {
+  resetStorageResolutionCache();
+  if (previousGlobalHome === undefined) delete process.env[GLOBAL_ROOT_ENV];
+  else process.env[GLOBAL_ROOT_ENV] = previousGlobalHome;
+  await rm(globalHome, { recursive: true, force: true });
+});
 
 function makeResolved(
   overrides: Partial<Issue> = {},
@@ -830,9 +862,12 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
         },
       }),
     );
-    await mkdir(join(issueDir(), 'pr-review'), { recursive: true });
+    // The report directory already lives under the global storage, while the
+    // rest of `run` is still anchored to <repoRoot>/issues/ (US-006).
+    const reviewDir = (await resolveIssuePaths('42')).prReviewDir;
+    await mkdir(reviewDir, { recursive: true });
     await writeFile(
-      join(issueDir(), 'pr-review', 'index.json'),
+      join(reviewDir, 'index.json'),
       JSON.stringify({
         schemaVersion: 1,
         pullRequest: { number: 184, url: null, title: null, headBranch: null },
@@ -859,7 +894,7 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
         ?.replace(new RegExp(`^\\s*${label}\\s*`), '')
         .trim();
     expect(summaryLine('Review:')).toBe('APPROVE_WITH_SUGGESTIONS');
-    expect(summaryLine('Report:')).toBe(join(issueDir(), 'pr-review', 'pr-184-round-1.md'));
+    expect(summaryLine('Report:')).toBe(join(reviewDir, 'pr-184-round-1.md'));
   });
 
   it('sem a flag, o resumo final não ganha nenhuma linha nova', async () => {
