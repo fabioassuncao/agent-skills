@@ -7,7 +7,7 @@
   "description": "Projetar e implementar a camada base de armazenamento global (~/.issue-flow): resolucao de paths, project-id deterministico derivado do git remote, schemas Zod de metadata e config global, loadGlobalConfig com precedencia definida, migracao nao destrutiva e idempotente do layout legado issues/{N}/ e documentacao. Modulo aditivo em src/storage/ — nenhum comando do pipeline e migrado nesta issue.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-04T02:30:45Z",
+  "lastAttemptAt": "2026-08-04T02:35:30Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -102,8 +102,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": "Depende de US-001 e US-003."
+      "passes": true,
+      "notes": "Implementado em src/storage/paths.ts (getProjectDir, getIssuePaths, tipo IssuePaths, normalizeIssueNumber interno, constantes PROJECTS_DIR_NAME/ISSUES_DIR_NAME); 15 testes novos em src/storage/paths.test.ts, incluindo o superconjunto lido do README."
     },
     {
       "id": "US-005",

@@ -9,6 +9,8 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
 - Loaders/config seguem o padrão de **options injetáveis**: `{ env?: NodeJS.ProcessEnv, warn?: (msg: string) => void, projectRoot?: string }` com defaults (`process.env`, `printWarning`). Ver `LoadWebConfigOptions` em `src/config.ts:188`.
 - Imports internos sempre com extensão `.js` (ESM) e protocolo `node:` obrigatório para builtins (regra biome `useNodejsImportProtocol`).
 - Biome: aspas simples, trailing commas, 2 espaços, lineWidth 100. Rode `npm run lint` antes de commitar. Se falhar só por formatação, `npx biome check --write <arquivos>` resolve.
+- Identificadores que viram segmento de path **sempre** passam por validação antes do `join` (rejeitar vazio, `/`, `\`, `.` e `..`) — ver `normalizeId` em `issues/providers/local.ts:29` e `normalizeIssueNumber` em `storage/paths.ts`.
+- Já existe `packages/issue-flow/src/storage/CLAUDE.md` com as regras do módulo de storage; atualize-o quando descobrir algo reusável ali.
 - Helpers de git que podem falhar legitimamente (sem remote, base branch desconhecida) retornam `null`/default em vez de lançar; só `getProjectRoot`/`getCurrentBranch` lançam. Toda chamada a git passa por `run()` de `utils/shell.ts` (execa com `reject: false`, nunca lança por exit code).
 
 ---
@@ -56,5 +58,22 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
   - `getProjectId` é **async** porque depende de `getRemoteUrl()`. US-004 (`getIssuePaths`/`getProjectDir`) deve receber o `projectId` já resolvido como parâmetro para permanecer puro e síncrono, como o AC pede.
   - `slugify` normaliza tudo que não é `[a-z0-9]` para `-`, colapsa, apara as pontas, **depois** trunca em 32 e apara de novo — a segunda aparada é necessária porque o corte pode deixar um `-` final.
   - Limitação documentada em JSDoc: no fallback por path, mover/renomear a pasta muda o ID e deixa o histórico anterior órfão. US-008 precisa repetir isso no README.
+  - Verificação em browser não se aplica.
+---
+
+## 2026-08-03 23:36 - US-004
+- Implementada a resolução centralizada de paths de issue no storage global.
+- Arquivos alterados:
+  - `packages/issue-flow/src/storage/paths.ts` — `getProjectDir(projectId, options?)`, `getIssuePaths(projectId, issueNumber, options?)`, interface exportada `IssuePaths`, helper interno `normalizeIssueNumber()` e constantes `PROJECTS_DIR_NAME` (`projects`) / `ISSUES_DIR_NAME` (`issues`).
+  - `packages/issue-flow/src/storage/paths.test.ts` — 15 testes novos (layout completo, número vs. string, 4 identificadores não numéricos, trim/`#`, 9 identificadores inseguros, ausência de IO, superconjunto do README).
+  - `packages/issue-flow/src/storage/CLAUDE.md` — **novo**: regras do módulo (nunca montar path à mão, pureza/sincronia, validação de identificador, gotchas).
+- Layout: `<globalRoot>/projects/<projectId>/issues/<issueNumber>/` com `issue.md`, `metadata.json`, `prd.md`, `tasks.json`, `progress.txt`, `analysis.md`, `session.json`, `.last-branch`, `archive/`, `pr-review/`.
+- Checks: `npm run typecheck` OK, `npm test` 594 testes OK (37 arquivos), `npm run lint` OK.
+- **Learnings for future iterations:**
+  - **Conflito de nome importante:** `IssuePaths.prdFile` é `prd.md` e o plano é `tasksFile`; o legado `ResolvedPaths.prdFile` (`types.ts:98`, montado em `config.ts:52-78`) aponta para `tasks.json`. Quem for migrar comandos (fora do escopo desta issue) tem que traduzir os dois nomes, não assumir equivalência.
+  - O teste de superconjunto lê o README da **raiz do monorepo** via `resolve(fileURLToPath(import.meta.url), '../../../../../README.md')` (cinco níveis: storage → src → issue-flow → packages → raiz), recorta a seção `## Pipeline State & File Structure`, pega o primeiro bloco ``` e extrai as linhas indentadas com 2 espaços. Se o README mudar de formato, esse teste quebra de propósito — é o alarme de documentação desatualizada.
+  - `getGlobalRootOptions` (`{ env }`) é repassado por `getProjectDir`/`getIssuePaths`, então dá para testar todo o layout sem `vi.stubEnv` nem tocar o `$HOME`.
+  - `it.each([...])` com lista de strings simples aceita título `%j` para exibir `''` e `'   '` de forma legível (com `%s` os casos em branco ficam indistinguíveis no output).
+  - Biome quebra automaticamente linhas > 100 colunas, mas **não** durante `npm run lint` (que só checa): `npx biome check --write <arquivo>` antes de commitar economiza um ciclo.
   - Verificação em browser não se aplica.
 ---

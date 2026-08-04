@@ -1,4 +1,6 @@
-import { join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:os', async (importOriginal) => {
@@ -15,9 +17,14 @@ vi.mock('../utils/git.js', async (importOriginal) => {
 
 const { homedir } = await import('node:os');
 const { getRemoteUrl } = await import('../utils/git.js');
-const { GLOBAL_DIR_NAME, GLOBAL_ROOT_ENV, getGlobalRoot, getProjectId } = await import(
-  './paths.js'
-);
+const {
+  GLOBAL_DIR_NAME,
+  GLOBAL_ROOT_ENV,
+  getGlobalRoot,
+  getIssuePaths,
+  getProjectDir,
+  getProjectId,
+} = await import('./paths.js');
 
 const mockHomedir = vi.mocked(homedir);
 const mockGetRemoteUrl = vi.mocked(getRemoteUrl);
@@ -159,5 +166,105 @@ describe('getProjectId', () => {
   it('uses "project" when no character of the name survives sanitization', async () => {
     mockGetRemoteUrl.mockResolvedValue('https://github.com/org/___.git');
     expect(await getProjectId('/tmp/x')).toMatch(/^project-[0-9a-f]{12}$/);
+  });
+});
+
+const env = { [GLOBAL_ROOT_ENV]: '/tmp/global-root' };
+
+describe('getProjectDir', () => {
+  it('anchors the project under <globalRoot>/projects', () => {
+    expect(getProjectDir('repo-abc123def456', { env })).toBe(
+      join('/tmp/global-root', 'projects', 'repo-abc123def456'),
+    );
+  });
+
+  it('follows the global root override', () => {
+    mockHomedir.mockReturnValue('/home/tester');
+    expect(getProjectDir('repo-abc123def456', { env: {} })).toBe(
+      join('/home/tester', GLOBAL_DIR_NAME, 'projects', 'repo-abc123def456'),
+    );
+  });
+});
+
+describe('getIssuePaths', () => {
+  it('anchors every artifact under <projectDir>/issues/<issueNumber>', () => {
+    const paths = getIssuePaths('repo-abc123def456', 42, { env });
+    const issueDir = join('/tmp/global-root', 'projects', 'repo-abc123def456', 'issues', '42');
+
+    expect(paths).toEqual({
+      issueDir,
+      issueFile: join(issueDir, 'issue.md'),
+      metadataFile: join(issueDir, 'metadata.json'),
+      prdFile: join(issueDir, 'prd.md'),
+      tasksFile: join(issueDir, 'tasks.json'),
+      progressFile: join(issueDir, 'progress.txt'),
+      analysisFile: join(issueDir, 'analysis.md'),
+      sessionFile: join(issueDir, 'session.json'),
+      lastBranchFile: join(issueDir, '.last-branch'),
+      archiveDir: join(issueDir, 'archive'),
+      prReviewDir: join(issueDir, 'pr-review'),
+    });
+  });
+
+  it('accepts a number and its string form interchangeably', () => {
+    expect(getIssuePaths('p-1', 42, { env })).toEqual(getIssuePaths('p-1', '42', { env }));
+  });
+
+  it.each([
+    'auth-refactor',
+    'pr-184',
+    'RFC_7',
+    '1.2',
+  ])('supports the non-numeric identifier %s', (id) => {
+    expect(getIssuePaths('p-1', id, { env }).issueDir).toBe(
+      join('/tmp/global-root', 'projects', 'p-1', 'issues', id),
+    );
+  });
+
+  it('trims whitespace and a leading # from the identifier', () => {
+    expect(getIssuePaths('p-1', '  #42 ', { env })).toEqual(getIssuePaths('p-1', '42', { env }));
+  });
+
+  it.each([
+    '',
+    '   ',
+    '#',
+    '.',
+    '..',
+    '../escape',
+    'a/b',
+    'a\\b',
+    '/42',
+  ])('rejects the unsafe identifier %j', (id) => {
+    expect(() => getIssuePaths('p-1', id, { env })).toThrow(/identifier/i);
+  });
+
+  it('does not touch the filesystem', async () => {
+    const { existsSync } = await import('node:fs');
+    const paths = getIssuePaths('p-1', 42, { env: { [GLOBAL_ROOT_ENV]: resolve('.tmp-no-io') } });
+
+    expect(existsSync(paths.issueDir)).toBe(false);
+  });
+
+  it('covers every artifact documented in the README file structure', async () => {
+    const readmePath = resolve(fileURLToPath(import.meta.url), '../../../../../README.md');
+    const readme = await readFile(readmePath, 'utf-8');
+
+    const section = readme.split('## Pipeline State & File Structure')[1];
+    expect(section).toBeDefined();
+
+    const block = section.split('```')[1];
+    // Artifacts are the indented entries of the tree; `issues/42/` heads it.
+    const documented = [...block.matchAll(/^ {2}(\S+)/gm)].map((match) =>
+      match[1].replace(/\/$/, ''),
+    );
+    expect(documented.length).toBeGreaterThan(0);
+
+    const resolved = new Set(
+      Object.values(getIssuePaths('p-1', 42, { env })).map((p) => basename(p)),
+    );
+    for (const artifact of documented) {
+      expect(resolved).toContain(artifact);
+    }
   });
 });

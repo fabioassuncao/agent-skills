@@ -9,6 +9,12 @@ export const GLOBAL_DIR_NAME = '.issue-flow';
 /** Environment variable that relocates the whole global storage tree. */
 export const GLOBAL_ROOT_ENV = 'ISSUE_FLOW_HOME';
 
+/** Directory under the global root holding one folder per project. */
+export const PROJECTS_DIR_NAME = 'projects';
+
+/** Directory under a project holding one folder per issue. */
+export const ISSUES_DIR_NAME = 'issues';
+
 export interface GetGlobalRootOptions {
   /** Environment source. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;
@@ -115,4 +121,92 @@ export async function getProjectId(projectRoot: string): Promise<string> {
   const hash = createHash('sha256').update(seed).digest('hex').slice(0, HASH_LENGTH);
 
   return `${slugify(name)}-${hash}`;
+}
+
+/**
+ * Absolute directory of a project inside the global storage tree.
+ *
+ * `projectId` is expected to come from {@link getProjectId}, which already
+ * guarantees a single safe path segment.
+ */
+export function getProjectDir(projectId: string, options: GetGlobalRootOptions = {}): string {
+  return join(getGlobalRoot(options), PROJECTS_DIR_NAME, projectId);
+}
+
+/**
+ * Every artifact of one issue, resolved from a single place.
+ *
+ * Note that `prdFile` is the requirements document (`prd.md`) and `tasksFile`
+ * is the task plan (`tasks.json`) — unlike `ResolvedPaths.prdFile` in
+ * `types.ts`, which historically points at `tasks.json`.
+ */
+export interface IssuePaths {
+  issueDir: string;
+  issueFile: string;
+  metadataFile: string;
+  prdFile: string;
+  tasksFile: string;
+  progressFile: string;
+  analysisFile: string;
+  sessionFile: string;
+  lastBranchFile: string;
+  archiveDir: string;
+  prReviewDir: string;
+}
+
+/**
+ * Issue identifiers become path segments, so anything that could escape the
+ * issues directory is rejected before it reaches `join` — the same discipline
+ * as `normalizeId()` in `issues/providers/local.ts`.
+ *
+ * Non-numeric identifiers (`auth-refactor`, `pr-184`) are first-class here:
+ * the local provider already supports them, so the global storage must too.
+ */
+function normalizeIssueNumber(issueNumber: string | number): string {
+  const normalized = String(issueNumber).trim().replace(/^#/, '');
+
+  if (normalized.length === 0) {
+    throw new Error('Issue identifier cannot be empty');
+  }
+  if (/[/\\]/.test(normalized) || normalized === '.' || normalized === '..') {
+    throw new Error(`Invalid issue identifier: '${issueNumber}'`);
+  }
+
+  return normalized;
+}
+
+/**
+ * Resolve every path of a single issue under the global storage.
+ *
+ * This is the only place allowed to know the layout of an issue directory:
+ * call sites ask for the artifact they need instead of joining names by hand,
+ * so renaming or adding an artifact stays a one-file change.
+ *
+ * Pure and synchronous: nothing here creates directories or touches the
+ * filesystem.
+ */
+export function getIssuePaths(
+  projectId: string,
+  issueNumber: string | number,
+  options: GetGlobalRootOptions = {},
+): IssuePaths {
+  const issueDir = join(
+    getProjectDir(projectId, options),
+    ISSUES_DIR_NAME,
+    normalizeIssueNumber(issueNumber),
+  );
+
+  return {
+    issueDir,
+    issueFile: join(issueDir, 'issue.md'),
+    metadataFile: join(issueDir, 'metadata.json'),
+    prdFile: join(issueDir, 'prd.md'),
+    tasksFile: join(issueDir, 'tasks.json'),
+    progressFile: join(issueDir, 'progress.txt'),
+    analysisFile: join(issueDir, 'analysis.md'),
+    sessionFile: join(issueDir, 'session.json'),
+    lastBranchFile: join(issueDir, '.last-branch'),
+    archiveDir: join(issueDir, 'archive'),
+    prReviewDir: join(issueDir, 'pr-review'),
+  };
 }
