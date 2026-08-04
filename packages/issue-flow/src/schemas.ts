@@ -201,6 +201,11 @@ const sessionStorySchema = z.object({
   // image of userStorySchema, where the same two fields are plainly optional.
   status: userStoryStatusSchema.default('backlog'),
   dependencies: z.array(z.string()).default([]),
+  // Published for the panel's story detail view. Same tolerant default as the
+  // fields above: absent (older session.json) and empty resolve to the same
+  // value, so the client never has to tell them apart.
+  description: z.string().default(''),
+  acceptanceCriteria: z.array(z.string()).default([]),
   ...sessionUsageShape,
 });
 

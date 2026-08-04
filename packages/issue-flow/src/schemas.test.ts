@@ -486,6 +486,14 @@ describe('backwards compatibility with pre-metrics artifacts', () => {
     expect(snapshot.stories[0]).toMatchObject({ status: 'backlog', dependencies: [] });
   });
 
+  it('fills the absent story description and acceptance criteria of an older session.json', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    // The panel's story drawer reads these directly: absent must resolve to an
+    // empty value, never to undefined reaching the DOM.
+    expect(snapshot.stories[0]).toMatchObject({ description: '', acceptanceCriteria: [] });
+  });
+
   it('parses a tasks.json written before the metrics existed', () => {
     const result = taskPlanSchema.safeParse(validTaskPlan());
     expect(result.success).toBe(true);

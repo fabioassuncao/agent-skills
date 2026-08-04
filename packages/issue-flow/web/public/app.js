@@ -32,6 +32,15 @@
     done: 'concluída',
   };
 
+  // Colunas do Kanban, na ordem em que a execução avança. Os títulos são os das
+  // colunas, não os rótulos dos badges (STORY_STATUS_LABELS), que seguem em minúsculas.
+  const KANBAN_COLUMNS = [
+    { status: 'backlog', title: 'Backlog' },
+    { status: 'in_progress', title: 'Em andamento' },
+    { status: 'in_review', title: 'Em revisão' },
+    { status: 'done', title: 'Concluído' },
+  ];
+
   const els = {
     banner: document.getElementById('banner-disconnected'),
     issueLink: document.getElementById('issue-link'),
@@ -56,6 +65,13 @@
     logFilter: document.getElementById('log-filter'),
     logs: document.getElementById('logs'),
     sessionMeta: document.getElementById('session-meta'),
+    tabs: Array.prototype.slice.call(document.querySelectorAll('[role="tab"]')),
+    kanban: document.getElementById('kanban'),
+    drawer: document.getElementById('drawer'),
+    drawerOverlay: document.getElementById('drawer-overlay'),
+    drawerClose: document.getElementById('drawer-close'),
+    drawerTitle: document.getElementById('drawer-title'),
+    drawerBody: document.getElementById('drawer-body'),
   };
 
   const state = {
@@ -66,6 +82,10 @@
     timer: null,
     polling: false,
     logFilter: 'all',
+    activeTab: 'tab-execution',
+    // Só o id: o card que abriu o drawer é destruído no próximo render, então
+    // guardar o nó levaria a uma referência morta.
+    selectedStoryId: null,
   };
 
   // ---- Utilitários ----------------------------------------------------------
@@ -189,6 +209,61 @@
     return match ? match[1] : null;
   }
 
+  // ---- Camada de leitura das stories ----------------------------------------
+  // Único ponto de acesso a uma story individual: o Kanban e o drawer nunca
+  // varrem snapshot.stories por conta própria. Quando a escrita existir, é aqui
+  // que a leitura passa a conversar com ela, sem tocar na UI.
+
+  function text(value) {
+    return typeof value === 'string' ? value : '';
+  }
+
+  function list(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  // Normaliza os campos que um session.json anterior pode não ter gravado, para
+  // que nenhum consumidor precise repetir a checagem de ausência.
+  function normalizeStory(story) {
+    const status = story.status !== null && story.status !== undefined ? story.status : 'backlog';
+    return {
+      ...story,
+      status: STORY_STATUS_LABELS[status] !== undefined ? status : 'backlog',
+      dependencies: list(story.dependencies),
+      description: text(story.description),
+      acceptanceCriteria: list(story.acceptanceCriteria),
+    };
+  }
+
+  function getStoryById(snapshot, id) {
+    if (!snapshot) return null;
+    const stories = list(snapshot.stories);
+    for (const story of stories) {
+      if (story.id === id) return normalizeStory(story);
+    }
+    return null;
+  }
+
+  function getStories(snapshot) {
+    if (!snapshot) return [];
+    return list(snapshot.stories).map(normalizeStory);
+  }
+
+  // ---- Abas -----------------------------------------------------------------
+  // Troca apenas visibilidade e estado ARIA. Não toca no polling: render()
+  // segue atualizando os dois painéis, então a aba inativa nunca fica defasada.
+
+  function setActiveTab(tabId) {
+    state.activeTab = tabId;
+    for (const tab of els.tabs) {
+      const active = tab.id === tabId;
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      tab.classList.toggle('is-active', active);
+      const panel = document.getElementById(tab.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !active;
+    }
+  }
+
   // ---- Polling: intervalo configurável, aba oculta e backoff ----------------
 
   function readStoredRefresh() {
@@ -282,6 +357,9 @@
     renderPhases(snapshot);
     renderNextSteps(snapshot);
     renderStories(snapshot);
+    // Incondicional: a aba inativa não pode ficar defasada até ser aberta.
+    renderKanban(snapshot);
+    renderDrawer(snapshot);
     renderGit(snapshot);
     renderLogs(snapshot);
     renderMeta(snapshot);
@@ -544,6 +622,157 @@
     }
   }
 
+  // As stories chegam já normalizadas por getStories(), então aqui nenhum campo
+  // precisa de checagem de ausência.
+  // <button> em vez de <div role="button">: acionamento por Enter/Espaço e foco
+  // saem de graça. Por isso todo o conteúdo é <span> — <p>/<div> não são
+  // conteúdo válido dentro de um botão.
+  function storyCard(story) {
+    const card = el('button', 'kanban-card');
+    card.type = 'button';
+    card.dataset.storyId = story.id;
+
+    const head = el('span', 'kanban-card-head');
+    head.appendChild(
+      el('span', 'item-icon icon-' + (story.passes ? 'completed' : 'pending'), story.passes ? '✓' : '○'),
+    );
+    head.appendChild(el('span', 'story-id', story.id));
+    card.appendChild(head);
+
+    card.appendChild(el('span', 'kanban-card-title', story.title));
+    if (story.description) card.appendChild(el('span', 'kanban-card-desc', story.description));
+    card.appendChild(
+      el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
+    );
+    card.addEventListener('click', () => openDrawer(story.id));
+    return card;
+  }
+
+  function renderKanban(snapshot) {
+    clear(els.kanban);
+    const stories = getStories(snapshot);
+    for (const column of KANBAN_COLUMNS) {
+      const entries = stories.filter((story) => story.status === column.status);
+
+      const node = el('section', 'kanban-column');
+      const head = el('div', 'kanban-column-head');
+      head.appendChild(el('h3', 'kanban-column-title', column.title));
+      head.appendChild(el('span', 'kanban-column-count', String(entries.length)));
+      node.appendChild(head);
+
+      if (entries.length === 0) {
+        node.appendChild(el('p', 'empty kanban-empty', 'Nenhuma story.'));
+      } else {
+        for (const story of entries) node.appendChild(storyCard(story));
+      }
+      els.kanban.appendChild(node);
+    }
+  }
+
+  // ---- Drawer de detalhes da story ------------------------------------------
+
+  function onDrawerKeydown(event) {
+    if (event.key === 'Escape') closeDrawer();
+  }
+
+  // Reidrata a partir do id a cada render: o drawer aberto sobrevive ao poll.
+  function renderDrawer(snapshot) {
+    if (state.selectedStoryId === null) return;
+    const story = getStoryById(snapshot, state.selectedStoryId);
+    // A story saiu do plano: manter o drawer aberto exibiria dados obsoletos.
+    if (story === null) {
+      closeDrawer();
+      return;
+    }
+    els.drawerTitle.textContent = story.id + ' · ' + story.title;
+
+    clear(els.drawerBody);
+    els.drawerBody.appendChild(
+      el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
+    );
+
+    const timing = itemSideText([
+      story.completedAt ? 'concluída ' + formatClock(story.completedAt) : '',
+      metric(story.durationSeconds) !== null ? formatDuration(story.durationSeconds) : '',
+    ]);
+    if (timing) els.drawerBody.appendChild(el('p', 'muted drawer-timing', timing));
+
+    drawerSection('Descrição', (body) => {
+      body.appendChild(
+        story.description
+          ? el('p', 'drawer-text', story.description)
+          : el('p', 'empty', 'Sem descrição.'),
+      );
+    });
+
+    drawerSection('Critérios de aceite', (body) => {
+      if (story.acceptanceCriteria.length === 0) {
+        body.appendChild(el('p', 'empty', 'Nenhum critério declarado.'));
+        return;
+      }
+      const items = el('ul', 'drawer-list');
+      for (const criterion of story.acceptanceCriteria) items.appendChild(el('li', null, criterion));
+      body.appendChild(items);
+    });
+
+    drawerSection('Dependências', (body) => {
+      if (story.dependencies.length === 0) {
+        body.appendChild(el('p', 'empty', 'Nenhuma dependência.'));
+        return;
+      }
+      const row = el('div', 'badge-row');
+      for (const dependency of story.dependencies) {
+        row.appendChild(el('span', 'badge label-badge', dependency));
+      }
+      body.appendChild(row);
+    });
+
+    // Nenhum campo de histórico existe no snapshot hoje; a seção só aparece se
+    // uma versão futura publicar um.
+    const history = list(story.history);
+    if (history.length > 0) {
+      drawerSection('Histórico', (body) => {
+        const entries = el('ol', 'drawer-list');
+        for (const entry of history) {
+          const item = el('li');
+          if (entry.at) item.appendChild(el('span', 'log-time', formatClock(entry.at)));
+          item.appendChild(document.createTextNode(text(entry.message)));
+          entries.appendChild(item);
+        }
+        body.appendChild(entries);
+      });
+    }
+  }
+
+  function drawerSection(title, fill) {
+    const section = el('section', 'drawer-section');
+    section.appendChild(el('h3', 'drawer-section-title', title));
+    fill(section);
+    els.drawerBody.appendChild(section);
+  }
+
+  function openDrawer(id) {
+    state.selectedStoryId = id;
+    els.drawer.hidden = false;
+    els.drawerOverlay.hidden = false;
+    document.addEventListener('keydown', onDrawerKeydown);
+    renderDrawer(state.snapshot);
+    els.drawer.focus();
+  }
+
+  function closeDrawer() {
+    const id = state.selectedStoryId;
+    state.selectedStoryId = null;
+    els.drawer.hidden = true;
+    els.drawerOverlay.hidden = true;
+    document.removeEventListener('keydown', onDrawerKeydown);
+    clear(els.drawerBody);
+    // O card é recriado a cada render, então o foco volta pelo id, não por uma
+    // referência guardada na abertura.
+    const card = id ? els.kanban.querySelector('[data-story-id="' + id + '"]') : null;
+    if (card) card.focus();
+  }
+
   function renderGit(snapshot) {
     const repo = repoUrl(snapshot);
 
@@ -634,6 +863,14 @@
   // ---- Inicialização --------------------------------------------------------
 
   async function init() {
+    for (const tab of els.tabs) {
+      tab.addEventListener('click', () => setActiveTab(tab.id));
+    }
+    setActiveTab(state.activeTab);
+
+    els.drawerClose.addEventListener('click', closeDrawer);
+    els.drawerOverlay.addEventListener('click', closeDrawer);
+
     els.refreshSelect.addEventListener('change', () => {
       state.refreshSeconds = Number(els.refreshSelect.value);
       storeRefresh(state.refreshSeconds);

@@ -18,6 +18,7 @@
   --ok-bg: #dcfce7;
   --idle-bg: #e5e7eb;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  --overlay: rgb(0 0 0 / 0.45);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,6 +39,7 @@
     --ok-bg: #14301f;
     --idle-bg: #262d38;
     --shadow: none;
+    --overlay: rgb(0 0 0 / 0.65);
   }
 }
 
@@ -108,6 +110,53 @@ a {
 
 a:hover {
   text-decoration: underline;
+}
+
+/* ---- Abas ---- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+}
+
+.tab:hover {
+  color: var(--fg);
+  background: var(--card);
+}
+
+.tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* O painel repete o grid de main: as seções dentro dele são os cards que antes
+   eram filhos diretos de main e dependem desse espaçamento. */
+.tab-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
+.tab-panel > * {
+  min-width: 0;
 }
 
 /* ---- Cabeçalho ---- */
@@ -532,6 +581,223 @@ progress {
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ---- Kanban ---- */
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.kanban-column {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.kanban-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kanban-column-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.kanban-column-count {
+  flex: none;
+  background: var(--idle-bg);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.kanban-card {
+  appearance: none;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  width: 100%;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.kanban-card:hover {
+  border-color: var(--accent);
+}
+
+.kanban-card-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.kanban-card-title {
+  display: block;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* Trecho curto: limita a 3 linhas sem truncar a string, então o texto completo
+   continua no DOM para leitores de tela e para o drawer. */
+.kanban-card-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+.kanban-empty {
+  font-size: 0.84rem;
+}
+
+@media (max-width: 719px) {
+  .kanban {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- Drawer de detalhes ---- */
+
+/* Acima do .banner sticky (z-index 10), que senão atravessa o overlay. */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--overlay);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+  padding: 16px;
+  gap: 12px;
+}
+
+.drawer[hidden],
+.drawer-overlay[hidden] {
+  display: none;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drawer-head h2 {
+  margin: 0;
+  /* O título carrega o id + o título da story: fora do padrão caixa-alta das
+     demais seções, que são rótulos fixos e curtos. */
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.drawer-close {
+  appearance: none;
+  flex: none;
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.drawer-close:hover {
+  color: var(--fg);
+  background: var(--idle-bg);
+}
+
+/* A rolagem vive aqui, não na página: o drawer é fixo e ocupa a altura toda. */
+.drawer-body {
+  overflow-y: auto;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  justify-items: start;
+}
+
+.drawer-timing {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.drawer-section {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.drawer-section-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.drawer-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.drawer-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.drawer-list li {
+  overflow-wrap: anywhere;
 }
 
 /* ---- Diversos ---- */

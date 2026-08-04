@@ -41,6 +41,14 @@
       <div id="alerts-body"></div>
     </section>
 
+    <div class="tabs" role="tablist" aria-label="Visualizações do painel">
+      <button type="button" class="tab" role="tab" id="tab-execution"
+              aria-controls="panel-execution" aria-selected="true">Execução</button>
+      <button type="button" class="tab" role="tab" id="tab-kanban"
+              aria-controls="panel-kanban" aria-selected="false">Kanban</button>
+    </div>
+
+    <div class="tab-panel" id="panel-execution" role="tabpanel" aria-labelledby="tab-execution" tabindex="0">
     <div class="columns">
       <section class="card">
         <h2>Resumo da issue</h2>
@@ -108,11 +116,29 @@
       </div>
       <ol id="logs" class="plain-list logs"></ol>
     </section>
+    </div>
+
+    <div class="tab-panel" id="panel-kanban" role="tabpanel" aria-labelledby="tab-kanban" tabindex="0" hidden>
+      <section class="card">
+        <h2>Kanban de user stories</h2>
+        <div id="kanban" class="kanban"></div>
+      </section>
+    </div>
 
     <footer class="muted footer">
       <span id="session-meta"></span>
     </footer>
   </main>
+
+  <div id="drawer-overlay" class="drawer-overlay" hidden></div>
+  <aside id="drawer" class="drawer" role="dialog" aria-modal="true"
+         aria-labelledby="drawer-title" tabindex="-1" hidden>
+    <div class="drawer-head">
+      <h2 id="drawer-title">Detalhes da user story</h2>
+      <button type="button" id="drawer-close" class="drawer-close" aria-label="Fechar detalhes">✕</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
 
   <noscript>
     <p class="noscript">Esta interface precisa de JavaScript. O estado bruto está disponível em

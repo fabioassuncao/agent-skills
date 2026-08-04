@@ -304,6 +304,8 @@ describe('reduceSessionEvent', () => {
         completedAt: null,
         status: 'done',
         dependencies: [],
+        description: 'Test story',
+        acceptanceCriteria: ['Criterion 1'],
         durationSeconds: null,
         inputTokens: null,
         outputTokens: null,
@@ -319,6 +321,8 @@ describe('reduceSessionEvent', () => {
         completedAt: null,
         status: 'backlog',
         dependencies: [],
+        description: 'Test story',
+        acceptanceCriteria: ['Criterion 1'],
         durationSeconds: null,
         inputTokens: null,
         outputTokens: null,
@@ -450,6 +454,47 @@ describe('reduceSessionEvent', () => {
       ],
     });
     expect(snap.stories.map((s) => s.dependencies)).toEqual([[], ['US-001']]);
+  });
+
+  it('stories:update copies the description and acceptance criteria from the plan', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [
+        makeStory({
+          id: 'US-001',
+          description: 'Render the board',
+          acceptanceCriteria: ['Four columns', 'Empty state per column'],
+        }),
+      ],
+    });
+    expect(snap.stories[0]).toMatchObject({
+      description: 'Render the board',
+      acceptanceCriteria: ['Four columns', 'Empty state per column'],
+    });
+  });
+
+  it('stories:update keeps the description and acceptance criteria across publications', () => {
+    const story = makeStory({
+      id: 'US-001',
+      description: 'Render the board',
+      acceptanceCriteria: ['Four columns'],
+    });
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [story],
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:02:00Z',
+      stories: [{ ...story, passes: true }],
+    });
+    expect(snap.stories[0]).toMatchObject({
+      passes: true,
+      description: 'Render the board',
+      acceptanceCriteria: ['Four columns'],
+    });
   });
 
   it('stories:update stamps completedAt only when a story flips to passing', () => {
