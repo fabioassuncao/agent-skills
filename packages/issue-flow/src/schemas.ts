@@ -157,13 +157,17 @@ const sessionLogEntrySchema = z.object({
  * Usage counters attached to a phase or a story in the session snapshot.
  * Unlike claudeUsageSchema (a single invocation, optional fields), these are
  * always present and nullable: null means "never reported", not zero.
+ *
+ * They default to null on input so a session.json written before the metrics
+ * existed still parses -- absent and null mean the same thing here, and the
+ * parsed value keeps the `number | null` shape the snapshot interface declares.
  */
 const sessionUsageShape = {
-  inputTokens: z.number().nullable(),
-  outputTokens: z.number().nullable(),
-  cacheReadTokens: z.number().nullable(),
-  cacheCreationTokens: z.number().nullable(),
-  costUsd: z.number().nullable(),
+  inputTokens: z.number().nullable().default(null),
+  outputTokens: z.number().nullable().default(null),
+  cacheReadTokens: z.number().nullable().default(null),
+  cacheCreationTokens: z.number().nullable().default(null),
+  costUsd: z.number().nullable().default(null),
 };
 
 const sessionPhaseSchema = z.object({
@@ -182,7 +186,8 @@ const sessionStorySchema = z.object({
   priority: z.number(),
   passes: z.boolean(),
   completedAt: z.string().nullable(),
-  durationSeconds: z.number().nullable(),
+  // Also introduced with the metrics, hence the same tolerant default.
+  durationSeconds: z.number().nullable().default(null),
   ...sessionUsageShape,
 });
 
@@ -222,13 +227,23 @@ export const sessionSnapshotSchema = z.object({
     .nullable(),
   phases: z.array(sessionPhaseSchema),
   stories: z.array(sessionStorySchema),
-  metrics: z.object({
-    totalInputTokens: z.number().nullable(),
-    totalOutputTokens: z.number().nullable(),
-    totalCacheReadTokens: z.number().nullable(),
-    totalCacheCreationTokens: z.number().nullable(),
-    totalCostUsd: z.number().nullable(),
-  }),
+  // The whole aggregate is additive: a snapshot from before it existed parses
+  // into the same "nothing reported" object the reducer starts from.
+  metrics: z
+    .object({
+      totalInputTokens: z.number().nullable().default(null),
+      totalOutputTokens: z.number().nullable().default(null),
+      totalCacheReadTokens: z.number().nullable().default(null),
+      totalCacheCreationTokens: z.number().nullable().default(null),
+      totalCostUsd: z.number().nullable().default(null),
+    })
+    .default({
+      totalInputTokens: null,
+      totalOutputTokens: null,
+      totalCacheReadTokens: null,
+      totalCacheCreationTokens: null,
+      totalCostUsd: null,
+    }),
   execution: z.object({
     iteration: z.number(),
     retries: z.number(),

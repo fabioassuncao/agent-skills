@@ -11,6 +11,14 @@ split across commits.
 `schemaVersion` stays `1` for purely additive fields — bump it only when an
 existing field changes shape or disappears.
 
+A newly added snapshot field must also be tolerant on **input**, or a
+`session.json` written by an earlier release stops parsing: the snapshot's
+non-optional fields (`number | null` and friends) need `.default(null)` in
+`src/schemas.ts` so "absent" and "not reported" resolve to the same value. The
+output type is unchanged, so `satisfies z.ZodType<SessionSnapshot>` still
+compiles. Fields on `UserStory` are plainly `.optional()` instead — a plan that
+never had them must not gain artificial nulls on a round trip.
+
 ## Reducer contract (`applyEvent`)
 
 - Pure: never mutates the input, never does I/O. Returning the input snapshot
@@ -96,6 +104,16 @@ only advances on success: persisting metrics is observational and must never
 change an iteration's outcome. `UserStory`'s metric fields are optional and
 accumulate by summing — an absent field means "not reported", so a plan from a
 run that predates them never gains artificial zeros.
+
+## Testing the execute loop end to end
+
+`engine.test.ts` mocks `executor.js`, so it never exercises the CLI invocation
+itself. When the change under test spans the loop **and** the executor (flags,
+envelope unwrapping, what the loop decides from the result), write it in
+`execute-regression.test.ts` instead: that file mocks `execa` and runs the real
+`executeClaude()`, which is the only way to prove the CLI contract and the flow
+decisions still agree. Mock `../utils/retry.js`'s `sleep` there too, or every
+iteration and retry costs real seconds.
 
 Both artifacts are user-facing contracts: any new field on `SessionSnapshot` or
 `UserStory` also belongs in the root `README.md` (`Web Monitoring →

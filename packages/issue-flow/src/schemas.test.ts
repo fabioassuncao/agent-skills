@@ -315,6 +315,136 @@ describe('sessionSnapshotSchema', () => {
   });
 });
 
+/**
+ * Artifacts written by releases that predate the token/cost instrumentation.
+ * Both must keep parsing: the metrics extension is additive, and an absent
+ * field means "not reported", never zero.
+ */
+describe('backwards compatibility with pre-metrics artifacts', () => {
+  /** A session.json exactly as the FilePublisher wrote it before the metrics. */
+  function legacySessionSnapshot() {
+    return {
+      schemaVersion: 1,
+      sessionId: 's-42',
+      readOnly: true,
+      capabilities: ['read'],
+      issue: { number: 42, url: 'https://github.com/acme/repo/issues/42' },
+      status: 'completed',
+      startedAt: '2026-07-01T10:00:00Z',
+      updatedAt: '2026-07-01T10:30:00Z',
+      endedAt: '2026-07-01T10:30:00Z',
+      elapsedSeconds: 1800,
+      estimatedRemainingSeconds: null,
+      progress: {
+        percent: 100,
+        phasesCompleted: 1,
+        phasesTotal: 1,
+        storiesCompleted: 1,
+        storiesTotal: 1,
+      },
+      currentPhase: null,
+      currentActivity: null,
+      phases: [
+        {
+          name: 'execute',
+          status: 'completed',
+          startedAt: '2026-07-01T10:00:00Z',
+          endedAt: '2026-07-01T10:30:00Z',
+          durationSeconds: 1800,
+          error: null,
+        },
+      ],
+      stories: [
+        {
+          id: 'US-001',
+          title: 'Legacy story',
+          priority: 1,
+          passes: true,
+          completedAt: '2026-07-01T10:30:00Z',
+        },
+      ],
+      execution: { iteration: 1, retries: 0, correctionCycle: 0, maxCorrectionCycles: 3 },
+      git: { branch: 'issue/42-legacy', baseBranch: 'main', commits: [] },
+      pullRequests: [],
+      logs: [],
+      errors: [],
+      warnings: [],
+      lastError: null,
+      nextSteps: [],
+      environment: null,
+    };
+  }
+
+  it('parses a session.json written before the metrics existed', () => {
+    const result = sessionSnapshotSchema.safeParse(legacySessionSnapshot());
+    expect(result.success).toBe(true);
+  });
+
+  it('fills the absent snapshot metrics with null, never with zeros', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    expect(snapshot.metrics).toEqual({
+      totalInputTokens: null,
+      totalOutputTokens: null,
+      totalCacheReadTokens: null,
+      totalCacheCreationTokens: null,
+      totalCostUsd: null,
+    });
+    expect(snapshot.phases[0]).toMatchObject({
+      inputTokens: null,
+      outputTokens: null,
+      cacheReadTokens: null,
+      cacheCreationTokens: null,
+      costUsd: null,
+      // The pre-existing fields are untouched.
+      durationSeconds: 1800,
+    });
+    expect(snapshot.stories[0]).toMatchObject({
+      durationSeconds: null,
+      inputTokens: null,
+      costUsd: null,
+      completedAt: '2026-07-01T10:30:00Z',
+    });
+  });
+
+  it('parses a tasks.json written before the metrics existed', () => {
+    const result = taskPlanSchema.safeParse(validTaskPlan());
+    expect(result.success).toBe(true);
+    // Optional by design: the story keeps exactly the keys it had on disk.
+    expect(result.success && Object.keys(result.data.userStories[0]!).sort()).toEqual([
+      'acceptanceCriteria',
+      'description',
+      'id',
+      'notes',
+      'passes',
+      'priority',
+      'title',
+    ]);
+  });
+
+  it('keeps the metrics of a story that does carry them', () => {
+    const plan = validTaskPlan();
+    plan.userStories[0] = {
+      ...plan.userStories[0]!,
+      inputTokens: 10,
+      outputTokens: 4,
+      cacheReadTokens: 500,
+      cacheCreationTokens: 1_200,
+      costUsd: 0.42,
+      durationSeconds: 90,
+    } as (typeof plan.userStories)[number];
+
+    const result = taskPlanSchema.safeParse(plan);
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.userStories[0]).toMatchObject({
+      inputTokens: 10,
+      costUsd: 0.42,
+      durationSeconds: 90,
+    });
+  });
+});
+
 describe('webConfigSchema', () => {
   it('fills in the documented defaults for an empty object', () => {
     const result = webConfigSchema.parse({});
