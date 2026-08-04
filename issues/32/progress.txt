@@ -11,6 +11,7 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
 - Biome: aspas simples, trailing commas, 2 espaços, lineWidth 100. Rode `npm run lint` antes de commitar. Se falhar só por formatação, `npx biome check --write <arquivos>` resolve.
 - Identificadores que viram segmento de path **sempre** passam por validação antes do `join` (rejeitar vazio, `/`, `\`, `.` e `..`) — ver `normalizeId` em `issues/providers/local.ts:29` e `normalizeIssueNumber` em `storage/paths.ts`.
 - Já existe `packages/issue-flow/src/storage/CLAUDE.md` com as regras do módulo de storage; atualize-o quando descobrir algo reusável ali.
+- **zod 4**: `.partial()` NÃO remove `.default()` — `z.object({p: z.number().default(1)}).partial().parse({})` devolve `{p: 1}`. Para reusar um campo sem o default use `.unwrap()` (`webConfigSchema.shape.port.unwrap()`), que preserva as constraints. Consequência: camadas intermediárias de precedência nunca podem ser montadas com `.partial()` de um schema com defaults.
 - Helpers de git que podem falhar legitimamente (sem remote, base branch desconhecida) retornam `null`/default em vez de lançar; só `getProjectRoot`/`getCurrentBranch` lançam. Toda chamada a git passa por `run()` de `utils/shell.ts` (execa com `reject: false`, nunca lança por exit code).
 
 ---
@@ -75,5 +76,22 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
   - `getGlobalRootOptions` (`{ env }`) é repassado por `getProjectDir`/`getIssuePaths`, então dá para testar todo o layout sem `vi.stubEnv` nem tocar o `$HOME`.
   - `it.each([...])` com lista de strings simples aceita título `%j` para exibir `''` e `'   '` de forma legível (com `%s` os casos em branco ficam indistinguíveis no output).
   - Biome quebra automaticamente linhas > 100 colunas, mas **não** durante `npm run lint` (que só checa): `npx biome check --write <arquivo>` antes de commitar economiza um ciclo.
+  - Verificação em browser não se aplica.
+---
+
+## 2026-08-03 23:45 - US-005
+- Implementados os schemas Zod do storage global (metadata.json do projeto e config.json global).
+- Arquivos alterados:
+  - `packages/issue-flow/src/storage/schemas.ts` — **novo**: `STORAGE_SCHEMA_VERSION`, `projectMetadataSchema`, `globalWebConfigSchema`, `globalRetryConfigSchema`, `globalCommitConfigSchema`, `globalConfigSchema` e os types via `z.infer` (`ProjectMetadata`, `GlobalWebConfig`, `GlobalRetryConfig`, `GlobalCommitConfig`, `GlobalConfig`).
+  - `packages/issue-flow/src/storage/schemas.test.ts` — **novo**: 34 testes (metadata completo, nullables, campos aditivos, obrigatórios ausentes, tipos inválidos; config vazia sem materializar chave, subobjetos parciais, subconjunto do web, precedência com `web.port`, chaves desconhecidas, 8 casos de rejeição).
+  - `packages/issue-flow/src/storage/CLAUDE.md` — regras novas (schemas de storage moram aqui, sem `.default()` em camada intermediária, sem `.strict()` para leitura retrocompatível) + gotcha do zod 4.
+- Decisões: `projectMetadataSchema` sem `.strict()` (chaves desconhecidas são descartadas, nunca fatais); `globalConfigSchema` 100% opcional e **sem nenhum `.default()`**, com os campos de `web` derivados de `webConfigSchema` via `.unwrap()`.
+- Checks: `npm run typecheck` OK, `npm test` 628 testes OK (38 arquivos), `npm run lint` OK. Nenhum teste existente alterado.
+- **Learnings for future iterations:**
+  - **Gotcha central desta story:** no zod 4 `.partial()` não desliga `.default()` — `webConfigSchema.pick({...}).partial().parse({})` devolveria `{port: 3737, host: '0.0.0.0', ...}`, exatamente o que o AC proíbe. A saída é `webConfigSchema.shape.port.unwrap()`, que remove o `ZodDefault` e mantém `int().min(1).max(65535)`. Descoberto porque o teste do AC falhou de primeira — o teste é o guarda dessa propriedade.
+  - Consequência direta para **US-006**: a camada de projeto produzida por `readWebConfigFile()` (`config.ts:258`) **já vem com todos os defaults do web materializados**. Um merge ingênuo `{...global, ...projeto}` faz a camada de projeto engolir a global. A função de merge de US-006 precisa da camada de projeto *crua* (só as chaves que o usuário escreveu) ou de um merge que ignore valores iguais ao default. Há um teste em `schemas.test.ts` documentando isso (`documents that webConfigSchema.partial() still materializes defaults`).
+  - `z.object()` do zod 4 já é não-estrito e **descarta** chaves desconhecidas no parse (não lança) — é o que satisfaz "campos aditivos não invalidam leitura por versão antiga" sem precisar de `.passthrough()`.
+  - `nullable` ≠ `optional`: `lastAttemptAt: null` é obrigatório no arquivo; omitir a chave falha o parse de propósito (o teste cobre).
+  - `it.each` com tuplas `[label, valor]` e título `'rejects %s'` deixa a tabela de rejeição legível; use `_label` no callback para não irritar o Biome com parâmetro não usado.
   - Verificação em browser não se aplica.
 ---

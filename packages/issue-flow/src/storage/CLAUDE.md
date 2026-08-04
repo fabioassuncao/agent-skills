@@ -14,6 +14,13 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
   shells out to `git remote get-url origin`.
 - Any identifier that becomes a path segment goes through validation first (see
   `normalizeIssueNumber` here and `normalizeId` in `issues/providers/local.ts`).
+- Storage file formats live in `schemas.ts` here, not in `src/schemas.ts` (which stays focused on
+  the pipeline domain: task plans, Issue metadata, session snapshots).
+- **No `.default()` in an intermediate precedence layer.** `globalConfigSchema` is a middle layer
+  (CLI > env > `.issue-flow.json` > `config.json` > defaults); a default materialized there is
+  indistinguishable from a value the user wrote and silently overrides the layer above it.
+- Schemas read from disk are never `.strict()`: a file written by a newer version must stay
+  readable by an older one.
 
 ## Gotchas
 
@@ -23,3 +30,8 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
 - Tests that touch the filesystem must point `ISSUE_FLOW_HOME` at a `mkdtemp` directory.
 - `paths.test.ts` mocks only `getRemoteUrl` from `../utils/git.js` (via `importOriginal` spread) so
   the real `normalizeRemoteUrl` keeps being exercised.
+- **zod 4 applies a `.default()` even through `.optional()`**: `.partial()` does *not* strip
+  defaults — `z.object({ p: z.number().default(1) }).partial().parse({})` returns `{ p: 1 }`. To
+  reuse a field from a defaulted schema without its default, call `.unwrap()` on it
+  (`webConfigSchema.shape.port.unwrap()`), which keeps the constraints. This also means the layer
+  `readWebConfigFile()` (`config.ts`) returns already carries every web default.
