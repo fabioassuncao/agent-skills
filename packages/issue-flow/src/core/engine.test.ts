@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EngineConfig, ResolvedPaths, TaskPlan } from '../types.js';
+import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan } from '../types.js';
 
 // Instant sleep: the real one is a 2s setTimeout per loop iteration, which
 // would make a "one pending-correction iteration" test take multiple real
@@ -12,7 +12,9 @@ vi.mock('../utils/retry.js', async (importOriginal) => {
   return { ...actual, sleep: vi.fn(async () => {}) };
 });
 
-const claudeResult = vi.hoisted(() => ({ current: { exitCode: 0, output: '' } }));
+const claudeResult = vi.hoisted(() => ({
+  current: { exitCode: 0, output: '', cost: null } as ClaudeResult,
+}));
 vi.mock('./executor.js', () => ({
   executeClaude: vi.fn(async () => claudeResult.current),
 }));
@@ -109,7 +111,7 @@ describe('runEngine — pending-correction guard', () => {
     await writePlan(
       makePlan({ lastReviewFindings: 'getRemoteUrl() ignores the projectRoot argument' }),
     );
-    claudeResult.current = { exitCode: 0, output: 'working on it' };
+    claudeResult.current = { exitCode: 0, output: 'working on it', cost: null };
 
     const code = await runEngine(baseConfig, paths);
 
@@ -121,7 +123,7 @@ describe('runEngine — pending-correction guard', () => {
 
   it('does not mark the issue completed on <promise>COMPLETE</promise> while lastReviewFindings is still set', async () => {
     await writePlan(makePlan({ lastReviewFindings: 'stale finding the agent forgot to clear' }));
-    claudeResult.current = { exitCode: 0, output: '<promise>COMPLETE</promise>' };
+    claudeResult.current = { exitCode: 0, output: '<promise>COMPLETE</promise>', cost: null };
 
     const code = await runEngine(baseConfig, paths);
 
@@ -138,6 +140,7 @@ describe('runEngine — pending-correction guard', () => {
     claudeResult.current = {
       exitCode: 0,
       output: '<promise>COMPLETE</promise>',
+      cost: null,
     };
     mockExecuteClaude.mockImplementationOnce(async () => {
       const plan = await readPlan();

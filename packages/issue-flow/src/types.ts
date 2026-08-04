@@ -3,6 +3,8 @@
  * These types mirror the tasks.json schema used by the issue-flow pipeline.
  */
 
+import type { ClaudeUsage } from './core/metrics.js';
+
 export interface UserStory {
   id: string;
   title: string;
@@ -112,4 +114,6 @@ export interface ResolvedPaths {
 export interface ClaudeResult {
   exitCode: number;
   output: string;
+  /** Token/cost metrics reported by the CLI, or null when unavailable. */
+  cost: ClaudeUsage | null;
 }
