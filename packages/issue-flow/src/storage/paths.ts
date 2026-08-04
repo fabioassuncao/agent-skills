@@ -105,7 +105,19 @@ function slugify(name: string): string {
  */
 export async function getProjectId(projectRoot: string): Promise<string> {
   const remote = normalizeRemoteUrl(await getRemoteUrl(projectRoot));
+  return projectIdFromRemote(remote, projectRoot);
+}
 
+/**
+ * Pure half of {@link getProjectId}: derive the id once the normalized remote
+ * (or `null`) is already known.
+ *
+ * Exported so a caller that already resolved the remote for another reason
+ * (e.g. {@link resolveStorageMode} in `compat.ts`, which also persists it into
+ * `metadata.json`) can compute the id without shelling out to git a second
+ * time.
+ */
+export function projectIdFromRemote(remote: string | null, projectRoot: string): string {
   let seed: string;
   let name: string;
   if (remote) {

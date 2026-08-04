@@ -7,8 +7,8 @@ import { getRemoteUrl, normalizeRemoteUrl } from '../utils/git.js';
 import {
   type GetGlobalRootOptions,
   getProjectDir,
-  getProjectId,
   ISSUES_DIR_NAME,
+  projectIdFromRemote,
 } from './paths.js';
 import { type ProjectMetadata, projectMetadataSchema, STORAGE_SCHEMA_VERSION } from './schemas.js';
 
@@ -38,7 +38,7 @@ export type StorageMode = 'global' | 'needs-migration';
 
 export interface StorageStatus {
   mode: StorageMode;
-  /** Deterministic id from {@link getProjectId}. */
+  /** Deterministic id, derived from {@link projectIdFromRemote}. */
   projectId: string;
   /** `<globalRoot>/projects/<projectId>`. */
   globalDir: string;
@@ -48,6 +48,12 @@ export interface StorageStatus {
   globalExists: boolean;
   /** Whether `legacyDir` currently exists on disk. */
   legacyExists: boolean;
+  /**
+   * Normalized `origin` remote of `projectRoot`, or `null` without one.
+   * Resolved once here so `migrateLegacyStorage` can reuse it instead of
+   * shelling out to git a second time for `metadata.json`.
+   */
+  remoteUrl: string | null;
 }
 
 export interface MigrationResult {
@@ -104,7 +110,8 @@ export async function resolveStorageMode(
   projectRoot: string,
   options: GetGlobalRootOptions = {},
 ): Promise<StorageStatus> {
-  const projectId = await getProjectId(projectRoot);
+  const remoteUrl = normalizeRemoteUrl(await getRemoteUrl(projectRoot));
+  const projectId = projectIdFromRemote(remoteUrl, projectRoot);
   const globalDir = getProjectDir(projectId, options);
   const legacyDir = join(resolve(projectRoot), LEGACY_ISSUES_DIR_NAME);
 
@@ -123,6 +130,7 @@ export async function resolveStorageMode(
     legacyDir,
     globalExists,
     legacyExists,
+    remoteUrl,
   };
 }
 
@@ -266,7 +274,7 @@ export async function migrateLegacyStorage(
     schemaVersion: STORAGE_SCHEMA_VERSION,
     projectId: status.projectId,
     root: resolve(projectRoot),
-    remoteUrl: normalizeRemoteUrl(await getRemoteUrl(projectRoot)),
+    remoteUrl: status.remoteUrl,
     // The project was first seen whenever it was first written, not now.
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

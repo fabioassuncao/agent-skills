@@ -24,6 +24,7 @@ const {
   getIssuePaths,
   getProjectDir,
   getProjectId,
+  projectIdFromRemote,
 } = await import('./paths.js');
 
 const mockHomedir = vi.mocked(homedir);
@@ -172,6 +173,28 @@ describe('getProjectId', () => {
   it('uses "project" when no character of the name survives sanitization', async () => {
     mockGetRemoteUrl.mockResolvedValue('https://github.com/org/___.git');
     expect(await getProjectId('/tmp/x')).toMatch(/^project-[0-9a-f]{12}$/);
+  });
+});
+
+describe('projectIdFromRemote', () => {
+  it('agrees with getProjectId given the same (already-normalized) remote', async () => {
+    mockGetRemoteUrl.mockResolvedValue('https://github.com/org/repo.git');
+    const viaGetProjectId = await getProjectId('/tmp/x');
+
+    expect(projectIdFromRemote('github.com/org/repo', '/tmp/x')).toBe(viaGetProjectId);
+  });
+
+  it('falls back to the path seed when the remote is null, without touching git', () => {
+    expect(projectIdFromRemote(null, '/tmp/no-remote-here')).toMatch(
+      /^no-remote-here-[0-9a-f]{12}$/,
+    );
+    expect(mockGetRemoteUrl).not.toHaveBeenCalled();
+  });
+
+  it('is pure and synchronous: same inputs, same output, no I/O', () => {
+    const a = projectIdFromRemote('github.com/org/repo', '/tmp/x');
+    const b = projectIdFromRemote('github.com/org/repo', '/tmp/x');
+    expect(a).toBe(b);
   });
 });
 

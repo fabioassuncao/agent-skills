@@ -12,7 +12,10 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
 - Path helpers are pure and synchronous: they never create directories. Callers decide when (and
   whether) a directory should exist. `getProjectId()` is the exception — it is `async` because it
   shells out to `git remote get-url origin`, explicitly passing `projectRoot` as `cwd` so the
-  result never depends on the calling process's own working directory.
+  result never depends on the calling process's own working directory. Its pure half is exported
+  separately as `projectIdFromRemote(remote, projectRoot)`, so a caller that already resolved the
+  remote for another reason (`compat.ts`'s `resolveStorageMode`, which also persists it into
+  `metadata.json`) can derive the id without a second git call.
 - Any identifier that becomes a path segment goes through validation first (see
   `normalizeIssueNumber` here and `normalizeId` in `issues/providers/local.ts`).
 - Storage file formats live in `schemas.ts` here, not in `src/schemas.ts` (which stays focused on

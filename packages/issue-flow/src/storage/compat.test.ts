@@ -73,6 +73,21 @@ describe('resolveStorageMode', () => {
     expect(status.legacyDir).toBe(join(projectRoot, LEGACY_ISSUES_DIR_NAME));
   });
 
+  it('exposes the normalized remote it resolved for the project id', async () => {
+    const status = await resolveStorageMode(projectRoot, { env });
+
+    expect(status.remoteUrl).toBe('github.com/acme/widgets');
+    expect(mockGetRemoteUrl).toHaveBeenCalledWith(projectRoot);
+  });
+
+  it('exposes a null remote when the project has no origin', async () => {
+    mockGetRemoteUrl.mockResolvedValue(null);
+
+    const status = await resolveStorageMode(projectRoot, { env });
+
+    expect(status.remoteUrl).toBeNull();
+  });
+
   it('reports needs-migration when only the legacy directory exists', async () => {
     await writeLegacy(join('42', 'tasks.json'), '{}');
 
@@ -227,6 +242,14 @@ describe('migrateLegacyStorage', () => {
   it('reads the remote of projectRoot, not of process.cwd()', async () => {
     await migrateLegacyStorage(projectRoot, { env });
     expect(mockGetRemoteUrl).toHaveBeenCalledWith(projectRoot);
+  });
+
+  it('resolves the remote only once, reusing it from resolveStorageMode', async () => {
+    await migrateLegacyStorage(projectRoot, { env });
+    // resolveStorageMode() already shells out for the remote to derive the
+    // project id; migrateLegacyStorage must reuse that result for
+    // metadata.remoteUrl instead of asking git a second time.
+    expect(mockGetRemoteUrl).toHaveBeenCalledTimes(1);
   });
 
   it('stores a null remoteUrl when the project has no origin remote', async () => {
