@@ -1,8 +1,8 @@
 # src/storage
 
 Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands through
-`resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr`, `pr-review` and `run` so far;
-`execute` and the local Issue provider are still being migrated off `getIssueDir()`).
+`resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr`, `pr-review`, `run` and `execute`
+so far; the local Issue provider is still being migrated off `getIssueDir()`).
 
 ## Rules
 
@@ -63,7 +63,12 @@ Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands throug
 ## Gotchas
 
 - `IssuePaths.prdFile` is `prd.md`; the task plan is `tasksFile` (`tasks.json`). This differs from
-  the legacy `ResolvedPaths.prdFile` in `types.ts`, which points at `tasks.json`.
+  the engine's `ResolvedPaths.prdFile` in `types.ts`, which points at `tasks.json` — so
+  `resolvePaths()` in `config.ts` maps `prdFile → IssuePaths.tasksFile` on purpose. Wiring it to
+  `IssuePaths.prdFile` would hand the engine a Markdown document where it expects a task plan.
+- `resolvePaths()` forwards the `projectRoot` it already resolved to `resolveIssuePaths()`; a call
+  site that has the root in hand should do the same instead of letting the resolver shell out to
+  `git rev-parse --show-toplevel` again.
 - Issue identifiers are not always numeric (`auth-refactor`, `pr-184`) — accept `string | number`.
 - Tests that touch the filesystem must point `ISSUE_FLOW_HOME` at a `mkdtemp` directory. A test that
   drives a **command** (rather than a storage helper) has to set it on the real `process.env` and
