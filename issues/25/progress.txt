@@ -10,6 +10,9 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
 - `PIPELINE_PHASES` é o conjunto **default** e não deve ganhar fases opt-in; fases opcionais vivem em um conjunto derivado (`PIPELINE_PHASES_WITH_PR_REVIEW`) e são injetadas via `activePhases` no construtor do `PipelineManager`, que nunca precisa ser alterado.
 - Convenção de import: sempre `.js` nas extensões (`./pipeline.js`), mesmo em TS.
 - Zod é v4 (`^4.3.6`). O padrão `satisfies z.ZodType<Interface>` só funciona em schemas **sem** `.default()` (o default torna o tipo de entrada divergente da saída) — em schemas com default, não use `satisfies`.
+- Fontes de dados injetáveis seguem o padrão `GitStateSources` (`session-git.ts`): uma `interface` com métodos, um `const defaultSources` no módulo e `{ ...defaultSources, ...opts.sources }` na função — testes passam só o que exercitam, sem `vi.mock`.
+- Prompt interativo: `interactive` default = `stdin.isTTY && stdout.isTTY && !CI`; `stdin`/`stdout`/`info`/`warn` sempre injetáveis (padrão de `issues/resolver.ts`). Nos testes, `PassThrough` para a resposta e um `Writable` sumidouro para o eco do readline.
+- Erros de domínio carregam o exit code (`IssueResolutionError`, `PrDiscoveryError`) em vez de o chamador inventar um.
 - Há mudanças **não commitadas pré-existentes** no working tree (`getIssueDir`, `exitOnError` do listr2, testes de `git.ts`/`pipeline-renderer.ts`) que NÃO são da issue 25. Commitar sempre com `git add <arquivos específicos>`, nunca `git add -A`.
 
 ---
@@ -56,4 +59,21 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - Mock de `execa` com `vi.hoisted({ current })` para o project root é o padrão do repo (`run.test.ts`): `getIssueDir()` → `utils/shell.run()` → `execa('git', ['rev-parse','--show-toplevel'])`. Sem esse mock, os comandos resolvem `issues/<N>/` no repo real.
   - `loadPrompt()` lê `prompts/*.md` do pacote real e funciona em teste sem mock — não é preciso stubar `prompt-resolver`.
   - Nunca gravar um número de PR "chutado": `pr-review` (US-004, fonte 3) confia em `plan.pullRequest` sem revalidar no GitHub.
+---
+
+## 2026-08-03 21:33 - US-004 (Descoberta automática do Pull Request)
+- `src/core/pr-review/discovery.ts` (novo): `resolvePullRequest(prArg?, opts)` com a ordem determinística (1) argumento explícito → (2) `snapshot.pullRequests[]` do publisher ativo → (3) `plan.pullRequest` de `issues/<N>/tasks.json` → (4) `listPullRequests(await getCurrentBranch())` → (5) `PrDiscoveryError` acionável instruindo `issue-flow pr-review <number>`.
+- Fontes injetáveis via `PrDiscoverySources` (`sessionPullRequests`, `planPullRequest`, `currentBranch`, `branchPullRequests`) + `defaultSources`, no padrão de `GitStateSources`.
+- Confirmação `(Y/n)` só para as fontes 2–4 e só quando interativo (`stdin.isTTY && stdout.isTTY && !CI`); `--yes` (e o caminho via `run`) pula e apenas loga o número descoberto. Resposta vazia = sim, `n` = cancelamento, EOF = cancelamento, resposta inválida reperguntada até 3 vezes.
+- `src/core/pr-review/discovery.test.ts` (novo): 16 testes — argumento (`184`, `#184`, URL, referência inválida), fontes 2/3/4 com verificação de que as fontes posteriores não são consultadas, detached HEAD, falha de `getCurrentBranch`, ausência total (mensagem acionável + exitCode 1) e os quatro caminhos da confirmação.
+- Arquivos alterados: `src/core/pr-review/discovery.ts`, `src/core/pr-review/discovery.test.ts` (ambos novos).
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (77 arquivos), `npm test` 431/431 verde.
+
+- **Learnings for future iterations:**
+  - "PR mais recente" foi implementado como **maior número**, não como o primeiro do array: `gh pr list` ordena por criação decrescente, mas depender dessa ordem seria acoplamento invisível. A US-007 pode confiar que o resultado é estável.
+  - `ResolvedPullRequest` tem `url`/`title`/`headBranch` **anuláveis** — cada fonte conhece um subconjunto (o argumento explícito não conhece nada além do número). Nada é sintetizado; a US-005/US-007 precisa lidar com `null` (ex.: `gh pr view` para completar o título no relatório).
+  - `PrDiscoveryError.exitCode` é sempre `1` (inclusive no cancelamento), alinhado ao critério da US-007: `1` = falha de execução; `2` fica reservado para `REQUEST_CHANGES`.
+  - A fonte 3 só é consultada quando há `issue` nas options — revisar um PR sem issue associada nunca toca em `tasks.json`, o que sustenta o critério "a resolução da issue é best-effort" da US-007.
+  - `loadPlanPullRequest` engole qualquer erro (plano ausente/inválido) de propósito: uma fonte quebrada não pode mascarar a próxima.
+  - Não existe helper compartilhado de prompt no repo; o leitor de linhas com fila (evita o descarte de input do `rl.question`) foi reimplementado localmente a partir de `issues/resolver.ts:154-194`. Se uma terceira ocorrência aparecer, vale extrair para `utils/prompt.ts`.
 ---
