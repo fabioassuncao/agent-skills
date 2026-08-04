@@ -7,7 +7,7 @@
   "description": "Adiciona a fase opcional `pr-review` como etapa final da pipeline (apos `pr`), disponivel tambem como comando independente `issue-flow pr-review [pr]`. A fase avalia o Pull Request como um todo (diff completo, arquitetura, duplicacao, testes, commits, descricao do PR), complementando o gate de conformidade da fase `review`. Inclui descoberta automatica do PR com ordem de precedencia deterministica, artefatos versionaveis em `issues/<N>/pr-review/` com suporte a multiplas rodadas, estado retrocompativel em `tasks.json`, codigos de saida distintos (0/1/2) e a porta `PrReviewPublisher` preparada para integracao futura com o GitHub. Corrige de passagem dois defeitos: o numero do PR criado descartado por `pr.ts` e o comando quebrado `gh pr list --head ''` em `run.ts`. Sem a flag `--pr-review`, o comportamento atual permanece identico.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-04T01:35:00Z",
+  "lastAttemptAt": "2026-08-04T01:40:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -239,8 +239,8 @@
         "`agents/resolve-issue.md` e a tabela de componentes de `docs/skills-and-agents.md` listam a nova skill"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "skills/review-pr/{SKILL.md,README.md} espelham o prompt packages/issue-flow/prompts/pr-review.md: mesmos 15 eixos, mesmos 8 headings (identicos a REPORT_SECTIONS), mesmo formato de finding e o mesmo bloco <pr-review-result>. A skill acrescenta a descoberta do PR (argumento -> tasks.json -> gh pr list --head) e a persistencia opcional no layout issues/<N>/pr-review/. O agente ganhou review-pr no frontmatter e o Step 6b (opt-in via --pr-review, apos create-pr, REQUEST_CHANGES nao fecha a issue)."
     },
     {
       "id": "US-014",
