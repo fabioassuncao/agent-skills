@@ -7,10 +7,11 @@ import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { printError, printInfo, printSuccess } from '../ui/logger.js';
+import { getIssueDir } from '../utils/git.js';
 
 export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = join('issues', issueNumber);
+  const issueDir = await getIssueDir(issueNumber);
   const analysisPath = join(issueDir, 'analysis.md');
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);

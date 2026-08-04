@@ -1,10 +1,11 @@
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExecResult } from './shell.js';
 
 vi.mock('./shell.js', () => ({ run: vi.fn() }));
 
 const { run } = await import('./shell.js');
-const { getBaseBranch, getCommitsSince } = await import('./git.js');
+const { getBaseBranch, getCommitsSince, getIssueDir, getProjectRoot } = await import('./git.js');
 
 const mockRun = vi.mocked(run);
 
@@ -14,6 +15,44 @@ function result(overrides?: Partial<ExecResult>): ExecResult {
 
 beforeEach(() => {
   mockRun.mockReset();
+});
+
+describe('getProjectRoot', () => {
+  it('trims the output of git rev-parse --show-toplevel', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: '/repo/root\n' }));
+    await expect(getProjectRoot()).resolves.toBe('/repo/root');
+    expect(mockRun).toHaveBeenCalledWith('git', ['rev-parse', '--show-toplevel']);
+  });
+
+  it('throws a clear error when not inside a git repository', async () => {
+    mockRun.mockResolvedValueOnce(result({ exitCode: 128 }));
+    await expect(getProjectRoot()).rejects.toThrow('Not inside a git repository');
+  });
+});
+
+describe('getIssueDir', () => {
+  // Regression guard: getIssueDir must always anchor to the git root, never
+  // to process.cwd() — a command run from a subdirectory of the repo used to
+  // resolve `issues/<N>/` differently than one run from the root, so `plan`
+  // (CWD-relative) and `execute` (already root-anchored via config.ts) could
+  // silently disagree on where the same issue's files live.
+  it('joins the project root with issues/<n>, regardless of process.cwd()', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: '/repo/root\n' }));
+    await expect(getIssueDir('42')).resolves.toBe(join('/repo/root', 'issues', '42'));
+  });
+
+  it('resolves the same directory whether invoked from the root or a subdirectory', async () => {
+    // The only input that ever varies here is process.cwd(); getIssueDir must
+    // not read it at all, so mocking git identically must yield an identical
+    // path regardless of what the real CWD happens to be during the test run.
+    mockRun.mockResolvedValueOnce(result({ stdout: '/repo/root\n' }));
+    const fromRoot = await getIssueDir('42');
+
+    mockRun.mockResolvedValueOnce(result({ stdout: '/repo/root\n' }));
+    const fromSubdir = await getIssueDir('42');
+
+    expect(fromRoot).toBe(fromSubdir);
+  });
 });
 
 describe('getBaseBranch', () => {

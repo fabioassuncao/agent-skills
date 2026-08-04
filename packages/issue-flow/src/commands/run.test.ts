@@ -14,7 +14,23 @@ vi.mock('./plan.js', () => ({ runPlan: vi.fn(async () => 0) }));
 vi.mock('./execute.js', () => ({ runExecute: vi.fn(async () => 0) }));
 vi.mock('./review.js', () => ({ runReview: vi.fn(async () => 0) }));
 vi.mock('./pr.js', () => ({ runPr: vi.fn(async () => 0) }));
-vi.mock('execa', () => ({ execa: vi.fn(async () => ({ stdout: '' })) }));
+
+// getIssueDir() shells out to `git rev-parse --show-toplevel` (via utils/git.ts)
+// to anchor issues/<N>/ to the repo root instead of process.cwd(). Every test
+// below chdir's into a fresh tmpdir that is not itself a git repo, so that
+// call must be stubbed to answer with the same tmpdir — mutated per test via
+// mockProjectRoot.current — for issueDir to resolve to the join(tmp, 'issues',
+// ...) path the assertions already expect. Every other execa invocation keeps
+// the previous harmless default.
+const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
+vi.mock('execa', () => ({
+  execa: vi.fn(async (file: string, args: string[] = []) => {
+    if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+      return { stdout: mockProjectRoot.current, exitCode: 0 };
+    }
+    return { stdout: '' };
+  }),
+}));
 vi.mock('../core/session-git.js', () => ({ publishGitState: vi.fn(async () => {}) }));
 
 // The resolver is the single decision point; the pipeline must call it once.
@@ -157,6 +173,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
   beforeEach(async () => {
     originalCwd = process.cwd();
     tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-'));
+    mockProjectRoot.current = tmp;
     process.chdir(tmp);
     for (const name of WEB_ENV_VARS) {
       savedEnv.set(name, process.env[name]);

@@ -17,6 +17,7 @@ import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
 import { formatDuration, printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
+import { getIssueDir } from '../utils/git.js';
 import { startWebServer, type WebServerHandle } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
@@ -46,7 +47,7 @@ export async function runPipeline(
   noBranch?: boolean,
 ): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = join('issues', issueNumber);
+  const issueDir = await getIssueDir(issueNumber);
 
   const webConfig = await loadWebConfig();
   const publisher: SessionPublisher = webConfig.enabled

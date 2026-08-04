@@ -161,9 +161,20 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
     // - Engine subtask runs the actual execution loop
     // - Story subtasks resolve as the engine completes each story
     // Cleanup of setStoryUpdateCallback is handled in engineSubtask's finally block
+    //
+    // exitOnError must stay true: the per-story subtasks never reject (they
+    // only ever get resolve()d, either by the story-update callback or by
+    // engineSubtask's finally block once the engine is done), so the only way
+    // this nested Listr can fail is engineSubtask itself throwing. With
+    // exitOnError: false that failure was swallowed here — the outer "execute"
+    // phase task then resolved successfully even though the engine failed,
+    // and the pipeline moved on to `review` with 0 stories passing instead of
+    // stopping. exitOnError: true lets the failure propagate out of
+    // task.newListr(...) so the outer phase list (which does have
+    // exitOnError: true) aborts before ever starting `review`.
     return task.newListr([engineSubtask, ...subtaskDefs], {
       concurrent: true,
-      exitOnError: false,
+      exitOnError: true,
       rendererOptions: {
         timer: PRESET_TIMER,
         collapseSkips: false,

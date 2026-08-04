@@ -1,0 +1,172 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { TaskPlan } from '../types.js';
+import { runPipelineWithRenderer } from './pipeline-renderer.js';
+
+/**
+ * Regression coverage for the pipeline renderer itself.
+ *
+ * Every other test that touches `runPipeline` mocks `pipeline-renderer.js`
+ * with a hand-rolled sequential loop (see commands/run.test.ts), so the real
+ * listr2 wiring here — in particular whether a failed phase actually stops
+ * the pipeline — was previously untested. That gap is exactly how a failed
+ * `execute` phase (0/N stories passing, exit code 1) was still followed by
+ * `review` running: the nested listr driving the execute phase's per-story
+ * subtasks was built with `exitOnError: false`, which swallowed the engine
+ * subtask's failure before it ever reached the outer phase list.
+ */
+
+function minimalPlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
+  return {
+    project: 'test',
+    issueNumber: 1,
+    issueUrl: 'https://github.com/test/test/issues/1',
+    branchName: 'issue/1-test',
+    description: 'Test plan',
+    issueStatus: 'pending',
+    completedAt: null,
+    lastAttemptAt: null,
+    lastError: null,
+    correctionCycle: 0,
+    maxCorrectionCycles: 3,
+    pipeline: {
+      prdCompleted: true,
+      jsonCompleted: true,
+      executionCompleted: false,
+      reviewCompleted: false,
+      prCreated: false,
+    },
+    userStories: [
+      {
+        id: 'US-001',
+        title: 'A story',
+        description: 'Test story',
+        acceptanceCriteria: ['Criterion 1'],
+        priority: 1,
+        passes: false,
+        notes: '',
+      },
+    ],
+    ...overrides,
+  };
+}
+
+describe('runPipelineWithRenderer — stops the pipeline on a failed phase', () => {
+  it('does not run a phase after an earlier one throws (no tasksPath)', async () => {
+    const started: string[] = [];
+    const runners: Record<string, () => Promise<void>> = {
+      prd: async () => {
+        started.push('prd');
+      },
+      plan: async () => {
+        started.push('plan');
+        throw new Error('Phase plan failed with exit code 1');
+      },
+      execute: async () => {
+        started.push('execute');
+      },
+      review: async () => {
+        started.push('review');
+      },
+      pr: async () => {
+        started.push('pr');
+      },
+    };
+
+    const result = await runPipelineWithRenderer({
+      phases: ['prd', 'plan', 'execute', 'review', 'pr'],
+      startIndex: 0,
+      verbose: false,
+      runners,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.failedPhase).toBe('plan');
+    expect(started).toEqual(['prd', 'plan']);
+  });
+
+  describe('with tasksPath (execute phase drives per-story subtasks)', () => {
+    let tmpDir: string;
+    let tasksPath: string;
+
+    beforeEach(async () => {
+      tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-pipeline-renderer-'));
+      tasksPath = join(tmpDir, 'tasks.json');
+      await writeFile(tasksPath, JSON.stringify(minimalPlan()), 'utf-8');
+    });
+
+    afterEach(async () => {
+      await rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it('reports execute as the failed phase and never starts review', async () => {
+      const started: string[] = [];
+      const runners: Record<string, () => Promise<void>> = {
+        prd: async () => {
+          started.push('prd');
+        },
+        plan: async () => {
+          started.push('plan');
+        },
+        execute: async () => {
+          started.push('execute');
+          throw new Error('Phase execute failed with exit code 1');
+        },
+        review: async () => {
+          started.push('review');
+        },
+        pr: async () => {
+          started.push('pr');
+        },
+      };
+
+      const result = await runPipelineWithRenderer({
+        phases: ['prd', 'plan', 'execute', 'review', 'pr'],
+        startIndex: 0,
+        verbose: false,
+        runners,
+        tasksPath,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.failedPhase).toBe('execute');
+      expect(started).toEqual(['prd', 'plan', 'execute']);
+      expect(started).not.toContain('review');
+    });
+
+    it('still succeeds and runs every phase when execute passes', async () => {
+      const started: string[] = [];
+      const runners: Record<string, () => Promise<void>> = {
+        prd: async () => {
+          started.push('prd');
+        },
+        plan: async () => {
+          started.push('plan');
+        },
+        execute: async () => {
+          started.push('execute');
+        },
+        review: async () => {
+          started.push('review');
+        },
+        pr: async () => {
+          started.push('pr');
+        },
+      };
+
+      const result = await runPipelineWithRenderer({
+        phases: ['prd', 'plan', 'execute', 'review', 'pr'],
+        startIndex: 0,
+        verbose: false,
+        runners,
+        tasksPath,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.failedPhase).toBeUndefined();
+      expect(started).toEqual(['prd', 'plan', 'execute', 'review', 'pr']);
+    });
+  });
+});

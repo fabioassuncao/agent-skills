@@ -8,6 +8,7 @@ import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { Issue, ResolvedIssue } from '../issues/types.js';
 import { printError, printSuccess } from '../ui/logger.js';
+import { getIssueDir } from '../utils/git.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 /**
@@ -32,7 +33,7 @@ function issueClosesLine(issue: Issue, fallbackId: string): string {
 
 export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = join('issues', issueNumber);
+  const issueDir = await getIssueDir(issueNumber);
   const tasksPath = join(issueDir, 'tasks.json');
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);

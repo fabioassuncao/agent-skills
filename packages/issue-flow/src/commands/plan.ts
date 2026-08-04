@@ -9,11 +9,12 @@ import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { taskPlanSchema } from '../schemas.js';
 import { printError, printSuccess } from '../ui/logger.js';
+import { getIssueDir } from '../utils/git.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = join('issues', issueNumber);
+  const issueDir = await getIssueDir(issueNumber);
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
   if (!resolution.ok) {
