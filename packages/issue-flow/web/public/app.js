@@ -36,6 +36,7 @@
     alerts: document.getElementById('alerts'),
     alertsBody: document.getElementById('alerts-body'),
     issueSummary: document.getElementById('issue-summary'),
+    repository: document.getElementById('repository'),
     progressBar: document.getElementById('progress-bar'),
     progressPercent: document.getElementById('progress-percent'),
     progressCounters: document.getElementById('progress-counters'),
@@ -268,6 +269,7 @@
     renderHeader(snapshot);
     renderAlerts(snapshot);
     renderIssueSummary(snapshot);
+    renderRepository(snapshot);
     renderProgress(snapshot);
     renderNow(snapshot);
     renderPhases(snapshot);
@@ -374,6 +376,28 @@
     }
 
     els.issueSummary.appendChild(el('p', 'issue-description', issue.description || 'Sem descrição.'));
+  }
+
+  function metaRow(grid, label, value, className) {
+    grid.appendChild(el('dt', null, label));
+    const dd = el('dd', className, value);
+    grid.appendChild(dd);
+    return dd;
+  }
+
+  // snapshot.repository é coletado de forma tolerante a falhas (sem remote,
+  // sem commits, git ausente): cada campo pode ser null independentemente dos
+  // demais, nunca o objeto inteiro.
+  function renderRepository(snapshot) {
+    clear(els.repository);
+    const repo = snapshot.repository || {};
+    const grid = el('dl', 'now-grid');
+    metaRow(grid, 'Repositório', repo.name || '—');
+    metaRow(grid, 'Branch', repo.branch || '—', 'mono');
+    metaRow(grid, 'Commit', repo.headCommit || '—', 'mono');
+    const rootDd = metaRow(grid, 'Diretório', repo.root || '—', 'mono');
+    if (repo.root) rootDd.title = repo.root;
+    els.repository.appendChild(grid);
   }
 
   function renderProgress(snapshot) {
