@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
+import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
@@ -29,15 +30,20 @@ export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): 
     ...issuePlaceholders(resolution.resolved),
   });
 
+  const startedAtMs = Date.now();
   const result = await runHeadless({
     prompt,
     maxTurns: 30,
     timeout: getGlobalTimeout() ?? 300_000,
-    outputFormat: 'text',
+    // json (not text) so the CLI reports usage: the envelope's `result` field
+    // carries the same assistant text this phase already consumed.
+    outputFormat: 'json',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
     addDirs: [paths.issueDir],
     statusMessage: `Analyzing issue #${issueNumber}...`,
   });
+  // Before the success check: the tokens were spent either way.
+  publishPhaseMetrics('analyze', result.cost, startedAtMs);
 
   if (!result.success) {
     printError(`Analysis failed: ${result.error}`);

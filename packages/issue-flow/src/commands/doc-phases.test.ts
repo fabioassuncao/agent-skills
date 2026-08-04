@@ -34,11 +34,12 @@ vi.mock('execa', () => ({
 const headlessStub = vi.hoisted(() => ({
   run: async (_options: unknown): Promise<void> => {},
   result: '',
+  cost: null as Record<string, number> | null,
 }));
 vi.mock('../core/headless.js', () => ({
   runHeadless: vi.fn(async (options: unknown) => {
     await headlessStub.run(options);
-    return { success: true, result: headlessStub.result, cost: null, error: null };
+    return { success: true, result: headlessStub.result, cost: headlessStub.cost, error: null };
   }),
 }));
 
@@ -67,8 +68,19 @@ const mockRunHeadless = vi.mocked(runHeadless);
 const mockPrintError = vi.mocked(printError);
 const mockPrintSuccess = vi.mocked(printSuccess);
 
+import { setSessionPublisher } from '../core/session-publisher.js';
+import { MemoryPublisher, type SessionEvent } from '../core/session-state.js';
 import type { Issue, ResolvedIssue } from '../issues/types.js';
 import type { IssuePaths } from '../storage/paths.js';
+
+/** Publisher that keeps every event, so the metrics payload can be asserted. */
+class RecordingPublisher extends MemoryPublisher {
+  readonly events: SessionEvent[] = [];
+
+  protected override afterPublish(event: SessionEvent): void {
+    this.events.push(event);
+  }
+}
 
 function makeResolved(): ResolvedIssue {
   const issue: Issue = {
@@ -170,6 +182,7 @@ beforeEach(async () => {
   resetStorageResolutionCache();
   headlessStub.run = async () => {};
   headlessStub.result = '';
+  headlessStub.cost = null;
   vi.clearAllMocks();
 });
 
@@ -354,5 +367,105 @@ describe('runPlan', () => {
       '# legacy PRD 3c07',
     );
     expect(await exists(join(repoRoot, 'issues', '42', 'tasks.json'))).toBe(false);
+  });
+});
+
+/**
+ * The same three phases publish their token/cost usage as `metrics:update`
+ * events of scope `phase`. Publishing happens inside each command (not in the
+ * `instrumentedRunners` wrapper of run.ts, which never sees the HeadlessResult),
+ * so it covers standalone invocations too.
+ */
+describe('metrics of the documentation phases', () => {
+  let publisher: RecordingPublisher;
+
+  beforeEach(() => {
+    publisher = new RecordingPublisher({ onWarn: () => {} });
+    setSessionPublisher(publisher);
+    publisher.publish({
+      type: 'session:start',
+      at: '2026-01-01T00:00:00Z',
+      sessionId: 's1',
+      issueNumber: 42,
+      phases: ['analyze', 'prd', 'plan'],
+    });
+  });
+
+  afterEach(() => {
+    setSessionPublisher(undefined);
+  });
+
+  function metricsEvents(): Extract<SessionEvent, { type: 'metrics:update' }>[] {
+    return publisher.events.filter(
+      (e): e is Extract<SessionEvent, { type: 'metrics:update' }> => e.type === 'metrics:update',
+    );
+  }
+
+  it('asks the CLI for usage by running in json output format', async () => {
+    const paths = await expectedPaths(42);
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(paths.prdFile, '# PRD for issue 42', 'utf-8');
+    headlessStub.result = 'inline analysis';
+
+    await runAnalyze('42', makeResolved());
+    expect(mockRunHeadless.mock.calls.at(-1)?.[0].outputFormat).toBe('json');
+
+    headlessStub.run = async () => {
+      await writeFile(paths.prdFile, '# PRD for issue 42', 'utf-8');
+    };
+    await runPrd('42', makeResolved());
+    expect(mockRunHeadless.mock.calls.at(-1)?.[0].outputFormat).toBe('json');
+
+    headlessStub.run = async () => {
+      await writeFile(paths.tasksFile, JSON.stringify(makePlan(), null, 2), 'utf-8');
+    };
+    await runPlan('42', makeResolved());
+    expect(mockRunHeadless.mock.calls.at(-1)?.[0].outputFormat).toBe('json');
+  });
+
+  it('publishes the invocation usage against its own phase', async () => {
+    const paths = await expectedPaths(42);
+    headlessStub.result = 'inline analysis';
+    headlessStub.cost = { inputTokens: 8, outputTokens: 2, cacheReadTokens: 1_000, costUsd: 0.03 };
+
+    await expect(runAnalyze('42', makeResolved())).resolves.toBe(0);
+
+    expect(metricsEvents()).toHaveLength(1);
+    expect(metricsEvents()[0]).toMatchObject({
+      scope: 'phase',
+      phase: 'analyze',
+      inputTokens: 8,
+      outputTokens: 2,
+      cacheReadTokens: 1_000,
+      costUsd: 0.03,
+    });
+    const phase = publisher.snapshot().phases.find((p) => p.name === 'analyze');
+    expect(phase).toMatchObject({ inputTokens: 8, costUsd: 0.03 });
+    expect(paths.analysisFile.startsWith(globalHome)).toBe(true);
+  });
+
+  it('publishes nothing, and still succeeds, when the CLI reports no usage', async () => {
+    headlessStub.result = 'inline analysis';
+    headlessStub.cost = null;
+
+    await expect(runAnalyze('42', makeResolved())).resolves.toBe(0);
+
+    expect(metricsEvents()).toHaveLength(0);
+    expect(publisher.snapshot().phases.find((p) => p.name === 'analyze')?.inputTokens).toBeNull();
+    expect(publisher.snapshot().metrics.totalInputTokens).toBeNull();
+  });
+
+  // Three attempts (the PRD file is never written), each one an invocation the
+  // user paid for — the reducer's summing is what turns them into the total.
+  it('publishes one event per attempt of a retrying phase', { timeout: 20_000 }, async () => {
+    headlessStub.cost = { inputTokens: 5, costUsd: 0.01 };
+
+    await expect(runPrd('42', makeResolved())).resolves.toBe(1);
+
+    expect(metricsEvents()).toHaveLength(3);
+    expect(metricsEvents().every((e) => e.phase === 'prd' && e.scope === 'phase')).toBe(true);
+    const phase = publisher.snapshot().phases.find((p) => p.name === 'prd');
+    expect(phase?.inputTokens).toBe(15);
+    expect(phase?.costUsd).toBeCloseTo(0.03, 10);
   });
 });

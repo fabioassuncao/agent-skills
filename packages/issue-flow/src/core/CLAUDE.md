@@ -43,3 +43,17 @@ on a failing exit code.
 All token/cost parsing goes through `core/metrics.ts` (`parseUsage`,
 `sumUsage`, `formatTokens`). Do not read `total_cost_usd` / `usage.*` directly
 from a call site — that is exactly how the three call sites diverged before.
+
+`runHeadless` only ever returns a non-null `cost` when it can see the CLI's
+JSON: `outputFormat: 'json'`, or the verbose path (`stream-json`).
+`outputFormat: 'text'` always yields `cost: null`, so a phase that wants
+metrics has to ask for `'json'` — the envelope's `result` field carries the
+same assistant text `'text'` would have returned.
+
+## Publishing metrics
+
+`core/session-metrics.ts` (`publishPhaseMetrics`) is the single entry point for
+the phase-scoped `metrics:update` events. It is a no-op when the CLI reported
+no usage, so no call site needs to guard on `result.cost`. One call per
+headless invocation: retrying phases and the review correction cycle publish
+several, and the reducer's summing is what produces the phase total.

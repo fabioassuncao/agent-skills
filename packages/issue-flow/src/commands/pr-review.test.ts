@@ -172,7 +172,7 @@ describe('runPrReview', () => {
     expect(headless.options).toMatchObject({
       maxTurns: 40,
       timeout: 900_000,
-      outputFormat: 'text',
+      outputFormat: 'json',
       allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
     });
   });
