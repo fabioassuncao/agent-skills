@@ -7,7 +7,7 @@
   "description": "Adiciona a fase opcional `pr-review` como etapa final da pipeline (apos `pr`), disponivel tambem como comando independente `issue-flow pr-review [pr]`. A fase avalia o Pull Request como um todo (diff completo, arquitetura, duplicacao, testes, commits, descricao do PR), complementando o gate de conformidade da fase `review`. Inclui descoberta automatica do PR com ordem de precedencia deterministica, artefatos versionaveis em `issues/<N>/pr-review/` com suporte a multiplas rodadas, estado retrocompativel em `tasks.json`, codigos de saida distintos (0/1/2) e a porta `PrReviewPublisher` preparada para integracao futura com o GitHub. Corrige de passagem dois defeitos: o numero do PR criado descartado por `pr.ts` e o comando quebrado `gh pr list --head ''` em `run.ts`. Sem a flag `--pr-review`, o comportamento atual permanece identico.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-04T00:15:00Z",
+  "lastAttemptAt": "2026-08-04T00:20:30Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -56,8 +56,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": "Depende de US-001 (o tipo PipelinePhase precisa existir antes do mapa de campos)."
+      "passes": true,
+      "notes": "prReviewCompleted ja havia entrado em PipelineState na US-001; aqui entrou no pipelineStateSchema junto com pullRequest/prReview em types.ts e schemas.ts. initializeState nao precisou mudar (o spread ja preserva os campos)."
     },
     {
       "id": "US-003",

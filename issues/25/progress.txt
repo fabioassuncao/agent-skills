@@ -9,6 +9,7 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
 - Retrocompatibilidade de `tasks.json` é regra dura: todo campo novo de estado entra como `?: boolean` (padrão de `analyzeCompleted`), nunca obrigatório, senão planos já no disco quebram no Zod / passam a parecer inacabados.
 - `PIPELINE_PHASES` é o conjunto **default** e não deve ganhar fases opt-in; fases opcionais vivem em um conjunto derivado (`PIPELINE_PHASES_WITH_PR_REVIEW`) e são injetadas via `activePhases` no construtor do `PipelineManager`, que nunca precisa ser alterado.
 - Convenção de import: sempre `.js` nas extensões (`./pipeline.js`), mesmo em TS.
+- Zod é v4 (`^4.3.6`). O padrão `satisfies z.ZodType<Interface>` só funciona em schemas **sem** `.default()` (o default torna o tipo de entrada divergente da saída) — em schemas com default, não use `satisfies`.
 - Há mudanças **não commitadas pré-existentes** no working tree (`getIssueDir`, `exitOnError` do listr2, testes de `git.ts`/`pipeline-renderer.ts`) que NÃO são da issue 25. Commitar sempre com `git add <arquivos específicos>`, nunca `git add -A`.
 
 ---
@@ -27,4 +28,19 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - `PHASE_LABELS` em `src/ui/pipeline-renderer.ts` é `Record<string, string>` (não `Record<PipelinePhase, string>`), então ampliar a união **não** força a atualização do label — a US-011 precisa adicioná-lo manualmente, e nenhum erro de compilação vai lembrar disso.
   - Únicos consumidores de `PipelinePhase` fora de `pipeline.ts`: `src/commands/run.ts` (RUNNABLE_PHASES, `startPhase`) e `src/ui/pipeline-renderer.ts` (`phases: PipelinePhase[]`). Nenhum outro `Record<PipelinePhase, ...>` existe no código.
   - `markPhaseComplete()` sintetiza um objeto `pipeline` default quando ele está ausente; esse default lista só os 5 campos obrigatórios, o que é correto — `prReviewCompleted` só passa a existir quando a fase realmente roda.
+---
+
+## 2026-08-03 21:20 - US-002 (Estado retrocompatível em tasks.json)
+- `src/types.ts`: novas interfaces `PullRequestRef` e `PrReviewState`, tipo `PrReviewRecommendation` e os campos opcionais `TaskPlan.pullRequest` e `TaskPlan.prReview`.
+- `src/schemas.ts`: `pipelineStateSchema` ganhou `prReviewCompleted: z.boolean().optional()`; novos `pullRequestRefSchema`, `prReviewRecommendationSchema` (`z.enum(['APPROVE','APPROVE_WITH_SUGGESTIONS','REQUEST_CHANGES'])`) e `prReviewStateSchema`; `taskPlanSchema` referencia os dois com `.optional()`.
+- `src/core/state-manager.ts`: nenhuma mudança de comportamento — só o JSDoc de `initializeState()` explicitando que os campos opt-in não entram nos defaults.
+- `src/core/state-manager.test.ts`: 5 testes novos (plano sem os campos → round-trip não cria chaves; plano com os três campos → carrega e sobrevive ao round-trip; recomendação desconhecida → erro de validação; `initializeState` não introduz e preserva os campos).
+- Arquivos alterados: `src/types.ts`, `src/schemas.ts`, `src/core/state-manager.ts`, `src/core/state-manager.test.ts`.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (74 arquivos), `npm test` 412/412 verde.
+
+- **Learnings for future iterations:**
+  - `initializeState()` já preserva qualquer campo novo de `TaskPlan` porque começa com `...plan`; adicionar campo opcional **não** exige tocar nessa função — só cuidar para não colocá-lo em `defaultPipeline`, senão ele passa a ser escrito em todo plano.
+  - `enabled` e `rounds` de `prReviewStateSchema` usam `.default()`: o objeto `prReview` inteiro é opcional, mas se existir parcialmente ainda parseia em vez de invalidar o plano inteiro.
+  - `taskPlanSchema` é `z.object` estrito quanto a *tipos* mas faz strip de chaves desconhecidas — testes de round-trip devem checar as chaves específicas, não igualdade profunda do JSON (`issueUrl` e `noBranch` têm `.default()` e **são** adicionados no round-trip).
+  - `TaskPlan.pullRequest` é `PullRequestRef` (número já como `number`), então US-003 precisa converter o match de `/pull/(\d+)` com `Number()`.
 ---
