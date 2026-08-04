@@ -1,0 +1,263 @@
+{
+  "project": "issue-flow",
+  "issueNumber": 25,
+  "issueUrl": "https://github.com/fabioassuncao/issue-flow/issues/25",
+  "branchName": "issue/25-pr-review-phase",
+  "noBranch": false,
+  "description": "Adiciona a fase opcional `pr-review` como etapa final da pipeline (apos `pr`), disponivel tambem como comando independente `issue-flow pr-review [pr]`. A fase avalia o Pull Request como um todo (diff completo, arquitetura, duplicacao, testes, commits, descricao do PR), complementando o gate de conformidade da fase `review`. Inclui descoberta automatica do PR com ordem de precedencia deterministica, artefatos versionaveis em `issues/<N>/pr-review/` com suporte a multiplas rodadas, estado retrocompativel em `tasks.json`, codigos de saida distintos (0/1/2) e a porta `PrReviewPublisher` preparada para integracao futura com o GitHub. Corrige de passagem dois defeitos: o numero do PR criado descartado por `pr.ts` e o comando quebrado `gh pr list --head ''` em `run.ts`. Sem a flag `--pr-review`, o comportamento atual permanece identico.",
+  "issueStatus": "in_progress",
+  "completedAt": null,
+  "lastAttemptAt": "2026-08-04T00:15:00Z",
+  "lastError": null,
+  "correctionCycle": 0,
+  "maxCorrectionCycles": 3,
+  "pipeline": {
+    "analyzeCompleted": true,
+    "prdCompleted": true,
+    "jsonCompleted": true,
+    "executionCompleted": false,
+    "reviewCompleted": false,
+    "prCreated": false
+  },
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Conjunto de fases da pipeline com pr-review",
+      "description": "Como mantenedor do Issue Flow, quero que `pr-review` seja uma fase declarada, mas fora do conjunto padrao, para ativa-la explicitamente sem alterar o comportamento de retomada de quem nao a usa.",
+      "acceptanceCriteria": [
+        "`PIPELINE_PHASES` permanece exatamente `['init','prd','plan','execute','review','pr']` em `packages/issue-flow/src/core/pipeline.ts`",
+        "Existe `PIPELINE_PHASES_WITH_PR_REVIEW = [...PIPELINE_PHASES, 'pr-review'] as const`",
+        "`PipelinePhase` passa a ser derivado de `PIPELINE_PHASES_WITH_PR_REVIEW`",
+        "`PHASE_TO_FIELD` ganha a entrada `'pr-review': 'prReviewCompleted'`",
+        "`PIPELINE_PHASES_NO_BRANCH` continua excluindo `pr` e nao contem `pr-review`; o predicado de tipo vira `Exclude<PipelinePhase, 'pr' | 'pr-review'>`",
+        "`PipelineManager` nao e modificado — continua operando sobre `activePhases` injetado no construtor",
+        "Teste em `pipeline.test.ts`: com `PIPELINE_PHASES` (default) e todas as fases completas, `getNextPhase()` retorna `null` mesmo com `prReviewCompleted` ausente ou `false`",
+        "Teste em `pipeline.test.ts`: com `PIPELINE_PHASES_WITH_PR_REVIEW` e `prReviewCompleted: false`, `getNextPhase()` retorna `'pr-review'` e `canResume('pr-review')` e `true`",
+        "Todo `Record<PipelinePhase, ...>` afetado pela uniao ampliada foi revisitado",
+        "Typecheck passes",
+        "`npm test` verde em `packages/issue-flow/`"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "prReviewCompleted?: boolean foi adicionado a PipelineState nesta story (minimo necessario para PHASE_TO_FIELD tipar); schemas.ts e os demais campos ficam para US-002."
+    },
+    {
+      "id": "US-002",
+      "title": "Estado retrocompativel em tasks.json",
+      "description": "Como usuario com pipelines ja executados no disco, quero que os campos novos sejam opcionais para que nenhum `tasks.json` existente seja invalidado pelo Zod.",
+      "acceptanceCriteria": [
+        "`PipelineState` (`src/types.ts`) ganha `prReviewCompleted?: boolean`, no padrao de `analyzeCompleted?`",
+        "`TaskPlan` ganha `pullRequest?: { number, url, headBranch, createdAt }` e `prReview?: { enabled, pullRequestNumber?, rounds, lastRecommendation?, lastReviewedAt? }`",
+        "`pipelineStateSchema` e `taskPlanSchema` (`src/schemas.ts`) refletem os campos com `.optional()`",
+        "`lastRecommendation` e `z.enum(['APPROVE','APPROVE_WITH_SUGGESTIONS','REQUEST_CHANGES'])`",
+        "`initializeState()` (`src/core/state-manager.ts`) preserva os campos quando presentes e nao os introduz quando ausentes",
+        "Teste em `state-manager.test.ts`: `loadTaskPlan()` de um `tasks.json` sem nenhum dos campos novos carrega sem erro e um round-trip load -> save nao adiciona chaves",
+        "Teste: um `tasks.json` com os tres campos novos carrega, valida e sobrevive ao round-trip sem perda",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Depende de US-001 (o tipo PipelinePhase precisa existir antes do mapa de campos)."
+    },
+    {
+      "id": "US-003",
+      "title": "A fase pr persiste o Pull Request criado",
+      "description": "Como fase posterior da pipeline, quero ler o PR criado a partir de `tasks.json` para nao precisar consultar o GitHub de novo.",
+      "acceptanceCriteria": [
+        "Apos `parsePrUrl()` retornar uma URL, `src/commands/pr.ts` persiste `plan.pullRequest = { number, url, headBranch, createdAt }` no mesmo bloco que ja grava `prCreated = true`",
+        "`number` e extraido da URL via `/pull/(\\d+)`; `headBranch` vem da branch ja resolvida na funcao; `createdAt` usa `isoNow()`",
+        "Quando `parsePrUrl()` retorna `null`, o comportamento atual e preservado: `prCreated = true`, nenhum `pullRequest` gravado, mensagem `PR creation completed` e codigo de saida `0`",
+        "Falha ao carregar/salvar `tasks.json` continua sendo silenciosa (o `catch` existente)",
+        "Teste cobrindo URL valida -> campo persistido com numero correto, e saida sem URL -> campo ausente",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Depende de US-002 (o campo pullRequest precisa existir no schema)."
+    },
+    {
+      "id": "US-004",
+      "title": "Descoberta automatica do Pull Request",
+      "description": "Como usuario que roda `issue-flow pr-review` sem argumento, quero que o PR seja descoberto em uma ordem previsivel para nao precisar informar o numero no caso comum, e nunca revisar um PR chutado.",
+      "acceptanceCriteria": [
+        "`resolvePullRequest()` em `src/core/pr-review/discovery.ts` implementa nesta ordem: (1) argumento explicito; (2) `snapshot.pullRequests[]` do publisher ativo; (3) `plan.pullRequest` de `issues/<N>/tasks.json`; (4) `listPullRequests(await getCurrentBranch())` — PR mais recente; (5) falha explicita",
+        "As fontes sao injetaveis por parametro, no padrao de `GitStateSources` (`session-git.ts`), permitindo testes sem rede",
+        "Quando o PR vem das fontes 2-4 e `process.stdin.isTTY && process.stdout.isTTY`, exibe numero, titulo e branch e pede confirmacao `(Y/n)` antes de revisar",
+        "Em nao-TTY, com `CI` definido, com `--yes` ou quando chamado a partir do `run`, a confirmacao e pulada e o numero descoberto e registrado no log",
+        "Nenhum PR encontrado resulta em erro acionavel instruindo `issue-flow pr-review <numero>`; a funcao nunca retorna um PR arbitrario",
+        "Testes em `discovery.test.ts` por fonte (2, 3, 4), para ausencia total de PR e para o caso do usuario responder `n`",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Depende de US-003 (a fonte 3 le plan.pullRequest)."
+    },
+    {
+      "id": "US-005",
+      "title": "Parser, relatorio e indice estruturado",
+      "description": "Como consumidor futuro dos resultados (GitHub publisher, automacoes), quero o veredito em forma estruturada alem do Markdown para que a integracao seja mecanica em vez de um reparse de Markdown.",
+      "acceptanceCriteria": [
+        "`parsePrReviewResult()` em `src/core/pr-review/report.ts` le o bloco `<pr-review-result>` com `RECOMMENDATION:` e `BLOCKERS:`, sendo tolerante no espirito de `parseReviewResult()`: sem o bloco, tenta detectar `RECOMMENDATION:` no texto cru",
+        "Saida malformada ou recomendacao desconhecida nao vira `APPROVE` por omissao: resulta em falha de parse (exit `1`), com a saida bruta preservada no relatorio",
+        "O relatorio `pr-<N>-round-<k>.md` contem todas as secoes exigidas: resumo executivo, pontos positivos, problemas encontrados, sugestoes de melhoria, observacoes arquiteturais, riscos identificados, itens obrigatorios antes do merge e recomendacao final",
+        "`index.json` segue o formato `{ schemaVersion: 1, pullRequest, rounds: [{ round, at, recommendation, headSha, reportPath, findings: [{ severity, file, line, title }] }] }`",
+        "Escrita atomica via `writeFileAtomic()` (`utils/fs.ts`), o mesmo mecanismo de `saveTaskPlan`",
+        "Rodadas sao aditivas: escrever a rodada N+1 nunca sobrescreve relatorios anteriores nem remove entradas de `index.json`; `--round <n>` reescreve uma rodada especifica",
+        "Diretorio de artefatos: `issues/<N>/pr-review/` quando ha issue associada; `issues/pr-<N>/pr-review/` quando nao ha",
+        "`src/core/pr-review/publisher.ts` define `interface PrReviewPublisher { publish(report): Promise<void> }` e `LocalReportPublisher` (escreve `.md` + `index.json`), sem nenhuma chamada de escrita ao GitHub",
+        "Testes em `report.test.ts` de parse para os tres vereditos, para saida malformada e para a numeracao de rodadas",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Prompt pr-review.md",
+      "description": "Como operador da fase, quero um template que cubra todos os eixos de analise e force um formato de saida para que o veredito seja parseavel e a revisao, abrangente.",
+      "acceptanceCriteria": [
+        "`packages/issue-flow/prompts/pr-review.md` existe e suporta os placeholders `__PR_NUMBER__`, `__ISSUE_NUMBER__`, `__TASKS_PATH__`, `__PRD_PATH__`, `__REPORT_PATH__` e `__ROUND__`",
+        "Instrui a coletar contexto via `gh pr view`, `gh pr diff`, `git log`, PRD/`tasks.json` e `CLAUDE.md`/`README`",
+        "Cobre: descricao do PR, relacao issue <-> PRD <-> implementacao, diff completo, qualidade de codigo, arquitetura, complexidade, legibilidade, duplicacao, aderencia aos padroes do projeto, regressoes, riscos, cobertura de testes, documentacao, mensagens de commit e oportunidades de simplificacao",
+        "Contra estouro de contexto: instrui a comecar por `gh pr diff --name-only` e `--stat` e priorizar arquivos de maior impacto; em PRs muito grandes, produzir relatorio com escopo declarado em vez de falhar",
+        "Define criterios explicitos por veredito (o que caracteriza `APPROVE`, `APPROVE_WITH_SUGGESTIONS` e `REQUEST_CHANGES`) para reduzir nao-determinismo",
+        "Exige, ao final, o bloco `<pr-review-result>` / `RECOMMENDATION: ...` / `BLOCKERS:` / `</pr-review-result>`"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Comando issue-flow pr-review [pr]",
+      "description": "Como desenvolvedor, quero rodar a revisao de um PR isoladamente para usar o Issue Flow como ferramenta de code review assistido, com ou sem issue associada.",
+      "acceptanceCriteria": [
+        "`runPrReview(prArg?: string, opts): Promise<number>` em `src/commands/pr-review.ts` segue os cinco passos de `review.ts`: resolver alvo -> `loadPrompt('pr-review')` + `applyPlaceholders()` -> `runHeadless()` -> parse deterministico -> persistencia de estado",
+        "`runHeadless` e chamado com `maxTurns: 40`, `timeout: getGlobalTimeout() ?? 900_000`, `outputFormat: 'text'` e `allowedTools: ['Bash','Read','Glob','Grep']` — a fase e read-only por construcao",
+        "`--timeout` global continua sobrescrevendo o timeout",
+        "Codigos de saida: `0` para `APPROVE`/`APPROVE_WITH_SUGGESTIONS`; `2` para `REQUEST_CHANGES`; `1` para falha de execucao (headless, `gh`, PR nao encontrado, parse)",
+        "`--fail-on <level>` aceita `request-changes` (padrao), `suggestions` e `none`; `none` forca `0` mesmo em `REQUEST_CHANGES`",
+        "Quando ha issue associada, `plan.pipeline.prReviewCompleted` vira `true` apenas em `APPROVE`/`APPROVE_WITH_SUGGESTIONS`; em `REQUEST_CHANGES` permanece `false`",
+        "`plan.prReview` e atualizado com `pullRequestNumber`, `rounds`, `lastRecommendation` e `lastReviewedAt`; nenhum outro campo de `pipeline` e alterado",
+        "A resolucao da issue e best-effort: revisar um PR sem issue associada nao falha",
+        "O comando depende apenas da interface `PrReviewPublisher`, nunca de `LocalReportPublisher` diretamente",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Depende de US-004, US-005 e US-006."
+    },
+    {
+      "id": "US-008",
+      "title": "Registro na CLI",
+      "description": "Como usuario da CLI, quero o comando e a flag disponiveis com as opcoes documentadas para invocar a fase pelos dois caminhos.",
+      "acceptanceCriteria": [
+        "`withGlobalOptions(program.command('pr-review'))` em `src/cli.ts` com `.argument('[pr]', 'Pull Request number')` e as opcoes `--issue <n>`, `--round <n>`, `--yes` e `--fail-on <level>`",
+        "Import dinamico do modulo da fase (lazy loading), como todos os outros comandos",
+        "`run` ganha `--pr-review` e a descricao do comando passa a mencionar a fase opcional",
+        "`--pr-review` combinado com `--no-branch` falha com mensagem explicativa (sem PR nao ha o que revisar) e codigo `1`, antes de qualquer trabalho",
+        "A validacao da combinacao de flags vive em `src/cli-options.ts` (testavel), nao em `cli.ts`, com teste cobrindo a combinacao invalida",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Integracao com o comando run",
+      "description": "Como usuario de `issue-flow run <N> --pr-review`, quero a fase executada apos `pr`, sem confirmacao interativa, para obter o relatorio ao fim do fluxo autonomo.",
+      "acceptanceCriteria": [
+        "O conjunto ativo e resolvido pela mesma logica de tres vias de `--no-branch`: flag -> valor persistido (`plan.prReview.enabled`) -> default",
+        "Existe `RUNNABLE_PHASES_WITH_PR_REVIEW` analogo a `RUNNABLE_PHASES`",
+        "`plan.prReview.enabled = true` e persistido apos a fase `plan`, no mesmo ponto em que `noBranch` e persistido",
+        "O runner `'pr-review'` chama `runPrReview(undefined, { issue: issueNumber, yes: true })`; codigo `1` lanca erro (derruba a fase); codigo `2` nao derruba a pipeline",
+        "Em `REQUEST_CHANGES`: aviso destacado com o caminho do relatorio, supressao do fechamento automatico da issue, veredito refletido no resumo final e `run` retornando `0`",
+        "O runner entra no mapa `runners`, herdando `phase:start`/`phase:end`, `publishGitState()` e a task `listr2` da instrumentacao existente",
+        "Teste em `run.test.ts`: sem a flag, `activePhases` e `phaseOrder` sao identicos aos atuais e o fechamento da issue continua ocorrendo",
+        "Teste em `run.test.ts`: com a flag e veredito `REQUEST_CHANGES`, `provider.close()` nao e chamado e o codigo de retorno e `0`",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "Depende de US-007 e US-008."
+    },
+    {
+      "id": "US-010",
+      "title": "Correcao do gh pr list --head vazio",
+      "description": "Como usuario que le o resumo final do `run`, quero a URL do PR correto para nao ser levado a um PR nao relacionado.",
+      "acceptanceCriteria": [
+        "O bloco `execa('gh', ['pr','list','--head','', ...])` em `src/commands/run.ts` e substituido por `listPullRequests(branch)` (`core/session-git.ts`), usando a branch atual real",
+        "Quando `plan.pullRequest.url` existe, ela e usada preferencialmente, evitando a chamada ao `gh`",
+        "Sem PR encontrado, o resumo continua exibindo `unknown`, sem excecao propagada",
+        "As condicoes atuais sao preservadas: a busca so ocorre quando `!effectiveNoBranch && resolvedIssue.source === 'github'`",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Superficies de UI e monitoramento",
+      "description": "Como usuario com `--web` ou terminal interativo, quero ver a fase corretamente rotulada e contabilizada para acompanhar o progresso sem uma etapa sem nome.",
+      "acceptanceCriteria": [
+        "`PHASE_LABELS['pr-review'] = 'PR Review'` em `src/ui/pipeline-renderer.ts`",
+        "`publishSessionStart()` recebe o conjunto ativo ja resolvido, de modo que `pr-review` aparece em `phases[]` do `session.json` e entra no calculo de `progress.phasesTotal` da UI web",
+        "O resumo final do `run` (`src/ui/summary.ts`) exibe a recomendacao e o caminho do relatorio quando a fase rodou",
+        "Sem a flag, a arvore `listr2` e o resumo final sao identicos aos atuais",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Configuracao prReview em .issue-flow.json",
+      "description": "Como mantenedor de projeto, quero configurar o publisher por arquivo para que a troca futura por um adaptador do GitHub seja de configuracao, nao de codigo.",
+      "acceptanceCriteria": [
+        "`loadPrReviewConfig()` em `src/config.ts` segue o padrao de `loadWebConfig()`, reusando `readProjectConfigFile()` e a precedencia flag > env > arquivo > default",
+        "`prReviewConfigSchema` em `src/schemas.ts` valida a chave `prReview`; em v1 apenas `publisher: 'local'` e aceito (default `'local'`)",
+        "Valor invalido degrada para o default com `printWarning`, nunca lanca",
+        "Teste cobrindo: chave ausente, valor valido e valor invalido",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Skill review-pr e registro no agente",
+      "description": "Como usuario do Issue Flow via Claude Code, quero a skill correspondente ao comando para manter a paridade que `create-pr` e `review-issue` estabeleceram.",
+      "acceptanceCriteria": [
+        "`skills/review-pr/SKILL.md` com frontmatter no formato de `skills/create-pr/SKILL.md` (`name`, `description` com gatilhos em linguagem natural, `compatibility`)",
+        "`skills/review-pr/README.md` criado",
+        "A skill descreve os mesmos eixos de analise do prompt e o mesmo formato de saida",
+        "`agents/resolve-issue.md` e a tabela de componentes de `docs/skills-and-agents.md` listam a nova skill"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Documentacao e validacao final",
+      "description": "Como novo usuario, quero a fase documentada de ponta a ponta para entender quando e como usa-la.",
+      "acceptanceCriteria": [
+        "`README.md` documenta: o comando `pr-review` e suas opcoes, a flag `--pr-review` do `run`, a ordem de descoberta do PR, o layout dos artefatos, os codigos de saida, os campos novos de `tasks.json` e a chave `prReview` de `.issue-flow.json`",
+        "O diagrama/descricao da pipeline passa a mostrar `init -> prd -> plan -> execute -> review -> pr -> pr-review (opcional)`",
+        "`docs/skills-and-agents.md` documenta o comando, a flag, a descoberta, os artefatos e os codigos de saida",
+        "`npm run check` (biome + `tsc --noEmit`) verde em `packages/issue-flow/`",
+        "`npm test` verde em `packages/issue-flow/`",
+        "Typecheck passes",
+        "Validacao manual: `issue-flow pr-review <N>` executado contra um PR real deste repositorio, produzindo relatorio e `index.json`"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
