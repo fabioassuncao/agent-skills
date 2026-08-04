@@ -44,3 +44,16 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - `taskPlanSchema` é `z.object` estrito quanto a *tipos* mas faz strip de chaves desconhecidas — testes de round-trip devem checar as chaves específicas, não igualdade profunda do JSON (`issueUrl` e `noBranch` têm `.default()` e **são** adicionados no round-trip).
   - `TaskPlan.pullRequest` é `PullRequestRef` (número já como `number`), então US-003 precisa converter o match de `/pull/(\d+)` com `Number()`.
 ---
+
+## 2026-08-03 21:25 - US-003 (A fase pr persiste o Pull Request criado)
+- `src/commands/pr.ts`: nova função `parsePrNumber(url)` (`/\/pull\/(\d+)/` + `Number()`); no mesmo `try` que grava `prCreated = true`, `plan.pullRequest = { number, url, headBranch: branchName, createdAt: isoNow() }` é gravado **apenas** quando há URL parseável. Sem URL, o comportamento anterior é literalmente idêntico (`prCreated = true`, sem `pullRequest`, `PR creation completed`, exit `0`).
+- `src/commands/pr.test.ts` (novo): 3 testes — URL válida → campo persistido com número correto; saída sem URL → chave ausente (`Object.hasOwn` falso); `tasks.json` inexistente → fase continua retornando `0` (catch silencioso preservado).
+- Arquivos alterados: `src/commands/pr.ts`, `src/commands/pr.test.ts`.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (75 arquivos), `npm test` 415/415 verde.
+
+- **Learnings for future iterations:**
+  - Padrão de teste de comando: `runPr(issue, resolvedIssue)` aceita a issue **pré-resolvida** como 2º parâmetro — passá-la no teste dispensa mockar `resolveCommandIssue`/`resolver.js`. Todos os comandos da pipeline seguem essa assinatura; use-a nos testes de `pr-review` também.
+  - Mock de `execa` com `vi.hoisted({ current })` para o project root é o padrão do repo (`run.test.ts`): `getIssueDir()` → `utils/shell.run()` → `execa('git', ['rev-parse','--show-toplevel'])`. Sem esse mock, os comandos resolvem `issues/<N>/` no repo real.
+  - `loadPrompt()` lê `prompts/*.md` do pacote real e funciona em teste sem mock — não é preciso stubar `prompt-resolver`.
+  - Nunca gravar um número de PR "chutado": `pr-review` (US-004, fonte 3) confia em `plan.pullRequest` sem revalidar no GitHub.
+---
