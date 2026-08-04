@@ -1,25 +1,24 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
+import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printInfo, printSuccess } from '../ui/logger.js';
-import { getIssueDir } from '../utils/git.js';
 
 export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = await getIssueDir(issueNumber);
-  const analysisPath = join(issueDir, 'analysis.md');
+  const paths = await resolveIssuePaths(issueNumber);
+  const analysisPath = paths.analysisFile;
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
   if (!resolution.ok) {
     return resolution.code;
   }
 
-  await mkdir(issueDir, { recursive: true });
+  await mkdir(paths.issueDir, { recursive: true });
 
   const template = await loadPrompt('analyze');
   const prompt = applyPlaceholders(template, {
@@ -36,7 +35,7 @@ export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): 
     timeout: getGlobalTimeout() ?? 300_000,
     outputFormat: 'text',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
-    addDirs: [issueDir],
+    addDirs: [paths.issueDir],
     statusMessage: `Analyzing issue #${issueNumber}...`,
   });
 
@@ -59,7 +58,7 @@ export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): 
   }
 
   // Update pipeline state
-  const tasksPath = join(issueDir, 'tasks.json');
+  const tasksPath = paths.tasksFile;
   try {
     const plan = await loadTaskPlan(tasksPath);
     plan.pipeline.analyzeCompleted = true;

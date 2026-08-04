@@ -1,5 +1,4 @@
 import { mkdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { runHeadless } from '../core/headless.js';
 import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
@@ -8,13 +7,13 @@ import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { taskPlanSchema } from '../schemas.js';
+import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
-import { getIssueDir } from '../utils/git.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = await getIssueDir(issueNumber);
+  const paths = await resolveIssuePaths(issueNumber);
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
   if (!resolution.ok) {
@@ -22,7 +21,7 @@ export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Pro
   }
 
   // Read the PRD
-  const prdPath = join(issueDir, 'prd.md');
+  const prdPath = paths.prdFile;
   let prdContent: string;
   try {
     prdContent = await readFile(prdPath, 'utf-8');
@@ -31,7 +30,7 @@ export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Pro
     return 1;
   }
 
-  const tasksPath = join(issueDir, 'tasks.json');
+  const tasksPath = paths.tasksFile;
 
   const template = await loadPrompt('plan');
   const prompt = applyPlaceholders(template, {
@@ -41,7 +40,7 @@ export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Pro
     ...issuePlaceholders(resolution.resolved),
   });
 
-  await mkdir(issueDir, { recursive: true });
+  await mkdir(paths.issueDir, { recursive: true });
 
   const outcome = await runPhaseWithRetry({
     phase: 'plan',
@@ -52,7 +51,7 @@ export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Pro
         timeout: getGlobalTimeout() ?? 300_000,
         outputFormat: 'text',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
-        addDirs: [issueDir],
+        addDirs: [paths.issueDir],
         statusMessage: `Converting PRD to task plan for issue #${issueNumber}...`,
       });
 

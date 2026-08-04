@@ -1,6 +1,8 @@
 # src/storage
 
-Global storage layer (`~/.issue-flow`). Additive module: no pipeline command consumes it yet.
+Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands through
+`resolveIssuePaths()` (`analyze`, `prd` and `plan` so far; the remaining ones are still being
+migrated off `getIssueDir()`).
 
 ## Rules
 
@@ -63,7 +65,11 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
 - `IssuePaths.prdFile` is `prd.md`; the task plan is `tasksFile` (`tasks.json`). This differs from
   the legacy `ResolvedPaths.prdFile` in `types.ts`, which points at `tasks.json`.
 - Issue identifiers are not always numeric (`auth-refactor`, `pr-184`) — accept `string | number`.
-- Tests that touch the filesystem must point `ISSUE_FLOW_HOME` at a `mkdtemp` directory.
+- Tests that touch the filesystem must point `ISSUE_FLOW_HOME` at a `mkdtemp` directory. A test that
+  drives a **command** (rather than a storage helper) has to set it on the real `process.env` and
+  restore it afterwards — commands call `resolveIssuePaths()` with no options, so the `{ env }` seam
+  never reaches them. Pair it with `resetStorageResolutionCache()` in `beforeEach`, or the previous
+  case's project resolution leaks into the next one.
 - `paths.test.ts` mocks only `getRemoteUrl` from `../utils/git.js` (via `importOriginal` spread) so
   the real `normalizeRemoteUrl` keeps being exercised.
 - Filesystem walks use `readdir(dir, { withFileTypes: true })` and act only on `isDirectory()` /
