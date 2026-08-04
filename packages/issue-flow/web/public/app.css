@@ -234,6 +234,93 @@ select {
   margin: 0 0 4px;
 }
 
+/* ---- Resumo da issue ---- */
+
+.issue-summary-title {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.issue-summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.label-badge {
+  background: var(--idle-bg);
+  color: var(--fg);
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: normal;
+}
+
+.state-open {
+  background: var(--run-bg);
+  color: var(--run);
+}
+
+.state-closed {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.state-unknown {
+  background: var(--idle-bg);
+  color: var(--muted);
+}
+
+.issue-description {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* ---- User stories: status e dependências ---- */
+
+.story-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.story-status-backlog {
+  background: var(--idle-bg);
+  color: var(--muted);
+}
+
+.story-status-in_progress {
+  background: var(--run-bg);
+  color: var(--run);
+}
+
+.story-status-in_review {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.story-status-done {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.story-deps {
+  font-size: 0.84rem;
+}
+
 /* ---- Progresso ---- */
 
 .progress-row {

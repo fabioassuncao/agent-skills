@@ -25,6 +25,13 @@
     failed: '✗',
   };
 
+  const STORY_STATUS_LABELS = {
+    backlog: 'backlog',
+    in_progress: 'em andamento',
+    in_review: 'em revisão',
+    done: 'concluída',
+  };
+
   const els = {
     banner: document.getElementById('banner-disconnected'),
     issueLink: document.getElementById('issue-link'),
@@ -35,6 +42,8 @@
     refreshSelect: document.getElementById('refresh-select'),
     alerts: document.getElementById('alerts'),
     alertsBody: document.getElementById('alerts-body'),
+    issueSummary: document.getElementById('issue-summary'),
+    repository: document.getElementById('repository'),
     progressBar: document.getElementById('progress-bar'),
     progressPercent: document.getElementById('progress-percent'),
     progressCounters: document.getElementById('progress-counters'),
@@ -266,6 +275,8 @@
     if (!snapshot) return;
     renderHeader(snapshot);
     renderAlerts(snapshot);
+    renderIssueSummary(snapshot);
+    renderRepository(snapshot);
     renderProgress(snapshot);
     renderNow(snapshot);
     renderPhases(snapshot);
@@ -339,6 +350,61 @@
       entry.appendChild(document.createTextNode(log.message));
       els.alertsBody.appendChild(entry);
     }
+  }
+
+  // snapshot.issue vem sempre como objeto (schema não o torna nulável); só os
+  // campos individuais podem ser null/undefined — session.json antigo, issue
+  // local sem remote, etc. Cada leitura abaixo trata isso individualmente.
+  function renderIssueSummary(snapshot) {
+    clear(els.issueSummary);
+    const issue = snapshot.issue || {};
+
+    const heading = el('p', 'issue-summary-title');
+    heading.appendChild(
+      el('span', 'mono', issue.number !== null && issue.number !== undefined ? '#' + issue.number : '—'),
+    );
+    heading.appendChild(document.createTextNode(' ' + (issue.title || 'Sem título')));
+    els.issueSummary.appendChild(heading);
+
+    const meta = el('div', 'issue-summary-meta');
+    const state = issue.state || null;
+    const stateClass = state === 'open' ? 'state-open' : state === 'closed' ? 'state-closed' : 'state-unknown';
+    meta.appendChild(el('span', 'badge ' + stateClass, state || 'estado desconhecido'));
+    meta.appendChild(el('span', 'muted', 'Prioridade: Não definida'));
+    els.issueSummary.appendChild(meta);
+
+    const labels = issue.labels || [];
+    if (labels.length > 0) {
+      const labelRow = el('div', 'badge-row');
+      for (const label of labels) {
+        labelRow.appendChild(el('span', 'badge label-badge', label));
+      }
+      els.issueSummary.appendChild(labelRow);
+    }
+
+    els.issueSummary.appendChild(el('p', 'issue-description', issue.description || 'Sem descrição.'));
+  }
+
+  function metaRow(grid, label, value, className) {
+    grid.appendChild(el('dt', null, label));
+    const dd = el('dd', className, value);
+    grid.appendChild(dd);
+    return dd;
+  }
+
+  // snapshot.repository é coletado de forma tolerante a falhas (sem remote,
+  // sem commits, git ausente): cada campo pode ser null independentemente dos
+  // demais, nunca o objeto inteiro.
+  function renderRepository(snapshot) {
+    clear(els.repository);
+    const repo = snapshot.repository || {};
+    const grid = el('dl', 'now-grid');
+    metaRow(grid, 'Repositório', repo.name || '—');
+    metaRow(grid, 'Branch', repo.branch || '—', 'mono');
+    metaRow(grid, 'Commit', repo.headCommit || '—', 'mono');
+    const rootDd = metaRow(grid, 'Diretório', repo.root || '—', 'mono');
+    if (repo.root) rootDd.title = repo.root;
+    els.repository.appendChild(grid);
   }
 
   function renderProgress(snapshot) {
@@ -452,6 +518,20 @@
       title.appendChild(el('span', 'story-id', story.id));
       title.appendChild(document.createTextNode(story.title));
       main.appendChild(title);
+
+      // status/dependencies vêm com default no schema (backlog/[]), mas
+      // session.json gravado antes de #29 pode chegar sem eles.
+      const storyStatus = story.status !== null && story.status !== undefined ? story.status : 'backlog';
+      const meta = el('div', 'story-meta');
+      meta.appendChild(
+        el('span', 'badge story-status-' + storyStatus, STORY_STATUS_LABELS[storyStatus] || storyStatus),
+      );
+      const dependencies = story.dependencies || [];
+      if (dependencies.length > 0) {
+        meta.appendChild(el('span', 'muted story-deps', 'depende de: ' + dependencies.join(', ')));
+      }
+      main.appendChild(meta);
+
       item.appendChild(main);
       const duration = metric(story.durationSeconds);
       const side = itemSideText([
