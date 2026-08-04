@@ -20,6 +20,8 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
 - Commander camel-caseia flags com hífen (`--pr-review` → `opts.prReview`) e inverte as negadas (`--no-branch` → `opts.branch === false`). Quando um teste depende desse nome, feche o contrato parseando com um `Command` real em vez de assumir a chave.
 - `vi.mock('x', () => ({ ... }))` com fábrica literal quebra quando o grafo de imports cresce (um novo import interno passa a exigir um export não listado). Para módulos com vários exports (`core/session-git.js`), use sempre o mock parcial com `importOriginal`.
 - Resultado produzido dentro de uma closure (runner de fase) e lido depois no corpo da função: use uma "caixa" (`const box: { v: T | null } = { v: null }`), nunca `let x: T | null = null` — o TS mantém o narrowing `null` no ponto de leitura e acusa `type 'never'`.
+- Tabelas de apresentação tipadas como `Record<string, string>` (ex.: `PHASE_LABELS`) não quebram o build quando falta uma entrada — degradam no fallback. Sempre que houver fallback silencioso, extraia a leitura para uma função exportada (`phaseLabel()`) e fixe-a em teste.
+- Blocos de saída montados inline com `console.log` no comando (resumo final do `run`) migram para `src/ui/*.ts` como `buildXLines()` (array de strings, testável) + `printX()`; o teste compara o array, não captura stdout.
 - Há mudanças **não commitadas pré-existentes** no working tree (`getIssueDir`, `exitOnError` do listr2, testes de `git.ts`/`pipeline-renderer.ts`) que NÃO são da issue 25. Commitar sempre com `git add <arquivos específicos>`, nunca `git add -A`.
 
 ---
@@ -179,4 +181,22 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - O mock global de `execa` em `run.test.ts` responde `{ stdout: '' }` por padrão, então `branchName` é `''` em todos os testes antigos — qualquer código novo que dependa da branch precisa de um box `vi.hoisted` para o comando específico, restaurado no `afterEach` para não vazar entre describes.
   - `biome check` reclama de formatação (não só de lint) e o `--write` resolve; rodar `npx biome check --write src/` antes do commit poupa um ciclo.
   - O resumo final imprime `  PR:       <url>` com padding; testes que leem a linha devem casar por `trimStart().startsWith('PR:')`, não por igualdade da linha inteira.
+---
+
+## 2026-08-03 22:30 - US-011 (Superfícies de UI e monitoramento)
+- `src/ui/pipeline-renderer.ts`: `PHASE_LABELS` ganhou `'pr-review': 'PR Review'`; o fallback (capitalização) saiu do corpo do `map` e virou a função exportada `phaseLabel(phase)`, usada pelo renderer.
+- `src/ui/summary.ts`: novos `RunSummaryInfo`/`RunSummaryPrReview`, `buildRunSummaryLines(info)` (array de linhas, testável sem stdout) e `printRunSummary(info)` (linha de sucesso + linhas). Sem `prReview`, as linhas são exatamente as anteriores; `Review:`/`Report:` só aparecem quando a fase rodou, e `Report:` só quando há caminho.
+- `src/commands/run.ts`: o bloco final de `console.log` foi substituído por `printRunSummary(...)`; `PrReviewOutcome` virou alias de `RunSummaryPrReview` (mesma forma, uma definição só); `formatDuration`/`printSuccess` saíram dos imports.
+- `publishSessionStart(activePhases, ...)` já vinha da US-009 — esta story fixou o comportamento em teste: `session.json` lista `pr-review` em `phases[]` e `progress.phasesTotal` vai a 7 (6 sem a flag).
+- `src/ui/summary.test.ts` (novo, 6 testes), `src/ui/pipeline-renderer.test.ts` (+3 testes de `phaseLabel`), `src/commands/run.test.ts` (+4 testes no describe US-011: snapshot sem/com a flag, resumo com recomendação + caminho do relatório, resumo sem linhas novas sem a flag).
+- Arquivos alterados: `src/ui/pipeline-renderer.ts`, `src/ui/pipeline-renderer.test.ts`, `src/ui/summary.ts`, `src/ui/summary.test.ts`, `src/commands/run.ts`, `src/commands/run.test.ts`.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (85 arquivos), `npm test` 513/513 verde.
+- Verificação em navegador: não aplicável (CLI); a superfície web foi verificada pelo `session.json` gerado no teste, que é exatamente o que a UI web consome.
+
+- **Learnings for future iterations:**
+  - `PHASE_LABELS` é `Record<string, string>`: faltar um rótulo **não** quebra o typecheck, só degrada para `Pr-review`. Foi por isso que o fallback virou `phaseLabel()` exportada — agora existe um teste que falha se o rótulo sumir.
+  - `progress.phasesTotal` da UI web sai de `session:start` (`event.phases.length` em `core/session-state.ts`), não de uma contagem incremental: publicar o conjunto ativo **antes** da primeira fase é o que mantém o denominador correto. Uma fase desconhecida que apareça depois em `phase:start` é anexada e incrementa o total (comportamento já coberto em `session-state.test.ts`).
+  - `printSummaryBox` (`ui/summary.ts`) continua sendo do engine da fase `execute` — a caixa e o resumo do `run` são superfícies diferentes; `printRunSummary` foi adicionado ao lado, sem tocar na caixa.
+  - Testes que leem `session.json` precisam de `setWebCliOverrides({ enabled: true, port, host: '127.0.0.1' })` **e** do diretório `issues/<N>/` já criado — sem web habilitado o publisher é `NullPublisher` e nenhum arquivo é escrito.
+  - `readPrReviewOutcome` sobe o caminho do relatório a partir de `tasks.json` + `pr-review/index.json`; no teste basta plantar os dois no tmpdir (nenhum `.md` precisa existir) para exercitar as linhas `Review:`/`Report:` do resumo.
 ---
