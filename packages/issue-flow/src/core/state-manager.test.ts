@@ -6,6 +6,7 @@ import type { TaskPlan } from '../types.js';
 import {
   allStoriesPass,
   clearLastError,
+  hasPendingCorrection,
   initializeState,
   loadTaskPlan,
   markIssueCompleted,
@@ -29,6 +30,7 @@ function createMinimalPlan(overrides?: Partial<TaskPlan>): TaskPlan {
     lastError: null,
     correctionCycle: 0,
     maxCorrectionCycles: 3,
+    lastReviewFindings: null,
     pipeline: {
       prdCompleted: false,
       jsonCompleted: false,
@@ -219,6 +221,15 @@ describe('state-manager', () => {
       await expect(loadTaskPlan(filePath)).rejects.toThrow('Invalid tasks.json');
     });
 
+    it('should default lastReviewFindings to null for a plan written before the field existed', async () => {
+      const { lastReviewFindings: _omitted, ...plan } = createMinimalPlan();
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(plan), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      expect(loaded.lastReviewFindings).toBeNull();
+    });
+
     it('should load a tasks.json with a non-numeric local issueNumber', async () => {
       const plan = createMinimalPlan({ issueNumber: 'auth-refactor', issueUrl: '' });
       const filePath = join(tmpDir, 'tasks.json');
@@ -265,6 +276,7 @@ describe('state-manager', () => {
       expect(initialized.lastError).toBeNull();
       expect(initialized.correctionCycle).toBe(0);
       expect(initialized.maxCorrectionCycles).toBe(3);
+      expect(initialized.lastReviewFindings).toBeNull();
       expect(initialized.pipeline.prdCompleted).toBe(false);
     });
 
@@ -272,6 +284,12 @@ describe('state-manager', () => {
       const plan = createMinimalPlan({ issueStatus: 'in_progress' });
       const initialized = initializeState(plan);
       expect(initialized.issueStatus).toBe('in_progress');
+    });
+
+    it('should preserve a pending lastReviewFindings value', () => {
+      const plan = createMinimalPlan({ lastReviewFindings: 'getRemoteUrl ignores cwd' });
+      const initialized = initializeState(plan);
+      expect(initialized.lastReviewFindings).toBe('getRemoteUrl ignores cwd');
     });
 
     it('should not introduce the pr-review fields when they are absent', () => {
@@ -314,6 +332,17 @@ describe('state-manager', () => {
     it('should return false for empty stories', () => {
       const plan = createMinimalPlan({ userStories: [] });
       expect(allStoriesPass(plan)).toBe(false);
+    });
+  });
+
+  describe('hasPendingCorrection', () => {
+    it('is false when lastReviewFindings is null', () => {
+      expect(hasPendingCorrection(createMinimalPlan({ lastReviewFindings: null }))).toBe(false);
+    });
+
+    it("is true when lastReviewFindings holds a failed review's findings", () => {
+      const plan = createMinimalPlan({ lastReviewFindings: 'getProjectId ignores projectRoot' });
+      expect(hasPendingCorrection(plan)).toBe(true);
     });
   });
 

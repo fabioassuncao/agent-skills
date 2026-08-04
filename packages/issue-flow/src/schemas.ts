@@ -107,6 +107,13 @@ export const taskPlanSchema = z.object({
   lastError: lastErrorSchema.nullable(),
   correctionCycle: z.number().int().min(0),
   maxCorrectionCycles: z.number().int().min(0),
+  /**
+   * Findings from the most recent failed review, verbatim. Non-null means the
+   * issue has a pending correction even if every userStories[].passes is
+   * already true — the execute phase must address these before the field is
+   * cleared back to null. See core/engine.ts's early-return guards.
+   */
+  lastReviewFindings: z.string().nullable().optional().default(null),
   pipeline: pipelineStateSchema,
   pullRequest: pullRequestRefSchema.optional(),
   prReview: prReviewStateSchema.optional(),

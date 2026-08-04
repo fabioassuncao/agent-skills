@@ -5,7 +5,14 @@ import type { ExecResult } from './shell.js';
 vi.mock('./shell.js', () => ({ run: vi.fn() }));
 
 const { run } = await import('./shell.js');
-const { getBaseBranch, getCommitsSince, getIssueDir, getProjectRoot } = await import('./git.js');
+const {
+  getBaseBranch,
+  getCommitsSince,
+  getIssueDir,
+  getProjectRoot,
+  getRemoteUrl,
+  normalizeRemoteUrl,
+} = await import('./git.js');
 
 const mockRun = vi.mocked(run);
 
@@ -72,6 +79,86 @@ describe('getBaseBranch', () => {
   it('defaults to main when nothing can be resolved', async () => {
     mockRun.mockResolvedValue(result({ exitCode: 1 }));
     await expect(getBaseBranch()).resolves.toBe('main');
+  });
+});
+
+describe('getRemoteUrl', () => {
+  it('returns the trimmed url of origin', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: 'git@github.com:org/repo.git\n' }));
+    await expect(getRemoteUrl()).resolves.toBe('git@github.com:org/repo.git');
+    expect(mockRun).toHaveBeenCalledWith('git', ['remote', 'get-url', 'origin'], {
+      cwd: undefined,
+    });
+  });
+
+  it('queries the given cwd instead of process.cwd()', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: 'git@github.com:org/repo.git\n' }));
+    await expect(getRemoteUrl('/some/project/root')).resolves.toBe('git@github.com:org/repo.git');
+    expect(mockRun).toHaveBeenCalledWith('git', ['remote', 'get-url', 'origin'], {
+      cwd: '/some/project/root',
+    });
+  });
+
+  it('returns null when origin is not configured (non-zero exit)', async () => {
+    mockRun.mockResolvedValueOnce(
+      result({ exitCode: 2, stderr: "error: No such remote 'origin'" }),
+    );
+    await expect(getRemoteUrl()).resolves.toBeNull();
+  });
+
+  it('returns null when stdout is empty or blank', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: '   \n' }));
+    await expect(getRemoteUrl()).resolves.toBeNull();
+  });
+
+  it('returns null instead of throwing when git cannot be spawned', async () => {
+    mockRun.mockRejectedValueOnce(new Error('spawn git ENOENT'));
+    await expect(getRemoteUrl()).resolves.toBeNull();
+  });
+});
+
+describe('normalizeRemoteUrl', () => {
+  // The whole point of normalization is that every way of addressing one
+  // repository collapses to a single identity — this table is the contract.
+  it.each([
+    ['https://github.com/org/repo.git', 'github.com/org/repo'],
+    ['git@github.com:org/repo.git', 'github.com/org/repo'],
+    ['ssh://git@github.com:22/org/repo.git', 'github.com/org/repo'],
+    ['https://user:token@github.com/org/repo', 'github.com/org/repo'],
+    ['https://github.com/Org/Repo/', 'github.com/org/repo'],
+    ['https://github.com/org/repo', 'github.com/org/repo'],
+    ['ssh://git@github.com/org/repo.git', 'github.com/org/repo'],
+    ['git://github.com/org/repo.git', 'github.com/org/repo'],
+    ['GIT@GitHub.com:Org/Repo.GIT', 'github.com/org/repo'],
+    ['https://gitlab.com/group/sub/repo.git', 'gitlab.com/group/sub/repo'],
+    ['  https://github.com/org/repo.git  ', 'github.com/org/repo'],
+    ['https://github.com//org//repo.git//', 'github.com/org/repo'],
+  ])('normalizes %s', (input, expected) => {
+    expect(normalizeRemoteUrl(input)).toBe(expected);
+  });
+
+  it('produces the same identity for the https and ssh forms of one repo', () => {
+    expect(normalizeRemoteUrl('https://github.com/org/repo.git')).toBe(
+      normalizeRemoteUrl('git@github.com:org/repo.git'),
+    );
+  });
+
+  it.each([
+    ['', 'empty string'],
+    ['   ', 'blank string'],
+    ['not a url', 'no scheme and no colon'],
+    ['https://github.com', 'host without a path'],
+    ['https://github.com/', 'host with an empty path'],
+    ['git@github.com:', 'scp form with an empty path'],
+    ['https:///org/repo.git', 'missing host'],
+    ['https://github.com/.git', 'path that is only the .git suffix'],
+  ])('returns null for %s (%s)', (input) => {
+    expect(normalizeRemoteUrl(input)).toBeNull();
+  });
+
+  it('returns null for null and undefined', () => {
+    expect(normalizeRemoteUrl(null)).toBeNull();
+    expect(normalizeRemoteUrl(undefined)).toBeNull();
   });
 });
 

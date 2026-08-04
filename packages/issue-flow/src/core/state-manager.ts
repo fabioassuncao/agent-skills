@@ -63,8 +63,17 @@ export function initializeState(plan: TaskPlan): TaskPlan {
     lastError: plan.lastError ?? null,
     correctionCycle: plan.correctionCycle ?? 0,
     maxCorrectionCycles: plan.maxCorrectionCycles ?? 3,
+    lastReviewFindings: plan.lastReviewFindings ?? null,
     pipeline: plan.pipeline ? { ...defaultPipeline, ...plan.pipeline } : defaultPipeline,
   };
+}
+
+/**
+ * Whether the issue has a review failure that execute must still address,
+ * even if every userStories[].passes is already true.
+ */
+export function hasPendingCorrection(plan: TaskPlan): boolean {
+  return Boolean(plan.lastReviewFindings);
 }
 
 /**

@@ -471,12 +471,7 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
 }
 ```
 
-`session.json` is a runtime artifact -- if your project commits the `issues/` directory, add it to your `.gitignore`:
-
-```gitignore
-issues/*/session.json
-issues/*/session.json.tmp
-```
+`session.json` is a runtime artifact, rewritten from scratch on every run -- see [Versioning `issues/`](#versioning-issues) for how it fits into what you commit.
 
 ## Pipeline State & File Structure
 
@@ -496,14 +491,18 @@ issues/42/
 
 `issue.md` and `metadata.json` only exist for issues created or mirrored locally; a GitHub-only run never writes them.
 
+The directory is not tracked in this repository: the root `.gitignore` ignores `/issues` in full, so nothing under it is committed here -- see [Versioning `issues/`](#versioning-issues) for the trade-off in your own project.
+
+This per-project layout is the one every command reads and writes today. A machine-wide layout under `~/.issue-flow` also exists as a library -- see [Global Storage](#global-storage) -- but no command consumes it yet.
+
 ### Versioning `issues/`
 
-Committing `issues/` is **recommended** when you use local issues: the demand itself now lives in the directory, so `issue.md` and `metadata.json` are source, not build output -- leaving them untracked means the issue exists on one machine only. The planning artifacts (`prd.md`, `tasks.json`, `progress.txt`, `analysis.md`) are useful in review for the same reason. The one runtime artifact to keep out is the session snapshot:
+Whether to commit `issues/` is a per-project call, and the two answers are both legitimate:
 
-```gitignore
-issues/*/session.json
-issues/*/session.json.tmp
-```
+- **Ignore the whole directory.** This is what the Issue Flow repository itself does -- its root `.gitignore` carries a single `/issues` entry, so every artifact of every run stays local. Prefer this when your issues live on GitHub: the demand is already tracked there and the pipeline artifacts are reproducible working notes.
+- **Commit it.** Prefer this when you use [local issues](#local-issue-format): the demand itself lives in the directory, so `issue.md` and `metadata.json` are source, not build output -- leaving them untracked means the issue exists on one machine only. The planning artifacts (`prd.md`, `tasks.json`, `progress.txt`, `analysis.md`) are useful in review for the same reason.
+
+If you do commit the directory, the one artifact worth excluding is `session.json` (plus its `.tmp` sibling): it is a live snapshot rewritten roughly once a second during a run, so it produces noisy diffs and carries nothing you cannot recompute.
 
 The `pipeline` field tracks which phases have completed, enabling resume from any point:
 
@@ -552,6 +551,143 @@ The `pr` and `pr-review` phases add three optional fields. All of them are **abs
 | `prReview.enabled` | `run --pr-review` | Persisted opt-in; the standalone command never turns it on |
 | `prReview.rounds` | `pr-review` | Number of review rounds recorded under `issues/<N>/pr-review/` |
 | `prReview.lastRecommendation` | `pr-review` | `APPROVE` \| `APPROVE_WITH_SUGGESTIONS` \| `REQUEST_CHANGES` |
+
+## Global Storage
+
+Alongside the per-project `issues/` directory, Issue Flow ships a machine-wide storage layer rooted at `~/.issue-flow`. It keeps every run's state out of your working tree and lets preferences be set once for all projects.
+
+> **Not wired up yet.** This release adds the layer as a library (`src/storage/`) plus the loader of the global config file. **No command reads or writes `~/.issue-flow` today** -- `run`, `execute`, `review`, `pr` and the web server all still use `issues/N/` exactly as before, and the precedence table below is implemented and tested but not yet consumed by `loadWebConfig()`. Nothing in your setup changes by upgrading.
+
+### Directory tree
+
+```
+~/.issue-flow/
+  config.json                          # Machine-wide preferences (optional, see below)
+  projects/
+    issue-flow-4b21c0e9f7a3/           # One directory per project: <slug>-<hash12>
+      metadata.json                    # Project identity and timestamps
+      issues/
+        42/                            # One directory per issue identifier
+          issue.md                     # Issue statement (local issues only)
+          metadata.json                # Issue metadata (local issues only)
+          prd.md                       # Product requirements
+          tasks.json                   # Task plan with pipeline state and user stories
+          progress.txt                 # Execution log
+          analysis.md                  # Issue analysis
+          session.json                 # Live session snapshot (web monitoring)
+          .last-branch                 # Last branch used for this issue
+          archive/                     # Superseded artifacts
+          pr-review/                   # PR review reports and index
+```
+
+Issue identifiers are not necessarily numeric -- `auth-refactor` and `pr-184` are valid directory names, exactly as in the local provider. Everything is resolved by `getIssuePaths(projectId, issueNumber)`; no call site joins these names by hand.
+
+`metadata.json` at the project level records the identity of the project:
+
+```json
+{
+  "schemaVersion": 1,
+  "projectId": "issue-flow-4b21c0e9f7a3",
+  "root": "/Users/me/Projects/issue-flow",
+  "remoteUrl": "github.com/fabioassuncao/issue-flow",
+  "createdAt": "2026-08-04T02:00:00Z",
+  "updatedAt": "2026-08-04T02:00:00Z",
+  "lastAttemptAt": null
+}
+```
+
+`root` is the last known local checkout and is informative only -- identity lives in `projectId`. `remoteUrl` is `null` for a project with no `origin` remote. Unknown keys are ignored on read, so a file written by a newer release stays readable by an older one.
+
+### Project id
+
+Each project gets a deterministic id in the form `<slug>-<hash12>`:
+
+| Part | Derivation |
+|------|-----------|
+| `slug` | Repository name, lowercased and reduced to `[a-z0-9-]`, runs of separators collapsed, truncated to 32 characters (`project` when nothing survives). Cosmetic only -- it makes the directory recognizable. |
+| `hash12` | First 12 hex characters of the SHA-256 of the seed. This is what carries the identity. |
+
+The seed is canonical rather than local:
+
+| Condition | Seed | Slug from |
+|-----------|------|-----------|
+| `git remote get-url origin` resolves | `remote:<host>/<org>/<repo>` | Last segment of the remote path |
+| No `origin` remote | `path:<absolute project root>` | `basename` of the project root |
+
+The remote is normalized before hashing -- protocol, embedded credentials, SSH user, port, `.git` suffix and trailing slashes are stripped, and host plus path are lowercased. So `https://github.com/org/repo.git`, `git@github.com:org/repo.git` and `ssh://git@github.com:22/org/repo` all seed to `github.com/org/repo` and produce the **same id on every machine**: two clones of the same repository share their history, and moving or renaming the local folder is harmless. (One consequence of lowercasing the path: on a case-sensitive self-hosted server, `org/Repo` and `org/repo` collapse to the same id.)
+
+The `remote:` / `path:` prefix is part of the hashed seed, so a project identified by path can never collide with one identified by remote.
+
+**Known limitation of the path fallback.** For a repository with no `origin` remote, the absolute path *is* the identity. Moving or renaming that folder yields a different id, and the previous history is left behind under the old one -- nothing is deleted, but the new directory starts empty. Configuring a remote before adopting the global storage avoids this entirely.
+
+### `ISSUE_FLOW_HOME`
+
+`ISSUE_FLOW_HOME` relocates the whole tree:
+
+```bash
+ISSUE_FLOW_HOME=/tmp/issue-flow-ci npx issue-flow run 42
+```
+
+It is the single seam through which the root is resolved: set it and *every* path above moves with it. A relative value is resolved against the current working directory. Use it to isolate CI runs, sandboxes and test suites from the real `$HOME` -- Issue Flow's own tests point it at a temporary directory for exactly this reason. When it is unset, the root is `~/.issue-flow`.
+
+### `~/.issue-flow/config.json`
+
+Preferences that apply to every project, all keys optional:
+
+```json
+{
+  "schemaVersion": 1,
+  "storageDir": "/mnt/data/issue-flow",
+  "web": {
+    "port": 3737,
+    "host": "127.0.0.1",
+    "refreshSeconds": 5,
+    "logLimit": 200
+  },
+  "retry": {
+    "retryLimit": 10,
+    "retryForever": false,
+    "backoffBaseSeconds": 30,
+    "backoffMaxSeconds": 900
+  },
+  "commit": {
+    "signoff": false,
+    "conventional": true
+  }
+}
+```
+
+| Key | Meaning |
+|-----|---------|
+| `schemaVersion` | Format version of the file |
+| `storageDir` | Alternative directory holding `projects/` |
+| `web` | Machine-wide web monitoring defaults. Deliberately a subset of the `web` key of `.issue-flow.json`: `enabled` and `includeLogs` stay a per-project decision |
+| `retry` | Retry and backoff preferences, mirroring the engine defaults |
+| `commit` | Commit preferences (`signoff`, `conventional`) |
+
+The file is read by `loadGlobalConfig()`, which **never throws**. A missing file is silent -- it is the common case. Invalid JSON, a non-object root, an unreadable path or an invalid key each degrade to "no global preference" with a warning, and validation happens key by key: a typo under `retry` costs you `retry` only, never your `web` settings. Unknown keys are dropped without a warning, which is what keeps a file written by a newer release readable.
+
+### Precedence
+
+Settings resolve from the highest-priority source that provides them:
+
+| Priority | Source | Example |
+|----------|--------|---------|
+| 1 (highest) | CLI flag | `--port 4000` |
+| 2 | Environment variable | `ISSUE_FLOW_WEB_PORT=4000` |
+| 3 | `.issue-flow.json` in the project root | `{ "web": { "port": 4000 } }` |
+| 4 | `~/.issue-flow/config.json` | `{ "web": { "port": 4000 } }` |
+| 5 (lowest) | Built-in default | `3737` |
+
+The merge is per key and shallow: a layer only participates with the keys it actually carries, so a global `config.json` that sets `web.host` but not `web.port` leaves a project-level `web.port` untouched. Nested objects (`web`, `retry`) are replaced whole rather than field by field.
+
+As noted above, this is the documented and implemented precedence (`mergeConfigLayers()` in `src/config.ts`), but the global layer is not yet plugged into the commands: today `loadWebConfig()` still resolves **CLI flag > environment variable > `.issue-flow.json` > default**, as described under [Web Monitoring → Configuration](#configuration).
+
+### Migrating from `issues/`
+
+The compatibility layer (`resolveStorageMode()` / `migrateLegacyStorage()`) copies an existing `issues/` tree into the global storage. It is **non-destructive by construction**: `<projectRoot>/issues/` is never modified, renamed or removed -- there is no removal option, not even opt-in. Migration is a copy that refuses to overwrite, which also makes it idempotent (running it twice copies nothing the second time) and resumable after a partial failure. Subdirectories (`archive/`, `pr-review/`) and dotfiles (`.last-branch`) come across intact.
+
+An existing global directory always wins: once artifacts live there, that is the source of truth, and a legacy directory left behind is simply preserved.
 
 ## Development
 
