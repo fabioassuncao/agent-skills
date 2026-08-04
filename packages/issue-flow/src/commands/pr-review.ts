@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { loadPrReviewConfig } from '../config.js';
 import { runHeadless } from '../core/headless.js';
 import {
   PrDiscoveryError,
@@ -254,7 +255,10 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
     }),
   };
 
-  const publisher = opts.publisher ?? createPrReviewPublisher(dir);
+  // Which publisher runs is configuration (`prReview.publisher`), never a code
+  // path here: the command only ever holds the interface.
+  const publisher =
+    opts.publisher ?? createPrReviewPublisher(dir, (await loadPrReviewConfig()).publisher);
   try {
     await publisher.publish(report);
   } catch (err) {

@@ -355,6 +355,39 @@ describe('runPrReview', () => {
     await expect(readFile(join(reviewDir, 'index.json'), 'utf-8')).rejects.toThrow();
   });
 
+  it('honours the publisher configured in .issue-flow.json', async () => {
+    await writeFile(
+      join(tmpDir, '.issue-flow.json'),
+      JSON.stringify({ prReview: { publisher: 'local' } }),
+      'utf-8',
+    );
+
+    const code = await runPrReview('128', { issue: '42' });
+
+    expect(code).toBe(0);
+    const index = JSON.parse(
+      await readFile(join(reviewDir, 'index.json'), 'utf-8'),
+    ) as PrReviewIndex;
+    expect(index.rounds).toHaveLength(1);
+  });
+
+  it('falls back to the local publisher when the configured one is unknown', async () => {
+    await writeFile(
+      join(tmpDir, '.issue-flow.json'),
+      JSON.stringify({ prReview: { publisher: 'github' } }),
+      'utf-8',
+    );
+
+    const code = await runPrReview('128', { issue: '42' });
+
+    // An unusable publisher key degrades to a warning, never to a failed review.
+    expect(code).toBe(0);
+    const index = JSON.parse(
+      await readFile(join(reviewDir, 'index.json'), 'utf-8'),
+    ) as PrReviewIndex;
+    expect(index.rounds).toHaveLength(1);
+  });
+
   it('fails with an actionable message when no Pull Request can be found', async () => {
     const code = await runPrReview(undefined, { issue: '42', yes: true });
 

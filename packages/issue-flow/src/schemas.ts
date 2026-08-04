@@ -230,8 +230,21 @@ export const issuesConfigSchema = z.object({
   requireConfirmation: z.boolean().default(true),
 }) satisfies z.ZodType<IssuesConfig>;
 
+/**
+ * Resolved `pr-review` configuration (the `prReview` key of .issue-flow.json).
+ *
+ * `publisher` selects the implementation `createPrReviewPublisher()` builds. v1
+ * ships only the local one, so the enum has a single member on purpose: adding
+ * a GitHub adapter is a new entry here plus a new factory, never a change to
+ * the phase.
+ */
+export const prReviewConfigSchema = z.object({
+  publisher: z.enum(['local']).default('local'),
+});
+
 export type ValidatedTaskPlan = z.infer<typeof taskPlanSchema>;
 export type ValidatedIssueMetadata = z.infer<typeof issueMetadataSchema>;
 export type ValidatedHeadlessResult = z.infer<typeof headlessResultSchema>;
 export type ValidatedSessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
 export type WebConfig = z.infer<typeof webConfigSchema>;
+export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
