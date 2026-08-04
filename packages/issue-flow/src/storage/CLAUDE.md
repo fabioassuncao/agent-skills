@@ -24,6 +24,12 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
 - The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other
   loaders and to `mergeConfigLayers` — this directory owns the **format**, `config.ts` owns the
   **precedence**. Keep new loaders there rather than splitting precedence across two modules.
+- **`<projectRoot>/issues/` is read-only forever.** `compat.ts` copies out of it and never writes,
+  renames or deletes inside it — there is deliberately no removal option, not even opt-in. If a
+  cleanup command is ever wanted, it belongs in its own explicit, user-confirmed code path.
+- Migration is idempotent through one rule: **a destination file that already exists is skipped,
+  never overwritten.** That is also what makes a failed run resumable — re-running it picks up
+  where it stopped instead of clobbering what already crossed over.
 
 ## Gotchas
 
@@ -33,6 +39,12 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
 - Tests that touch the filesystem must point `ISSUE_FLOW_HOME` at a `mkdtemp` directory.
 - `paths.test.ts` mocks only `getRemoteUrl` from `../utils/git.js` (via `importOriginal` spread) so
   the real `normalizeRemoteUrl` keeps being exercised.
+- Filesystem walks use `readdir(dir, { withFileTypes: true })` and act only on `isDirectory()` /
+  `isFile()`. Symlinks are skipped on purpose: following one could copy content from outside the
+  legacy directory into the global tree.
+- `isoNow()` lives in `core/state-manager.ts` and is reused here; functions that stamp timestamps
+  take an injectable `now?: () => string` so tests can assert `createdAt` vs `updatedAt` without
+  faking the clock globally.
 - **zod 4 applies a `.default()` even through `.optional()`**: `.partial()` does *not* strip
   defaults — `z.object({ p: z.number().default(1) }).partial().parse({})` returns `{ p: 1 }`. To
   reuse a field from a defaulted schema without its default, call `.unwrap()` on it

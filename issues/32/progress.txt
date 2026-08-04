@@ -116,3 +116,22 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
   - US-007 vai precisar de `writeFileAtomic()` (`utils/fs.ts`), que já resolve `EXDEV` no `rename`.
   - Verificação em browser não se aplica.
 ---
+
+## 2026-08-03 23:56 - US-007
+- Implementadas a detecção de layout e a migração não destrutiva do legado `issues/{N}/` para o storage global.
+- Arquivos alterados:
+  - `packages/issue-flow/src/storage/compat.ts` — **novo**: `resolveStorageMode()`, `migrateLegacyStorage()`, tipos `StorageMode`/`StorageStatus`/`MigrationResult`/`MigrateLegacyStorageOptions` e constantes `LEGACY_ISSUES_DIR_NAME` / `METADATA_FILENAME`.
+  - `packages/issue-flow/src/storage/compat.test.ts` — **novo**: 17 testes (4 estados + ausência de efeito colateral, árvore completa com `archive/`/`pr-review/`, dotfile `.last-branch`, origem intacta, idempotência, não sobrescrita, projeto sem legado, metadata conforme schema, `remoteUrl` null, `createdAt`/`lastAttemptAt` preservados, metadata corrompido, falha de IO com contexto, retomada após falha).
+  - `packages/issue-flow/src/storage/CLAUDE.md` — regras novas (legado é read-only para sempre; idempotência via "destino existente nunca é sobrescrito") + gotchas (`withFileTypes`/symlinks, `isoNow` injetável).
+- Modos: global existente → `global`; só legado → `needs-migration`; nenhum → `global`; ambos → `global` com legado preservado. `resolveStorageMode` só faz `stat`, nunca cria diretório.
+- `migrateLegacyStorage` copia com `copyFile` (pula destino já existente), escreve `metadata.json` com `writeFileAtomic` preservando `createdAt`/`lastAttemptAt` de um arquivo válido anterior, e propaga falha de IO com issue + arquivo no texto do erro.
+- Checks: `npm run typecheck` OK, `npm test` 668 testes OK (39 arquivos), `npm run lint` OK. Nenhum teste existente alterado.
+- **Learnings for future iterations:**
+  - **A regra que resolve três ACs de uma vez:** "destino existente nunca é sobrescrito". Ela dá idempotência (2ª execução copia zero), segurança (artefato editado à mão no global sobrevive) e retomada após falha parcial — sem manifesto nem estado extra.
+  - Para simular falha de IO de forma portável na cópia, crie um **arquivo comum** onde o diretório da issue deveria ir (`writeFile(join(globalDir,'issues','42'), ...)`) → o `mkdir` falha com `ENOTDIR`/`EEXIST`. Mesmo espírito do truque do `EISDIR` usado em US-006.
+  - `isoNow()` já existe em `core/state-manager.ts` — reusar em vez de recriar. Importar `core/` a partir de `storage/` não cria ciclo (state-manager não conhece storage), mas prefira sempre a option injetável `now?: () => string` na assinatura pública: os testes de `createdAt` vs `updatedAt` ficam triviais e sem fake timers.
+  - `readdir(dir, { withFileTypes: true })` + `entry.isDirectory()`/`isFile()` é o padrão da cópia recursiva; entradas que não são nenhum dos dois (symlink, socket) são **ignoradas de propósito** — seguir symlink traria conteúdo de fora do legado para dentro do global.
+  - `MigrationResult` expõe `previousMode` (estado **antes** da migração) em vez de estender `StorageStatus`: depois de migrar, `globalExists`/`mode` do status já estão obsoletos e confundiriam o call site.
+  - `mkdtemp` no macOS devolve `/var/folders/...`; `resolve()` não resolve o symlink `/var → /private/var`, então comparar `metadata.root` com o `projectRoot` do teste funciona direto — mas não compare com `realpath()`.
+  - Verificação em browser não se aplica.
+---
