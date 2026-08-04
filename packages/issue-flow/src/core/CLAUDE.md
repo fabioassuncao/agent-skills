@@ -31,6 +31,28 @@ never had them must not gain artificial nulls on a round trip.
   wipes it.
 - A phase's `durationSeconds` comes only from `phase:start`/`phase:end`. Other
   events carrying a duration must not write it.
+- `issue:update` **merges** over the `issue` section: `number` and `url` fall
+  back to what `session:start` published (`event.x ?? snapshot.issue.x`), so an
+  origin with no remote never erases an identifier the run already knew. The
+  enrichment fields (title, description, labels, state) are written as reported
+  — an empty body is a value, not "unknown".
+- `git:update` feeds two sections from one publication: `git` (branch, base,
+  commits) and `repository` (identity and location). On the repository fields
+  `undefined` means "not collected in this publication" and keeps the previous
+  value, while an explicit `null` means "collected and unavailable" and
+  overwrites it — that is why they go through `reported()` instead of `??`.
+  New repository data belongs on this event, not on a second one, or the two
+  sections drift apart on `branch`.
+- Derived fields (`errors`, `warnings`, `nextSteps`, `estimatedRemainingSeconds`
+  and each story's `status`) are recomputed in `reduceSessionEvent` **after**
+  `applyEvent`, never accumulated inside a case. A new derived field belongs
+  there so it stays consistent for every event type.
+- A story's `status` is observational: `passes` remains the only thing the
+  pipeline (engine, state-manager, review) reads to decide flow. The derivation
+  is idempotent by construction — `done` (from `passes`) > a sticky `in_review`
+  > `in_progress` (the story owns `currentActivity`) > `backlog` — and
+  `in_review` is never produced automatically, only carried from an explicit
+  `status` in `tasks.json`.
 - `metrics:update` scopes: `phase`/`iteration` feed the named phase **and** the
   issue-wide aggregate; `story` feeds the story only. Story metrics are a
   rateio of an iteration already counted at phase level — counting them

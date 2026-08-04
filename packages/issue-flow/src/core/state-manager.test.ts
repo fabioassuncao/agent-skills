@@ -298,6 +298,41 @@ describe('state-manager', () => {
       expect(loaded.lastReviewFindings).toBeNull();
     });
 
+    it('should round-trip story status and dependencies', async () => {
+      const plan = createMinimalPlan();
+      plan.userStories[0].status = 'in_review';
+      plan.userStories[0].dependencies = [];
+      plan.userStories[1].status = 'backlog';
+      plan.userStories[1].dependencies = ['US-001'];
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(plan, null, 2), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      expect(loaded.userStories[0].status).toBe('in_review');
+      expect(loaded.userStories[1].dependencies).toEqual(['US-001']);
+
+      await saveTaskPlan(filePath, loaded);
+      const reloaded = await loadTaskPlan(filePath);
+      expect(reloaded.userStories).toEqual(loaded.userStories);
+    });
+
+    // The fields are optional, never defaulted: a legacy plan must come back
+    // from a load/save round trip byte-identical in its stories.
+    it('should not add status or dependencies to a legacy plan', async () => {
+      const plan = createMinimalPlan();
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(plan, null, 2), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      await saveTaskPlan(filePath, loaded);
+      const rewritten = JSON.parse(await readFile(filePath, 'utf-8'));
+
+      for (const story of rewritten.userStories) {
+        expect('status' in story).toBe(false);
+        expect('dependencies' in story).toBe(false);
+      }
+    });
+
     it('should load a tasks.json with a non-numeric local issueNumber', async () => {
       const plan = createMinimalPlan({ issueNumber: 'auth-refactor', issueUrl: '' });
       const filePath = join(tmpDir, 'tasks.json');

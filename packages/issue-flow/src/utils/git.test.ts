@@ -4,8 +4,15 @@ import type { ExecResult } from './shell.js';
 vi.mock('./shell.js', () => ({ run: vi.fn() }));
 
 const { run } = await import('./shell.js');
-const { getBaseBranch, getCommitsSince, getProjectRoot, getRemoteUrl, normalizeRemoteUrl } =
-  await import('./git.js');
+const {
+  getBaseBranch,
+  getCommitsSince,
+  getHeadCommit,
+  getProjectRoot,
+  getRemoteUrl,
+  normalizeRemoteUrl,
+  stripRemoteUrlCredentials,
+} = await import('./git.js');
 
 const mockRun = vi.mocked(run);
 
@@ -85,6 +92,41 @@ describe('getRemoteUrl', () => {
   });
 });
 
+describe('getHeadCommit', () => {
+  it('returns the trimmed abbreviated hash of HEAD', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: 'c56b163\n' }));
+    await expect(getHeadCommit()).resolves.toBe('c56b163');
+    expect(mockRun).toHaveBeenCalledWith('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: undefined,
+    });
+  });
+
+  it('queries the given cwd instead of process.cwd()', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: 'c56b163\n' }));
+    await expect(getHeadCommit('/some/project/root')).resolves.toBe('c56b163');
+    expect(mockRun).toHaveBeenCalledWith('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: '/some/project/root',
+    });
+  });
+
+  it('returns null in a repository with no commits yet (non-zero exit)', async () => {
+    mockRun.mockResolvedValueOnce(
+      result({ exitCode: 128, stderr: "fatal: ambiguous argument 'HEAD'" }),
+    );
+    await expect(getHeadCommit()).resolves.toBeNull();
+  });
+
+  it('returns null when stdout is empty or blank', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: '  \n' }));
+    await expect(getHeadCommit()).resolves.toBeNull();
+  });
+
+  it('returns null instead of throwing when git cannot be spawned', async () => {
+    mockRun.mockRejectedValueOnce(new Error('spawn git ENOENT'));
+    await expect(getHeadCommit()).resolves.toBeNull();
+  });
+});
+
 describe('normalizeRemoteUrl', () => {
   // The whole point of normalization is that every way of addressing one
   // repository collapses to a single identity — this table is the contract.
@@ -127,6 +169,46 @@ describe('normalizeRemoteUrl', () => {
   it('returns null for null and undefined', () => {
     expect(normalizeRemoteUrl(null)).toBeNull();
     expect(normalizeRemoteUrl(undefined)).toBeNull();
+  });
+});
+
+describe('stripRemoteUrlCredentials', () => {
+  it.each([
+    ['https://user:token@github.com/org/repo.git', 'https://github.com/org/repo.git'],
+    ['https://x-access-token:ghp_abc123@github.com/org/repo', 'https://github.com/org/repo'],
+    ['https://token@github.com/org/repo.git', 'https://github.com/org/repo.git'],
+    ['HTTPS://user:token@github.com/org/repo.git', 'HTTPS://github.com/org/repo.git'],
+    ['http://user:token@internal.example/org/repo.git', 'http://internal.example/org/repo.git'],
+  ])('strips the embedded credentials from %s', (input, expected) => {
+    expect(stripRemoteUrlCredentials(input)).toBe(expected);
+  });
+
+  // SSH has no password-in-URL syntax; the user segment is a required,
+  // non-secret protocol field (almost always "git") that the remote would
+  // stop working without — so it must survive untouched.
+  it.each([
+    'https://github.com/org/repo.git',
+    'https://github.com/Org/Repo/',
+    'git://github.com/org/repo.git',
+    'ssh://git@github.com:22/org/repo.git',
+    'ssh://user:pass@github.com:22/org/repo.git',
+    'git@github.com:org/repo.git',
+    '/local/path/to/repo',
+  ])('leaves %s unchanged', (input) => {
+    expect(stripRemoteUrlCredentials(input)).toBe(input);
+  });
+
+  it('trims surrounding whitespace like normalizeRemoteUrl does', () => {
+    expect(stripRemoteUrlCredentials('  https://user:token@github.com/org/repo.git  ')).toBe(
+      'https://github.com/org/repo.git',
+    );
+  });
+
+  it('returns null for empty, blank, null and undefined', () => {
+    expect(stripRemoteUrlCredentials('')).toBeNull();
+    expect(stripRemoteUrlCredentials('   ')).toBeNull();
+    expect(stripRemoteUrlCredentials(null)).toBeNull();
+    expect(stripRemoteUrlCredentials(undefined)).toBeNull();
   });
 });
 

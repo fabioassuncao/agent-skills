@@ -183,6 +183,54 @@ describe('userStorySchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('accepts status and dependencies', () => {
+    const result = userStorySchema.safeParse({
+      id: 'US-002',
+      title: 'Test',
+      description: 'Desc',
+      acceptanceCriteria: ['AC1'],
+      priority: 2,
+      passes: false,
+      notes: '',
+      status: 'in_review',
+      dependencies: ['US-001'],
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.status).toBe('in_review');
+    expect(result.success && result.data.dependencies).toEqual(['US-001']);
+  });
+
+  it('rejects an unknown status', () => {
+    const result = userStorySchema.safeParse({
+      id: 'US-001',
+      title: 'Test',
+      description: 'Desc',
+      acceptanceCriteria: [],
+      priority: 1,
+      passes: false,
+      notes: '',
+      status: 'blocked',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // The two fields are `.optional()`, not `.default()`: a story that never
+  // declared them must not gain artificial values when the plan is rewritten.
+  it('leaves status and dependencies absent when the story omits them', () => {
+    const result = userStorySchema.safeParse({
+      id: 'US-001',
+      title: 'Test',
+      description: 'Desc',
+      acceptanceCriteria: [],
+      priority: 1,
+      passes: false,
+      notes: '',
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && 'status' in result.data).toBe(false);
+    expect(result.success && 'dependencies' in result.data).toBe(false);
+  });
 });
 
 describe('pipelineStateSchema', () => {
@@ -405,6 +453,37 @@ describe('backwards compatibility with pre-metrics artifacts', () => {
       costUsd: null,
       completedAt: '2026-07-01T10:30:00Z',
     });
+  });
+
+  it('fills the absent issue enrichment of an older session.json', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    expect(snapshot.issue).toEqual({
+      number: 42,
+      url: 'https://github.com/acme/repo/issues/42',
+      title: null,
+      description: null,
+      labels: [],
+      state: null,
+    });
+  });
+
+  it('fills the absent repository section of an older session.json', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    expect(snapshot.repository).toEqual({
+      name: null,
+      remoteUrl: null,
+      branch: null,
+      headCommit: null,
+      root: null,
+    });
+  });
+
+  it('fills the absent story status and dependencies of an older session.json', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    expect(snapshot.stories[0]).toMatchObject({ status: 'backlog', dependencies: [] });
   });
 
   it('parses a tasks.json written before the metrics existed', () => {

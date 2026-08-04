@@ -52,6 +52,17 @@ describe('createInitialSnapshot', () => {
     expect(snap.startedAt).toBeNull();
   });
 
+  it('starts the issue section with nothing reported', () => {
+    expect(createInitialSnapshot().issue).toEqual({
+      number: null,
+      url: null,
+      title: null,
+      description: null,
+      labels: [],
+      state: null,
+    });
+  });
+
   it('starts every aggregate metric as null, never zero', () => {
     expect(createInitialSnapshot().metrics).toEqual({
       totalInputTokens: null,
@@ -80,13 +91,33 @@ describe('reduceSessionEvent', () => {
     const snap = startedSnapshot();
     expect(snap.status).toBe('running');
     expect(snap.sessionId).toBe('abc');
-    expect(snap.issue).toEqual({ number: 22, url: 'https://github.com/test/test/issues/22' });
+    expect(snap.issue).toEqual({
+      number: 22,
+      url: 'https://github.com/test/test/issues/22',
+      title: null,
+      description: null,
+      labels: [],
+      state: null,
+    });
     expect(snap.git.branch).toBe('issue/22-test');
     expect(snap.git.baseBranch).toBe('main');
     expect(snap.startedAt).toBe('2026-08-03T12:00:00Z');
     expect(snap.elapsedSeconds).toBe(0);
     expect(snap.progress.phasesTotal).toBe(3);
     expect(snap.phases.map((p) => p.status)).toEqual(['pending', 'pending', 'pending']);
+  });
+
+  it('session:start seeds only the branch of the repository section', () => {
+    // Everything else waits for publishGitState; the branch is already known
+    // here, so a poll landing before the first git:update sees it in both
+    // git.branch and repository.branch.
+    expect(startedSnapshot().repository).toEqual({
+      name: null,
+      remoteUrl: null,
+      branch: 'issue/22-test',
+      headCommit: null,
+      root: null,
+    });
   });
 
   it('session:start creates phases with null metric fields', () => {
@@ -96,6 +127,89 @@ describe('reduceSessionEvent', () => {
     expect(phase.cacheReadTokens).toBeNull();
     expect(phase.cacheCreationTokens).toBeNull();
     expect(phase.costUsd).toBeNull();
+  });
+
+  it('issue:update enriches the issue section without dropping number and url', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'issue:update',
+      at: '2026-08-03T12:00:02Z',
+      // A provider that reports no identifier and no remote must not erase
+      // what session:start already published.
+      number: null,
+      title: 'Enrich the monitor snapshot',
+      description: 'Long body\nwith several lines',
+      labels: ['enhancement', 'monitor'],
+      state: 'open',
+    });
+
+    expect(snap.issue).toEqual({
+      number: 22,
+      url: 'https://github.com/test/test/issues/22',
+      title: 'Enrich the monitor snapshot',
+      description: 'Long body\nwith several lines',
+      labels: ['enhancement', 'monitor'],
+      state: 'open',
+    });
+    expect(snap.updatedAt).toBe('2026-08-03T12:00:02Z');
+  });
+
+  it('issue:update fills number and url when the session had none', () => {
+    const snap = reduceSessionEvent(
+      reduceSessionEvent(createInitialSnapshot(), {
+        type: 'session:start',
+        at: '2026-08-03T12:00:00Z',
+        sessionId: 'abc',
+        issueNumber: null,
+        phases: ['init'],
+      }),
+      {
+        type: 'issue:update',
+        at: '2026-08-03T12:00:02Z',
+        number: 7,
+        url: 'https://github.com/test/test/issues/7',
+        title: 'Resolved later',
+        description: '',
+        labels: [],
+        state: 'closed',
+      },
+    );
+
+    expect(snap.issue).toMatchObject({
+      number: 7,
+      url: 'https://github.com/test/test/issues/7',
+      state: 'closed',
+      // An empty body is a reported value, not "unknown".
+      description: '',
+    });
+  });
+
+  it('session:start resets an issue section enriched by a previous session', () => {
+    const enriched = reduceSessionEvent(startedSnapshot(), {
+      type: 'issue:update',
+      at: '2026-08-03T12:00:02Z',
+      number: 22,
+      title: 'Old title',
+      description: 'Old body',
+      labels: ['stale'],
+      state: 'open',
+    });
+
+    const restarted = reduceSessionEvent(enriched, {
+      type: 'session:start',
+      at: '2026-08-03T13:00:00Z',
+      sessionId: 'def',
+      issueNumber: 23,
+      phases: ['init'],
+    });
+
+    expect(restarted.issue).toEqual({
+      number: 23,
+      url: null,
+      title: null,
+      description: null,
+      labels: [],
+      state: null,
+    });
   });
 
   it('phase:start marks the phase running and sets currentPhase', () => {
@@ -188,6 +302,8 @@ describe('reduceSessionEvent', () => {
         priority: 1,
         passes: true,
         completedAt: null,
+        status: 'done',
+        dependencies: [],
         durationSeconds: null,
         inputTokens: null,
         outputTokens: null,
@@ -201,6 +317,8 @@ describe('reduceSessionEvent', () => {
         priority: 2,
         passes: false,
         completedAt: null,
+        status: 'backlog',
+        dependencies: [],
         durationSeconds: null,
         inputTokens: null,
         outputTokens: null,
@@ -211,6 +329,127 @@ describe('reduceSessionEvent', () => {
     ]);
     expect(snap.progress.storiesCompleted).toBe(1);
     expect(snap.progress.storiesTotal).toBe(2);
+  });
+
+  it('session:start wipes the stories, so a seed only survives when published after it', () => {
+    const seededTooEarly = reduceSessionEvent(createInitialSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T11:59:00Z',
+      stories: [makeStory({ id: 'US-001' })],
+    });
+    expect(seededTooEarly.stories).toHaveLength(1);
+
+    // session:start rebuilds from createInitialSnapshot(): anything published
+    // before it is thrown away. This is why run.ts seeds the plan's stories
+    // right *after* publishSessionStart().
+    const restarted = reduceSessionEvent(seededTooEarly, {
+      type: 'session:start',
+      at: '2026-08-03T12:00:00Z',
+      sessionId: 'abc',
+      issueNumber: 22,
+      phases: ['init', 'prd', 'execute'],
+    });
+    expect(restarted.stories).toEqual([]);
+    expect(restarted.progress.storiesTotal).toBe(0);
+
+    const seeded = reduceSessionEvent(restarted, {
+      type: 'stories:update',
+      at: '2026-08-03T12:00:01Z',
+      stories: [
+        makeStory({ id: 'US-001', passes: true }),
+        makeStory({ id: 'US-002', priority: 2 }),
+      ],
+    });
+    expect(seeded.stories.map((s) => s.id)).toEqual(['US-001', 'US-002']);
+    expect(seeded.progress.storiesTotal).toBe(2);
+    expect(seeded.progress.storiesCompleted).toBe(1);
+    // Passing before the session started: the duration is unknown, not zero.
+    expect(seeded.stories[0].completedAt).toBeNull();
+    // The seed is stories-only; the phase counters stay where session:start
+    // left them, so the percentage never regresses because of it.
+    expect(seeded.progress.percent).toBe(restarted.progress.percent);
+  });
+
+  it('derives in_progress from the current activity and back to backlog when it moves on', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' }), makeStory({ id: 'US-002', priority: 2 })],
+    });
+    expect(snap.stories.map((s) => s.status)).toEqual(['backlog', 'backlog']);
+
+    snap = reduceSessionEvent(snap, {
+      type: 'activity',
+      at: '2026-08-03T12:02:00Z',
+      story: 'US-001',
+      tool: 'Edit',
+    });
+    expect(snap.stories.map((s) => s.status)).toEqual(['in_progress', 'backlog']);
+
+    // The derivation is recomputed from scratch on every reduction, so moving
+    // the activity elsewhere releases the previous story instead of latching.
+    snap = reduceSessionEvent(snap, {
+      type: 'activity',
+      at: '2026-08-03T12:03:00Z',
+      story: 'US-002',
+      tool: 'Edit',
+    });
+    expect(snap.stories.map((s) => s.status)).toEqual(['backlog', 'in_progress']);
+
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:04:00Z',
+      stories: [
+        makeStory({ id: 'US-001', passes: true }),
+        makeStory({ id: 'US-002', priority: 2 }),
+      ],
+    });
+    expect(snap.stories.map((s) => s.status)).toEqual(['done', 'in_progress']);
+  });
+
+  it('keeps an explicit in_review but never honours an explicit done without passes', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [
+        makeStory({ id: 'US-001', status: 'in_review' }),
+        makeStory({ id: 'US-002', priority: 2, status: 'done' }),
+      ],
+    });
+    // in_review has no automatic derivation, so the plan's value survives;
+    // done is overruled by passes: false.
+    expect(snap.stories.map((s) => s.status)).toEqual(['in_review', 'backlog']);
+
+    // in_review outranks the activity, but not a story that starts passing.
+    snap = reduceSessionEvent(snap, {
+      type: 'activity',
+      at: '2026-08-03T12:02:00Z',
+      story: 'US-001',
+      tool: 'Edit',
+    });
+    expect(snap.stories[0].status).toBe('in_review');
+
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:03:00Z',
+      stories: [
+        makeStory({ id: 'US-001', status: 'in_review', passes: true }),
+        makeStory({ id: 'US-002', priority: 2, status: 'done' }),
+      ],
+    });
+    expect(snap.stories[0].status).toBe('done');
+  });
+
+  it('stories:update copies dependencies from the plan, defaulting to an empty array', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [
+        makeStory({ id: 'US-001' }),
+        makeStory({ id: 'US-002', priority: 2, dependencies: ['US-001'] }),
+      ],
+    });
+    expect(snap.stories.map((s) => s.dependencies)).toEqual([[], ['US-001']]);
   });
 
   it('stories:update stamps completedAt only when a story flips to passing', () => {
@@ -885,5 +1124,49 @@ describe('git:update event', () => {
     expect(snap.git.baseBranch).toBe('develop');
     expect(snap.git.commits).toEqual([{ hash: 'abc1234', subject: 'first' }]);
     expect(snap.pullRequests).toEqual([{ number: 30, url: 'https://example.com/30', title: 'PR' }]);
+  });
+
+  it('fills the repository section from the same publication', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'git:update',
+      at: '2026-08-03T12:05:00Z',
+      branch: 'issue/22-test',
+      baseBranch: 'main',
+      repositoryName: 'acme/repo',
+      remoteUrl: 'git@github.com:acme/repo.git',
+      headCommit: 'c56b163',
+      repositoryRoot: '/repo/root',
+    });
+
+    expect(snap.repository).toEqual({
+      name: 'acme/repo',
+      remoteUrl: 'git@github.com:acme/repo.git',
+      branch: 'issue/22-test',
+      headCommit: 'c56b163',
+      root: '/repo/root',
+    });
+  });
+
+  it('distinguishes an omitted repository field from one reported as null', () => {
+    const enriched = reduceSessionEvent(startedSnapshot(), {
+      type: 'git:update',
+      at: '2026-08-03T12:05:00Z',
+      repositoryName: 'acme/repo',
+      headCommit: 'c56b163',
+      repositoryRoot: '/repo/root',
+    });
+    const snap = reduceSessionEvent(enriched, {
+      type: 'git:update',
+      at: '2026-08-03T12:06:00Z',
+      // Collected and unavailable this time: it must overwrite.
+      headCommit: null,
+      // Not collected at all: the previous value stands.
+    });
+
+    expect(snap.repository).toMatchObject({
+      name: 'acme/repo',
+      headCommit: null,
+      root: '/repo/root',
+    });
   });
 });

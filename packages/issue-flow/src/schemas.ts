@@ -22,9 +22,15 @@ export const claudeUsageSchema = z.object({
   costUsd: z.number().optional(),
 }) satisfies z.ZodType<ClaudeUsage>;
 
+export const userStoryStatusSchema = z.enum(['backlog', 'in_progress', 'in_review', 'done']);
+
 /**
  * The metrics fields are additive and optional: plans written before they
  * existed keep parsing, and nothing is filled in with artificial zeros.
+ *
+ * `status` and `dependencies` follow the same rule and are `.optional()` rather
+ * than `.default()` on purpose: a legacy plan must not gain a `'backlog'` and an
+ * empty array it never declared just because `saveTaskPlan` rewrote it.
  */
 export const userStorySchema = z.object({
   id: z.string(),
@@ -36,6 +42,8 @@ export const userStorySchema = z.object({
   notes: z.string(),
   ...claudeUsageSchema.shape,
   durationSeconds: z.number().optional(),
+  status: userStoryStatusSchema.optional(),
+  dependencies: z.array(z.string()).optional(),
 });
 
 export const pipelineStateSchema = z.object({
@@ -188,6 +196,11 @@ const sessionStorySchema = z.object({
   completedAt: z.string().nullable(),
   // Also introduced with the metrics, hence the same tolerant default.
   durationSeconds: z.number().nullable().default(null),
+  // Snapshot fields are always present on output and defaulted on input, so a
+  // session.json written before they existed still parses. This is the mirror
+  // image of userStorySchema, where the same two fields are plainly optional.
+  status: userStoryStatusSchema.default('backlog'),
+  dependencies: z.array(z.string()).default([]),
   ...sessionUsageShape,
 });
 
@@ -202,7 +215,16 @@ export const sessionSnapshotSchema = z.object({
   sessionId: z.string().nullable(),
   readOnly: z.literal(true),
   capabilities: z.array(z.string()),
-  issue: z.object({ number: z.number().nullable(), url: z.string().nullable() }),
+  issue: z.object({
+    number: z.number().nullable(),
+    url: z.string().nullable(),
+    // Additive: a session.json written before the Issue section was enriched
+    // parses into the same "not reported" values createInitialSnapshot() uses.
+    title: z.string().nullable().default(null),
+    description: z.string().nullable().default(null),
+    labels: z.array(z.string()).default([]),
+    state: z.string().nullable().default(null),
+  }),
   status: z.enum(['idle', 'running', 'completed', 'failed']),
   startedAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
@@ -255,6 +277,18 @@ export const sessionSnapshotSchema = z.object({
     baseBranch: z.string().nullable(),
     commits: z.array(z.object({ hash: z.string(), subject: z.string() })),
   }),
+  // Additive like the metrics aggregate: a session.json written before the
+  // repository section existed parses into the same all-null object
+  // createInitialSnapshot() starts from.
+  repository: z
+    .object({
+      name: z.string().nullable().default(null),
+      remoteUrl: z.string().nullable().default(null),
+      branch: z.string().nullable().default(null),
+      headCommit: z.string().nullable().default(null),
+      root: z.string().nullable().default(null),
+    })
+    .default({ name: null, remoteUrl: null, branch: null, headCommit: null, root: null }),
   pullRequests: z.array(z.object({ number: z.number(), url: z.string(), title: z.string() })),
   logs: z.array(sessionLogEntrySchema),
   errors: z.array(sessionLogEntrySchema),

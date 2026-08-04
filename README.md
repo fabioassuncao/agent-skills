@@ -459,7 +459,14 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
   "schemaVersion": 1,
   "sessionId": "…",
   "readOnly": true,
-  "issue": { "number": 42, "url": "https://github.com/owner/repo/issues/42" },
+  "issue": {
+    "number": 42,
+    "url": "https://github.com/owner/repo/issues/42",
+    "title": "Dark mode",
+    "description": "The full issue body, untruncated…",
+    "labels": ["enhancement", "ui"],
+    "state": "open"
+  },
   "status": "running",
   "startedAt": "2026-08-03T16:00:00Z",
   "elapsedSeconds": 754,
@@ -477,6 +484,7 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
   "stories": [
     {
       "id": "US-001", "title": "…", "priority": 1, "passes": true, "completedAt": "…",
+      "status": "done", "dependencies": [],
       "durationSeconds": 188, "inputTokens": 203, "outputTokens": 10780,
       "cacheReadTokens": 321000, "cacheCreationTokens": 24100, "costUsd": 0.8547
     }
@@ -488,6 +496,13 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
   },
   "execution": { "iteration": 5, "retries": 0, "correctionCycle": 0, "maxCorrectionCycles": 3 },
   "git": { "branch": "issue/42-dark-mode", "baseBranch": "main", "commits": [{ "hash": "abc1234", "subject": "feat: …" }] },
+  "repository": {
+    "name": "owner/repo",
+    "remoteUrl": "git@github.com:owner/repo.git",
+    "branch": "issue/42-dark-mode",
+    "headCommit": "abc1234",
+    "root": "/Users/me/code/repo"
+  },
   "pullRequests": [{ "number": 43, "url": "…", "title": "…" }],
   "logs": [{ "at": "…", "level": "info", "message": "…" }],
   "errors": [],
@@ -499,6 +514,45 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
 ```
 
 `session.json` is a runtime artifact, rewritten from scratch on every run. It lives outside the working tree, so it never shows up in `git status` -- see [The legacy `issues/` directory](#the-legacy-issues-directory) if your project used to commit it.
+
+`schemaVersion` stays `1`: every field described below is additive, and a `session.json` written by an earlier version still parses -- absent sections are filled with their neutral defaults (`null`, `[]`) rather than rejected.
+
+### `issue` and `repository`
+
+Both sections are published in the same window as `session:start`, so the **first** poll of `/api/status` already carries them -- there is no disk or `git` I/O per HTTP request.
+
+| Field | Source | Notes |
+|-------|--------|-------|
+| `issue.number`, `issue.url` | The resolved issue | `url` is the remote reference; `null` for a local-only issue with no remote |
+| `issue.title` | The resolved issue | `null` when unknown |
+| `issue.description` | The issue body | Published **in full, never truncated** -- the consumer decides how to fold it |
+| `issue.labels` | The issue | `[]` when the issue has none |
+| `issue.state` | The provider | `open` / `closed` for the built-in providers; typed as `string \| null` so other providers can report their own |
+| `repository.name` | `origin` remote | `owner/repo`; `null` without a remote |
+| `repository.remoteUrl` | `origin` remote | As configured, minus any embedded `http(s)` credentials (`user:token@`) |
+| `repository.branch` | Current checkout | Same value as `git.branch` |
+| `repository.headCommit` | `git rev-parse --short HEAD` | `null` in a repository with no commits yet |
+| `repository.root` | Project root | Absolute path the pipeline runs from |
+
+There is no textual **priority** on the issue: the domain has no such attribute, and Issue Flow does not invent one. Consumers that want a priority derive it from `labels`.
+
+Every `repository` field is collected independently and failure-tolerant -- no remote configured, no commits yet or a missing `git` binary each show up as `null` instead of failing the publication. `repository.name` inherits the lowercasing of the remote-URL normalizer, a known limitation: a repository named `Owner/Repo` is reported as `owner/repo`.
+
+`repository.remoteUrl` is served unauthenticated by `/api/status` and persisted to `session.json`, so it is never the raw output of `git remote get-url origin`: an `http`/`https` remote's userinfo (`user:token@host/...`, the shape CI commonly uses to embed a PAT) is stripped before publication. SSH remotes are left untouched -- both `ssh://user@host/path` and the scp-like `user@host:path` shorthand require that user segment to connect at all (it is almost always the fixed `git` service account, never a secret), so removing it would just break the remote for no security benefit.
+
+### Story `status`
+
+Each entry of `stories[]` carries a board-style `status` (`backlog` | `in_progress` | `in_review` | `done`) and the `dependencies` declared in the plan, so a Kanban-style view does not have to reimplement the heuristic. The status is **recomputed on every reduction**, in this order:
+
+1. `passes === true` → `done`
+2. the current status is `in_review` → stays `in_review`
+3. `currentActivity.story` is this story's id → `in_progress`
+4. otherwise → `backlog`
+
+Two consequences are worth stating explicitly:
+
+- **`in_review` is never derived automatically.** It only ever enters through an explicit `status` in `tasks.json`, and once set it sticks until `passes` flips to `true`.
+- **`passes` still wins.** A story declaring `status: "done"` with `passes: false` is reported as `backlog` (or `in_progress`): rule 1 governs, and `passes` remains the single source of truth for what the pipeline executes.
 
 ### Tokens and cost
 
@@ -558,6 +612,34 @@ The `pipeline` field tracks which phases have completed, enabling resume from an
   }
 }
 ```
+
+### Story status and dependencies in `tasks.json`
+
+A user story may declare two extra fields. Both are **optional**, and absent means *not informed* -- a plan written without them keeps loading unchanged, and a round-trip through the pipeline never materialises them with an artificial value:
+
+```json
+{
+  "userStories": [
+    {
+      "id": "US-002",
+      "title": "…",
+      "priority": 2,
+      "passes": false,
+      "status": "in_review",
+      "dependencies": ["US-001"]
+    }
+  ]
+}
+```
+
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `status` | `backlog` \| `in_progress` \| `in_review` \| `done` | Board-style status, purely **observational** |
+| `dependencies` | `string[]` | Ids of other stories in the same plan |
+
+`passes` remains the source of truth for execution: no phase reads `status` to decide what to run next, and a `status` of `done` on a story with `passes: false` does not make the execute loop skip it. What `status` does is seed the [snapshot's derived status](#story-status) -- the only way to get `in_review` onto the board, since the derivation never produces it on its own.
+
+`dependencies` is validated **by shape only** (an array of strings). Issue Flow does not check that the referenced ids exist, and does not detect cycles.
 
 ### Per-story metrics in `tasks.json`
 

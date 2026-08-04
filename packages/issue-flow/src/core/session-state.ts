@@ -1,7 +1,7 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import type { UserStory } from '../types.js';
+import type { UserStory, UserStoryStatus } from '../types.js';
 
 /**
  * Session state publishing layer for the optional web monitoring mode.
@@ -38,6 +38,23 @@ export type SessionEvent =
       phases: string[];
       environment?: SessionEnvironment;
     }
+  | {
+      /**
+       * Structural data of the Issue being worked on, published once the
+       * provider has resolved it. Merged over the `issue` section instead of
+       * replacing it, so the number and the URL that came with `session:start`
+       * survive an origin that reports neither.
+       */
+      type: 'issue:update';
+      at: string;
+      number: number | null;
+      url?: string;
+      title: string | null;
+      /** Issue body, published whole — no truncation. */
+      description: string | null;
+      labels: string[];
+      state: string | null;
+    }
   | { type: 'phase:start'; at: string; phase: string }
   | { type: 'phase:end'; at: string; phase: string; success: boolean; error?: string }
   | { type: 'iteration:start'; at: string; iteration: number }
@@ -69,12 +86,27 @@ export type SessionEvent =
       durationSeconds?: number;
     }
   | {
+      /**
+       * One publication feeds both the `git` section (branch, base, commits)
+       * and the `repository` section (identity and location). They come from
+       * the same collection pass, so extending this event keeps `branch`
+       * consistent across the two instead of racing a second event.
+       *
+       * Every field is optional: `undefined` means "not collected in this
+       * publication" and leaves the snapshot untouched, while an explicit
+       * `null` means "collected and unavailable" and is written as-is.
+       */
       type: 'git:update';
       at: string;
       branch?: string;
       baseBranch?: string;
       commits?: SessionCommit[];
       pullRequests?: SessionPullRequest[];
+      /** `owner/repo`, derived from the origin remote. */
+      repositoryName?: string | null;
+      remoteUrl?: string | null;
+      headCommit?: string | null;
+      repositoryRoot?: string | null;
     }
   | { type: 'session:end'; at: string; status: 'completed' | 'failed'; error?: string };
 
@@ -134,6 +166,14 @@ export interface SessionStorySnapshot extends SessionUsageSnapshot {
   completedAt: string | null;
   /** Wall-clock seconds attributed to the story, or null when unknown. */
   durationSeconds: number | null;
+  /**
+   * Board-style status, recomputed on every reduction by
+   * {@link deriveStoryStatus}. Observational: the pipeline keeps deciding what
+   * to execute from `passes`.
+   */
+  status: UserStoryStatus;
+  /** IDs of the stories this one depends on, as declared in the plan. */
+  dependencies: string[];
 }
 
 export interface SessionActivity {
@@ -154,12 +194,50 @@ export interface SessionPullRequest {
   title: string;
 }
 
+/**
+ * The Issue under execution, as far as the session knows it.
+ *
+ * `number`/`url` come with `session:start`; the remaining fields arrive with
+ * `issue:update`, once the provider has resolved the Issue. Everything is
+ * nullable because a run may start before (or without) that resolution —
+ * `null` means "not reported", never "empty".
+ */
+export interface SessionIssueSnapshot {
+  number: number | null;
+  url: string | null;
+  title: string | null;
+  /** Issue body in full; the consumer decides how to fold it. */
+  description: string | null;
+  labels: string[];
+  /** Provider lifecycle state ('open' / 'closed' for the built-ins). */
+  state: string | null;
+}
+
+/**
+ * Where the run is happening: which repository, which checkout, which commit.
+ *
+ * Fed by `git:update` (see `publishGitState`). Every field is nullable because
+ * each source is independent and failure-tolerant — no remote configured, a
+ * repository with no commits yet or a missing git binary all show up as
+ * `null` instead of failing the publication.
+ */
+export interface SessionRepositorySnapshot {
+  /** `owner/repo`, derived from the origin remote; null without one. */
+  name: string | null;
+  remoteUrl: string | null;
+  branch: string | null;
+  /** Abbreviated hash of HEAD. */
+  headCommit: string | null;
+  /** Absolute path of the working directory the pipeline runs from. */
+  root: string | null;
+}
+
 export interface SessionSnapshot {
   schemaVersion: 1;
   sessionId: string | null;
   readOnly: true;
   capabilities: string[];
-  issue: { number: number | null; url: string | null };
+  issue: SessionIssueSnapshot;
   status: SessionStatus;
   startedAt: string | null;
   updatedAt: string | null;
@@ -185,6 +263,7 @@ export interface SessionSnapshot {
     maxCorrectionCycles: number | null;
   };
   git: { branch: string | null; baseBranch: string | null; commits: SessionCommit[] };
+  repository: SessionRepositorySnapshot;
   pullRequests: SessionPullRequest[];
   logs: SessionLogEntry[];
   errors: SessionLogEntry[];
@@ -226,7 +305,7 @@ export function createInitialSnapshot(): SessionSnapshot {
     sessionId: null,
     readOnly: true,
     capabilities: [],
-    issue: { number: null, url: null },
+    issue: { number: null, url: null, title: null, description: null, labels: [], state: null },
     status: 'idle',
     startedAt: null,
     updatedAt: null,
@@ -247,6 +326,7 @@ export function createInitialSnapshot(): SessionSnapshot {
     metrics: emptyMetrics(),
     execution: { iteration: 0, retries: 0, correctionCycle: 0, maxCorrectionCycles: null },
     git: { branch: null, baseBranch: null, commits: [] },
+    repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
     pullRequests: [],
     logs: [],
     errors: [],
@@ -278,6 +358,15 @@ function accumulateUsage<T extends SessionUsageSnapshot>(target: T, event: Metri
     cacheCreationTokens: accumulate(target.cacheCreationTokens, event.cacheCreationTokens),
     costUsd: accumulate(target.costUsd, event.costUsd),
   };
+}
+
+/**
+ * Pick between a reported value and the one already in the snapshot.
+ * Unlike `??`, an explicitly reported `null` wins: only `undefined` — the
+ * absence of the field on the event — keeps the previous value.
+ */
+function reported<T>(value: T | undefined, previous: T): T {
+  return value === undefined ? previous : value;
 }
 
 /**
@@ -333,12 +422,43 @@ function deriveNextSteps(snapshot: SessionSnapshot): string[] {
 }
 
 /**
+ * Board status of a single story, in a fixed order that makes the derivation
+ * idempotent — recomputing it over its own result yields the same value:
+ *
+ * 1. `passes: true` → `done` (execution is the only authority on completion);
+ * 2. already `in_review` → kept, since nothing here can produce or clear it;
+ * 3. the story owns the current activity → `in_progress`;
+ * 4. otherwise → `backlog`.
+ *
+ * `in_review` is therefore never derived: it only enters through an explicit
+ * `status` in tasks.json, and leaves when the story starts passing.
+ */
+function deriveStoryStatus(
+  story: SessionStorySnapshot,
+  activeStory: string | null,
+): UserStoryStatus {
+  if (story.passes) return 'done';
+  if (story.status === 'in_review') return 'in_review';
+  if (activeStory !== null && activeStory === story.id) return 'in_progress';
+  return 'backlog';
+}
+
+/** Recompute every story's status; entries that do not change keep identity. */
+function deriveStoryStatuses(snapshot: SessionSnapshot): SessionStorySnapshot[] {
+  const activeStory = snapshot.currentActivity?.story ?? null;
+  return snapshot.stories.map((story) => {
+    const status = deriveStoryStatus(story, activeStory);
+    return status === story.status ? story : { ...story, status };
+  });
+}
+
+/**
  * Fold a SessionEvent into a SessionSnapshot. Pure: never mutates the input
  * and performs no I/O. Unknown event types return the snapshot unchanged.
  *
  * errors/warnings are derived slices of the logs ring buffer, recomputed on
  * each reduction — they are never accumulated separately. The same applies
- * to estimatedRemainingSeconds and nextSteps.
+ * to estimatedRemainingSeconds, nextSteps and each story's status.
  */
 export function reduceSessionEvent(
   snapshot: SessionSnapshot,
@@ -353,6 +473,7 @@ export function reduceSessionEvent(
     ...next,
     updatedAt: event.at,
     elapsedSeconds,
+    stories: deriveStoryStatuses(next),
     estimatedRemainingSeconds: estimateRemainingSeconds(next),
     errors: next.logs.filter((entry) => entry.level === 'error'),
     warnings: next.logs.filter((entry) => entry.level === 'warn'),
@@ -371,7 +492,7 @@ function applyEvent(
       return {
         ...initial,
         sessionId: event.sessionId,
-        issue: { number: event.issueNumber, url: event.issueUrl ?? null },
+        issue: { ...initial.issue, number: event.issueNumber, url: event.issueUrl ?? null },
         status: 'running',
         startedAt: event.at,
         progress: {
@@ -388,9 +509,31 @@ function applyEvent(
           ...emptyUsage(),
         })),
         git: { branch: event.branch ?? null, baseBranch: event.baseBranch ?? null, commits: [] },
+        // The branch is the one piece of repository identity the session
+        // already knows here; the rest waits for publishGitState. Seeding it
+        // keeps git.branch and repository.branch consistent for a poll that
+        // lands before the first git:update.
+        repository: { ...initial.repository, branch: event.branch ?? null },
         environment: event.environment ?? null,
       };
     }
+
+    case 'issue:update':
+      return {
+        ...snapshot,
+        issue: {
+          ...snapshot.issue,
+          // Merge, not replacement: the run may know a number and a URL that
+          // the provider does not report (a local Issue mirroring a remote
+          // one), and enriching the section must never erase them.
+          number: event.number ?? snapshot.issue.number,
+          url: event.url ?? snapshot.issue.url,
+          title: event.title,
+          description: event.description,
+          labels: event.labels,
+          state: event.state,
+        },
+      };
 
     case 'phase:start': {
       const known = snapshot.phases.some((p) => p.name === event.phase);
@@ -487,6 +630,12 @@ function applyEvent(
           priority: story.priority,
           passes: story.passes,
           completedAt,
+          // Seed only: deriveStoryStatus() recomputes it right after, so an
+          // explicit 'done' in the plan on a story with passes: false is not
+          // honoured — `passes` remains the single source of truth. The plan's
+          // value survives just for 'in_review', which no derivation produces.
+          status: story.status ?? before?.status ?? 'backlog',
+          dependencies: story.dependencies ?? [],
           durationSeconds: before?.durationSeconds ?? null,
           inputTokens: before?.inputTokens ?? null,
           outputTokens: before?.outputTokens ?? null,
@@ -537,6 +686,15 @@ function applyEvent(
           branch: event.branch ?? snapshot.git.branch,
           baseBranch: event.baseBranch ?? snapshot.git.baseBranch,
           commits: event.commits ?? snapshot.git.commits,
+        },
+        repository: {
+          // `undefined` is "not collected", so the previous value stands; an
+          // explicit `null` is "collected and unavailable" and overwrites it.
+          name: reported(event.repositoryName, snapshot.repository.name),
+          remoteUrl: reported(event.remoteUrl, snapshot.repository.remoteUrl),
+          branch: event.branch ?? snapshot.repository.branch,
+          headCommit: reported(event.headCommit, snapshot.repository.headCommit),
+          root: reported(event.repositoryRoot, snapshot.repository.root),
         },
         pullRequests: event.pullRequests ?? snapshot.pullRequests,
       };
