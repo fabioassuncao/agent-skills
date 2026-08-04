@@ -84,6 +84,12 @@ npx issue-flow run 42 --web
 
 # Review the created Pull Request as a final phase
 npx issue-flow run 42 --pr-review
+
+# Continue User Story numbering from the last used in this project
+npx issue-flow run 42 --continue
+
+# Force User Story numbering to start at a specific number
+npx issue-flow run 42 --start-us 27
 ```
 
 Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> **review** -> **pr**, plus the optional **pr-review**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, runs correction cycles (re-execute + re-review) up to `maxCorrectionCycles`.
@@ -94,6 +100,8 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--from <phase>` | Resume from a specific phase |
 | `--no-branch` | Run on the current branch without creating a new branch or PR |
 | `--pr-review` | Review the created Pull Request after the `pr` phase (see [`pr-review`](#pr-review----review-a-pull-request)) |
+| `--continue` | Continue User Story numbering from the last one used in this project (see [User Story numbering continuity](#user-story-numbering-continuity)) |
+| `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `-v, --verbose` | Show Claude progress output in real time |
 
@@ -154,9 +162,42 @@ Generates a Product Requirements Document from the issue analysis (`analysis.md`
 
 ```bash
 npx issue-flow plan 42
+
+# Continue from the last User Story number used in this project
+npx issue-flow plan 42 --continue
+
+# Force numbering to start at a specific number, ignoring history
+npx issue-flow plan 42 --start-us 27
 ```
 
 Converts the PRD into a structured `~/.issue-flow/…/issues/42/tasks.json` with ordered user stories, acceptance criteria, and pipeline state.
+
+| Flag | Description |
+|------|-------------|
+| `--continue` | Continue User Story numbering from the last one used in this project |
+| `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history |
+
+`--continue` and `--start-us` are mutually exclusive -- passing both fails immediately with a clear error and exit code `1`. See [User Story numbering continuity](#user-story-numbering-continuity) below.
+
+#### User Story numbering continuity
+
+`US-NNN` numbering no longer restarts at `US-001` on every `plan` run. Each execution resolves the next number through a cascade, and the decision is always printed -- never silent:
+
+1. **Automatic recovery** (default, no flag needed): the highest `US-NNN` number already used anywhere in the project is recovered by scanning every `~/.issue-flow/…/issues/*/tasks.json` for the project, regardless of which issue produced it. The scan is tolerant of ids that do not follow the `US-NNN` format -- an id like `story-5` or `add-auth` is parsed leniently (or skipped, never thrown on) rather than failing the whole scan.
+2. **No history found** (the project's first `plan` run ever): numbering starts at `US-001`.
+3. **Explicit override**: `--continue` names the automatic recovery explicitly (same number as the default, only the log message differs), and `--start-us <n>` forces a specific starting number, ignoring history entirely -- useful after a manual backlog reorganization.
+
+Every decision is printed to the terminal, for example:
+
+```
+Continuing User Story numbering from US-016 — last used was US-015 (issue #32).
+Starting User Story numbering at US-001 (no previous history found for this project).
+User Story numbering forced to US-027 via --start-us.
+```
+
+The decision is also persisted in the project's `metadata.json` (`userStoryNumbering`, see [Global Storage](#global-storage)) for audit, though the *next* decision is always resolved by re-scanning `tasks.json` files from scratch -- the persisted record is never read back to decide anything.
+
+The resolved number is passed to the `plan` prompt as strong context, instructing Claude to continue numbering from there instead of restarting at `US-001`; there is no programmatic renumbering pass after generation in this release.
 
 ### `execute` -- Run the story execution loop
 
@@ -824,11 +865,20 @@ Issue identifiers are not necessarily numeric -- `auth-refactor` and `pr-184` ar
   "remoteUrl": "github.com/fabioassuncao/issue-flow",
   "createdAt": "2026-08-04T02:00:00Z",
   "updatedAt": "2026-08-04T02:00:00Z",
-  "lastAttemptAt": null
+  "lastAttemptAt": null,
+  "userStoryNumbering": {
+    "nextNumber": 16,
+    "source": "history",
+    "issueNumber": "42",
+    "decidedAt": "2026-08-04T02:00:00Z",
+    "detail": "US-015 (issue #32)"
+  }
 }
 ```
 
 `root` is the last known local checkout and is informative only -- identity lives in `projectId`. `remoteUrl` is `null` for a project with no `origin` remote. Unknown keys are ignored on read, so a file written by a newer release stays readable by an older one.
+
+`userStoryNumbering` records the most recent `plan` numbering decision (see [User Story numbering continuity](#user-story-numbering-continuity)), for audit only -- it is absent until the first `plan` run through the numbering resolver and is never read back to decide a *later* numbering, which always re-scans `tasks.json`. `source` is one of `history` (recovered automatically, or via `--continue`), `start-us` (forced via `--start-us <n>`), or `none` (no history found, starting at `US-001`).
 
 ### Project id
 

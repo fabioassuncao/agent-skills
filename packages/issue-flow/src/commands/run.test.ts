@@ -404,9 +404,37 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
 
     const resolved = await vi.mocked(resolveIssue).mock.results[0]?.value;
     expect(vi.mocked(runPrd)).toHaveBeenCalledWith('42', resolved);
-    expect(vi.mocked(runPlan)).toHaveBeenCalledWith('42', resolved);
+    expect(vi.mocked(runPlan)).toHaveBeenCalledWith('42', resolved, {
+      continueFlag: undefined,
+      startUs: undefined,
+    });
     expect(vi.mocked(runReview)).toHaveBeenCalledWith('42', resolved);
     expect(vi.mocked(runPr)).toHaveBeenCalledWith('42', resolved);
+  });
+
+  it('propaga --continue e --start-us (issue #36) para a fase plan', async () => {
+    const code = await runPipeline('42', 'auto', undefined, undefined, undefined, true);
+    expect(code).toBe(0);
+    expect(vi.mocked(runPlan)).toHaveBeenCalledWith('42', expect.anything(), {
+      continueFlag: true,
+      startUs: undefined,
+    });
+
+    vi.mocked(runPlan).mockClear();
+    const codeWithStartUs = await runPipeline(
+      '42',
+      'auto',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      27,
+    );
+    expect(codeWithStartUs).toBe(0);
+    expect(vi.mocked(runPlan)).toHaveBeenCalledWith('42', expect.anything(), {
+      continueFlag: undefined,
+      startUs: 27,
+    });
   });
 
   it('falha da resolução encerra o pipeline com o exit code do erro', async () => {

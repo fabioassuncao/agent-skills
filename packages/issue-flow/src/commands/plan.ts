@@ -9,10 +9,21 @@ import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { taskPlanSchema } from '../schemas.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
-import { printError, printSuccess } from '../ui/logger.js';
+import { determineUserStoryNumbering } from '../storage/user-story-numbering.js';
+import { printError, printInfo, printSuccess } from '../ui/logger.js';
 import { isTransientFailure } from '../utils/retry.js';
 
-export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
+/** `--continue` / `--start-us <n>` override of the numbering cascade (issue #36). */
+export interface PlanUserStoryNumberingOptions {
+  continueFlag?: boolean;
+  startUs?: number;
+}
+
+export async function runPlan(
+  issue: string,
+  resolvedIssue?: ResolvedIssue,
+  numbering?: PlanUserStoryNumberingOptions,
+): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   const paths = await resolveIssuePaths(issueNumber);
 
@@ -33,11 +44,23 @@ export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Pro
 
   const tasksPath = paths.tasksFile;
 
+  // Resolve the User Story numbering continuity (issue #36), log where the
+  // decision came from — never silently — and persist it into the project's
+  // metadata.json for audit before the prompt is even built, so the record on
+  // disk always matches what the prompt was told.
+  const { message: numberingMessage, nextUserStoryId } = await determineUserStoryNumbering({
+    issueNumber,
+    continueFlag: numbering?.continueFlag,
+    startUs: numbering?.startUs,
+  });
+  printInfo(numberingMessage);
+
   const template = await loadPrompt('plan');
   const prompt = applyPlaceholders(template, {
     __ISSUE_NUMBER__: issueNumber,
     __PRD_CONTENT__: prdContent,
     __TASKS_PATH__: tasksPath,
+    __NEXT_US_NUMBER__: nextUserStoryId,
     ...issuePlaceholders(resolution.resolved),
   });
 

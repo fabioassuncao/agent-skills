@@ -10,7 +10,12 @@ import {
   ISSUES_DIR_NAME,
   projectIdFromRemote,
 } from './paths.js';
-import { type ProjectMetadata, projectMetadataSchema, STORAGE_SCHEMA_VERSION } from './schemas.js';
+import {
+  type ProjectMetadata,
+  projectMetadataSchema,
+  STORAGE_SCHEMA_VERSION,
+  type UserStoryNumberingDecision,
+} from './schemas.js';
 
 /**
  * Coexistence between the legacy per-project layout (`<projectRoot>/issues/`)
@@ -292,4 +297,48 @@ export async function migrateLegacyStorage(
     metadataFile,
     metadata,
   };
+}
+
+export interface RecordUserStoryNumberingOptions extends GetGlobalRootOptions {
+  /** Timestamp source, injectable so tests can assert `updatedAt`. */
+  now?: () => string;
+}
+
+/**
+ * Persist a `plan` run's User Story numbering decision into the project's
+ * `metadata.json`, for audit (issue #36) — this is a read-modify-write on the
+ * same file {@link migrateLegacyStorage} stamps, never a second file.
+ *
+ * The decision itself is never read back to resolve a *later* one: the next
+ * `plan` run always re-scans `tasks.json` from scratch (see
+ * `storage/user-story-numbering.ts`). Losing this field only costs an audit
+ * trail entry, never correctness.
+ *
+ * A missing `metadata.json` (a project whose first command ever is a numbered
+ * `plan`, with no legacy directory to trigger a migration) is created here
+ * from scratch, exactly like {@link migrateLegacyStorage} would.
+ */
+export async function recordUserStoryNumbering(
+  projectRoot: string,
+  decision: UserStoryNumberingDecision,
+  options: RecordUserStoryNumberingOptions = {},
+): Promise<void> {
+  const status = await resolveStorageMode(projectRoot, { env: options.env });
+  const metadataFile = join(status.globalDir, METADATA_FILENAME);
+  const existing = await readExistingMetadata(metadataFile);
+  const now = (options.now ?? isoNow)();
+
+  const metadata: ProjectMetadata = {
+    schemaVersion: STORAGE_SCHEMA_VERSION,
+    projectId: status.projectId,
+    root: resolve(projectRoot),
+    remoteUrl: status.remoteUrl,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    lastAttemptAt: existing?.lastAttemptAt ?? null,
+    userStoryNumbering: decision,
+  };
+
+  await mkdir(status.globalDir, { recursive: true });
+  await writeFileAtomic(metadataFile, `${JSON.stringify(metadata, null, 2)}\n`);
 }

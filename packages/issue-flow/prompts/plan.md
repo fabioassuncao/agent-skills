@@ -17,6 +17,13 @@ Here is the PRD:
 
 __PRD_CONTENT__
 
+The next available User Story number for this project is __NEXT_US_NUMBER__. This
+was already resolved by the CLI (from the project's numbering history, or from an
+explicit --continue / --start-us override) — do NOT restart numbering at US-001
+unless __NEXT_US_NUMBER__ is itself US-001. Number the first story in this plan
+__NEXT_US_NUMBER__ and every subsequent story sequentially from there (e.g. if
+__NEXT_US_NUMBER__ is US-016, use US-016, US-017, US-018, ...).
+
 Create a tasks.json file at __TASKS_PATH__ with this exact structure:
 
 {
@@ -42,7 +49,7 @@ Create a tasks.json file at __TASKS_PATH__ with this exact structure:
   },
   "userStories": [
     {
-      "id": "US-001",
+      "id": "__NEXT_US_NUMBER__",
       "title": "...",
       "description": "As a ..., I want ... so that ...",
       "acceptanceCriteria": ["..."],
@@ -56,6 +63,8 @@ Create a tasks.json file at __TASKS_PATH__ with this exact structure:
 Rules:
 - Each user story from the PRD becomes one entry in userStories
 - Priority should order stories by dependency (build foundations first)
+- Story ids MUST start at __NEXT_US_NUMBER__ and increase sequentially — never
+  restart at US-001 when __NEXT_US_NUMBER__ says otherwise
 - acceptanceCriteria must include "Typecheck passes" for code changes
 - issueUrl is already resolved above: a GitHub URL when the source is `github`,
   the path of the local issue file when the source is `local`. Use it verbatim
