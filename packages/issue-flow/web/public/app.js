@@ -35,6 +35,7 @@
     refreshSelect: document.getElementById('refresh-select'),
     alerts: document.getElementById('alerts'),
     alertsBody: document.getElementById('alerts-body'),
+    issueSummary: document.getElementById('issue-summary'),
     progressBar: document.getElementById('progress-bar'),
     progressPercent: document.getElementById('progress-percent'),
     progressCounters: document.getElementById('progress-counters'),
@@ -266,6 +267,7 @@
     if (!snapshot) return;
     renderHeader(snapshot);
     renderAlerts(snapshot);
+    renderIssueSummary(snapshot);
     renderProgress(snapshot);
     renderNow(snapshot);
     renderPhases(snapshot);
@@ -339,6 +341,39 @@
       entry.appendChild(document.createTextNode(log.message));
       els.alertsBody.appendChild(entry);
     }
+  }
+
+  // snapshot.issue vem sempre como objeto (schema não o torna nulável); só os
+  // campos individuais podem ser null/undefined — session.json antigo, issue
+  // local sem remote, etc. Cada leitura abaixo trata isso individualmente.
+  function renderIssueSummary(snapshot) {
+    clear(els.issueSummary);
+    const issue = snapshot.issue || {};
+
+    const heading = el('p', 'issue-summary-title');
+    heading.appendChild(
+      el('span', 'mono', issue.number !== null && issue.number !== undefined ? '#' + issue.number : '—'),
+    );
+    heading.appendChild(document.createTextNode(' ' + (issue.title || 'Sem título')));
+    els.issueSummary.appendChild(heading);
+
+    const meta = el('div', 'issue-summary-meta');
+    const state = issue.state || null;
+    const stateClass = state === 'open' ? 'state-open' : state === 'closed' ? 'state-closed' : 'state-unknown';
+    meta.appendChild(el('span', 'badge ' + stateClass, state || 'estado desconhecido'));
+    meta.appendChild(el('span', 'muted', 'Prioridade: Não definida'));
+    els.issueSummary.appendChild(meta);
+
+    const labels = issue.labels || [];
+    if (labels.length > 0) {
+      const labelRow = el('div', 'badge-row');
+      for (const label of labels) {
+        labelRow.appendChild(el('span', 'badge label-badge', label));
+      }
+      els.issueSummary.appendChild(labelRow);
+    }
+
+    els.issueSummary.appendChild(el('p', 'issue-description', issue.description || 'Sem descrição.'));
   }
 
   function renderProgress(snapshot) {
