@@ -18,6 +18,7 @@
   --ok-bg: #dcfce7;
   --idle-bg: #e5e7eb;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  --overlay: rgb(0 0 0 / 0.45);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,6 +39,7 @@
     --ok-bg: #14301f;
     --idle-bg: #262d38;
     --shadow: none;
+    --overlay: rgb(0 0 0 / 0.65);
   }
 }
 
@@ -689,10 +691,12 @@ progress {
 
 /* ---- Drawer de detalhes ---- */
 
+/* Acima do .banner sticky (z-index 10), que senão atravessa o overlay. */
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgb(0 0 0 / 0.45);
+  z-index: 20;
+  background: var(--overlay);
 }
 
 .drawer {
@@ -701,6 +705,7 @@ progress {
   right: 0;
   bottom: 0;
   width: min(420px, 100vw);
+  z-index: 21;
   display: flex;
   flex-direction: column;
   background: var(--card);
