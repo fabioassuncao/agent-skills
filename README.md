@@ -551,6 +551,7 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
     {
       "id": "US-001", "title": "…", "priority": 1, "passes": true, "completedAt": "…",
       "status": "done", "dependencies": [],
+      "stage": "in_review", "stageSince": "2026-08-03T16:12:04Z", "stageDetail": null,
       "description": "…", "acceptanceCriteria": ["…"],
       "durationSeconds": 188, "inputTokens": 203, "outputTokens": 10780,
       "cacheReadTokens": 321000, "cacheCreationTokens": 24100, "costUsd": 0.8547
@@ -623,6 +624,26 @@ Two consequences are worth stating explicitly:
 
 Each entry also carries the plan's `description` and `acceptanceCriteria`, so the panel's story drawer can show them without reading `tasks.json`. Both are copied straight from the plan on every `stories:update`. Like every other addition, they are tolerant on input: a `session.json` written before they existed parses with `""` and `[]`, never `undefined`.
 
+### Story `stage`
+
+Alongside `status`, each entry of `stories[]` also carries a finer-grained `stage`, `stageSince` (ISO timestamp of the event that produced the current stage) and `stageDetail` (a short human string, currently only used by `in_correction`). Where `status` is a four-value board summary, `stage` tracks the real pipeline cycle a story goes through — `execute` → `review` → correction (when needed) → done:
+
+| `stage` | Set by | Meaning |
+|---------|--------|---------|
+| `pending` | `iteration:start` | Not the story `execute` is currently working on. |
+| `executing` | `iteration:start` | The story `execute` is working on **right now** — the same story id published in the event's `storyId`, computed as "the highest-priority story with `passes: false`" (the exact rule `prompts/execute.md` gives the agent). |
+| `awaiting_review` | `stories:update` | `passes` just flipped to `true`, but the `review` phase has not started yet. |
+| `in_review` | `phase:start` (phase `review`) | The `review` phase is running. Every already-passing story moves here at once — `execute` only completes once every story passes, so there is never a not-yet-passing story to skip. |
+| `in_correction` | `correction:cycle` | An automatic correction cycle is in progress; `stageDetail` carries a string like `"Cycle 1/3"`. Pipeline-wide, like `in_review`: `commands/run.ts`'s correction loop re-runs the whole `execute`+`review` cycle, with no notion of which story a review finding belongs to. |
+| `done` | `phase:end` (phase `review`, success) | The `review` phase finished successfully. |
+| `failed` | `phase:end` (phase `review`, failure) | The `review` phase finished in failure after exhausting `maxCorrectionCycles`. |
+
+Unlike `status`, `stage` is **not** recomputed from scratch on every reduction — it is set directly by the event that causes the transition (the same treatment `completedAt` gets), so `in_correction` correctly survives an unrelated `stories:update` in between. `iteration:start` and `correction:cycle` are the only two events extended for this: `iteration:start` gained an optional `storyId`, and `correction:cycle` already carried `cycle`/`maxCycles`.
+
+`currentActivity.story` is also populated by `iteration:start` now, using the same `storyId` — previously this field was always empty during `execute` (that phase never streams, so it never published an `activity` event), which is what made the "Agora" card's `Story:` row show nothing during the phase that matters most.
+
+Both `stage`/`stageSince`/`stageDetail` are additive and tolerant on input: a `session.json` written before this field existed parses with `stage: "pending"` and `stageSince`/`stageDetail: null`, the same values a fresh snapshot starts a story at.
+
 ### Tokens and cost
 
 Every phase reports what it spent on the `claude` CLI, and the same numbers show up in three places: the `Tokens:` line of the terminal summary, the web panel (per phase, per story, and the issue total), and `session.json`. `schemaVersion` stays `1` -- the fields below are additive, and a `session.json` written by an earlier version still loads.
@@ -684,7 +705,7 @@ The `pipeline` field tracks which phases have completed, enabling resume from an
 
 ### Story status and dependencies in `tasks.json`
 
-A user story may declare two extra fields. Both are **optional**, and absent means *not informed* -- a plan written without them keeps loading unchanged, and a round-trip through the pipeline never materialises them with an artificial value:
+A user story may declare a few extra fields. All are **optional**, and absent means *not informed* -- a plan written without them keeps loading unchanged, and a round-trip through the pipeline never materialises them with an artificial value:
 
 ```json
 {
@@ -695,7 +716,10 @@ A user story may declare two extra fields. Both are **optional**, and absent mea
       "priority": 2,
       "passes": false,
       "status": "in_review",
-      "dependencies": ["US-001"]
+      "dependencies": ["US-001"],
+      "stage": "in_correction",
+      "stageSince": "2026-08-03T16:12:04Z",
+      "stageDetail": "Cycle 1/3"
     }
   ]
 }
@@ -705,10 +729,15 @@ A user story may declare two extra fields. Both are **optional**, and absent mea
 |-------|--------|---------|
 | `status` | `backlog` \| `in_progress` \| `in_review` \| `done` | Board-style status, purely **observational** |
 | `dependencies` | `string[]` | Ids of other stories in the same plan |
+| `stage` | See [Story `stage`](#story-stage) | Execution-stage hint, purely **observational** |
+| `stageSince` | `string` (ISO) | Paired with `stage`, same observational treatment |
+| `stageDetail` | `string` | Paired with `stage`, same observational treatment |
 
-`passes` remains the source of truth for execution: no phase reads `status` to decide what to run next, and a `status` of `done` on a story with `passes: false` does not make the execute loop skip it. What `status` does is seed the [snapshot's derived status](#story-status) -- the only way to get `in_review` onto the board, since the derivation never produces it on its own.
+`passes` remains the source of truth for execution: no phase reads `status` (or `stage`) to decide what to run next, and a `status` of `done` on a story with `passes: false` does not make the execute loop skip it. What `status` does is seed the [snapshot's derived status](#story-status) -- the only way to get `in_review` onto the board, since the derivation never produces it on its own.
 
 `dependencies` is validated **by shape only** (an array of strings). Issue Flow does not check that the referenced ids exist, and does not detect cycles.
+
+`stage`/`stageSince`/`stageDetail` mirror the [session snapshot's fields of the same name](#story-stage), but nothing in the pipeline currently writes them back onto `tasks.json` -- they exist on `UserStory` purely so a plan can declare one explicitly if a future need for it arises, the same optional/observational treatment `status` already gets.
 
 ### Per-story metrics in `tasks.json`
 
