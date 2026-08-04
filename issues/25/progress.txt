@@ -22,6 +22,8 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
 - Resultado produzido dentro de uma closure (runner de fase) e lido depois no corpo da função: use uma "caixa" (`const box: { v: T | null } = { v: null }`), nunca `let x: T | null = null` — o TS mantém o narrowing `null` no ponto de leitura e acusa `type 'never'`.
 - Tabelas de apresentação tipadas como `Record<string, string>` (ex.: `PHASE_LABELS`) não quebram o build quando falta uma entrada — degradam no fallback. Sempre que houver fallback silencioso, extraia a leitura para uma função exportada (`phaseLabel()`) e fixe-a em teste.
 - Blocos de saída montados inline com `console.log` no comando (resumo final do `run`) migram para `src/ui/*.ts` como `buildXLines()` (array de strings, testável) + `printX()`; o teste compara o array, não captura stdout.
+- Cada chave de `.issue-flow.json` tem seu próprio `loadXConfig()` em `src/config.ts`, todos com a mesma forma: `readXConfigFile()` (usa `readProjectConfigFile()` + `schema.partial().safeParse` e avisa `Ignoring "<chave>" key`), camadas mescladas `{ ...file, ...env, ...cli }` e um `safeParse` final que degrada para `schema.parse({})` com aviso. Chave nova = copiar esse trio, nunca tocar em `readProjectConfigFile`.
+- Só crie `setXCliOverrides()` (estado global de módulo) quando existir de fato uma flag na CLI alimentando-o; sem flag, o layer `cli` entra por parâmetro em `options` e evita código morto.
 - Há mudanças **não commitadas pré-existentes** no working tree (`getIssueDir`, `exitOnError` do listr2, testes de `git.ts`/`pipeline-renderer.ts`) que NÃO são da issue 25. Commitar sempre com `git add <arquivos específicos>`, nunca `git add -A`.
 
 ---
@@ -199,4 +201,21 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - `printSummaryBox` (`ui/summary.ts`) continua sendo do engine da fase `execute` — a caixa e o resumo do `run` são superfícies diferentes; `printRunSummary` foi adicionado ao lado, sem tocar na caixa.
   - Testes que leem `session.json` precisam de `setWebCliOverrides({ enabled: true, port, host: '127.0.0.1' })` **e** do diretório `issues/<N>/` já criado — sem web habilitado o publisher é `NullPublisher` e nenhum arquivo é escrito.
   - `readPrReviewOutcome` sobe o caminho do relatório a partir de `tasks.json` + `pr-review/index.json`; no teste basta plantar os dois no tmpdir (nenhum `.md` precisa existir) para exercitar as linhas `Review:`/`Report:` do resumo.
+---
+
+## 2026-08-03 22:37 - US-012 (Configuração prReview em .issue-flow.json)
+- `src/schemas.ts`: `prReviewConfigSchema = z.object({ publisher: z.enum(['local']).default('local') })` + `export type PrReviewConfig`. Sem `satisfies` (schema com `.default()`), conforme o padrão já registrado.
+- `src/config.ts`: `LoadPrReviewConfigOptions` (`cli`, `env`, `projectRoot`, `warn`), `readPrReviewConfigEnv()` (`ISSUE_FLOW_PR_REVIEW_PUBLISHER`, que **não** filtra valores desconhecidos — deixa o schema final avisar), `readPrReviewConfigFile()` (reusa `readProjectConfigFile()`, avisa `Ignoring "prReview" key of .issue-flow.json`) e `loadPrReviewConfig()` com a precedência flag > env > arquivo > default. Nunca lança: chave ausente, JSON inválido, raiz não-objeto, chave não-objeto e publisher desconhecido → `{ publisher: 'local' }` com `printWarning`.
+- `src/commands/pr-review.ts`: o publisher default passou a vir de `createPrReviewPublisher(dir, (await loadPrReviewConfig()).publisher)` — trocar de publisher vira configuração, não código. `opts.publisher` continua vencendo (injeção de teste/uso futuro) e nesse caso a config nem é lida.
+- `src/config.test.ts`: novo `describe('loadPrReviewConfig')` com 10 testes (chave ausente, arquivo ausente, valor válido, publisher desconhecido, chave não-objeto, JSON inválido, env sobrepondo o arquivo, env inválido, CLI inválido e isolamento das chaves `web`/`issues`).
+- `src/commands/pr-review.test.ts`: 2 testes de integração (publisher configurado é honrado; publisher desconhecido degrada e a fase continua retornando `0` com o relatório escrito localmente).
+- Arquivos alterados: `src/schemas.ts`, `src/config.ts`, `src/config.test.ts`, `src/commands/pr-review.ts`, `src/commands/pr-review.test.ts`.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (85 arquivos), `npm test` 525/525 verde.
+- Verificação em navegador: não aplicável (só configuração de CLI).
+
+- **Learnings for future iterations:**
+  - Os três loaders de `.issue-flow.json` (`web`, `issues`, `prReview`) são cópias estruturais: `readXConfigFile` + merge de camadas + `safeParse` final. O detalhe que importa é **onde** o valor inválido é pego: no arquivo, o `.partial().safeParse` avisa `Ignoring "<chave>" key` e ignora só aquela camada; no env/CLI, o valor segue até o `safeParse` final e o aviso é `Invalid <X> configuration`. Testar as duas mensagens separa "ignorei uma camada" de "descartei tudo".
+  - `z.enum([...]).default(...)` com **um único membro** é o jeito de deixar a extensão futura barata sem afrouxar a validação hoje: `publisher: 'github'` já falha com aviso em vez de chegar ao `Record<kind, factory>` de `publisher.ts` e virar `undefined is not a function`.
+  - `loadPrReviewConfig()` dentro do comando funciona nos testes sem mock novo: `getProjectRoot()` já cai no `execa` mockado (`git rev-parse --show-toplevel` → tmpdir), então plantar um `.issue-flow.json` no tmpdir é o suficiente para exercitar a configuração ponta a ponta.
+  - A US-014 precisa documentar no README a chave `prReview.publisher` **e** a variável `ISSUE_FLOW_PR_REVIEW_PUBLISHER` (o env layer não estava nos critérios da US-012, mas existe por causa da precedência exigida).
 ---
