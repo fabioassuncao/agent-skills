@@ -287,6 +287,40 @@ select {
   overflow-y: auto;
 }
 
+/* ---- User stories: status e dependências ---- */
+
+.story-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.story-status-backlog {
+  background: var(--idle-bg);
+  color: var(--muted);
+}
+
+.story-status-in_progress {
+  background: var(--run-bg);
+  color: var(--run);
+}
+
+.story-status-in_review {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.story-status-done {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.story-deps {
+  font-size: 0.84rem;
+}
+
 /* ---- Progresso ---- */
 
 .progress-row {

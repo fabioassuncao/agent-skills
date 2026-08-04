@@ -25,6 +25,13 @@
     failed: '✗',
   };
 
+  const STORY_STATUS_LABELS = {
+    backlog: 'backlog',
+    in_progress: 'em andamento',
+    in_review: 'em revisão',
+    done: 'concluída',
+  };
+
   const els = {
     banner: document.getElementById('banner-disconnected'),
     issueLink: document.getElementById('issue-link'),
@@ -511,6 +518,20 @@
       title.appendChild(el('span', 'story-id', story.id));
       title.appendChild(document.createTextNode(story.title));
       main.appendChild(title);
+
+      // status/dependencies vêm com default no schema (backlog/[]), mas
+      // session.json gravado antes de #29 pode chegar sem eles.
+      const storyStatus = story.status || 'backlog';
+      const meta = el('div', 'story-meta');
+      meta.appendChild(
+        el('span', 'badge story-status-' + storyStatus, STORY_STATUS_LABELS[storyStatus] || storyStatus),
+      );
+      const dependencies = story.dependencies || [];
+      if (dependencies.length > 0) {
+        meta.appendChild(el('span', 'muted story-deps', 'depende de: ' + dependencies.join(', ')));
+      }
+      main.appendChild(meta);
+
       item.appendChild(main);
       const duration = metric(story.durationSeconds);
       const side = itemSideText([
