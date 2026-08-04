@@ -51,6 +51,16 @@ describe('createInitialSnapshot', () => {
     expect(snap.logs).toEqual([]);
     expect(snap.startedAt).toBeNull();
   });
+
+  it('starts every aggregate metric as null, never zero', () => {
+    expect(createInitialSnapshot().metrics).toEqual({
+      totalInputTokens: null,
+      totalOutputTokens: null,
+      totalCacheReadTokens: null,
+      totalCacheCreationTokens: null,
+      totalCostUsd: null,
+    });
+  });
 });
 
 describe('reduceSessionEvent', () => {
@@ -77,6 +87,15 @@ describe('reduceSessionEvent', () => {
     expect(snap.elapsedSeconds).toBe(0);
     expect(snap.progress.phasesTotal).toBe(3);
     expect(snap.phases.map((p) => p.status)).toEqual(['pending', 'pending', 'pending']);
+  });
+
+  it('session:start creates phases with null metric fields', () => {
+    const phase = startedSnapshot().phases[0];
+    expect(phase.inputTokens).toBeNull();
+    expect(phase.outputTokens).toBeNull();
+    expect(phase.cacheReadTokens).toBeNull();
+    expect(phase.cacheCreationTokens).toBeNull();
+    expect(phase.costUsd).toBeNull();
   });
 
   it('phase:start marks the phase running and sets currentPhase', () => {
@@ -163,8 +182,32 @@ describe('reduceSessionEvent', () => {
       ],
     });
     expect(snap.stories).toEqual([
-      { id: 'US-001', title: 'First story', priority: 1, passes: true, completedAt: null },
-      { id: 'US-002', title: 'Second', priority: 2, passes: false, completedAt: null },
+      {
+        id: 'US-001',
+        title: 'First story',
+        priority: 1,
+        passes: true,
+        completedAt: null,
+        durationSeconds: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheCreationTokens: null,
+        costUsd: null,
+      },
+      {
+        id: 'US-002',
+        title: 'Second',
+        priority: 2,
+        passes: false,
+        completedAt: null,
+        durationSeconds: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheCreationTokens: null,
+        costUsd: null,
+      },
     ]);
     expect(snap.progress.storiesCompleted).toBe(1);
     expect(snap.progress.storiesTotal).toBe(2);

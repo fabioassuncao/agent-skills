@@ -68,7 +68,31 @@ export interface SessionLogEntry {
   message: string;
 }
 
-export interface SessionPhaseSnapshot {
+/**
+ * Token/cost counters attached to a phase or a story.
+ *
+ * `null` means "never reported" — the `claude` CLI does not always return
+ * usage data, and a metric that was never observed must stay distinguishable
+ * from an observed zero.
+ */
+export interface SessionUsageSnapshot {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
+  costUsd: number | null;
+}
+
+/** Issue-wide totals, accumulated from phase- and iteration-scoped metrics. */
+export interface SessionMetricsSnapshot {
+  totalInputTokens: number | null;
+  totalOutputTokens: number | null;
+  totalCacheReadTokens: number | null;
+  totalCacheCreationTokens: number | null;
+  totalCostUsd: number | null;
+}
+
+export interface SessionPhaseSnapshot extends SessionUsageSnapshot {
   name: string;
   status: SessionPhaseStatus;
   startedAt: string | null;
@@ -77,7 +101,7 @@ export interface SessionPhaseSnapshot {
   error: string | null;
 }
 
-export interface SessionStorySnapshot {
+export interface SessionStorySnapshot extends SessionUsageSnapshot {
   id: string;
   title: string;
   priority: number;
@@ -87,6 +111,8 @@ export interface SessionStorySnapshot {
    * that were already passing at session start (their duration is unknown).
    */
   completedAt: string | null;
+  /** Wall-clock seconds attributed to the story, or null when unknown. */
+  durationSeconds: number | null;
 }
 
 export interface SessionActivity {
@@ -130,6 +156,7 @@ export interface SessionSnapshot {
   currentActivity: SessionActivity | null;
   phases: SessionPhaseSnapshot[];
   stories: SessionStorySnapshot[];
+  metrics: SessionMetricsSnapshot;
   execution: {
     iteration: number;
     retries: number;
@@ -149,6 +176,27 @@ export interface SessionSnapshot {
 export interface SessionReducerOptions {
   /** Max entries retained in the logs ring buffer. */
   logLimit?: number;
+}
+
+/** Fresh, all-null usage counters for a new phase or story entry. */
+function emptyUsage(): SessionUsageSnapshot {
+  return {
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheCreationTokens: null,
+    costUsd: null,
+  };
+}
+
+function emptyMetrics(): SessionMetricsSnapshot {
+  return {
+    totalInputTokens: null,
+    totalOutputTokens: null,
+    totalCacheReadTokens: null,
+    totalCacheCreationTokens: null,
+    totalCostUsd: null,
+  };
 }
 
 export function createInitialSnapshot(): SessionSnapshot {
@@ -175,6 +223,7 @@ export function createInitialSnapshot(): SessionSnapshot {
     currentActivity: null,
     phases: [],
     stories: [],
+    metrics: emptyMetrics(),
     execution: { iteration: 0, retries: 0, correctionCycle: 0, maxCorrectionCycles: null },
     git: { branch: null, baseBranch: null, commits: [] },
     pullRequests: [],
@@ -292,6 +341,7 @@ function applyEvent(
           endedAt: null,
           durationSeconds: null,
           error: null,
+          ...emptyUsage(),
         })),
         git: { branch: event.branch ?? null, baseBranch: event.baseBranch ?? null, commits: [] },
         environment: event.environment ?? null,
@@ -321,6 +371,7 @@ function applyEvent(
               endedAt: null,
               durationSeconds: null,
               error: null,
+              ...emptyUsage(),
             },
           ];
       return {
@@ -383,12 +434,21 @@ function applyEvent(
           : before && !before.passes
             ? event.at
             : (before?.completedAt ?? null);
+        // stories:update rebuilds the array from the plan on every publish, so
+        // metrics already attributed to a story must be carried over here or
+        // the next update would wipe them.
         return {
           id: story.id,
           title: story.title,
           priority: story.priority,
           passes: story.passes,
           completedAt,
+          durationSeconds: before?.durationSeconds ?? null,
+          inputTokens: before?.inputTokens ?? null,
+          outputTokens: before?.outputTokens ?? null,
+          cacheReadTokens: before?.cacheReadTokens ?? null,
+          cacheCreationTokens: before?.cacheCreationTokens ?? null,
+          costUsd: before?.costUsd ?? null,
         };
       });
       return {

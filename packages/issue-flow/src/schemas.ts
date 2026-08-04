@@ -147,6 +147,19 @@ const sessionLogEntrySchema = z.object({
   message: z.string(),
 });
 
+/**
+ * Usage counters attached to a phase or a story in the session snapshot.
+ * Unlike claudeUsageSchema (a single invocation, optional fields), these are
+ * always present and nullable: null means "never reported", not zero.
+ */
+const sessionUsageShape = {
+  inputTokens: z.number().nullable(),
+  outputTokens: z.number().nullable(),
+  cacheReadTokens: z.number().nullable(),
+  cacheCreationTokens: z.number().nullable(),
+  costUsd: z.number().nullable(),
+};
+
 const sessionPhaseSchema = z.object({
   name: z.string(),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
@@ -154,6 +167,7 @@ const sessionPhaseSchema = z.object({
   endedAt: z.string().nullable(),
   durationSeconds: z.number().nullable(),
   error: z.string().nullable(),
+  ...sessionUsageShape,
 });
 
 const sessionStorySchema = z.object({
@@ -162,6 +176,8 @@ const sessionStorySchema = z.object({
   priority: z.number(),
   passes: z.boolean(),
   completedAt: z.string().nullable(),
+  durationSeconds: z.number().nullable(),
+  ...sessionUsageShape,
 });
 
 /**
@@ -200,6 +216,13 @@ export const sessionSnapshotSchema = z.object({
     .nullable(),
   phases: z.array(sessionPhaseSchema),
   stories: z.array(sessionStorySchema),
+  metrics: z.object({
+    totalInputTokens: z.number().nullable(),
+    totalOutputTokens: z.number().nullable(),
+    totalCacheReadTokens: z.number().nullable(),
+    totalCacheCreationTokens: z.number().nullable(),
+    totalCostUsd: z.number().nullable(),
+  }),
   execution: z.object({
     iteration: z.number(),
     retries: z.number(),
