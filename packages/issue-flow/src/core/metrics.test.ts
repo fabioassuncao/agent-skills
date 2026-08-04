@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTokens, hasUsageData, parseUsage, sumUsage } from './metrics.js';
+import { divideUsage, formatTokens, hasUsageData, parseUsage, sumUsage } from './metrics.js';
 
 /** Shape emitted by `claude --output-format json` (CLI 2.1.220), trimmed. */
 const CURRENT_CLI_PAYLOAD = {
@@ -129,6 +129,58 @@ describe('sumUsage', () => {
 
     expect(a).toEqual({ inputTokens: 1 });
     expect(b).toEqual({ inputTokens: 2 });
+  });
+});
+
+describe('divideUsage', () => {
+  it('splits every reported field evenly, rounding tokens to integers', () => {
+    expect(
+      divideUsage(
+        {
+          inputTokens: 10,
+          outputTokens: 7,
+          cacheReadTokens: 5,
+          cacheCreationTokens: 4,
+          costUsd: 1,
+        },
+        3,
+      ),
+    ).toEqual({
+      inputTokens: 3,
+      outputTokens: 2,
+      cacheReadTokens: 2,
+      cacheCreationTokens: 1,
+      costUsd: 1 / 3,
+    });
+  });
+
+  it('keeps the cost at full precision instead of rounding it', () => {
+    expect(divideUsage({ costUsd: 0.1607 }, 2)).toEqual({ costUsd: 0.08035 });
+  });
+
+  it('returns the usage unchanged for one part or fewer', () => {
+    const usage = { inputTokens: 9, costUsd: 0.5 };
+
+    expect(divideUsage(usage, 1)).toEqual(usage);
+    expect(divideUsage(usage, 0)).toEqual(usage);
+    expect(divideUsage(usage, Number.NaN)).toEqual(usage);
+  });
+
+  it('leaves unreported fields absent rather than turning them into zeros', () => {
+    expect(divideUsage({ inputTokens: 4 }, 2)).toEqual({ inputTokens: 2 });
+  });
+
+  it('returns an empty usage for null and undefined', () => {
+    expect(divideUsage(null, 2)).toEqual({});
+    expect(divideUsage(undefined, 2)).toEqual({});
+  });
+
+  it('does not mutate its operand', () => {
+    const usage = { inputTokens: 10 };
+
+    divideUsage(usage, 2);
+
+    expect(usage).toEqual({ inputTokens: 10 });
   });
 });
 

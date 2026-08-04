@@ -101,6 +101,33 @@ export function sumUsage(
 }
 
 /**
+ * Split a usage evenly across `parts`.
+ *
+ * This is the rateio used when several stories complete in the same execute
+ * iteration: the iteration's tokens cannot be attributed to a single story, so
+ * each one receives an equal share. Token counts are rounded to integers;
+ * the cost keeps full precision.
+ *
+ * `parts <= 1` (or a non-finite value) returns the usage unchanged. Fields the
+ * CLI never reported stay absent — dividing "not reported" still yields
+ * "not reported", never zero.
+ */
+export function divideUsage(usage: ClaudeUsage | null | undefined, parts: number): ClaudeUsage {
+  const result: ClaudeUsage = {};
+  if (!usage) return result;
+
+  const divisor = Number.isFinite(parts) && parts > 1 ? parts : 1;
+
+  for (const field of USAGE_FIELDS) {
+    const value = usage[field];
+    if (value === undefined) continue;
+    result[field] = field === 'costUsd' ? value / divisor : Math.round(value / divisor);
+  }
+
+  return result;
+}
+
+/**
  * Compact token count: `1523` → `1.5k`, `2_400_000` → `2.4M`.
  */
 function compactTokens(value: number): string {

@@ -1,14 +1,20 @@
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { EngineConfig, ResolvedPaths, TaskPlan } from '../types.js';
+import type { EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
 import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
 import { isTransientFailure, retryDelaySeconds, sleep } from '../utils/retry.js';
 import { executeClaude } from './executor.js';
+import { divideUsage } from './metrics.js';
 import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
 import { publishGitState } from './session-git.js';
+import {
+  elapsedSecondsSince,
+  publishIterationMetrics,
+  publishStoryMetrics,
+} from './session-metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
 import {
   allStoriesPass,
@@ -39,6 +45,21 @@ function emitLog(message: string): void {
   } else {
     console.log(message);
   }
+}
+
+/**
+ * Ids of the stories that flipped from `passes: false` to `passes: true`
+ * between the two readings of the plan taken around one execute iteration.
+ *
+ * Stories already passing before the iteration, and stories that only exist in
+ * the newer plan, are never attributed: nothing says this iteration paid for
+ * them.
+ */
+function newlyCompletedStoryIds(before: UserStory[], after: UserStory[]): string[] {
+  const wasPassing = new Map(before.map((story) => [story.id, story.passes]));
+  return after
+    .filter((story) => story.passes && wasPassing.get(story.id) === false)
+    .map((story) => story.id);
 }
 
 /**
@@ -195,6 +216,9 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
     // Re-read plan to get latest state
     plan = await loadTaskPlan(paths.prdFile);
+    // Baseline for story attribution: whatever was still pending before the
+    // agent ran is what this iteration can claim credit for.
+    const storiesBeforeIteration = plan.userStories;
 
     if (isVerbose()) {
       printIterationHeader(i, config.maxIterations, plan.userStories);
@@ -211,9 +235,15 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     await saveTaskPlan(paths.prdFile, plan);
 
     // Execute Claude
+    const iterationStartedAtMs = Date.now();
     const result = await executeClaude(prompt);
+    const iterationSeconds = elapsedSecondsSince(iterationStartedAtMs);
 
     if (result.exitCode !== 0) {
+      // A failed iteration still burned tokens: report them on the execute
+      // phase, with no attribution to any story.
+      publishIterationMetrics(i, result.cost, iterationSeconds);
+
       const errorMessage = trimErrorMessage(result.output);
 
       if (isTransientFailure(result.exitCode, result.output)) {
@@ -296,7 +326,23 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       at: isoNow(),
       stories: plan.userStories,
     });
+
+    // Story attribution — an approximation by construction: the CLI reports a
+    // single usage for the whole iteration, so the stories that flipped to
+    // passing in it split tokens, cost and duration evenly. With none, nothing
+    // is attributed and the whole cost stays on the execute phase. Published
+    // after stories:update, which rebuilds the stories array.
+    const completedStoryIds = newlyCompletedStoryIds(storiesBeforeIteration, plan.userStories);
+    if (completedStoryIds.length > 0) {
+      const storyShare = divideUsage(result.cost, completedStoryIds.length);
+      const storySeconds = Math.round(iterationSeconds / completedStoryIds.length);
+      for (const storyId of completedStoryIds) {
+        publishStoryMetrics(storyId, storyShare, storySeconds);
+      }
+    }
+
     getSessionPublisher().publish({ type: 'iteration:end', at: isoNow(), iteration: i });
+    publishIterationMetrics(i, result.cost, iterationSeconds);
     // Low-frequency commit/PR enrichment: iteration end is one of the only
     // two sanctioned points (the other is phase boundaries in run.ts).
     await publishGitState(getSessionPublisher());

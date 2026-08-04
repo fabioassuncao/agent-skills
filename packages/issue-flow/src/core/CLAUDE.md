@@ -52,8 +52,24 @@ same assistant text `'text'` would have returned.
 
 ## Publishing metrics
 
-`core/session-metrics.ts` (`publishPhaseMetrics`) is the single entry point for
-the phase-scoped `metrics:update` events. It is a no-op when the CLI reported
-no usage, so no call site needs to guard on `result.cost`. One call per
-headless invocation: retrying phases and the review correction cycle publish
-several, and the reducer's summing is what produces the phase total.
+`core/session-metrics.ts` is the single entry point for `metrics:update`
+events — `publishPhaseMetrics` for the single-invocation phases,
+`publishIterationMetrics` / `publishStoryMetrics` for the execute loop. They
+are no-ops when the CLI reported no usage, so no call site needs to guard on
+`result.cost`. One call per headless invocation: retrying phases and the review
+correction cycle publish several, and the reducer's summing is what produces
+the phase total.
+
+## Story-level metrics are an approximation
+
+The CLI reports a single usage per invocation, and one execute iteration can
+close several stories at once. `engine.ts` therefore diffs the plan read before
+`executeClaude()` against the one read after it, and splits the iteration's
+tokens, cost and duration evenly (`divideUsage`) across the stories that
+flipped `passes: false → true`. With zero flips nothing is attributed and the
+whole cost stays on the execute phase — never invent an owner.
+
+Publication order in the loop matters: `stories:update` →
+`metrics:update` (story) → `iteration:end` → `metrics:update` (iteration). The
+story events must come after `stories:update`, which rebuilds the stories
+array, or the reducer drops them.

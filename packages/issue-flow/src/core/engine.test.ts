@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan } from '../types.js';
+import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 
 // Instant sleep: the real one is a 2s setTimeout per loop iteration, which
 // would make a "one pending-correction iteration" test take multiple real
@@ -11,6 +11,10 @@ vi.mock('../utils/retry.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/retry.js')>();
   return { ...actual, sleep: vi.fn(async () => {}) };
 });
+
+// Git/gh enrichment spawns subprocesses as soon as a real publisher is
+// installed; it carries no engine logic worth exercising here.
+vi.mock('./session-git.js', () => ({ publishGitState: vi.fn(async () => {}) }));
 
 const claudeResult = vi.hoisted(() => ({
   current: { exitCode: 0, output: '', cost: null } as ClaudeResult,
@@ -21,6 +25,10 @@ vi.mock('./executor.js', () => ({
 
 const { executeClaude } = await import('./executor.js');
 const { runEngine } = await import('./engine.js');
+const { setSessionPublisher } = await import('./session-publisher.js');
+const { MemoryPublisher } = await import('./session-state.js');
+type SessionEvent = import('./session-state.js').SessionEvent;
+type MetricsEvent = Extract<SessionEvent, { type: 'metrics:update' }>;
 
 const mockExecuteClaude = vi.mocked(executeClaude);
 
@@ -155,5 +163,246 @@ describe('runEngine — pending-correction guard', () => {
     const plan = await readPlan();
     expect(plan.issueStatus).toBe('completed');
     expect(plan.lastReviewFindings).toBeNull();
+  });
+});
+
+/** Keeps every published event so the tests can assert on payload and order. */
+class RecordingPublisher extends MemoryPublisher {
+  readonly events: SessionEvent[] = [];
+
+  protected override afterPublish(event: SessionEvent): void {
+    this.events.push(event);
+  }
+}
+
+function makeStory(id: string, priority: number, passes: boolean): UserStory {
+  return {
+    id,
+    title: `Story ${id}`,
+    description: '',
+    acceptanceCriteria: ['Criterion 1'],
+    priority,
+    passes,
+    notes: '',
+  };
+}
+
+describe('runEngine — execute-phase metrics', () => {
+  let tmpDir: string;
+  let paths: ResolvedPaths;
+  let publisher: RecordingPublisher;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-engine-metrics-'));
+    await mkdir(join(tmpDir, 'archive'), { recursive: true });
+    paths = {
+      prdFile: join(tmpDir, 'tasks.json'),
+      progressFile: join(tmpDir, 'progress.txt'),
+      archiveDir: join(tmpDir, 'archive'),
+      lastBranchFile: join(tmpDir, '.last-branch'),
+      projectRoot: tmpDir,
+    };
+    mockExecuteClaude.mockClear();
+
+    publisher = new RecordingPublisher({ onWarn: () => {} });
+    setSessionPublisher(publisher);
+    publisher.publish({
+      type: 'session:start',
+      at: '2026-01-01T00:00:00Z',
+      sessionId: 's1',
+      issueNumber: 42,
+      phases: ['execute'],
+    });
+  });
+
+  afterEach(async () => {
+    setSessionPublisher(undefined);
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function writePlan(plan: TaskPlan): Promise<void> {
+    await writeFile(paths.prdFile, JSON.stringify(plan, null, 2), 'utf-8');
+  }
+
+  async function readPlan(): Promise<TaskPlan> {
+    return JSON.parse(await readFile(paths.prdFile, 'utf-8'));
+  }
+
+  function metricsEvents(): MetricsEvent[] {
+    return publisher.events.filter((e): e is MetricsEvent => e.type === 'metrics:update');
+  }
+
+  function pendingPlan(...stories: UserStory[]): TaskPlan {
+    return makePlan({
+      issueStatus: 'in_progress',
+      completedAt: null,
+      pipeline: {
+        prdCompleted: true,
+        jsonCompleted: true,
+        executionCompleted: false,
+        reviewCompleted: false,
+        prCreated: false,
+      },
+      userStories: stories,
+    });
+  }
+
+  /** Mocked agent: flips the given stories to passing, then answers `output`. */
+  function agentCompleting(ids: string[], output: string, cost: ClaudeResult['cost']): void {
+    mockExecuteClaude.mockImplementationOnce(async () => {
+      const plan = await readPlan();
+      for (const story of plan.userStories) {
+        if (ids.includes(story.id)) story.passes = true;
+      }
+      await writePlan(plan);
+      return { exitCode: 0, output, cost };
+    });
+  }
+
+  it('splits the iteration metrics evenly across the stories completed in it', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false), makeStory('US-002', 2, false)));
+    agentCompleting(['US-001', 'US-002'], '<promise>COMPLETE</promise>', {
+      inputTokens: 10,
+      outputTokens: 4,
+      cacheReadTokens: 100,
+      costUsd: 1,
+    });
+
+    const code = await runEngine(baseConfig, paths);
+
+    expect(code).toBe(0);
+
+    const [first, second, third] = metricsEvents();
+    expect(metricsEvents()).toHaveLength(3);
+    expect(first).toMatchObject({
+      scope: 'story',
+      storyId: 'US-001',
+      inputTokens: 5,
+      outputTokens: 2,
+      cacheReadTokens: 50,
+      costUsd: 0.5,
+    });
+    expect(second).toMatchObject({
+      scope: 'story',
+      storyId: 'US-002',
+      inputTokens: 5,
+      costUsd: 0.5,
+    });
+    expect(third).toMatchObject({
+      scope: 'iteration',
+      phase: 'execute',
+      iteration: 1,
+      inputTokens: 10,
+      outputTokens: 4,
+      cacheReadTokens: 100,
+      costUsd: 1,
+    });
+
+    // Story events are a rateio of what the iteration already counted: the
+    // phase and the aggregate must hold the iteration figures, not double.
+    const snapshot = publisher.snapshot();
+    expect(snapshot.metrics).toMatchObject({
+      totalInputTokens: 10,
+      totalOutputTokens: 4,
+      totalCacheReadTokens: 100,
+      totalCostUsd: 1,
+    });
+    expect(snapshot.phases.find((p) => p.name === 'execute')).toMatchObject({ inputTokens: 10 });
+    expect(snapshot.stories.map((s) => s.inputTokens)).toEqual([5, 5]);
+  });
+
+  it('publishes story metrics after stories:update and before iteration:end', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    agentCompleting(['US-001'], '<promise>COMPLETE</promise>', { inputTokens: 8 });
+
+    await runEngine(baseConfig, paths);
+
+    const order = publisher.events
+      .filter((e) =>
+        ['stories:update', 'metrics:update', 'iteration:end'].includes(e.type as string),
+      )
+      .map((e) => (e.type === 'metrics:update' ? `metrics:${e.scope}` : e.type));
+    expect(order).toEqual([
+      'stories:update',
+      'metrics:story',
+      'iteration:end',
+      'metrics:iteration',
+    ]);
+  });
+
+  it('attributes nothing to any story when none completed in the iteration', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    claudeResult.current = { exitCode: 0, output: 'still working', cost: { inputTokens: 7 } };
+
+    const code = await runEngine(baseConfig, paths);
+
+    expect(code).toBe(1);
+    expect(metricsEvents()).toHaveLength(1);
+    expect(metricsEvents()[0]).toMatchObject({ scope: 'iteration', inputTokens: 7 });
+    expect(publisher.snapshot().stories[0].inputTokens).toBeNull();
+  });
+
+  it('does not attribute a story that was already passing before the iteration', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, true), makeStory('US-002', 2, false)));
+    agentCompleting(['US-002'], '<promise>COMPLETE</promise>', { inputTokens: 6 });
+
+    await runEngine(baseConfig, paths);
+
+    const stories = metricsEvents().filter((e) => e.scope === 'story');
+    expect(stories).toHaveLength(1);
+    expect(stories[0]).toMatchObject({ storyId: 'US-002', inputTokens: 6 });
+  });
+
+  it('publishes iteration metrics for a fatal failure, without touching any story', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    claudeResult.current = { exitCode: 2, output: 'boom', cost: { inputTokens: 3, costUsd: 0.01 } };
+
+    const code = await runEngine(baseConfig, paths);
+
+    // Flow control unchanged: the CLI's exit code is still what comes back.
+    expect(code).toBe(2);
+    expect(metricsEvents()).toHaveLength(1);
+    expect(metricsEvents()[0]).toMatchObject({
+      scope: 'iteration',
+      phase: 'execute',
+      inputTokens: 3,
+      costUsd: 0.01,
+    });
+    expect((await readPlan()).lastError?.category).toBe('fatal_claude_failure');
+  });
+
+  it('keeps the transient retry flow intact and reports one iteration event per attempt', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    claudeResult.current = { exitCode: 75, output: 'rate limit', cost: { inputTokens: 2 } };
+
+    const code = await runEngine({ ...baseConfig, retryLimit: 1 }, paths);
+
+    // Exit code, retry count and error classification are exactly what they
+    // were before the instrumentation.
+    expect(code).toBe(75);
+    expect(mockExecuteClaude).toHaveBeenCalledTimes(2);
+    expect(publisher.events.filter((e) => e.type === 'retry')).toHaveLength(1);
+    expect((await readPlan()).lastError?.category).toBe('transient_claude_failure');
+
+    expect(metricsEvents()).toHaveLength(2);
+    expect(metricsEvents().every((e) => e.scope === 'iteration')).toBe(true);
+    expect(publisher.snapshot().metrics.totalInputTokens).toBe(4);
+  });
+
+  it('completes the iteration normally when the CLI reported no usage at all', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    agentCompleting(['US-001'], '<promise>COMPLETE</promise>', null);
+
+    const code = await runEngine(baseConfig, paths);
+
+    expect(code).toBe(0);
+    expect((await readPlan()).issueStatus).toBe('completed');
+    // No usage means no tokens to report, but the story duration is still known.
+    const stories = metricsEvents().filter((e) => e.scope === 'story');
+    expect(stories).toHaveLength(1);
+    expect(stories[0].inputTokens).toBeUndefined();
+    expect(stories[0].durationSeconds).toBeGreaterThanOrEqual(0);
+    expect(metricsEvents().filter((e) => e.scope === 'iteration')).toHaveLength(0);
+    expect(publisher.snapshot().metrics.totalInputTokens).toBeNull();
   });
 });

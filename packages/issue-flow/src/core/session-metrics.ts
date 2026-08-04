@@ -14,7 +14,7 @@ import { isoNow } from './state-manager.js';
  */
 
 /** Whole seconds elapsed since a `Date.now()` mark, never negative. */
-function elapsedSecondsSince(startedAtMs: number): number {
+export function elapsedSecondsSince(startedAtMs: number): number {
   return Math.max(0, Math.round((Date.now() - startedAtMs) / 1000));
 }
 
@@ -49,5 +49,64 @@ export function publishPhaseMetrics(
     // Informational only: a phase's durationSeconds keeps coming exclusively
     // from phase:start/phase:end, so the reducer ignores this for scope 'phase'.
     durationSeconds: startedAtMs === undefined ? undefined : elapsedSecondsSince(startedAtMs),
+  });
+}
+
+/** The execute loop is the only producer of iteration- and story-scoped metrics. */
+const EXECUTE_PHASE = 'execute';
+
+/**
+ * Publish one `metrics:update` event of scope `iteration` for a pass of the
+ * execute loop.
+ *
+ * Lands on the `execute` phase and on the issue-wide aggregate, exactly like a
+ * phase-scoped event: an iteration *is* a slice of the execute phase. Failed
+ * iterations (transient or fatal) publish too — those tokens were spent.
+ *
+ * A no-op when the CLI reported no usage. Never throws.
+ */
+export function publishIterationMetrics(
+  iteration: number,
+  usage: ClaudeUsage | null | undefined,
+  durationSeconds?: number,
+): void {
+  if (usage == null || !hasUsageData(usage)) return;
+
+  getSessionPublisher().publish({
+    type: 'metrics:update',
+    at: isoNow(),
+    scope: 'iteration',
+    phase: EXECUTE_PHASE,
+    iteration,
+    ...usage,
+    // Informational only: the reducer keeps a phase's durationSeconds coming
+    // exclusively from phase:start/phase:end.
+    durationSeconds,
+  });
+}
+
+/**
+ * Publish one `metrics:update` event of scope `story`.
+ *
+ * The values are the rateio of the iteration that completed the story, so the
+ * reducer deliberately keeps them off the phase and the aggregate — the
+ * iteration event of the same cycle already counted them there.
+ *
+ * A no-op when there is neither usage nor a duration to report. Never throws.
+ */
+export function publishStoryMetrics(
+  storyId: string,
+  usage: ClaudeUsage | null | undefined,
+  durationSeconds?: number,
+): void {
+  if (!hasUsageData(usage) && durationSeconds === undefined) return;
+
+  getSessionPublisher().publish({
+    type: 'metrics:update',
+    at: isoNow(),
+    scope: 'story',
+    storyId,
+    ...(usage ?? {}),
+    durationSeconds,
   });
 }
