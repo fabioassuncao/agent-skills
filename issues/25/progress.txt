@@ -18,6 +18,8 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
 - Implementação selecionável por configuração entra por um `Record<kind, factory>` + `createX(kind = default)` no próprio módulo (ex.: `createPrReviewPublisher`); o consumidor importa só a interface e a factory, nunca a classe concreta.
 - `src/cli.ts` roda `program.parse()` no import e por isso é intestável: toda lógica de flag (mapeamento e validação de combinação) vive em `src/cli-options.ts` ou `src/issues/cli-flags.ts`, com o erro de domínio (`CliFlagError`/`IssueFlagError`) capturado na action → `printError` + `process.exit(1)`. Comandos são sempre `await import('./commands/x.js')` dentro da action (lazy loading).
 - Commander camel-caseia flags com hífen (`--pr-review` → `opts.prReview`) e inverte as negadas (`--no-branch` → `opts.branch === false`). Quando um teste depende desse nome, feche o contrato parseando com um `Command` real em vez de assumir a chave.
+- `vi.mock('x', () => ({ ... }))` com fábrica literal quebra quando o grafo de imports cresce (um novo import interno passa a exigir um export não listado). Para módulos com vários exports (`core/session-git.js`), use sempre o mock parcial com `importOriginal`.
+- Resultado produzido dentro de uma closure (runner de fase) e lido depois no corpo da função: use uma "caixa" (`const box: { v: T | null } = { v: null }`), nunca `let x: T | null = null` — o TS mantém o narrowing `null` no ponto de leitura e acusa `type 'never'`.
 - Há mudanças **não commitadas pré-existentes** no working tree (`getIssueDir`, `exitOnError` do listr2, testes de `git.ts`/`pipeline-renderer.ts`) que NÃO são da issue 25. Commitar sempre com `git add <arquivos específicos>`, nunca `git add -A`.
 
 ---
