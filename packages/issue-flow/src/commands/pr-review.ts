@@ -221,6 +221,9 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
     timeout: getGlobalTimeout() ?? 900_000,
     outputFormat: 'text',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
+    // With an Issue, `dir` sits under `issueDir`, so the parent covers both the
+    // report destination and the tasks.json/prd.md the prompt points at.
+    addDirs: issueDir === null ? [dir] : [issueDir],
     statusMessage: `Reviewing Pull Request #${target.number} (round ${round})...`,
   });
 

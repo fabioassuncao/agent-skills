@@ -39,6 +39,7 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
         timeout: getGlobalTimeout() ?? 300_000,
         outputFormat: 'text',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
+        addDirs: [issueDir],
         statusMessage: `Generating PRD for issue #${issueNumber}...`,
       });
 

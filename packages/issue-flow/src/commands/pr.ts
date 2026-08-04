@@ -84,6 +84,7 @@ export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promi
         timeout: getGlobalTimeout() ?? 300_000,
         outputFormat: 'text',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
+        addDirs: [issueDir],
         statusMessage: `Creating PR for issue #${issueNumber}...`,
       });
 

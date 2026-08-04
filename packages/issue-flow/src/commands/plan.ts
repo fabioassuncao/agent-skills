@@ -52,6 +52,7 @@ export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Pro
         timeout: getGlobalTimeout() ?? 300_000,
         outputFormat: 'text',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
+        addDirs: [issueDir],
         statusMessage: `Converting PRD to task plan for issue #${issueNumber}...`,
       });
 

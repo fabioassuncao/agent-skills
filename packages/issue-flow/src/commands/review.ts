@@ -66,6 +66,7 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     timeout: getGlobalTimeout() ?? 300_000,
     outputFormat: 'text',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
+    addDirs: [issueDir],
     statusMessage: `Reviewing issue #${issueNumber} resolution...`,
   });
 

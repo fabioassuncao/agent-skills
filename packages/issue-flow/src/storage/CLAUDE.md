@@ -17,6 +17,10 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
   skips the migration and reads an empty directory.
 - `resolve.ts` still creates nothing: a call site that writes keeps its own
   `mkdir(paths.issueDir, { recursive: true })`.
+- **A headless phase that puts one of these paths in a prompt placeholder must also pass
+  `addDirs: [issueDir]` to `runHeadless`** — the global tree is outside the working directory, so
+  `claude -p` denies both the read and the write without a matching `--add-dir`. `core/executor.ts`
+  (the `execute` phase) is the exception: it runs with `--dangerously-skip-permissions`.
 - **The migration notice is printed in `resolve.ts` and nowhere else** (`announceMigration`), gated
   on `MigrationResult.copied.length > 0`. `migrateLegacyStorage` is called speculatively — once per
   project, then once per issue first seen — so every run after the first copies zero files;

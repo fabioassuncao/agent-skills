@@ -12,6 +12,13 @@ export interface HeadlessOptions {
   timeout?: number;
   outputFormat?: 'json' | 'text' | 'stream-json';
   allowedTools?: string[];
+  /**
+   * Extra directories the headless session may read from and write to, passed
+   * through as `--add-dir`. Required whenever a prompt points at a path outside
+   * the working tree (e.g. the global issue storage under `~/.issue-flow`),
+   * since `claude -p` otherwise refuses the access.
+   */
+  addDirs?: string[];
   /** Status message displayed as spinner (non-verbose) or header (verbose). */
   statusMessage?: string;
   /** Optional callback for routing verbose output (e.g., through listr2 task.output). When provided, verbose stream events are sent here instead of directly to stderr. */
@@ -28,6 +35,19 @@ export interface HeadlessResult {
   result: string;
   cost: HeadlessCost | null;
   error: string | null;
+}
+
+/* ── argument helpers ───────────────────────────────────────────────────── */
+
+/**
+ * Append one `<flag> <value>` pair per value. An empty or absent list leaves
+ * `args` untouched, so callers that pass nothing keep the exact same argv.
+ */
+function pushRepeatedFlag(args: string[], flag: string, values: string[] | undefined): void {
+  if (!values || values.length === 0) return;
+  for (const value of values) {
+    args.push(flag, value);
+  }
 }
 
 /* ── verbose stream formatting ──────────────────────────────────────────── */
@@ -139,14 +159,16 @@ function printStreamEvent(
 /**
  * Run headless in verbose mode using stream-json to display real-time progress.
  */
-async function runHeadlessVerbose(
-  prompt: string,
-  maxTurns: number,
-  timeout: number,
-  allowedTools?: string[],
-  statusMessage?: string,
-  onOutput?: (line: string) => void,
-): Promise<HeadlessResult> {
+async function runHeadlessVerbose(options: {
+  prompt: string;
+  maxTurns: number;
+  timeout: number;
+  allowedTools?: string[];
+  addDirs?: string[];
+  statusMessage?: string;
+  onOutput?: (line: string) => void;
+}): Promise<HeadlessResult> {
+  const { prompt, maxTurns, timeout, allowedTools, addDirs, statusMessage, onOutput } = options;
   const icons = getIcons();
   const colored = useColor();
   const emit = onOutput ?? ((msg: string) => process.stderr.write(`${msg}\n`));
@@ -175,11 +197,8 @@ async function runHeadlessVerbose(
     String(maxTurns),
   ];
 
-  if (allowedTools && allowedTools.length > 0) {
-    for (const tool of allowedTools) {
-      args.push('--allowedTools', tool);
-    }
-  }
+  pushRepeatedFlag(args, '--allowedTools', allowedTools);
+  pushRepeatedFlag(args, '--add-dir', addDirs);
 
   const subprocess = execa('claude', args, {
     stdin: 'ignore',
@@ -269,6 +288,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     timeout = 300_000,
     outputFormat = 'json',
     allowedTools,
+    addDirs,
     statusMessage,
     onOutput,
   } = options;
@@ -276,14 +296,15 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   if (isVerbose()) {
     // Use explicit onOutput, fall back to global output callback, or default to stderr
     const effectiveOnOutput = onOutput ?? getOutputCallback();
-    return runHeadlessVerbose(
+    return runHeadlessVerbose({
       prompt,
       maxTurns,
       timeout,
       allowedTools,
+      addDirs,
       statusMessage,
-      effectiveOnOutput,
-    );
+      onOutput: effectiveOnOutput,
+    });
   }
 
   // Non-verbose: use spinner with elapsed timer
@@ -305,11 +326,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     String(maxTurns),
   ];
 
-  if (allowedTools && allowedTools.length > 0) {
-    for (const tool of allowedTools) {
-      args.push('--allowedTools', tool);
-    }
-  }
+  pushRepeatedFlag(args, '--allowedTools', allowedTools);
+  pushRepeatedFlag(args, '--add-dir', addDirs);
 
   try {
     const proc = await execa('claude', args, {

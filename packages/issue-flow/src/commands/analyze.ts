@@ -36,6 +36,7 @@ export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): 
     timeout: getGlobalTimeout() ?? 300_000,
     outputFormat: 'text',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
+    addDirs: [issueDir],
     statusMessage: `Analyzing issue #${issueNumber}...`,
   });
 
