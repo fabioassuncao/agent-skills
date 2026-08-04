@@ -24,6 +24,7 @@ import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
+import type { Issue } from '../issues/types.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import type { UserStory } from '../types.js';
@@ -68,6 +69,29 @@ export function publishStorySeed(
   if (stories.length === 0) return false;
   publisher.publish({ type: 'stories:update', at, stories: [...stories] });
   return true;
+}
+
+/**
+ * Publish the Issue's structural data (title, description, labels, state) so
+ * the panel shows what is being implemented without a detour through GitHub.
+ *
+ * Same window as the story seed: right after `session:start`, which resets the
+ * snapshot. The data comes from the `ResolvedIssue` the run already holds — no
+ * extra provider call — and the description goes out whole, untruncated.
+ */
+export function publishIssueDetails(publisher: SessionPublisher, issue: Issue, at: string): void {
+  publisher.publish({
+    type: 'issue:update',
+    at,
+    number: issue.number,
+    // Left undefined (rather than null) when the origin has no remote, so the
+    // reducer keeps whatever URL session:start already published.
+    url: issue.remoteRef ?? undefined,
+    title: issue.title,
+    description: issue.body,
+    labels: issue.labels,
+    state: issue.state,
+  });
 }
 
 /** Runnable phase lists (excluding 'init' which is handled separately). */
@@ -331,7 +355,9 @@ async function runPipelinePhases(
     branch: planBranch,
   });
   // Right after session:start (which resets the snapshot) and before any phase
-  // event, so the first /api/status poll already answers with the plan.
+  // event, so the first /api/status poll already answers with the Issue and
+  // the plan.
+  publishIssueDetails(publisher, resolvedIssue.issue, sessionStartedAt);
   publishStorySeed(publisher, planStories, sessionStartedAt);
   publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
   publisher.publish({ type: 'phase:end', at: isoNow(), phase: 'init', success: true });

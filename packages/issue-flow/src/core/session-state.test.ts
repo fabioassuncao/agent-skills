@@ -52,6 +52,17 @@ describe('createInitialSnapshot', () => {
     expect(snap.startedAt).toBeNull();
   });
 
+  it('starts the issue section with nothing reported', () => {
+    expect(createInitialSnapshot().issue).toEqual({
+      number: null,
+      url: null,
+      title: null,
+      description: null,
+      labels: [],
+      state: null,
+    });
+  });
+
   it('starts every aggregate metric as null, never zero', () => {
     expect(createInitialSnapshot().metrics).toEqual({
       totalInputTokens: null,
@@ -80,7 +91,14 @@ describe('reduceSessionEvent', () => {
     const snap = startedSnapshot();
     expect(snap.status).toBe('running');
     expect(snap.sessionId).toBe('abc');
-    expect(snap.issue).toEqual({ number: 22, url: 'https://github.com/test/test/issues/22' });
+    expect(snap.issue).toEqual({
+      number: 22,
+      url: 'https://github.com/test/test/issues/22',
+      title: null,
+      description: null,
+      labels: [],
+      state: null,
+    });
     expect(snap.git.branch).toBe('issue/22-test');
     expect(snap.git.baseBranch).toBe('main');
     expect(snap.startedAt).toBe('2026-08-03T12:00:00Z');
@@ -96,6 +114,89 @@ describe('reduceSessionEvent', () => {
     expect(phase.cacheReadTokens).toBeNull();
     expect(phase.cacheCreationTokens).toBeNull();
     expect(phase.costUsd).toBeNull();
+  });
+
+  it('issue:update enriches the issue section without dropping number and url', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'issue:update',
+      at: '2026-08-03T12:00:02Z',
+      // A provider that reports no identifier and no remote must not erase
+      // what session:start already published.
+      number: null,
+      title: 'Enrich the monitor snapshot',
+      description: 'Long body\nwith several lines',
+      labels: ['enhancement', 'monitor'],
+      state: 'open',
+    });
+
+    expect(snap.issue).toEqual({
+      number: 22,
+      url: 'https://github.com/test/test/issues/22',
+      title: 'Enrich the monitor snapshot',
+      description: 'Long body\nwith several lines',
+      labels: ['enhancement', 'monitor'],
+      state: 'open',
+    });
+    expect(snap.updatedAt).toBe('2026-08-03T12:00:02Z');
+  });
+
+  it('issue:update fills number and url when the session had none', () => {
+    const snap = reduceSessionEvent(
+      reduceSessionEvent(createInitialSnapshot(), {
+        type: 'session:start',
+        at: '2026-08-03T12:00:00Z',
+        sessionId: 'abc',
+        issueNumber: null,
+        phases: ['init'],
+      }),
+      {
+        type: 'issue:update',
+        at: '2026-08-03T12:00:02Z',
+        number: 7,
+        url: 'https://github.com/test/test/issues/7',
+        title: 'Resolved later',
+        description: '',
+        labels: [],
+        state: 'closed',
+      },
+    );
+
+    expect(snap.issue).toMatchObject({
+      number: 7,
+      url: 'https://github.com/test/test/issues/7',
+      state: 'closed',
+      // An empty body is a reported value, not "unknown".
+      description: '',
+    });
+  });
+
+  it('session:start resets an issue section enriched by a previous session', () => {
+    const enriched = reduceSessionEvent(startedSnapshot(), {
+      type: 'issue:update',
+      at: '2026-08-03T12:00:02Z',
+      number: 22,
+      title: 'Old title',
+      description: 'Old body',
+      labels: ['stale'],
+      state: 'open',
+    });
+
+    const restarted = reduceSessionEvent(enriched, {
+      type: 'session:start',
+      at: '2026-08-03T13:00:00Z',
+      sessionId: 'def',
+      issueNumber: 23,
+      phases: ['init'],
+    });
+
+    expect(restarted.issue).toEqual({
+      number: 23,
+      url: null,
+      title: null,
+      description: null,
+      labels: [],
+      state: null,
+    });
   });
 
   it('phase:start marks the phase running and sets currentPhase', () => {

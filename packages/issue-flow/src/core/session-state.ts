@@ -38,6 +38,23 @@ export type SessionEvent =
       phases: string[];
       environment?: SessionEnvironment;
     }
+  | {
+      /**
+       * Structural data of the Issue being worked on, published once the
+       * provider has resolved it. Merged over the `issue` section instead of
+       * replacing it, so the number and the URL that came with `session:start`
+       * survive an origin that reports neither.
+       */
+      type: 'issue:update';
+      at: string;
+      number: number | null;
+      url?: string;
+      title: string | null;
+      /** Issue body, published whole — no truncation. */
+      description: string | null;
+      labels: string[];
+      state: string | null;
+    }
   | { type: 'phase:start'; at: string; phase: string }
   | { type: 'phase:end'; at: string; phase: string; success: boolean; error?: string }
   | { type: 'iteration:start'; at: string; iteration: number }
@@ -162,12 +179,31 @@ export interface SessionPullRequest {
   title: string;
 }
 
+/**
+ * The Issue under execution, as far as the session knows it.
+ *
+ * `number`/`url` come with `session:start`; the remaining fields arrive with
+ * `issue:update`, once the provider has resolved the Issue. Everything is
+ * nullable because a run may start before (or without) that resolution —
+ * `null` means "not reported", never "empty".
+ */
+export interface SessionIssueSnapshot {
+  number: number | null;
+  url: string | null;
+  title: string | null;
+  /** Issue body in full; the consumer decides how to fold it. */
+  description: string | null;
+  labels: string[];
+  /** Provider lifecycle state ('open' / 'closed' for the built-ins). */
+  state: string | null;
+}
+
 export interface SessionSnapshot {
   schemaVersion: 1;
   sessionId: string | null;
   readOnly: true;
   capabilities: string[];
-  issue: { number: number | null; url: string | null };
+  issue: SessionIssueSnapshot;
   status: SessionStatus;
   startedAt: string | null;
   updatedAt: string | null;
@@ -234,7 +270,7 @@ export function createInitialSnapshot(): SessionSnapshot {
     sessionId: null,
     readOnly: true,
     capabilities: [],
-    issue: { number: null, url: null },
+    issue: { number: null, url: null, title: null, description: null, labels: [], state: null },
     status: 'idle',
     startedAt: null,
     updatedAt: null,
@@ -411,7 +447,7 @@ function applyEvent(
       return {
         ...initial,
         sessionId: event.sessionId,
-        issue: { number: event.issueNumber, url: event.issueUrl ?? null },
+        issue: { ...initial.issue, number: event.issueNumber, url: event.issueUrl ?? null },
         status: 'running',
         startedAt: event.at,
         progress: {
@@ -431,6 +467,23 @@ function applyEvent(
         environment: event.environment ?? null,
       };
     }
+
+    case 'issue:update':
+      return {
+        ...snapshot,
+        issue: {
+          ...snapshot.issue,
+          // Merge, not replacement: the run may know a number and a URL that
+          // the provider does not report (a local Issue mirroring a remote
+          // one), and enriching the section must never erase them.
+          number: event.number ?? snapshot.issue.number,
+          url: event.url ?? snapshot.issue.url,
+          title: event.title,
+          description: event.description,
+          labels: event.labels,
+          state: event.state,
+        },
+      };
 
     case 'phase:start': {
       const known = snapshot.phases.some((p) => p.name === event.phase);

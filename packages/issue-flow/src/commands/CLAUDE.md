@@ -31,8 +31,13 @@ the duration carried by a metrics event is informational.
 **everything that enriches the snapshot is published after
 `publishSessionStart(...)`** and before the `init` phase events — that window is
 what the monitor's first `/api/status` poll sees. The current order is
-`session:start` → story seed → `phase:start`/`phase:end` (init) →
-`publishGitState`. A new enrichment belongs in the same window, not before it.
+`session:start` → `issue:update` → story seed → `phase:start`/`phase:end`
+(init) → `publishGitState`. A new enrichment belongs in the same window, not
+before it.
+
+The Issue data published there comes from the `ResolvedIssue` the run already
+holds (`resolveCommandIssue` runs once, at the top), never from a fresh provider
+call.
 
 Anything that window needs from `tasks.json` is read in the single `try` block
 that already loads the plan (the one resolving `--no-branch`): a run must not

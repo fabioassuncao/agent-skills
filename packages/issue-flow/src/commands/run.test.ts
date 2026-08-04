@@ -102,7 +102,7 @@ vi.mock('../web/server.js', async (importOriginal) => {
 
 import { execa } from 'execa';
 import { listPullRequests } from '../core/session-git.js';
-import { MemoryPublisher, type SessionSnapshot } from '../core/session-state.js';
+import { MemoryPublisher, NullPublisher, type SessionSnapshot } from '../core/session-state.js';
 import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
@@ -119,7 +119,7 @@ import { runPr } from './pr.js';
 import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
-import { publishStorySeed, runPipeline } from './run.js';
+import { publishIssueDetails, publishStorySeed, runPipeline } from './run.js';
 
 /**
  * `run` resolves every artifact through the global storage, so every test in
@@ -941,7 +941,36 @@ describe('publishStorySeed', () => {
   });
 });
 
-describe('runPipeline — seed das user stories do tasks.json (issue 29, US-003)', () => {
+describe('publishIssueDetails', () => {
+  it('publica os dados estruturais da Issue resolvida', () => {
+    const publisher = new MemoryPublisher();
+    publishIssueDetails(
+      publisher,
+      makeResolved({ title: 'Enriquecer o snapshot', body: 'Corpo', labels: ['enhancement'] })
+        .issue,
+      '2026-08-03T12:00:00Z',
+    );
+
+    expect(publisher.snapshot().issue).toEqual({
+      number: 42,
+      url: 'https://github.com/acme/repo/issues/42',
+      title: 'Enriquecer o snapshot',
+      description: 'Corpo',
+      labels: ['enhancement'],
+      state: 'open',
+    });
+  });
+
+  it('com NullPublisher a publicação é um no-op', () => {
+    const publisher = new NullPublisher();
+    publishIssueDetails(publisher, makeResolved().issue, '2026-08-03T12:00:00Z');
+
+    expect(publisher.snapshot().issue.title).toBeNull();
+    expect(publisher.version()).toBe(0);
+  });
+});
+
+describe('runPipeline — enriquecimento do snapshot no início da sessão (issue 29, US-003/US-004)', () => {
   let tmp: string;
   let originalCwd: string;
   const savedEnv = new Map<string, string | undefined>();
@@ -1047,5 +1076,37 @@ describe('runPipeline — seed das user stories do tasks.json (issue 29, US-003)
 
     expect(snapshot.stories).toEqual([]);
     expect(snapshot.progress.storiesTotal).toBe(0);
+  });
+
+  it('a Issue resolvida já está no snapshot antes da primeira fase', async () => {
+    vi.mocked(resolveIssue).mockResolvedValue(
+      makeResolved({
+        title: 'Enriquecer o snapshot do monitor',
+        body: 'Corpo completo\ncom mais de uma linha',
+        labels: ['enhancement', 'monitor'],
+      }),
+    );
+
+    const snapshot = await snapshotAtFirstPhase();
+
+    expect(snapshot.issue).toEqual({
+      number: 42,
+      url: 'https://github.com/acme/repo/issues/42',
+      title: 'Enriquecer o snapshot do monitor',
+      // Publicada na íntegra, sem truncamento.
+      description: 'Corpo completo\ncom mais de uma linha',
+      labels: ['enhancement', 'monitor'],
+      state: 'open',
+    });
+  });
+
+  it('com origem local sem remote, a URL vinda do plano é preservada', async () => {
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved({ title: 'Local' }, 'local'));
+    await writePlan(makePlan({ issueUrl: 'https://github.com/acme/repo/issues/42' }));
+
+    const snapshot = await snapshotAtFirstPhase();
+
+    expect(snapshot.issue.url).toBe('https://github.com/acme/repo/issues/42');
+    expect(snapshot.issue.title).toBe('Local');
   });
 });

@@ -31,6 +31,11 @@ never had them must not gain artificial nulls on a round trip.
   wipes it.
 - A phase's `durationSeconds` comes only from `phase:start`/`phase:end`. Other
   events carrying a duration must not write it.
+- `issue:update` **merges** over the `issue` section: `number` and `url` fall
+  back to what `session:start` published (`event.x ?? snapshot.issue.x`), so an
+  origin with no remote never erases an identifier the run already knew. The
+  enrichment fields (title, description, labels, state) are written as reported
+  — an empty body is a value, not "unknown".
 - Derived fields (`errors`, `warnings`, `nextSteps`, `estimatedRemainingSeconds`
   and each story's `status`) are recomputed in `reduceSessionEvent` **after**
   `applyEvent`, never accumulated inside a case. A new derived field belongs

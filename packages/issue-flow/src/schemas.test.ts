@@ -455,6 +455,19 @@ describe('backwards compatibility with pre-metrics artifacts', () => {
     });
   });
 
+  it('fills the absent issue enrichment of an older session.json', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    expect(snapshot.issue).toEqual({
+      number: 42,
+      url: 'https://github.com/acme/repo/issues/42',
+      title: null,
+      description: null,
+      labels: [],
+      state: null,
+    });
+  });
+
   it('fills the absent story status and dependencies of an older session.json', () => {
     const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
 

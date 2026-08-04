@@ -215,7 +215,16 @@ export const sessionSnapshotSchema = z.object({
   sessionId: z.string().nullable(),
   readOnly: z.literal(true),
   capabilities: z.array(z.string()),
-  issue: z.object({ number: z.number().nullable(), url: z.string().nullable() }),
+  issue: z.object({
+    number: z.number().nullable(),
+    url: z.string().nullable(),
+    // Additive: a session.json written before the Issue section was enriched
+    // parses into the same "not reported" values createInitialSnapshot() uses.
+    title: z.string().nullable().default(null),
+    description: z.string().nullable().default(null),
+    labels: z.array(z.string()).default([]),
+    state: z.string().nullable().default(null),
+  }),
   status: z.enum(['idle', 'running', 'completed', 'failed']),
   startedAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
