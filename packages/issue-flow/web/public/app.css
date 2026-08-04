@@ -581,6 +581,105 @@ progress {
   word-break: break-word;
 }
 
+/* ---- Kanban ---- */
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.kanban-column {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.kanban-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kanban-column-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.kanban-column-count {
+  flex: none;
+  background: var(--idle-bg);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.kanban-card {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  width: 100%;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  font: inherit;
+  color: inherit;
+  box-shadow: var(--shadow);
+}
+
+.kanban-card-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.kanban-card-title {
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* Trecho curto: limita a 3 linhas sem truncar a string, então o texto completo
+   continua no DOM para leitores de tela e para o drawer. */
+.kanban-card-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+.kanban-empty {
+  font-size: 0.84rem;
+}
+
+@media (max-width: 719px) {
+  .kanban {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* ---- Diversos ---- */
 
 .empty {

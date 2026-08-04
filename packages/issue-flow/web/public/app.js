@@ -32,6 +32,15 @@
     done: 'concluída',
   };
 
+  // Colunas do Kanban, na ordem em que a execução avança. Os títulos são os das
+  // colunas, não os rótulos dos badges (STORY_STATUS_LABELS), que seguem em minúsculas.
+  const KANBAN_COLUMNS = [
+    { status: 'backlog', title: 'Backlog' },
+    { status: 'in_progress', title: 'Em andamento' },
+    { status: 'in_review', title: 'Em revisão' },
+    { status: 'done', title: 'Concluído' },
+  ];
+
   const els = {
     banner: document.getElementById('banner-disconnected'),
     issueLink: document.getElementById('issue-link'),
@@ -57,6 +66,7 @@
     logs: document.getElementById('logs'),
     sessionMeta: document.getElementById('session-meta'),
     tabs: Array.prototype.slice.call(document.querySelectorAll('[role="tab"]')),
+    kanban: document.getElementById('kanban'),
   };
 
   const state = {
@@ -339,6 +349,8 @@
     renderPhases(snapshot);
     renderNextSteps(snapshot);
     renderStories(snapshot);
+    // Incondicional: a aba inativa não pode ficar defasada até ser aberta.
+    renderKanban(snapshot);
     renderGit(snapshot);
     renderLogs(snapshot);
     renderMeta(snapshot);
@@ -598,6 +610,48 @@
       ]);
       if (side) item.appendChild(el('span', 'item-side', side));
       els.stories.appendChild(item);
+    }
+  }
+
+  // As stories chegam já normalizadas por getStories(), então aqui nenhum campo
+  // precisa de checagem de ausência.
+  function storyCard(story) {
+    const card = el('article', 'kanban-card');
+    card.dataset.storyId = story.id;
+
+    const head = el('div', 'kanban-card-head');
+    head.appendChild(
+      el('span', 'item-icon icon-' + (story.passes ? 'completed' : 'pending'), story.passes ? '✓' : '○'),
+    );
+    head.appendChild(el('span', 'story-id', story.id));
+    card.appendChild(head);
+
+    card.appendChild(el('div', 'kanban-card-title', story.title));
+    if (story.description) card.appendChild(el('p', 'kanban-card-desc', story.description));
+    card.appendChild(
+      el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
+    );
+    return card;
+  }
+
+  function renderKanban(snapshot) {
+    clear(els.kanban);
+    const stories = getStories(snapshot);
+    for (const column of KANBAN_COLUMNS) {
+      const entries = stories.filter((story) => story.status === column.status);
+
+      const node = el('section', 'kanban-column');
+      const head = el('div', 'kanban-column-head');
+      head.appendChild(el('h3', 'kanban-column-title', column.title));
+      head.appendChild(el('span', 'kanban-column-count', String(entries.length)));
+      node.appendChild(head);
+
+      if (entries.length === 0) {
+        node.appendChild(el('p', 'empty kanban-empty', 'Nenhuma story.'));
+      } else {
+        for (const story of entries) node.appendChild(storyCard(story));
+      }
+      els.kanban.appendChild(node);
     }
   }
 
