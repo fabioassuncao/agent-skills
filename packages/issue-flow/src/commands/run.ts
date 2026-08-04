@@ -17,6 +17,7 @@ import {
   readPrReviewIndex,
 } from '../core/pr-review/report.js';
 import { listPullRequests, publishGitState } from '../core/session-git.js';
+import { getRunUsageTotals } from '../core/session-metrics.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
@@ -577,6 +578,9 @@ async function runPipelinePhases(
     elapsedSeconds: result.overallElapsedSeconds,
     prUrl,
     prReview: review,
+    // Process-owned counters: the session snapshot is empty whenever web
+    // monitoring is off, so it cannot be the source of these totals.
+    usage: getRunUsageTotals(),
   });
 
   return 0;

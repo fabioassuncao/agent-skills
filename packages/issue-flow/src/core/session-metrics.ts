@@ -1,4 +1,4 @@
-import { type ClaudeUsage, hasUsageData } from './metrics.js';
+import { type ClaudeUsage, hasUsageData, sumUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
 import { isoNow } from './state-manager.js';
 
@@ -16,6 +16,45 @@ import { isoNow } from './state-manager.js';
 /** Whole seconds elapsed since a `Date.now()` mark, never negative. */
 export function elapsedSecondsSince(startedAtMs: number): number {
   return Math.max(0, Math.round((Date.now() - startedAtMs) / 1000));
+}
+
+/**
+ * Process-owned totals, accumulated alongside every published event.
+ *
+ * The session snapshot cannot be the source of the terminal summary: with web
+ * monitoring off the publisher is a `NullPublisher` and its snapshot stays
+ * empty, so the numbers would silently vanish exactly in the default mode.
+ * These counters live in the process and are therefore independent of any
+ * publisher.
+ *
+ * Only phase- and iteration-scoped usage is recorded. Story metrics are a
+ * rateio of an iteration already counted here — adding them would double the
+ * totals, the same rule the reducer follows.
+ */
+const runTotals = {
+  all: {} as ClaudeUsage,
+  byPhase: new Map<string, ClaudeUsage>(),
+};
+
+function recordRunUsage(phase: string, usage: ClaudeUsage): void {
+  runTotals.all = sumUsage(runTotals.all, usage);
+  runTotals.byPhase.set(phase, sumUsage(runTotals.byPhase.get(phase), usage));
+}
+
+/** Everything this process has spent so far, across all phases. */
+export function getRunUsageTotals(): ClaudeUsage {
+  return { ...runTotals.all };
+}
+
+/** What a single phase has spent so far. Empty when the phase reported nothing. */
+export function getPhaseUsageTotals(phase: string): ClaudeUsage {
+  return { ...(runTotals.byPhase.get(phase) ?? {}) };
+}
+
+/** Test seam: the counters are module state and must be cleared between runs. */
+export function resetRunUsageTotals(): void {
+  runTotals.all = {};
+  runTotals.byPhase.clear();
 }
 
 /**
@@ -40,6 +79,8 @@ export function publishPhaseMetrics(
 ): void {
   if (usage == null || !hasUsageData(usage)) return;
 
+  recordRunUsage(phase, usage);
+
   getSessionPublisher().publish({
     type: 'metrics:update',
     at: isoNow(),
@@ -53,7 +94,7 @@ export function publishPhaseMetrics(
 }
 
 /** The execute loop is the only producer of iteration- and story-scoped metrics. */
-const EXECUTE_PHASE = 'execute';
+export const EXECUTE_PHASE = 'execute';
 
 /**
  * Publish one `metrics:update` event of scope `iteration` for a pass of the
@@ -71,6 +112,8 @@ export function publishIterationMetrics(
   durationSeconds?: number,
 ): void {
   if (usage == null || !hasUsageData(usage)) return;
+
+  recordRunUsage(EXECUTE_PHASE, usage);
 
   getSessionPublisher().publish({
     type: 'metrics:update',

@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { type ClaudeUsage, formatTokens } from '../core/metrics.js';
 import type { EngineConfig, PrReviewRecommendation, TaskPlan } from '../types.js';
 import {
   formatDuration,
@@ -121,6 +122,13 @@ export function printSummaryBox(
   elapsedSeconds: number,
   plan: TaskPlan,
   extraInfo?: string,
+  /**
+   * Tokens and cost spent by this run, already resolved by the caller (the
+   * process-owned counters in `core/session-metrics.ts`, never the session
+   * snapshot — that one is empty whenever web monitoring is off). Omitted or
+   * empty means "the CLI reported nothing", and the line is skipped entirely.
+   */
+  usage?: ClaudeUsage | null,
 ): void {
   const icons = getIcons();
 
@@ -153,8 +161,14 @@ export function printSummaryBox(
     `Stories:     ${storiesPassing}/${storiesTotal} passing`,
     `Iterations:  ${iterations}`,
     `Duration:    ${duration}`,
-    `Retries:     ${totalRetries}`,
   ];
+
+  const tokens = formatTokens(usage);
+  if (tokens !== '') {
+    boxLines.push(`Tokens:      ${tokens}`);
+  }
+
+  boxLines.push(`Retries:     ${totalRetries}`);
 
   if (extraInfo) {
     boxLines.push('---');
@@ -191,6 +205,11 @@ export interface RunSummaryInfo {
   prUrl: string;
   /** Only set when the pr-review phase actually ran. */
   prReview?: RunSummaryPrReview | null;
+  /**
+   * Tokens and cost of the whole pipeline, from the process-owned counters in
+   * `core/session-metrics.ts`. Absent or empty omits the line.
+   */
+  usage?: ClaudeUsage | null;
 }
 
 /**
@@ -206,6 +225,13 @@ export function buildRunSummaryLines(info: RunSummaryInfo): string[] {
     `  Stories:  ${info.storyCount}`,
     `  Duration: ${formatDuration(info.elapsedSeconds)}`,
   ];
+
+  // Skipped altogether when the CLI reported nothing — better no line than
+  // "0 in / 0 out" or "~$NaN".
+  const tokens = formatTokens(info.usage);
+  if (tokens !== '') {
+    lines.push(`  Tokens:   ${tokens}`);
+  }
 
   if (!info.noBranch) {
     lines.push(`  PR:       ${info.prUrl}`);

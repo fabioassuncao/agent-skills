@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  getPhaseUsageTotals,
+  getRunUsageTotals,
   publishIterationMetrics,
   publishPhaseMetrics,
   publishStoryMetrics,
+  resetRunUsageTotals,
 } from './session-metrics.js';
 import { setSessionPublisher } from './session-publisher.js';
-import { MemoryPublisher, type SessionEvent } from './session-state.js';
+import { MemoryPublisher, NullPublisher, type SessionEvent } from './session-state.js';
 
 /**
  * Recording publisher: keeps every event so the tests can assert on the exact
@@ -27,6 +30,9 @@ function install(): RecordingPublisher {
 
 afterEach(() => {
   setSessionPublisher(undefined);
+  // The run totals are module state: leaking them would make every later test
+  // see the tokens published by the previous one.
+  resetRunUsageTotals();
 });
 
 describe('publishPhaseMetrics', () => {
@@ -249,5 +255,70 @@ describe('publishStoryMetrics', () => {
     publishStoryMetrics('US-007', {}, undefined);
 
     expect(publisher.events).toHaveLength(0);
+  });
+});
+
+describe('run usage totals', () => {
+  it('start empty, so a run with no metrics prints nothing', () => {
+    expect(getRunUsageTotals()).toEqual({});
+    expect(getPhaseUsageTotals('execute')).toEqual({});
+  });
+
+  it('accumulate phase and iteration usage, per phase and issue-wide', () => {
+    install();
+
+    publishPhaseMetrics('prd', { inputTokens: 10, outputTokens: 2, costUsd: 0.5 });
+    publishPhaseMetrics('review', { inputTokens: 5, cacheReadTokens: 100 });
+    publishIterationMetrics(1, { inputTokens: 20, outputTokens: 8, costUsd: 1.25 });
+    publishIterationMetrics(2, { inputTokens: 30, outputTokens: 1 });
+
+    expect(getPhaseUsageTotals('prd')).toEqual({ inputTokens: 10, outputTokens: 2, costUsd: 0.5 });
+    expect(getPhaseUsageTotals('execute')).toEqual({
+      inputTokens: 50,
+      outputTokens: 9,
+      costUsd: 1.25,
+    });
+    expect(getRunUsageTotals()).toEqual({
+      inputTokens: 65,
+      outputTokens: 11,
+      cacheReadTokens: 100,
+      costUsd: 1.75,
+    });
+  });
+
+  it('ignore story metrics — they are a rateio already counted by the iteration', () => {
+    install();
+
+    publishIterationMetrics(1, { inputTokens: 40, costUsd: 0.4 });
+    publishStoryMetrics('US-001', { inputTokens: 20, costUsd: 0.2 }, 30);
+    publishStoryMetrics('US-002', { inputTokens: 20, costUsd: 0.2 }, 30);
+
+    expect(getRunUsageTotals()).toEqual({ inputTokens: 40, costUsd: 0.4 });
+  });
+
+  it('accumulate even with the NullPublisher, where the snapshot stays empty', () => {
+    setSessionPublisher(new NullPublisher());
+
+    publishPhaseMetrics('plan', { inputTokens: 7, costUsd: 0.07 });
+
+    expect(getRunUsageTotals()).toEqual({ inputTokens: 7, costUsd: 0.07 });
+  });
+
+  it('never report a field the CLI omitted, so no artificial zeros reach the summary', () => {
+    install();
+
+    publishPhaseMetrics('prd', { inputTokens: 3 });
+
+    expect(getRunUsageTotals()).toEqual({ inputTokens: 3 });
+  });
+
+  it('return copies, so a caller cannot mutate the counters', () => {
+    install();
+
+    publishPhaseMetrics('prd', { inputTokens: 3 });
+    const totals = getRunUsageTotals();
+    totals.inputTokens = 999;
+
+    expect(getRunUsageTotals()).toEqual({ inputTokens: 3 });
   });
 });

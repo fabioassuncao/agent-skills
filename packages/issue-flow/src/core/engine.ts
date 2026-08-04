@@ -11,7 +11,9 @@ import { divideUsage } from './metrics.js';
 import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
 import { publishGitState } from './session-git.js';
 import {
+  EXECUTE_PHASE,
   elapsedSecondsSince,
+  getPhaseUsageTotals,
   publishIterationMetrics,
   publishStoryMetrics,
 } from './session-metrics.js';
@@ -264,6 +266,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
             elapsed,
             plan,
             `Exceeded retry limit (${config.retryLimit}) on transient errors`,
+            getPhaseUsageTotals(EXECUTE_PHASE),
           );
           return result.exitCode;
         }
@@ -307,6 +310,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         elapsed,
         plan,
         `Claude CLI failed with exit code ${result.exitCode}`,
+        getPhaseUsageTotals(EXECUTE_PHASE),
       );
       return result.exitCode;
     }
@@ -368,7 +372,15 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         await saveTaskPlan(paths.prdFile, plan);
 
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        printSummaryBox('success', i, totalRetryCount, elapsed, plan);
+        printSummaryBox(
+          'success',
+          i,
+          totalRetryCount,
+          elapsed,
+          plan,
+          undefined,
+          getPhaseUsageTotals(EXECUTE_PHASE),
+        );
         return 0;
       }
 
@@ -405,6 +417,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     elapsed,
     plan,
     'Reached max iterations without completing all tasks.',
+    getPhaseUsageTotals(EXECUTE_PHASE),
   );
   return 1;
 }

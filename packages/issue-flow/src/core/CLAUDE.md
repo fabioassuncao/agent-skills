@@ -60,6 +60,21 @@ are no-ops when the CLI reported no usage, so no call site needs to guard on
 correction cycle publish several, and the reducer's summing is what produces
 the phase total.
 
+## Totals for the terminal come from the process, not the snapshot
+
+`session-metrics.ts` also keeps process-owned counters (`getRunUsageTotals`,
+`getPhaseUsageTotals`), fed by the same `publishPhaseMetrics` /
+`publishIterationMetrics` calls. The session snapshot cannot be the source for
+anything printed to the terminal: with web monitoring off the publisher is a
+`NullPublisher` and its snapshot stays empty, so the numbers would vanish
+exactly in the default mode. Story-scoped usage is deliberately **not**
+recorded there — it is a rateio of an iteration already counted, same
+anti-double-counting rule as the reducer.
+
+They are module state, so any test that publishes metrics must call
+`resetRunUsageTotals()` in `afterEach`, or later tests in the same file inherit
+the counters.
+
 ## Story-level metrics are an approximation
 
 The CLI reports a single usage per invocation, and one execute iteration can
