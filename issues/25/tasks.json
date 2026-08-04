@@ -6,8 +6,8 @@
   "noBranch": false,
   "description": "Adiciona a fase opcional `pr-review` como etapa final da pipeline (apos `pr`), disponivel tambem como comando independente `issue-flow pr-review [pr]`. A fase avalia o Pull Request como um todo (diff completo, arquitetura, duplicacao, testes, commits, descricao do PR), complementando o gate de conformidade da fase `review`. Inclui descoberta automatica do PR com ordem de precedencia deterministica, artefatos versionaveis em `issues/<N>/pr-review/` com suporte a multiplas rodadas, estado retrocompativel em `tasks.json`, codigos de saida distintos (0/1/2) e a porta `PrReviewPublisher` preparada para integracao futura com o GitHub. Corrige de passagem dois defeitos: o numero do PR criado descartado por `pr.ts` e o comando quebrado `gh pr list --head ''` em `run.ts`. Sem a flag `--pr-review`, o comportamento atual permanece identico.",
   "issueStatus": "completed",
-  "completedAt": "2026-08-04T01:52:00Z",
-  "lastAttemptAt": "2026-08-04T01:52:00Z",
+  "completedAt": "2026-08-04T01:48:56Z",
+  "lastAttemptAt": "2026-08-04T01:48:56Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -16,7 +16,7 @@
     "prdCompleted": true,
     "jsonCompleted": true,
     "executionCompleted": true,
-    "reviewCompleted": false,
+    "reviewCompleted": true,
     "prCreated": false
   },
   "userStories": [
