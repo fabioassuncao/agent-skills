@@ -43,3 +43,18 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
   - `type ExecResult` precisa ser importado de `./shell.js` (import de tipo inline: `import { type ExecResult, run } from './shell.js'`) para tipar a variável do `try/catch`.
   - Verificação em browser não se aplica.
 ---
+
+## 2026-08-03 23:30 - US-003
+- Implementada a geração determinística de `project-id` no formato `<slug>-<hash12>`.
+- Arquivos alterados:
+  - `packages/issue-flow/src/storage/paths.ts` — `getProjectId(projectRoot)` (async), helper interno `slugify()` e constantes `SLUG_MAX_LENGTH` (32), `HASH_LENGTH` (12), `FALLBACK_SLUG` (`project`).
+  - `packages/issue-flow/src/storage/paths.test.ts` — 11 testes novos (equivalência https/ssh, dois checkouts do mesmo remote, repetição estável, fallback por path, mesmo nome com remotes diferentes, mesmo nome em paths diferentes, remote vs. path nunca colidem, sanitização, truncamento em 32, fallback `project`).
+- Semente: `remote:<normalizeRemoteUrl(getRemoteUrl())>` quando há remote (slug = último segmento do path); senão `path:<resolve(projectRoot)>` (slug = `basename`). O prefixo entra no sha256, então os dois modos nunca colidem.
+- Checks: `npm run typecheck` OK, `npm test` 574 testes OK (37 arquivos), `npm run lint` OK.
+- **Learnings for future iterations:**
+  - Para mockar **só uma função** de um módulo interno, use `vi.mock('../utils/git.js', async (importOriginal) => ({ ...actual, getRemoteUrl: vi.fn() }))`. Assim `normalizeRemoteUrl` continua real e o teste exercita a normalização de verdade — evita duplicar a tabela de normalização em dois arquivos.
+  - `getProjectId` é **async** porque depende de `getRemoteUrl()`. US-004 (`getIssuePaths`/`getProjectDir`) deve receber o `projectId` já resolvido como parâmetro para permanecer puro e síncrono, como o AC pede.
+  - `slugify` normaliza tudo que não é `[a-z0-9]` para `-`, colapsa, apara as pontas, **depois** trunca em 32 e apara de novo — a segunda aparada é necessária porque o corte pode deixar um `-` final.
+  - Limitação documentada em JSDoc: no fallback por path, mover/renomear a pasta muda o ID e deixa o histórico anterior órfão. US-008 precisa repetir isso no README.
+  - Verificação em browser não se aplica.
+---
