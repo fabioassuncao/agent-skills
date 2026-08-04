@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ClaudeUsage } from './core/metrics.js';
 import type { SessionSnapshot } from './core/session-state.js';
 import type { IssueMetadata, IssuesConfig } from './issues/types.js';
 
@@ -120,15 +121,23 @@ export const taskPlanSchema = z.object({
   userStories: z.array(userStorySchema),
 });
 
+/**
+ * Token/cost metrics of a single `claude` invocation, mirroring ClaudeUsage in
+ * src/core/metrics.ts. Every field is optional: the CLI only reports what it
+ * knows, and an absent field means "not reported", never zero.
+ */
+export const claudeUsageSchema = z.object({
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  cacheReadTokens: z.number().optional(),
+  cacheCreationTokens: z.number().optional(),
+  costUsd: z.number().optional(),
+}) satisfies z.ZodType<ClaudeUsage>;
+
 export const headlessResultSchema = z.object({
   success: z.boolean(),
   result: z.string(),
-  cost: z
-    .object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-    })
-    .nullable(),
+  cost: claudeUsageSchema.nullable(),
   error: z.string().nullable(),
 });
 

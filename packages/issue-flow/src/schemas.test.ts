@@ -232,6 +232,22 @@ describe('headlessResultSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('validates a result carrying cache tokens and USD cost', () => {
+    const result = headlessResultSchema.safeParse({
+      success: true,
+      result: 'output text',
+      cost: {
+        inputTokens: 2,
+        outputTokens: 4,
+        cacheReadTokens: 500,
+        cacheCreationTokens: 15_000,
+        costUsd: 0.1607,
+      },
+      error: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('rejects missing fields', () => {
     const result = headlessResultSchema.safeParse({ success: true });
     expect(result.success).toBe(false);

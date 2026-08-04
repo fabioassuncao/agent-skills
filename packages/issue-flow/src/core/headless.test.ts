@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runHeadless } from './headless.js';
 import { setVerbose } from './verbose.js';
@@ -21,6 +22,45 @@ describe('runHeadless', () => {
   it('returns parsed JSON result on success', async () => {
     mockExeca.mockResolvedValue({
       stdout: JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'Analysis complete',
+        total_cost_usd: 0.1607,
+        usage: {
+          input_tokens: 2,
+          output_tokens: 4,
+          cache_creation_input_tokens: 15_000,
+          cache_read_input_tokens: 500,
+        },
+      }),
+      stderr: '',
+      exitCode: 0,
+    } as unknown as ExecaResult);
+
+    const result = await runHeadless({ prompt: 'test prompt' });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe('Analysis complete');
+    expect(result.cost).toEqual({
+      inputTokens: 2,
+      outputTokens: 4,
+      cacheReadTokens: 500,
+      cacheCreationTokens: 15_000,
+      costUsd: 0.1607,
+    });
+    expect(result.error).toBeNull();
+
+    expect(mockExeca).toHaveBeenCalledWith(
+      'claude',
+      ['-p', 'test prompt', '--output-format', 'json', '--max-turns', '10'],
+      expect.objectContaining({ reject: false }),
+    );
+  });
+
+  it('still extracts metrics from the legacy JSON payload', async () => {
+    mockExeca.mockResolvedValue({
+      stdout: JSON.stringify({
         result: 'Analysis complete',
         cost_usd: 0.05,
         num_input_tokens: 1000,
@@ -34,14 +74,21 @@ describe('runHeadless', () => {
 
     expect(result.success).toBe(true);
     expect(result.result).toBe('Analysis complete');
-    expect(result.cost).toEqual({ inputTokens: 1000, outputTokens: 500 });
-    expect(result.error).toBeNull();
+    expect(result.cost).toEqual({ inputTokens: 1000, outputTokens: 500, costUsd: 0.05 });
+  });
 
-    expect(mockExeca).toHaveBeenCalledWith(
-      'claude',
-      ['-p', 'test prompt', '--output-format', 'json', '--max-turns', '10'],
-      expect.objectContaining({ reject: false }),
-    );
+  it('returns a null cost when the payload carries no metrics', async () => {
+    mockExeca.mockResolvedValue({
+      stdout: JSON.stringify({ result: 'Analysis complete' }),
+      stderr: '',
+      exitCode: 0,
+    } as unknown as ExecaResult);
+
+    const result = await runHeadless({ prompt: 'test prompt' });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe('Analysis complete');
+    expect(result.cost).toBeNull();
   });
 
   it('returns error result on non-zero exit code', async () => {
@@ -175,6 +222,65 @@ describe('runHeadless (verbose)', () => {
   });
 
   const noop = () => {};
+
+  /**
+   * A stand-in for the execa subprocess: awaitable like the real one, but also
+   * carrying a readable `stdout` so the stream-json branch has lines to consume.
+   */
+  function streamProcess(events: unknown[]): unknown {
+    const proc = Promise.resolve({ exitCode: 0, stderr: '' });
+    Object.defineProperty(proc, 'stdout', {
+      value: Readable.from(events.map((e) => `${JSON.stringify(e)}\n`)),
+    });
+    return proc;
+  }
+
+  it('captures cost and cache tokens from the stream result event', async () => {
+    mockExeca.mockReturnValue(
+      streamProcess([
+        { type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } },
+        {
+          type: 'result',
+          subtype: 'success',
+          is_error: false,
+          result: 'all done',
+          total_cost_usd: 0.1607,
+          usage: {
+            input_tokens: 2,
+            output_tokens: 4,
+            cache_creation_input_tokens: 15_000,
+            cache_read_input_tokens: 500,
+          },
+        },
+      ]) as ReturnType<typeof execa>,
+    );
+
+    const result = await runHeadless({ prompt: 'test', onOutput: noop });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe('all done');
+    expect(result.cost).toEqual({
+      inputTokens: 2,
+      outputTokens: 4,
+      cacheReadTokens: 500,
+      cacheCreationTokens: 15_000,
+      costUsd: 0.1607,
+    });
+  });
+
+  it('returns a null cost when the stream result event carries no metrics', async () => {
+    mockExeca.mockReturnValue(
+      streamProcess([
+        { type: 'result', subtype: 'success', is_error: false, result: 'all done' },
+      ]) as ReturnType<typeof execa>,
+    );
+
+    const result = await runHeadless({ prompt: 'test', onOutput: noop });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe('all done');
+    expect(result.cost).toBeNull();
+  });
 
   it('passes one --add-dir pair per directory', async () => {
     await runHeadless({
