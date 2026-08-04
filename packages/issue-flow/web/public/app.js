@@ -521,7 +521,7 @@
 
       // status/dependencies vêm com default no schema (backlog/[]), mas
       // session.json gravado antes de #29 pode chegar sem eles.
-      const storyStatus = story.status || 'backlog';
+      const storyStatus = story.status !== null && story.status !== undefined ? story.status : 'backlog';
       const meta = el('div', 'story-meta');
       meta.appendChild(
         el('span', 'badge story-status-' + storyStatus, STORY_STATUS_LABELS[storyStatus] || storyStatus),
