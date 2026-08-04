@@ -296,6 +296,19 @@ Where reports are published is configuration, not code. Precedence is **CLI > en
 
 `local` writes the `.md` report and `index.json` under `~/.issue-flow/…/issues/<N>/pr-review/`. Publishing back to GitHub is not implemented in v1 -- the publisher port exists so that adding it is a configuration change. An unknown value degrades to `local` with a warning instead of throwing.
 
+### `web` -- Manage the monitoring server
+
+```bash
+# Stop the single monitoring server, if one is running
+npx issue-flow web stop
+
+# Internal: run the monitor in the foreground. Spawned detached by --web --
+# there is normally no reason to invoke this yourself.
+npx issue-flow web serve --port 3737 --host 127.0.0.1 --refresh 5
+```
+
+`web stop` is the explicit counterpart to `--web`'s automatic start (see [Web Monitoring → Single instance](#single-instance-detached-from-the-pipeline)): it signals the detached server referenced by [`~/.issue-flow/web.lock`](#issue-flowweblock) to shut down and waits for the lock file to be removed, or reports that no monitor is running. `web serve` is what `--web` spawns behind the scenes the first time on a machine; running it by hand only matters for debugging the monitor itself, independent of any pipeline run.
+
 ## Issue Sources (Providers)
 
 The demand reaches the pipeline through an **issue provider**, so every phase works the same way regardless of where the issue lives:
@@ -407,7 +420,48 @@ npx issue-flow run 42 --web
 
 # Custom port and polling interval
 npx issue-flow run 42 --web --port 8080 --refresh 10
+
+# Stop the monitor explicitly (see "Single instance" below)
+npx issue-flow web stop
 ```
+
+### Single instance, detached from the pipeline
+
+There is at most **one** monitoring server per machine, and it outlives any single `run`/`execute` invocation:
+
+- The first `--web` invocation on a machine spawns the server as its own **detached background process** (`child_process.spawn(..., { detached: true })`) instead of binding inline -- the pipeline process that triggered it can exit normally (including a plain, non-`--web` `Ctrl-C`) without taking the monitor down with it. Ownership is tracked in [`~/.issue-flow/web.lock`](#issue-flowweblock).
+- Every subsequent `--web` invocation, from the same project or a different one, detects the live instance (`pid` alive + `GET /api/health` answers) and **reuses it** instead of starting a second one -- no port conflicts, no silently-degraded second monitor.
+- The server is single-instance, not single-session: it watches the whole `~/.issue-flow` tree and reflects **every** active run, from every project, at once (see [Multiple sessions](#multiple-sessions) below). Opening the same `http://host:port` URL while a second, unrelated `run --web` starts elsewhere shows both.
+- Stop it explicitly with:
+
+  ```bash
+  npx issue-flow web stop
+  ```
+
+  This sends the process a graceful shutdown signal and waits for `web.lock` to be removed; with no monitor running, it says so and exits `0`. There is no other way to stop it short of killing the `pid` from `web.lock` directly -- closing every browser tab or every `run --web` invocation on purpose does **not** stop it, by design, since it may still be serving other sessions.
+
+If the global storage tree itself is unavailable (e.g. no resolvable home directory and no `ISSUE_FLOW_HOME` override), monitoring falls back to the pre-single-instance behavior instead of being lost entirely: the server binds **inline**, in the pipeline's own process, serving only that run's snapshot from memory, with no lock file and no detached process. A warning is printed when this happens. This legacy mode has the same single-run scope monitoring always had before -- it exists purely so a broken global storage tree degrades gracefully rather than silently disabling `--web`.
+
+### Multiple sessions
+
+Because the server is decoupled from any one run, it cannot rely on that run's in-memory state -- instead it polls `~/.issue-flow/projects/*/issues/*/session.json` on disk (the same file each run already writes) and keeps every well-formed, recently-updated one as an **active session**. A session stops being reported shortly after its process stops updating that file.
+
+`GET /api/sessions` lists every active session:
+
+```json
+[
+  {
+    "sessionId": "3f9e2b7a-…",
+    "issueNumber": 42,
+    "status": "running",
+    "startedAt": "2026-08-04T16:00:00Z",
+    "updatedAt": "2026-08-04T16:05:00Z",
+    "statusUrl": "/api/status?session=3f9e2b7a-…"
+  }
+]
+```
+
+`GET /api/status?session=<id>` returns that session's full snapshot (the same shape documented under [`session.json`](#sessionjson) below). Without `?session=`, `/api/status` keeps the pre-multi-session behavior when it is unambiguous: with **exactly one** active session it answers that one directly; with **zero** or **more than one**, it answers `404`/`409` respectively instead of guessing, with the `409` body listing every active `sessionId` so a client can disambiguate.
 
 Monitoring never affects the pipeline: publishing failures are swallowed with a single warning, a busy port (`EADDRINUSE`) just skips the server, and killing the server or closing the browser mid-run has no effect on the execution. With `--web` off, the terminal output and behavior are byte-for-byte identical to previous versions.
 
@@ -439,7 +493,7 @@ Each setting resolves with the precedence **CLI flag > environment variable > `.
 }
 ```
 
-The server exposes `GET /` (the UI), `GET /api/status` (the JSON snapshot, also at `/status.json`), `GET /api/sessions`, and `GET /api/health`.
+The server exposes `GET /` (the UI), `GET /api/status[?session=<id>]` (the JSON snapshot, also at `/status.json`), `GET /api/sessions`, and `GET /api/health`.
 
 ### Remote access via Tailscale
 
@@ -834,7 +888,7 @@ The file is read by `loadGlobalConfig()`, which **never throws**. A missing file
 
 ### `~/.issue-flow/web.lock`
 
-Marks the single web monitoring server active on this machine:
+Marks the single web monitoring server active on this machine. `pid` is the **detached `issue-flow web serve` process**, not the `run`/`execute` invocation that triggered it:
 
 ```json
 {
@@ -845,7 +899,7 @@ Marks the single web monitoring server active on this machine:
 }
 ```
 
-Before starting a monitor, `run --web` reads this file, checks that `pid` is a live process and that `GET /api/health` answers on `host:port`. When both hold, the existing instance is reused and no new server binds. When either fails (dead `pid`, or a live one that does not answer), the lock is treated as stale, removed, and the current invocation claims it instead -- written with an exclusive create (`wx`) so two invocations racing to become the owner still agree on exactly one winner. The file is removed when the owning server closes.
+Before starting a monitor, `run --web` reads this file, checks that `pid` is a live process and that `GET /api/health` answers on `host:port`. When both hold, the existing instance is reused and no new server spawns. When either fails (dead `pid`, or a live one that does not answer), the lock is treated as stale, removed, and a freshly spawned instance claims it instead -- written with an exclusive create (`wx`) so two invocations racing to become the owner still agree on exactly one winner. The file is removed when the server closes, whether that is `issue-flow web stop` or the process exiting on its own.
 
 ### Precedence
 
