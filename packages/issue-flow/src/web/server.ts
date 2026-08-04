@@ -372,15 +372,26 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     return closePromise;
   };
 
+  // `handle.close` is built here, but ensureSingleWebServer/ensureWebMonitor
+  // and the `web serve` command each wrap it afterwards (to also remove the
+  // lock file, stop the session-directory poller, ...). onSignal below calls
+  // `handle.close()` — the *current* value of the property — rather than the
+  // `close` closed over here, so a `kill -TERM <pid>` (including `issue-flow
+  // web stop`) always runs the fully wrapped shutdown, not just this raw
+  // socket close. Capturing `close` directly here was a real bug: the wrapped
+  // behavior only ever ran for an *explicit* `handle.close()` call, leaving
+  // the lock file (and the poller) behind on every signal-driven shutdown.
+  const handle: WebServerHandle = { server, host: options.host, port, url, close };
+
   // Explicit close on SIGINT/SIGTERM, then re-raise so the default
   // termination behavior still applies.
   const onSignal = (signal: NodeJS.Signals): void => {
-    void close().finally(() => {
+    void handle.close().finally(() => {
       process.kill(process.pid, signal);
     });
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
-  return { server, host: options.host, port, url, close };
+  return handle;
 }
