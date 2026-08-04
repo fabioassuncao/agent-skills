@@ -32,6 +32,11 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   `addDirs: [issueDir]` to `runHeadless`** — the global tree is outside the working directory, so
   `claude -p` denies both the read and the write without a matching `--add-dir`. `core/executor.ts`
   (the `execute` phase) is the exception: it runs with `--dangerously-skip-permissions`.
+- **A prompt template in `prompts/` must never spell out a path itself.** A relative `issues/<N>/…`
+  written into a template silently points the agent at a directory that no longer exists — no error,
+  just a step that quietly finds nothing (this is what happened to `prd.md`'s "read the analysis"
+  step and to `generate.md`'s duplicate check). Resolve the path in the command, hand it over as a
+  placeholder (`__ANALYSIS_PATH__`, `__LOCAL_ISSUES_DIR__`) and pair it with `addDirs`.
 - **The migration notice is printed in `resolve.ts` and nowhere else** (`announceMigration`), gated
   on `MigrationResult.copied.length > 0`. `migrateLegacyStorage` is called speculatively — once per
   project, then once per issue first seen — so every run after the first copies zero files;

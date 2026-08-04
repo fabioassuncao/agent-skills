@@ -257,6 +257,21 @@ describe('runPrd', () => {
     expect(errors).toContain(paths.prdFile);
   });
 
+  // The prompt used to name `issues/<N>/analysis.md` relative to the repository;
+  // that path no longer exists, so the analysis has to be pointed at explicitly.
+  it('points the prompt at the global analysis.md', async () => {
+    const paths = await expectedPaths(42);
+    headlessStub.run = async () => {
+      await writeFile(paths.prdFile, '# PRD for issue 42', 'utf-8');
+    };
+
+    await runPrd('42', makeResolved());
+
+    const prompt = mockRunHeadless.mock.calls.at(-1)?.[0].prompt ?? '';
+    expect(prompt).toContain(paths.analysisFile);
+    expect(prompt).not.toContain('__ANALYSIS_PATH__');
+  });
+
   it('updates the pipeline state of the global tasks.json', async () => {
     const paths = await expectedPaths(42);
     await mkdir(paths.issueDir, { recursive: true });

@@ -103,7 +103,7 @@ Verifies that `claude`, `gh` (authenticated), and `git` (inside a repo) are avai
 npx issue-flow analyze 42
 ```
 
-Invokes Claude headlessly to fetch issue data, analyze the codebase, and produce a structured analysis saved to `issues/42/analysis.md`.
+Invokes Claude headlessly to fetch issue data, analyze the codebase, and produce a structured analysis saved to `~/.issue-flow/…/issues/42/analysis.md` (see [Pipeline State](#pipeline-state)).
 
 ### `prd` -- Generate a PRD
 
@@ -111,7 +111,7 @@ Invokes Claude headlessly to fetch issue data, analyze the codebase, and produce
 npx issue-flow prd 42
 ```
 
-Generates a Product Requirements Document from the issue analysis. Reads `issues/N/analysis.md` as context if available. Saves to `issues/42/prd.md`.
+Generates a Product Requirements Document from the issue analysis. Reads `analysis.md` from the same directory as context if available. Saves to `~/.issue-flow/…/issues/42/prd.md`.
 
 ### `plan` -- Convert PRD to task plan
 
@@ -119,7 +119,7 @@ Generates a Product Requirements Document from the issue analysis. Reads `issues
 npx issue-flow plan 42
 ```
 
-Converts the PRD into a structured `issues/42/tasks.json` with ordered user stories, acceptance criteria, and pipeline state. Validates the output with zod schemas.
+Converts the PRD into a structured `~/.issue-flow/…/issues/42/tasks.json` with ordered user stories, acceptance criteria, and pipeline state. Validates the output with zod schemas.
 
 ### `execute` -- Run the story execution loop
 
@@ -133,7 +133,7 @@ Runs the iterative agent loop. Each iteration is a fresh Claude instance that pi
 
 | Flag | Description |
 |------|-------------|
-| `--issue N` | Issue number -- reads artifacts from `issues/N/` |
+| `--issue N` | Issue number -- reads artifacts from `~/.issue-flow/…/issues/N/` |
 | `--max-iterations N` | Stop after N iterations (default: unlimited) |
 | `--retry-limit N` | Retry transient Claude failures up to N consecutive times (default: 10) |
 | `--retry-forever` | Retry transient Claude failures indefinitely |
@@ -185,21 +185,25 @@ Each setting resolves with the precedence **CLI flag > environment variable > `.
 | `--web-log-limit <n>` | `ISSUE_FLOW_WEB_LOG_LIMIT` | `web.logLimit` | `200` |
 | `--web-no-logs` | -- | `web.includeLogs` | logs included |
 
-Monitoring never affects the pipeline: with `--web` off the behavior is byte-for-byte identical, a busy port just skips the server with a warning, and killing the server mid-run has no effect on the execution. While enabled, the snapshot served at `/api/status` is also persisted to `issues/N/session.json` -- if your project commits the `issues/` directory, add `issues/*/session.json` to your `.gitignore`.
+Monitoring never affects the pipeline: with `--web` off the behavior is byte-for-byte identical, a busy port just skips the server with a warning, and killing the server mid-run has no effect on the execution. While enabled, the snapshot served at `/api/status` is also persisted to `~/.issue-flow/…/issues/N/session.json` -- outside your working tree, so there is nothing to add to `.gitignore`.
 
 For the full documentation (endpoints, `session.json` format, Tailscale setup), see the [root README](../../README.md#web-monitoring).
 
 ## Pipeline State
 
-Each issue's state is tracked in `issues/N/tasks.json`:
+Each issue's state is tracked in a directory of its own under `~/.issue-flow`, keyed by a deterministic project id and the issue identifier:
 
 ```
-issues/42/
+~/.issue-flow/projects/<project-id>/issues/42/
   analysis.md    # Issue analysis
   prd.md         # Product requirements
   tasks.json     # Task plan with pipeline state and user stories
   progress.txt   # Execution log
+  session.json   # Live session snapshot (web monitoring only)
+  pr-review/     # PR review reports and index
 ```
+
+Nothing is written to your repository. A `<projectRoot>/issues/` tree left by an earlier release is copied here automatically on first use and then treated as read-only -- see the [root README](../../README.md#global-storage) for the full layout, the project id derivation and the migration.
 
 The `pipeline` field tracks which phases have completed, enabling resume from any point:
 

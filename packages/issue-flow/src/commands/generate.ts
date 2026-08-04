@@ -8,6 +8,7 @@ import { localIssueRef } from '../issues/context.js';
 import { IssueDraftParseError, parseIssueDraft } from '../issues/draft.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueDraft, IssueGenerateTarget } from '../issues/types.js';
+import { resolveProjectPaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
 
 /** Human-readable pointer to a created Issue. */
@@ -22,9 +23,15 @@ function issueLocation(issue: Issue): string {
  * can be persisted to GitHub, to the local files, or to both.
  */
 async function draftIssue(promptText: string): Promise<IssueDraft> {
+  // The duplicate check reads the local issues, which live in the global
+  // storage: the path has to be handed over (and allowed) explicitly, since it
+  // is outside the working directory the agent is started in.
+  const { issuesDir } = await resolveProjectPaths();
+
   const template = await loadPrompt('generate');
   const prompt = applyPlaceholders(template, {
     __USER_PROMPT__: promptText,
+    __LOCAL_ISSUES_DIR__: issuesDir,
   });
 
   const result = await runHeadless({
@@ -33,6 +40,7 @@ async function draftIssue(promptText: string): Promise<IssueDraft> {
     timeout: getGlobalTimeout() ?? 300_000,
     outputFormat: 'text',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
+    addDirs: [issuesDir],
     statusMessage: 'Drafting issue...',
   });
 

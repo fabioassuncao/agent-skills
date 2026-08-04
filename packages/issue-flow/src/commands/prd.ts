@@ -26,6 +26,9 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
   const prompt = applyPlaceholders(template, {
     __ISSUE_NUMBER__: issueNumber,
     __PRD_PATH__: prdPath,
+    // Absolute: the analysis lives in the global storage, outside the working
+    // directory the agent is started in.
+    __ANALYSIS_PATH__: paths.analysisFile,
     ...issuePlaceholders(resolution.resolved),
   });
 

@@ -6,7 +6,7 @@ __USER_PROMPT__
 Steps:
 1. Analyze the project's tech stack, architecture, and codebase
 2. Check for duplicates before drafting:
-   - Local issues: read `issues/*/metadata.json` (the directory may not exist)
+   - Local issues: read `__LOCAL_ISSUES_DIR__/*/metadata.json` (the directory may not exist)
    - Remote issues, only if `gh` is installed and authenticated:
      `gh issue list --state open --search "<keywords>"`
    If an existing issue already covers the request, still emit the draft, but

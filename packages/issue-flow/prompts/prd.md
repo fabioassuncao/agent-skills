@@ -15,7 +15,7 @@ __ISSUE_BODY__
 </issue-body>
 
 Steps:
-1. If the file issues/__ISSUE_NUMBER__/analysis.md exists, read it for additional context
+1. If the file __ANALYSIS_PATH__ exists, read it for additional context
 2. Analyze the codebase to understand the context
 3. Generate a structured PRD
 
