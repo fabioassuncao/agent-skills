@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { run } from './shell.js';
+import { type ExecResult, run } from './shell.js';
 
 /**
  * Get the root directory of the current git repository.
@@ -74,6 +74,94 @@ export async function getBaseBranch(): Promise<string> {
   }
 
   return 'main';
+}
+
+/**
+ * Get the URL of the `origin` remote.
+ * Never throws: a missing remote, a non-zero exit code, an empty stdout or a
+ * git binary that cannot even be spawned all resolve to `null` — the same
+ * discipline as {@link getBaseBranch}, so callers can treat "no remote" as an
+ * ordinary state instead of an error path.
+ */
+export async function getRemoteUrl(): Promise<string | null> {
+  let result: ExecResult;
+  try {
+    result = await run('git', ['remote', 'get-url', 'origin']);
+  } catch {
+    return null;
+  }
+
+  if (result.exitCode !== 0) return null;
+
+  const url = result.stdout.trim();
+  return url === '' ? null : url;
+}
+
+/**
+ * Reduce a git remote URL to a canonical `host/path` identity, so that every
+ * way of addressing the same repository collapses to the same string:
+ *
+ * ```
+ * https://github.com/org/repo.git        -> github.com/org/repo
+ * git@github.com:org/repo.git            -> github.com/org/repo
+ * ssh://git@github.com:22/org/repo.git   -> github.com/org/repo
+ * https://user:token@github.com/org/repo -> github.com/org/repo
+ * https://github.com/Org/Repo/           -> github.com/org/repo
+ * ```
+ *
+ * Pure function: it never shells out, so it is testable without a git
+ * repository. Returns `null` when no host and path can be extracted.
+ *
+ * Known limitation: both host and path are lowercased. Hostnames are
+ * case-insensitive by definition, but repository paths are case-sensitive on
+ * some self-hosted servers — so `host/org/Repo` and `host/org/repo` normalize
+ * to the same identity even if that server considers them distinct. This is a
+ * deliberate trade: matching the same repository across clones (where users
+ * routinely type the wrong case) matters more than telling apart two repos
+ * whose paths differ only by case.
+ */
+export function normalizeRemoteUrl(url: string | null | undefined): string | null {
+  if (typeof url !== 'string') return null;
+
+  const trimmed = url.trim();
+  if (trimmed === '') return null;
+
+  let authority: string;
+  let path: string;
+
+  const scheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.exec(trimmed);
+  if (scheme) {
+    const rest = trimmed.slice(scheme[0].length);
+    const slash = rest.indexOf('/');
+    if (slash === -1) return null;
+    authority = rest.slice(0, slash);
+    path = rest.slice(slash + 1);
+  } else {
+    // scp-like syntax: [user@]host:path — everything after the first colon is
+    // the path, which is how git itself reads it (no port is possible here).
+    const colon = trimmed.indexOf(':');
+    if (colon === -1) return null;
+    authority = trimmed.slice(0, colon);
+    path = trimmed.slice(colon + 1);
+  }
+
+  // Drop embedded credentials (user, user:token) and the ssh user.
+  const at = authority.lastIndexOf('@');
+  if (at !== -1) authority = authority.slice(at + 1);
+
+  const host = authority.replace(/:\d+$/, '').toLowerCase();
+  if (host === '') return null;
+
+  const normalizedPath = path
+    .replace(/[?#].*$/, '')
+    .replace(/\/+/g, '/')
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  if (normalizedPath === '') return null;
+
+  return `${host}/${normalizedPath}`;
 }
 
 /**
