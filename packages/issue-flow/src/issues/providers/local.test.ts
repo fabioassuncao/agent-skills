@@ -504,12 +504,23 @@ describe('close', () => {
 });
 
 describe('isAvailable', () => {
-  it('is true once the project storage directory is writable, creating it if needed', async () => {
+  it('is true for a brand new project, without creating the storage directory', async () => {
     const { projectDir } = await resolveProjectPaths({ projectRoot: root });
     expect(await exists(projectDir)).toBe(false);
 
     expect(await provider.isAvailable()).toBe(true);
-    expect(await exists(projectDir)).toBe(true);
+    // A mere availability check must not litter `~/.issue-flow` with an empty
+    // directory for a project that never goes on to read or write a local
+    // issue — every other source is probed on every resolution, so this runs
+    // far more often than the provider is actually used.
+    expect(await exists(projectDir)).toBe(false);
+  });
+
+  it('is true once the project storage directory already exists and is writable', async () => {
+    const { projectDir } = await resolveProjectPaths({ projectRoot: root });
+    await mkdir(projectDir, { recursive: true });
+
+    expect(await provider.isAvailable()).toBe(true);
   });
 
   it('is false when the global storage directory cannot be created', async () => {

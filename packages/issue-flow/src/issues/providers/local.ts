@@ -1,5 +1,6 @@
 import { constants } from 'node:fs';
 import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { ZodError } from 'zod';
 import { isoNow } from '../../core/state-manager.js';
 import { issueMetadataSchema } from '../../schemas.js';
@@ -18,6 +19,40 @@ const REMOTE_PROBE_TIMEOUT_MS = 10_000;
 function isNotFound(err: unknown): boolean {
   const code = (err as NodeJS.ErrnoException).code;
   return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+/**
+ * True when `dir` already is a writable directory, or does not exist yet but
+ * would be created successfully by `mkdir(dir, { recursive: true })` — i.e.
+ * its nearest existing ancestor is a writable directory.
+ *
+ * Never mutates the filesystem: `isAvailable()` only needs to answer "could
+ * this work", which must not leave a `~/.issue-flow/projects/<id>/` directory
+ * behind for a project that ends up never using local issues (every other
+ * source is queried on every resolution, so this runs far more often than the
+ * provider is actually chosen).
+ */
+async function isWritableDirectory(dir: string): Promise<boolean> {
+  let current = dir;
+  for (;;) {
+    let stats: Awaited<ReturnType<typeof stat>>;
+    try {
+      stats = await stat(current);
+    } catch (err: unknown) {
+      if (!isNotFound(err)) return false;
+      const parent = dirname(current);
+      if (parent === current) return false; // reached the filesystem root
+      current = parent;
+      continue;
+    }
+    if (!stats.isDirectory()) return false;
+    try {
+      await access(current, constants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 /**
@@ -98,19 +133,20 @@ export class LocalFileIssueProvider implements IssueProvider {
   }
 
   /**
-   * True whenever the project's global storage directory is writable, creating
-   * it when it does not exist yet. Never throws.
+   * True whenever the project's global storage directory already is — or
+   * could be — a writable directory. Never mutates the filesystem, never
+   * throws.
    *
    * A brand new project has no directory of its own until something writes, so
    * "does it already exist" would report the provider as unavailable exactly
-   * when it is about to create the very first issue.
+   * when it is about to create the very first issue — `isWritableDirectory`
+   * walks up to the nearest existing ancestor instead of requiring the leaf to
+   * be there already.
    */
   async isAvailable(): Promise<boolean> {
     try {
       const { projectDir } = await resolveProjectPaths({ projectRoot: await this.root() });
-      await mkdir(projectDir, { recursive: true });
-      await access(projectDir, constants.W_OK);
-      return true;
+      return await isWritableDirectory(projectDir);
     } catch {
       return false;
     }
