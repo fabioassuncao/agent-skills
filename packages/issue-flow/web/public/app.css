@@ -755,6 +755,44 @@ progress {
   display: grid;
   gap: 14px;
   align-content: start;
+  justify-items: start;
+}
+
+.drawer-timing {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.drawer-section {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.drawer-section-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.drawer-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.drawer-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.drawer-list li {
+  overflow-wrap: anywhere;
 }
 
 /* ---- Diversos ---- */

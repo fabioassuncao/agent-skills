@@ -685,7 +685,70 @@
       return;
     }
     els.drawerTitle.textContent = story.id + ' · ' + story.title;
+
     clear(els.drawerBody);
+    els.drawerBody.appendChild(
+      el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
+    );
+
+    const timing = itemSideText([
+      story.completedAt ? 'concluída ' + formatClock(story.completedAt) : '',
+      metric(story.durationSeconds) !== null ? formatDuration(story.durationSeconds) : '',
+    ]);
+    if (timing) els.drawerBody.appendChild(el('p', 'muted drawer-timing', timing));
+
+    drawerSection('Descrição', (body) => {
+      body.appendChild(
+        story.description
+          ? el('p', 'drawer-text', story.description)
+          : el('p', 'empty', 'Sem descrição.'),
+      );
+    });
+
+    drawerSection('Critérios de aceite', (body) => {
+      if (story.acceptanceCriteria.length === 0) {
+        body.appendChild(el('p', 'empty', 'Nenhum critério declarado.'));
+        return;
+      }
+      const items = el('ul', 'drawer-list');
+      for (const criterion of story.acceptanceCriteria) items.appendChild(el('li', null, criterion));
+      body.appendChild(items);
+    });
+
+    drawerSection('Dependências', (body) => {
+      if (story.dependencies.length === 0) {
+        body.appendChild(el('p', 'empty', 'Nenhuma dependência.'));
+        return;
+      }
+      const row = el('div', 'badge-row');
+      for (const dependency of story.dependencies) {
+        row.appendChild(el('span', 'badge label-badge', dependency));
+      }
+      body.appendChild(row);
+    });
+
+    // Nenhum campo de histórico existe no snapshot hoje; a seção só aparece se
+    // uma versão futura publicar um.
+    const history = list(story.history);
+    if (history.length > 0) {
+      drawerSection('Histórico', (body) => {
+        const entries = el('ol', 'drawer-list');
+        for (const entry of history) {
+          const item = el('li');
+          if (entry.at) item.appendChild(el('span', 'log-time', formatClock(entry.at)));
+          item.appendChild(document.createTextNode(text(entry.message)));
+          entries.appendChild(item);
+        }
+        body.appendChild(entries);
+      });
+    }
+  }
+
+  function drawerSection(title, fill) {
+    const section = el('section', 'drawer-section');
+    section.appendChild(el('h3', 'drawer-section-title', title));
+    fill(section);
+    els.drawerBody.appendChild(section);
   }
 
   function openDrawer(id) {
