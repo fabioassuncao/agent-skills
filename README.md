@@ -727,6 +727,7 @@ Every phase (`analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review`, `
 ```
 ~/.issue-flow/
   config.json                          # Machine-wide preferences (optional, see below)
+  web.lock                             # PID + port of the active web monitor, if any (see below)
   projects/
     issue-flow-4b21c0e9f7a3/           # One directory per project: <slug>-<hash12>
       metadata.json                    # Project identity and timestamps
@@ -830,6 +831,21 @@ Preferences that apply to every project, all keys optional:
 | `commit` | Commit preferences (`signoff`, `conventional`) |
 
 The file is read by `loadGlobalConfig()`, which **never throws**. A missing file is silent -- it is the common case. Invalid JSON, a non-object root, an unreadable path or an invalid key each degrade to "no global preference" with a warning, and validation happens key by key: a typo under `retry` costs you `retry` only, never your `web` settings. Unknown keys are dropped without a warning, which is what keeps a file written by a newer release readable.
+
+### `~/.issue-flow/web.lock`
+
+Marks the single web monitoring server active on this machine:
+
+```json
+{
+  "pid": 41213,
+  "port": 3737,
+  "host": "127.0.0.1",
+  "startedAt": "2026-08-04T02:00:00Z"
+}
+```
+
+Before starting a monitor, `run --web` reads this file, checks that `pid` is a live process and that `GET /api/health` answers on `host:port`. When both hold, the existing instance is reused and no new server binds. When either fails (dead `pid`, or a live one that does not answer), the lock is treated as stale, removed, and the current invocation claims it instead -- written with an exclusive create (`wx`) so two invocations racing to become the owner still agree on exactly one winner. The file is removed when the owning server closes.
 
 ### Precedence
 

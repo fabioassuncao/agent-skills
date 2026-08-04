@@ -47,7 +47,11 @@ export interface WebServerOptions {
 }
 
 export interface WebServerHandle {
-  server: Server;
+  /**
+   * Absent when this handle represents an existing instance reused through
+   * `ensureSingleWebServer` (`web/lock.ts`) instead of one bound locally.
+   */
+  server?: Server;
   /** Host the server is bound to. */
   host: string;
   /** Actual bound port (relevant when options.port is 0). */

@@ -31,7 +31,8 @@ import type { UserStory } from '../types.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { printRunSummary, type RunSummaryPrReview } from '../ui/summary.js';
-import { startWebServer, type WebServerHandle } from '../web/server.js';
+import { ensureSingleWebServer } from '../web/lock.js';
+import type { WebServerHandle } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
@@ -173,9 +174,12 @@ export async function runPipeline(
   setSessionPublisher(publisher);
 
   // A null handle (port in use, ...) means the pipeline runs without a server.
+  // ensureSingleWebServer reuses an already-running, healthy instance instead
+  // of binding a second one (US-001): the returned handle may not own a local
+  // server at all.
   let webServer: WebServerHandle | null = null;
   if (webConfig.enabled) {
-    webServer = await startWebServer({
+    webServer = await ensureSingleWebServer({
       publisher,
       port: webConfig.port,
       host: webConfig.host,

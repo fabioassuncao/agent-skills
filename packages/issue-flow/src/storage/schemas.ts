@@ -100,8 +100,24 @@ export const globalConfigSchema = z
   })
   .partial();
 
+/**
+ * `~/.issue-flow/web.lock`.
+ *
+ * Marks the single web monitoring server active on this machine: `pid` and
+ * `port` let a new invocation tell a live instance from a stale one before
+ * attempting to bind its own (see `web/lock.ts`). Not `.strict()` for the same
+ * reason as the schemas above — a newer release may add fields.
+ */
+export const webLockSchema = z.object({
+  pid: z.number().int().positive(),
+  port: z.number().int().positive(),
+  host: z.string().min(1),
+  startedAt: z.string().min(1),
+});
+
 export type ProjectMetadata = z.infer<typeof projectMetadataSchema>;
 export type GlobalWebConfig = z.infer<typeof globalWebConfigSchema>;
 export type GlobalRetryConfig = z.infer<typeof globalRetryConfigSchema>;
 export type GlobalCommitConfig = z.infer<typeof globalCommitConfigSchema>;
 export type GlobalConfig = z.infer<typeof globalConfigSchema>;
+export type WebLock = z.infer<typeof webLockSchema>;

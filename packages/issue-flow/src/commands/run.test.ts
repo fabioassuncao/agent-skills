@@ -111,6 +111,7 @@ import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
 import type { TaskPlan, UserStory } from '../types.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
+import { ensureSingleWebServer } from '../web/lock.js';
 import { startWebServer } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
@@ -288,6 +289,27 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(serverLines).toHaveLength(1);
     // Removida a linha da URL, a saída é byte a byte igual à do modo desligado.
     expect(onLines.filter((l) => !l.includes('Web monitor running at'))).toEqual(offLines);
+  });
+
+  it('com --web: reaproveita uma instância já ativa em vez de subir outra (US-001)', async () => {
+    const existing = await ensureSingleWebServer({
+      publisher: new MemoryPublisher(),
+      port: await getFreePort(),
+      host: '127.0.0.1',
+      info: () => {},
+      warn: () => {},
+    });
+    expect(existing).not.toBeNull();
+    vi.mocked(startWebServer).mockClear();
+
+    setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    // A monitoring server was already up under the same lock: run must not
+    // attempt to bind a second one.
+    expect(vi.mocked(startWebServer)).not.toHaveBeenCalled();
+    expect(lines.some((l) => l.includes('Reusing existing web monitor at'))).toBe(true);
   });
 
   it('com --web: ao término, session.json global contém o estado final', async () => {
