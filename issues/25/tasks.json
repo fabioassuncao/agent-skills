@@ -7,7 +7,7 @@
   "description": "Adiciona a fase opcional `pr-review` como etapa final da pipeline (apos `pr`), disponivel tambem como comando independente `issue-flow pr-review [pr]`. A fase avalia o Pull Request como um todo (diff completo, arquitetura, duplicacao, testes, commits, descricao do PR), complementando o gate de conformidade da fase `review`. Inclui descoberta automatica do PR com ordem de precedencia deterministica, artefatos versionaveis em `issues/<N>/pr-review/` com suporte a multiplas rodadas, estado retrocompativel em `tasks.json`, codigos de saida distintos (0/1/2) e a porta `PrReviewPublisher` preparada para integracao futura com o GitHub. Corrige de passagem dois defeitos: o numero do PR criado descartado por `pr.ts` e o comando quebrado `gh pr list --head ''` em `run.ts`. Sem a flag `--pr-review`, o comportamento atual permanece identico.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-04T00:52:00Z",
+  "lastAttemptAt": "2026-08-04T00:56:22Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -145,8 +145,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": "Depende de US-004, US-005 e US-006."
+      "passes": true,
+      "notes": "runPrReview(prArg?, opts) em src/commands/pr-review.ts. `gh pr view --json title,url,headRefName,headRefOid` completa metadados/headSha (best-effort, nunca derruba a fase). O relatorio e sempre publicado (inclusive em REQUEST_CHANGES e em falha de parse); so falha de headless nao gera artefato. O publisher default vem de createPrReviewPublisher() (novo em publisher.ts), entao o comando nunca importa LocalReportPublisher. prReview.enabled e preservado, nunca ligado pelo comando isolado — opt-in e decisao do `run --pr-review` (US-009)."
     },
     {
       "id": "US-008",

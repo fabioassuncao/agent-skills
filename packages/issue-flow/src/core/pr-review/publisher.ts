@@ -76,3 +76,22 @@ export class LocalReportPublisher implements PrReviewPublisher {
     await writeFileAtomic(join(this.dir, 'index.json'), `${JSON.stringify(updated, null, 2)}\n`);
   }
 }
+
+/** Publishers selectable by configuration. v1 ships only the local one. */
+export type PrReviewPublisherKind = 'local';
+
+const PUBLISHERS: Record<PrReviewPublisherKind, (dir: string) => PrReviewPublisher> = {
+  local: (dir) => new LocalReportPublisher(dir),
+};
+
+/**
+ * The publisher the phase should use. Going through the factory is what keeps
+ * the command bound to `PrReviewPublisher` alone: adding a GitHub adapter is a
+ * new entry here plus a configuration key, never a change to the phase.
+ */
+export function createPrReviewPublisher(
+  dir: string,
+  kind: PrReviewPublisherKind = 'local',
+): PrReviewPublisher {
+  return PUBLISHERS[kind](dir);
+}
