@@ -17,6 +17,11 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
   skips the migration and reads an empty directory.
 - `resolve.ts` still creates nothing: a call site that writes keeps its own
   `mkdir(paths.issueDir, { recursive: true })`.
+- **The migration notice is printed in `resolve.ts` and nowhere else** (`announceMigration`), gated
+  on `MigrationResult.copied.length > 0`. `migrateLegacyStorage` is called speculatively — once per
+  project, then once per issue first seen — so every run after the first copies zero files;
+  announcing those would print a banner on every command. `compat.ts` itself never prints: it
+  returns the result and lets the caller decide.
 - Path helpers are pure and synchronous: they never create directories. Callers decide when (and
   whether) a directory should exist. `getProjectId()` is the exception — it is `async` because it
   shells out to `git remote get-url origin`, explicitly passing `projectRoot` as `cwd` so the

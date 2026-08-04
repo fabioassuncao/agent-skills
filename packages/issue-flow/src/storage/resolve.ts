@@ -1,11 +1,13 @@
 import { stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import { printInfo } from '../ui/logger.js';
 import { getProjectRoot } from '../utils/git.js';
-import { migrateLegacyStorage, resolveStorageMode } from './compat.js';
+import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
 import {
   type GetGlobalRootOptions,
   getGlobalRoot,
   getIssuePaths,
+  ISSUES_DIR_NAME,
   type IssuePaths,
 } from './paths.js';
 
@@ -80,6 +82,33 @@ async function directoryExists(path: string): Promise<boolean> {
 }
 
 /**
+ * Tell the user that their artifacts moved, and that nothing was taken away.
+ *
+ * A migration that copied nothing stays silent: `migrateLegacyStorage` is
+ * called speculatively (once per project, then once per issue seen for the
+ * first time), and every one of those runs after the first copies zero files.
+ * Printing on those would turn a one-time notice into noise on every command.
+ *
+ * The "one notice per process" guarantee falls out of the US-001 cache: the
+ * project-level migration runs once, and the per-issue fallback only reaches a
+ * second migration when an issue really is still legacy-only — in which case a
+ * notice is the correct output, not a duplicate.
+ */
+function announceMigration(result: MigrationResult): void {
+  if (result.copied.length === 0) return;
+
+  const count = result.copied.length;
+  const target = join(result.globalDir, ISSUES_DIR_NAME);
+
+  printInfo(
+    `Migrated ${count} file${count === 1 ? '' : 's'} from ${result.legacyDir} to ${target}`,
+  );
+  printInfo(
+    `The legacy directory was not modified or removed — ${result.legacyDir} is kept as-is, read-only, for compatibility.`,
+  );
+}
+
+/**
  * Resolve the project id, migrating the legacy tree when it is the only thing
  * that exists yet.
  *
@@ -97,7 +126,7 @@ async function resolveProject(
   const status = await resolveStorageMode(projectRoot, options);
 
   if (status.mode === 'needs-migration') {
-    await migrateLegacyStorage(projectRoot, options);
+    announceMigration(await migrateLegacyStorage(projectRoot, options));
   }
 
   return {
@@ -159,7 +188,7 @@ export async function resolveIssuePaths(
     const legacyIssueDir = join(project.legacyDir, basename(paths.issueDir));
 
     if (!(await directoryExists(paths.issueDir)) && (await directoryExists(legacyIssueDir))) {
-      await migrateLegacyStorage(projectRoot, rootOptions);
+      announceMigration(await migrateLegacyStorage(projectRoot, rootOptions));
     }
 
     // Marked only once the check completed: a failed migration must be retried

@@ -15,6 +15,13 @@ vi.mock('../utils/git.js', async (importOriginal) => {
   };
 });
 
+// The migration notice is user-facing output: capture it instead of printing it.
+vi.mock('../ui/logger.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/logger.js')>();
+  return { ...actual, printInfo: vi.fn() };
+});
+
+const { printInfo } = await import('../ui/logger.js');
 const { getProjectRoot, getRemoteUrl } = await import('../utils/git.js');
 const { GLOBAL_ROOT_ENV, getIssuePaths, projectIdFromRemote } = await import('./paths.js');
 const { LEGACY_ISSUES_DIR_NAME } = await import('./compat.js');
@@ -22,6 +29,12 @@ const { resetStorageResolutionCache, resolveIssuePaths } = await import('./resol
 
 const mockGetRemoteUrl = vi.mocked(getRemoteUrl);
 const mockGetProjectRoot = vi.mocked(getProjectRoot);
+const mockPrintInfo = vi.mocked(printInfo);
+
+/** Everything the migration notice printed, as a single string. */
+function printedOutput(): string {
+  return mockPrintInfo.mock.calls.map(([line]) => line).join('\n');
+}
 
 const REMOTE = 'https://github.com/acme/widgets.git';
 
@@ -53,6 +66,7 @@ function expectedPaths(issueNumber: string | number) {
 beforeEach(async () => {
   resetStorageResolutionCache();
 
+  mockPrintInfo.mockReset();
   mockGetRemoteUrl.mockReset();
   mockGetRemoteUrl.mockResolvedValue(REMOTE);
 
@@ -179,5 +193,63 @@ describe('resolveIssuePaths', () => {
     const paths = await resolveIssuePaths(42, { env });
 
     await expect(stat(paths.issueDir)).rejects.toThrow();
+  });
+});
+
+describe('migration notice', () => {
+  it('reports source, destination and file count once files were copied', async () => {
+    await writeLegacy(join('42', 'prd.md'), '# legacy prd');
+    await writeLegacy(join('42', 'tasks.json'), '{}');
+
+    const paths = await resolveIssuePaths(42, { env });
+    const output = printedOutput();
+
+    expect(mockPrintInfo).toHaveBeenCalled();
+    expect(output).toContain(join(projectRoot, LEGACY_ISSUES_DIR_NAME));
+    // Destination is the global issues directory, i.e. the parent of issueDir.
+    expect(output).toContain(join(paths.issueDir, '..'));
+    expect(output).toContain('2 files');
+  });
+
+  it('states that the legacy directory was neither modified nor removed', async () => {
+    await writeLegacy(join('42', 'prd.md'), '# legacy prd');
+
+    await resolveIssuePaths(42, { env });
+
+    expect(printedOutput()).toMatch(/not modified or removed/);
+    // A single file must not be announced as "1 files".
+    expect(printedOutput()).toContain('1 file ');
+  });
+
+  it('stays silent on the second invocation, when nothing is left to copy', async () => {
+    await writeLegacy(join('42', 'prd.md'), '# legacy prd');
+
+    await resolveIssuePaths(42, { env });
+    expect(mockPrintInfo).toHaveBeenCalled();
+
+    // A fresh process: same tree, empty cache.
+    mockPrintInfo.mockClear();
+    resetStorageResolutionCache();
+
+    await resolveIssuePaths(42, { env });
+
+    expect(mockPrintInfo).not.toHaveBeenCalled();
+  });
+
+  it('stays silent for a project that never had a legacy tree', async () => {
+    await resolveIssuePaths(42, { env });
+
+    expect(mockPrintInfo).not.toHaveBeenCalled();
+  });
+
+  it('announces a migration triggered by the per-issue fallback', async () => {
+    await resolveIssuePaths(1, { env });
+    resetStorageResolutionCache();
+    expect(mockPrintInfo).not.toHaveBeenCalled();
+
+    await writeLegacy(join('99', 'tasks.json'), '{"issueNumber":99}');
+    await resolveIssuePaths(99, { env });
+
+    expect(printedOutput()).toContain('1 file ');
   });
 });
