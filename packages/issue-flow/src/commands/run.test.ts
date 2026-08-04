@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,8 +14,40 @@ vi.mock('./plan.js', () => ({ runPlan: vi.fn(async () => 0) }));
 vi.mock('./execute.js', () => ({ runExecute: vi.fn(async () => 0) }));
 vi.mock('./review.js', () => ({ runReview: vi.fn(async () => 0) }));
 vi.mock('./pr.js', () => ({ runPr: vi.fn(async () => 0) }));
-vi.mock('execa', () => ({ execa: vi.fn(async () => ({ stdout: '' })) }));
-vi.mock('../core/session-git.js', () => ({ publishGitState: vi.fn(async () => {}) }));
+vi.mock('./pr-review.js', () => ({ runPrReview: vi.fn(async () => 0) }));
+
+// getIssueDir() shells out to `git rev-parse --show-toplevel` (via utils/git.ts)
+// to anchor issues/<N>/ to the repo root instead of process.cwd(). Every test
+// below chdir's into a fresh tmpdir that is not itself a git repo, so that
+// call must be stubbed to answer with the same tmpdir — mutated per test via
+// mockProjectRoot.current — for issueDir to resolve to the join(tmp, 'issues',
+// ...) path the assertions already expect. Every other execa invocation keeps
+// the previous harmless default.
+const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
+// Branch answered by `git branch --show-current`; empty (the previous default)
+// unless a test needs the summary to look a Pull Request up by head branch.
+const mockBranch = vi.hoisted(() => ({ current: '' }));
+vi.mock('execa', () => ({
+  execa: vi.fn(async (file: string, args: string[] = []) => {
+    if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+      return { stdout: mockProjectRoot.current, exitCode: 0 };
+    }
+    if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+      return { stdout: mockBranch.current, exitCode: 0 };
+    }
+    return { stdout: '' };
+  }),
+}));
+// Partial mock: run.ts imports listPullRequests from the same module, and a
+// literal factory would drop it from the graph.
+vi.mock('../core/session-git.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../core/session-git.js')>();
+  return {
+    ...actual,
+    publishGitState: vi.fn(async () => {}),
+    listPullRequests: vi.fn(async () => []),
+  };
+});
 
 // The resolver is the single decision point; the pipeline must call it once.
 vi.mock('../issues/resolver.js', async (importOriginal) => {
@@ -63,15 +95,19 @@ vi.mock('../web/server.js', async (importOriginal) => {
 });
 
 import { execa } from 'execa';
+import { listPullRequests } from '../core/session-git.js';
 import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import type { TaskPlan } from '../types.js';
+import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { startWebServer } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
 import { runPr } from './pr.js';
+import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
 import { runPipeline } from './run.js';
@@ -157,6 +193,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
   beforeEach(async () => {
     originalCwd = process.cwd();
     tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-'));
+    mockProjectRoot.current = tmp;
     process.chdir(tmp);
     for (const name of WEB_ENV_VARS) {
       savedEnv.set(name, process.env[name]);
@@ -320,6 +357,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
         ([file, args]) => file === 'gh' && Array.isArray(args) && args[0] === 'pr',
       );
     expect(ghPrCalls).toEqual([]);
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
   });
 
   it('identificador local não numérico é publicado como issue.number null', async () => {
@@ -351,5 +389,484 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
 
     expect(code).toBe(0);
     expect(vi.mocked(runInit)).toHaveBeenCalledWith('local');
+  });
+});
+
+/** Minimal plan the plan phase would have written. */
+function makePlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
+  return {
+    project: 'issue-flow',
+    issueNumber: 42,
+    issueUrl: '',
+    branchName: 'issue/42-sample',
+    description: 'Sample',
+    issueStatus: 'in_progress',
+    completedAt: null,
+    lastAttemptAt: null,
+    lastError: null,
+    correctionCycle: 0,
+    maxCorrectionCycles: 3,
+    pipeline: {
+      prdCompleted: false,
+      jsonCompleted: false,
+      executionCompleted: false,
+      reviewCompleted: false,
+      prCreated: false,
+    },
+    userStories: [],
+    ...overrides,
+  };
+}
+
+describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
+  let tmp: string;
+  let originalCwd: string;
+  let close: ReturnType<typeof vi.fn>;
+  const savedEnv = new Map<string, string | undefined>();
+
+  const tasksPath = (): string => join(tmp, 'issues', '42', 'tasks.json');
+
+  const writePlan = async (plan: TaskPlan): Promise<void> => {
+    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
+    await writeFile(tasksPath(), JSON.stringify(plan, null, 2), 'utf-8');
+  };
+
+  const readPlan = async (): Promise<TaskPlan> =>
+    JSON.parse(await readFile(tasksPath(), 'utf-8')) as TaskPlan;
+
+  /** Phases the renderer was actually asked to run (most recent invocation). */
+  const renderedPhases = (): string[] => {
+    const calls = vi.mocked(runPipelineWithRenderer).mock.calls;
+    return calls[calls.length - 1]?.[0].phases ?? [];
+  };
+
+  const runCapturingLines = async (
+    prReview?: boolean,
+  ): Promise<{ code: number; lines: string[] }> => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    try {
+      const code = await runPipeline('42', 'auto', undefined, undefined, prReview);
+      return { code, lines };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-pr-review-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    for (const name of WEB_ENV_VARS) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    close = vi.fn(async () => {});
+    vi.mocked(getProvider).mockReturnValue(makeProvider(close));
+    vi.mocked(runPrReview).mockResolvedValue(0);
+  });
+
+  afterEach(async () => {
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('sem a flag: fases idênticas às atuais, fase não roda e a Issue continua sendo fechada', async () => {
+    const { code } = await runCapturingLines();
+
+    expect(code).toBe(0);
+    expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review', 'pr']);
+    expect(vi.mocked(runPrReview)).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledWith('42');
+  });
+
+  it('com a flag: a fase entra ao final da ordem e roda sem confirmação', async () => {
+    const { code } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review', 'pr', 'pr-review']);
+    expect(vi.mocked(runPrReview)).toHaveBeenCalledWith(undefined, { issue: '42', yes: true });
+    expect(close).toHaveBeenCalledWith('42');
+  });
+
+  it('veredito REQUEST_CHANGES: pipeline retorna 0, não fecha a Issue e destaca o aviso', async () => {
+    await writePlan(makePlan({ issueStatus: 'in_progress', completedAt: null }));
+    vi.mocked(runPrReview).mockResolvedValue(2);
+
+    const { code, lines } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    expect(close).not.toHaveBeenCalled();
+    expect(lines.some((l) => l.includes('PR review requested changes'))).toBe(true);
+    expect(lines.some((l) => l.includes('REQUEST_CHANGES'))).toBe(true);
+    expect(lines.some((l) => l.includes('Pipeline complete'))).toBe(false);
+
+    const plan = await readPlan();
+    expect(plan.issueStatus).toBe('in_progress');
+    expect(plan.completedAt).toBeNull();
+    expect(plan.prReview?.enabled).toBe(true);
+  });
+
+  it('opt-in mid-pipeline (--from pr) persiste enabled para retomadas sem a flag', async () => {
+    await writePlan(
+      makePlan({
+        pipeline: {
+          prdCompleted: true,
+          jsonCompleted: true,
+          executionCompleted: true,
+          reviewCompleted: true,
+          prCreated: false,
+        },
+      }),
+    );
+    vi.mocked(runPrReview).mockResolvedValue(2);
+
+    const first = await runPipeline('42', 'auto', 'pr', undefined, true);
+    expect(first).toBe(0);
+    expect((await readPlan()).prReview?.enabled).toBe(true);
+
+    vi.mocked(runPrReview).mockClear();
+    vi.mocked(runPrReview).mockResolvedValue(0);
+    // Simulate the incomplete phase the previous REQUEST_CHANGES left behind.
+    const afterReview = await readPlan();
+    afterReview.pipeline.prCreated = true;
+    afterReview.pipeline.prReviewCompleted = false;
+    afterReview.prReview = {
+      ...afterReview.prReview,
+      enabled: true,
+      rounds: afterReview.prReview?.rounds ?? 1,
+      lastRecommendation: 'REQUEST_CHANGES',
+    };
+    await writePlan(afterReview);
+
+    const second = await runPipeline('42', 'auto');
+    expect(second).toBe(0);
+    expect(vi.mocked(runPrReview)).toHaveBeenCalledTimes(1);
+    expect(renderedPhases()).toContain('pr-review');
+  });
+
+  it('falha de execução da fase (código 1) derruba a pipeline', async () => {
+    vi.mocked(runPrReview).mockResolvedValue(1);
+
+    const { code } = await runCapturingLines(true);
+
+    expect(code).toBe(1);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('a opção é persistida em tasks.json logo após a fase plan', async () => {
+    vi.mocked(runPlan).mockImplementation(async () => {
+      await writePlan(makePlan());
+      return 0;
+    });
+
+    const { code } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    expect((await readPlan()).prReview?.enabled).toBe(true);
+  });
+
+  it('sem a flag, o valor persistido no plano liga a fase', async () => {
+    await writePlan(makePlan({ prReview: { enabled: true, rounds: 0 } }));
+
+    const { code } = await runCapturingLines();
+
+    expect(code).toBe(0);
+    expect(renderedPhases()).toContain('pr-review');
+    expect(vi.mocked(runPrReview)).toHaveBeenCalledTimes(1);
+  });
+
+  it('--no-branch persistido descarta o opt-in em vez de falhar', async () => {
+    await writePlan(makePlan({ noBranch: true, prReview: { enabled: true, rounds: 0 } }));
+
+    const { code } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review']);
+    expect(vi.mocked(runPrReview)).not.toHaveBeenCalled();
+  });
+});
+
+describe('runPipeline — URL do PR no resumo final (issue 25, US-010)', () => {
+  let tmp: string;
+  let originalCwd: string;
+  const savedEnv = new Map<string, string | undefined>();
+
+  const writePlan = async (plan: TaskPlan): Promise<void> => {
+    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
+    await writeFile(
+      join(tmp, 'issues', '42', 'tasks.json'),
+      JSON.stringify(plan, null, 2),
+      'utf-8',
+    );
+  };
+
+  /** The `PR:` line of the final summary, without the label. */
+  const prLine = (lines: string[]): string | undefined =>
+    lines
+      .find((l) => l.trimStart().startsWith('PR:'))
+      ?.replace(/^\s*PR:\s*/, '')
+      .trim();
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-pr-url-'));
+    mockProjectRoot.current = tmp;
+    mockBranch.current = 'issue/42-sample';
+    process.chdir(tmp);
+    for (const name of WEB_ENV_VARS) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    vi.mocked(getProvider).mockReturnValue(makeProvider(vi.fn(async () => {})));
+    vi.mocked(listPullRequests).mockResolvedValue([]);
+  });
+
+  afterEach(async () => {
+    mockBranch.current = '';
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('usa a URL persistida pela fase pr, sem consultar o gh', async () => {
+    await writePlan(
+      makePlan({
+        pullRequest: {
+          number: 184,
+          url: 'https://github.com/acme/repo/pull/184',
+          headBranch: 'issue/42-sample',
+          createdAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    );
+
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(prLine(lines)).toBe('https://github.com/acme/repo/pull/184');
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+  });
+
+  it('sem URL no plano, busca pela branch atual e usa o PR mais recente', async () => {
+    await writePlan(makePlan());
+    vi.mocked(listPullRequests).mockResolvedValue([
+      { number: 12, url: 'https://github.com/acme/repo/pull/12', title: 'old' },
+      { number: 184, url: 'https://github.com/acme/repo/pull/184', title: 'new' },
+    ]);
+
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(vi.mocked(listPullRequests)).toHaveBeenCalledWith('issue/42-sample');
+    expect(prLine(lines)).toBe('https://github.com/acme/repo/pull/184');
+  });
+
+  it('nenhum PR encontrado mantém unknown, sem exceção', async () => {
+    vi.mocked(listPullRequests).mockRejectedValue(new Error('gh exploded'));
+
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(prLine(lines)).toBe('unknown');
+  });
+
+  it('branch indetectável (detached HEAD) não consulta o gh', async () => {
+    mockBranch.current = '';
+
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+    expect(prLine(lines)).toBe('unknown');
+  });
+});
+
+describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)', () => {
+  let tmp: string;
+  let originalCwd: string;
+  const savedEnv = new Map<string, string | undefined>();
+
+  const issueDir = (): string => join(tmp, 'issues', '42');
+
+  const writePlan = async (plan: TaskPlan): Promise<void> => {
+    await mkdir(issueDir(), { recursive: true });
+    await writeFile(join(issueDir(), 'tasks.json'), JSON.stringify(plan, null, 2), 'utf-8');
+  };
+
+  const runCapturingLines = async (
+    prReview?: boolean,
+  ): Promise<{ code: number; lines: string[] }> => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    try {
+      const code = await runPipeline('42', 'auto', undefined, undefined, prReview);
+      return { code, lines };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  /** Session snapshot the web UI reads, after the run finished. */
+  const readSnapshot = async () =>
+    sessionSnapshotSchema.parse(
+      JSON.parse(await readFile(join(issueDir(), 'session.json'), 'utf-8')),
+    );
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-ui-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    for (const name of WEB_ENV_VARS) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    serverHandles.length = 0;
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    vi.mocked(getProvider).mockReturnValue(makeProvider(vi.fn(async () => {})));
+    vi.mocked(runPrReview).mockResolvedValue(0);
+  });
+
+  afterEach(async () => {
+    await Promise.all(serverHandles.map((h) => h.close()));
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('sem a flag, session.json continua listando apenas as fases padrão', async () => {
+    await mkdir(issueDir(), { recursive: true });
+    setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
+
+    const { code } = await runCapturingLines();
+    expect(code).toBe(0);
+
+    const snapshot = await readSnapshot();
+    expect(snapshot.phases.map((p) => p.name)).toEqual([
+      'init',
+      'prd',
+      'plan',
+      'execute',
+      'review',
+      'pr',
+    ]);
+    expect(snapshot.progress.phasesTotal).toBe(6);
+  });
+
+  it('com a flag, pr-review aparece em phases[] e entra no total de progresso', async () => {
+    await mkdir(issueDir(), { recursive: true });
+    setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
+
+    const { code } = await runCapturingLines(true);
+    expect(code).toBe(0);
+
+    const snapshot = await readSnapshot();
+    expect(snapshot.phases.map((p) => p.name)).toEqual([
+      'init',
+      'prd',
+      'plan',
+      'execute',
+      'review',
+      'pr',
+      'pr-review',
+    ]);
+    // phasesTotal vem do session:start, então o denominador da UI web já
+    // considera a fase opcional desde o começo da execução.
+    expect(snapshot.progress.phasesTotal).toBe(7);
+    expect(snapshot.phases.every((p) => p.status === 'completed')).toBe(true);
+  });
+
+  it('o resumo final exibe a recomendação e o caminho do relatório', async () => {
+    await writePlan(
+      makePlan({
+        prReview: {
+          enabled: true,
+          rounds: 1,
+          pullRequestNumber: 184,
+          lastRecommendation: 'APPROVE_WITH_SUGGESTIONS',
+          lastReviewedAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    );
+    await mkdir(join(issueDir(), 'pr-review'), { recursive: true });
+    await writeFile(
+      join(issueDir(), 'pr-review', 'index.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        pullRequest: { number: 184, url: null, title: null, headBranch: null },
+        rounds: [
+          {
+            round: 1,
+            at: '2026-01-01T00:00:00Z',
+            recommendation: 'APPROVE_WITH_SUGGESTIONS',
+            headSha: null,
+            reportPath: 'pr-184-round-1.md',
+            findings: [],
+          },
+        ],
+      }),
+      'utf-8',
+    );
+
+    const { code, lines } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    const summaryLine = (label: string): string | undefined =>
+      lines
+        .find((l) => l.trimStart().startsWith(label))
+        ?.replace(new RegExp(`^\\s*${label}\\s*`), '')
+        .trim();
+    expect(summaryLine('Review:')).toBe('APPROVE_WITH_SUGGESTIONS');
+    expect(summaryLine('Report:')).toBe(join(issueDir(), 'pr-review', 'pr-184-round-1.md'));
+  });
+
+  it('sem a flag, o resumo final não ganha nenhuma linha nova', async () => {
+    const { code, lines } = await runCapturingLines();
+
+    expect(code).toBe(0);
+    expect(lines.some((l) => l.trimStart().startsWith('Review:'))).toBe(false);
+    expect(lines.some((l) => l.trimStart().startsWith('Report:'))).toBe(false);
   });
 });

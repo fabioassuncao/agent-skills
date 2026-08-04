@@ -26,6 +26,36 @@ export interface PipelineState {
   executionCompleted: boolean;
   reviewCompleted: boolean;
   prCreated: boolean;
+  /**
+   * Optional like `analyzeCompleted`: the `pr-review` phase is opt-in, so every
+   * `tasks.json` written before it existed stays valid without the field.
+   */
+  prReviewCompleted?: boolean;
+}
+
+/**
+ * The Pull Request opened by the `pr` phase, persisted so later phases can
+ * address it without querying GitHub again.
+ */
+export interface PullRequestRef {
+  number: number;
+  url: string;
+  headBranch: string;
+  createdAt: string;
+}
+
+export type PrReviewRecommendation = 'APPROVE' | 'APPROVE_WITH_SUGGESTIONS' | 'REQUEST_CHANGES';
+
+/**
+ * State of the opt-in `pr-review` phase. `enabled` mirrors `noBranch`: it is
+ * the persisted answer used when the flag is absent on a resumed run.
+ */
+export interface PrReviewState {
+  enabled: boolean;
+  pullRequestNumber?: number;
+  rounds: number;
+  lastRecommendation?: PrReviewRecommendation;
+  lastReviewedAt?: string;
 }
 
 export interface TaskPlan {
@@ -48,6 +78,10 @@ export interface TaskPlan {
   correctionCycle: number;
   maxCorrectionCycles: number;
   pipeline: PipelineState;
+  /** Written by the `pr` phase; absent in every plan created before it. */
+  pullRequest?: PullRequestRef;
+  /** Written by the `pr-review` phase; absent while the phase never ran. */
+  prReview?: PrReviewState;
   userStories: UserStory[];
 }
 

@@ -41,6 +41,10 @@ export async function saveTaskPlan(path: string, plan: TaskPlan): Promise<void> 
 /**
  * Initialize default state fields on a TaskPlan.
  * Fills in missing fields with defaults, matching the Bash script behavior.
+ *
+ * The opt-in fields (`pullRequest`, `prReview`, `pipeline.prReviewCompleted`)
+ * are deliberately absent from the defaults: they ride along on the spread when
+ * present and stay out of the file entirely when the phases never ran.
  */
 export function initializeState(plan: TaskPlan): TaskPlan {
   const defaultPipeline: PipelineState = {

@@ -5,23 +5,33 @@ import { loadIssuesConfig, loadWebConfig } from '../config.js';
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASES_NO_BRANCH,
+  PIPELINE_PHASES_WITH_PR_REVIEW,
   PipelineManager,
   type PipelinePhase,
 } from '../core/pipeline.js';
-import { publishGitState } from '../core/session-git.js';
+import { mostRecent } from '../core/pr-review/discovery.js';
+import {
+  type PrReviewRoundEntry,
+  prReviewDir,
+  readPrReviewIndex,
+} from '../core/pr-review/report.js';
+import { listPullRequests, publishGitState } from '../core/session-git.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
-import { formatDuration, printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
+import { printError, printInfo, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
+import { printRunSummary, type RunSummaryPrReview } from '../ui/summary.js';
+import { getIssueDir } from '../utils/git.js';
 import { startWebServer, type WebServerHandle } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
 import { runPr } from './pr.js';
+import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
 
@@ -38,15 +48,62 @@ function toIssueNumber(id: string): number | null {
 /** Runnable phase lists (excluding 'init' which is handled separately). */
 const RUNNABLE_PHASES: PipelinePhase[] = ['prd', 'plan', 'execute', 'review', 'pr'];
 const RUNNABLE_PHASES_NO_BRANCH: PipelinePhase[] = ['prd', 'plan', 'execute', 'review'];
+const RUNNABLE_PHASES_WITH_PR_REVIEW: PipelinePhase[] = [...RUNNABLE_PHASES, 'pr-review'];
+
+/**
+ * What the `pr-review` phase left behind, for the steps that run after it: the
+ * automatic issue close, the highlighted warning and the final summary.
+ *
+ * Same shape the summary consumes: `requestedChanges` drives the close
+ * suppression and is true on exit code 2 even when the plan is gone.
+ */
+type PrReviewOutcome = RunSummaryPrReview;
+
+/**
+ * Recover the verdict and the report path the `pr-review` phase produced.
+ *
+ * Best-effort by design: the exit code already tells whether changes were
+ * requested, so a missing plan or index costs the summary a detail, never the
+ * decision to keep the issue open.
+ */
+async function readPrReviewOutcome(
+  issue: string,
+  tasksPath: string,
+  requestedChanges: boolean,
+): Promise<PrReviewOutcome> {
+  const outcome: PrReviewOutcome = { requestedChanges, recommendation: null, reportPath: null };
+  try {
+    const plan = await loadTaskPlan(tasksPath);
+    outcome.recommendation = plan.prReview?.lastRecommendation ?? null;
+
+    const pullRequest = plan.prReview?.pullRequestNumber;
+    if (pullRequest !== undefined) {
+      const dir = await prReviewDir({ issue, pullRequest });
+      const index = await readPrReviewIndex(dir);
+      const last = index?.rounds.reduce<PrReviewRoundEntry | null>(
+        (latest, entry) => (latest === null || entry.round > latest.round ? entry : latest),
+        null,
+      );
+      if (last) {
+        outcome.reportPath = join(dir, last.reportPath);
+        outcome.recommendation ??= last.recommendation;
+      }
+    }
+  } catch {
+    /* non-critical */
+  }
+  return outcome;
+}
 
 export async function runPipeline(
   issue: string,
   mode: string,
   from?: string,
   noBranch?: boolean,
+  prReview?: boolean,
 ): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = join('issues', issueNumber);
+  const issueDir = await getIssueDir(issueNumber);
 
   const webConfig = await loadWebConfig();
   const publisher: SessionPublisher = webConfig.enabled
@@ -70,7 +127,15 @@ export async function runPipeline(
 
   let exitCode = 1;
   try {
-    exitCode = await runPipelinePhases(issueNumber, issueDir, mode, publisher, from, noBranch);
+    exitCode = await runPipelinePhases(
+      issueNumber,
+      issueDir,
+      mode,
+      publisher,
+      from,
+      noBranch,
+      prReview,
+    );
     return exitCode;
   } finally {
     publisher.publish({
@@ -91,6 +156,7 @@ async function runPipelinePhases(
   publisher: SessionPublisher,
   from?: string,
   noBranch?: boolean,
+  prReview?: boolean,
 ): Promise<number> {
   const tasksPath = join(issueDir, 'tasks.json');
   const sessionId = randomUUID();
@@ -151,6 +217,10 @@ async function runPipelinePhases(
 
   // Resolve noBranch mode: persisted value takes precedence on resume
   let effectiveNoBranch = noBranch ?? false;
+  // Resolve pr-review mode: flag > persisted value > default (off). Unlike
+  // --no-branch, the flag wins: the phase adds a step at the end instead of
+  // changing what the earlier phases did, so opting in on resume is safe.
+  let effectivePrReview = prReview ?? false;
   let planIssueUrl: string | undefined;
   let planBranch: string | undefined;
   try {
@@ -158,6 +228,7 @@ async function runPipelinePhases(
     const persistedNoBranch = existingPlan.noBranch ?? false;
     planIssueUrl = existingPlan.issueUrl || undefined;
     planBranch = existingPlan.branchName || undefined;
+    effectivePrReview = prReview ?? existingPlan.prReview?.enabled ?? false;
 
     // Only warn when the user explicitly passed a flag that conflicts with the persisted value
     if (noBranch !== undefined && noBranch !== persistedNoBranch) {
@@ -178,8 +249,42 @@ async function runPipelinePhases(
     // No tasks.json yet — use the CLI flag as-is
   }
 
-  const activePhases = effectiveNoBranch ? PIPELINE_PHASES_NO_BRANCH : PIPELINE_PHASES;
-  const phaseOrder = effectiveNoBranch ? RUNNABLE_PHASES_NO_BRANCH : RUNNABLE_PHASES;
+  // The CLI rejects --pr-review with --no-branch, but the persisted no-branch
+  // mode can only be known here. Without a pr phase there is no Pull Request
+  // to review, so the opt-in is dropped instead of failing a resumed run.
+  if (effectiveNoBranch && effectivePrReview) {
+    printWarning(
+      'This pipeline runs with --no-branch and opens no PR. Skipping the pr-review phase.',
+    );
+    effectivePrReview = false;
+  }
+
+  // Persist the opt-in as soon as we know it, not only after the `plan` phase.
+  // A mid-pipeline `--pr-review` (e.g. `--from pr --pr-review`) never re-enters
+  // the plan runner, and without `enabled: true` a later resume without the flag
+  // would drop the phase even when `prReviewCompleted` is still false.
+  if (effectivePrReview) {
+    try {
+      const plan = await loadTaskPlan(tasksPath);
+      if (plan.prReview?.enabled !== true) {
+        plan.prReview = { ...plan.prReview, enabled: true, rounds: plan.prReview?.rounds ?? 0 };
+        await saveTaskPlan(tasksPath, plan);
+      }
+    } catch {
+      // No tasks.json yet — the plan runner persists it after creating the file.
+    }
+  }
+
+  const activePhases = effectiveNoBranch
+    ? PIPELINE_PHASES_NO_BRANCH
+    : effectivePrReview
+      ? PIPELINE_PHASES_WITH_PR_REVIEW
+      : PIPELINE_PHASES;
+  const phaseOrder = effectiveNoBranch
+    ? RUNNABLE_PHASES_NO_BRANCH
+    : effectivePrReview
+      ? RUNNABLE_PHASES_WITH_PR_REVIEW
+      : RUNNABLE_PHASES;
 
   // The phase list is only known after resolving --no-branch, so the init
   // phase (which already ran) is published retroactively with real timestamps.
@@ -253,11 +358,16 @@ async function runPipelinePhases(
     prd: makeRunner(() => runPrd(issueNumber, resolvedIssue), 'prd'),
     plan: async () => {
       await makeRunner(() => runPlan(issueNumber, resolvedIssue), 'plan')();
-      // Persist noBranch into the newly created tasks.json
-      if (effectiveNoBranch) {
+      // Persist the phase-selection modes into the newly created tasks.json
+      if (effectiveNoBranch || effectivePrReview) {
         try {
           const plan = await loadTaskPlan(tasksPath);
-          plan.noBranch = true;
+          if (effectiveNoBranch) {
+            plan.noBranch = true;
+          }
+          if (effectivePrReview) {
+            plan.prReview = { ...plan.prReview, enabled: true, rounds: plan.prReview?.rounds ?? 0 };
+          }
           await saveTaskPlan(tasksPath, plan);
         } catch {
           /* non-critical: tasks.json may not exist yet if plan phase didn't create it */
@@ -310,6 +420,24 @@ async function runPipelinePhases(
     pr: makeRunner(() => runPr(issueNumber, resolvedIssue), 'pr'),
   };
 
+  // Filled by the pr-review runner; read after the pipeline finishes. Held in a
+  // box because a `let` written only inside a closure keeps its initial `null`
+  // narrowing at the read site.
+  const reviewBox: { outcome: PrReviewOutcome | null } = { outcome: null };
+  if (effectivePrReview) {
+    runners['pr-review'] = async () => {
+      // `yes` because the run is autonomous: the phase must never stop to ask
+      // which Pull Request it is reviewing.
+      const code = await runPrReview(undefined, { issue: issueNumber, yes: true });
+      if (code === 1) {
+        throw new Error('Phase pr-review failed with exit code 1');
+      }
+      // Exit code 2 is a verdict, not a failure: the review ran, the report is
+      // on disk and the pipeline keeps going.
+      reviewBox.outcome = await readPrReviewOutcome(issueNumber, tasksPath, code === 2);
+    };
+  }
+
   // Publish phase:start/phase:end around every runner without touching the
   // listr2 renderer (pipeline-renderer.ts stays publication-free). Commit/PR
   // enrichment happens only at these boundaries (and at iteration end, in
@@ -352,34 +480,33 @@ async function runPipelinePhases(
     return 1;
   }
 
-  // Close the issue through whoever owns it. A provider without close() (a
-  // read-only origin) has nothing to do here, so the step is simply skipped.
-  try {
-    const provider = getProvider(resolvedIssue.source);
-    if (provider.close !== undefined) {
-      printInfo('Closing issue...');
-      await provider.close(issueNumber);
+  // A PR review asking for changes is not a pipeline failure, but the work is
+  // not done either: the warning is highlighted and the issue stays open.
+  const review = reviewBox.outcome;
+  if (review?.requestedChanges) {
+    console.log('');
+    printWarning('PR review requested changes — the Pull Request is not ready to merge.');
+    if (review.reportPath !== null) {
+      console.log(`  Report: ${review.reportPath}`);
     }
-  } catch {
-    printWarning('Failed to close issue automatically');
   }
 
-  // Get PR URL for summary. Only GitHub-hosted Issues have a pull request to
-  // look up, and --no-branch never opens one.
-  let prUrl = 'unknown';
-  if (!effectiveNoBranch && resolvedIssue.source === 'github') {
+  // Close the issue through whoever owns it. A provider without close() (a
+  // read-only origin) has nothing to do here, so the step is simply skipped.
+  // REQUEST_CHANGES also leaves the local plan unfinished: marking
+  // `issueStatus: completed` while `prReviewCompleted` is false would lie to
+  // every tool that keys off the local status.
+  if (review?.requestedChanges) {
+    printInfo('Issue left open until the review blockers are addressed.');
+  } else {
     try {
-      const proc = await execa(
-        'gh',
-        ['pr', 'list', '--head', '', '--json', 'url', '--limit', '1'],
-        { reject: false },
-      );
-      const parsed = JSON.parse(proc.stdout?.toString() ?? '[]');
-      if (parsed[0]?.url) {
-        prUrl = parsed[0].url;
+      const provider = getProvider(resolvedIssue.source);
+      if (provider.close !== undefined) {
+        printInfo('Closing issue...');
+        await provider.close(issueNumber);
       }
     } catch {
-      /* non-critical */
+      printWarning('Failed to close issue automatically');
     }
   }
 
@@ -393,29 +520,53 @@ async function runPipelinePhases(
   }
 
   let storyCount = 0;
+  let planPrUrl: string | null = null;
   try {
     const plan = await loadTaskPlan(tasksPath);
     storyCount = plan.userStories.length;
+    // The `pr` phase records the Pull Request it opened; trusting it spares a
+    // round-trip to the GitHub CLI below.
+    planPrUrl = plan.pullRequest?.url ?? null;
 
-    // Mark as completed
-    plan.issueStatus = 'completed';
-    plan.completedAt = isoNow();
     plan.lastAttemptAt = isoNow();
+    if (!review?.requestedChanges) {
+      plan.issueStatus = 'completed';
+      plan.completedAt = isoNow();
+    }
     await saveTaskPlan(tasksPath, plan);
   } catch {
     /* non-critical */
   }
 
-  const totalDuration = formatDuration(result.overallElapsedSeconds);
-
-  console.log('');
-  printSuccess(`Pipeline complete for issue #${issueNumber}!`);
-  console.log(`  Branch:   ${branchName}${effectiveNoBranch ? ' (current)' : ''}`);
-  console.log(`  Stories:  ${storyCount}`);
-  console.log(`  Duration: ${totalDuration}`);
-  if (!effectiveNoBranch) {
-    console.log(`  PR:       ${prUrl}`);
+  // Get PR URL for summary. Only GitHub-hosted Issues have a pull request to
+  // look up, and --no-branch never opens one. Falling back to the GitHub CLI
+  // uses the branch actually checked out: a query without a head branch would
+  // return an unrelated Pull Request.
+  let prUrl = 'unknown';
+  if (!effectiveNoBranch && resolvedIssue.source === 'github') {
+    if (planPrUrl !== null) {
+      prUrl = planPrUrl;
+    } else if (branchName !== 'unknown' && branchName !== '') {
+      try {
+        const latest = mostRecent(await listPullRequests(branchName));
+        if (latest !== null) {
+          prUrl = latest.url;
+        }
+      } catch {
+        /* non-critical */
+      }
+    }
   }
+
+  printRunSummary({
+    issueNumber,
+    branchName,
+    noBranch: effectiveNoBranch,
+    storyCount,
+    elapsedSeconds: result.overallElapsedSeconds,
+    prUrl,
+    prReview: review,
+  });
 
   return 0;
 }

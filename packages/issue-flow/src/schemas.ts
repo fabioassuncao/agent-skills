@@ -25,6 +25,36 @@ export const pipelineStateSchema = z.object({
   executionCompleted: z.boolean(),
   reviewCompleted: z.boolean(),
   prCreated: z.boolean(),
+  prReviewCompleted: z.boolean().optional(),
+});
+
+/**
+ * Pull Request opened by the `pr` phase. Optional on the plan: plans written
+ * before the field existed (and runs with `--no-branch`) simply omit it.
+ */
+export const pullRequestRefSchema = z.object({
+  number: z.number().int().positive(),
+  url: z.string(),
+  headBranch: z.string(),
+  createdAt: z.string(),
+});
+
+export const prReviewRecommendationSchema = z.enum([
+  'APPROVE',
+  'APPROVE_WITH_SUGGESTIONS',
+  'REQUEST_CHANGES',
+]);
+
+/**
+ * State of the opt-in `pr-review` phase. `enabled` and `rounds` carry defaults
+ * so a partially written object still parses instead of invalidating the plan.
+ */
+export const prReviewStateSchema = z.object({
+  enabled: z.boolean().default(false),
+  pullRequestNumber: z.number().int().positive().optional(),
+  rounds: z.number().int().min(0).default(0),
+  lastRecommendation: prReviewRecommendationSchema.optional(),
+  lastReviewedAt: z.string().optional(),
 });
 
 const lastErrorSchema = z.object({
@@ -78,6 +108,8 @@ export const taskPlanSchema = z.object({
   correctionCycle: z.number().int().min(0),
   maxCorrectionCycles: z.number().int().min(0),
   pipeline: pipelineStateSchema,
+  pullRequest: pullRequestRefSchema.optional(),
+  prReview: prReviewStateSchema.optional(),
   userStories: z.array(userStorySchema),
 });
 
@@ -198,8 +230,21 @@ export const issuesConfigSchema = z.object({
   requireConfirmation: z.boolean().default(true),
 }) satisfies z.ZodType<IssuesConfig>;
 
+/**
+ * Resolved `pr-review` configuration (the `prReview` key of .issue-flow.json).
+ *
+ * `publisher` selects the implementation `createPrReviewPublisher()` builds. v1
+ * ships only the local one, so the enum has a single member on purpose: adding
+ * a GitHub adapter is a new entry here plus a new factory, never a change to
+ * the phase.
+ */
+export const prReviewConfigSchema = z.object({
+  publisher: z.enum(['local']).default('local'),
+});
+
 export type ValidatedTaskPlan = z.infer<typeof taskPlanSchema>;
 export type ValidatedIssueMetadata = z.infer<typeof issueMetadataSchema>;
 export type ValidatedHeadlessResult = z.infer<typeof headlessResultSchema>;
 export type ValidatedSessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
 export type WebConfig = z.infer<typeof webConfigSchema>;
+export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;

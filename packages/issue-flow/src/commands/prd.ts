@@ -8,11 +8,12 @@ import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { printError, printSuccess } from '../ui/logger.js';
+import { getIssueDir } from '../utils/git.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = join('issues', issueNumber);
+  const issueDir = await getIssueDir(issueNumber);
   const prdPath = join(issueDir, 'prd.md');
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);

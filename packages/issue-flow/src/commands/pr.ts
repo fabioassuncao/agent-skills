@@ -3,11 +3,12 @@ import { execa } from 'execa';
 import { runHeadless } from '../core/headless.js';
 import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
-import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
+import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { Issue, ResolvedIssue } from '../issues/types.js';
 import { printError, printSuccess } from '../ui/logger.js';
+import { getIssueDir } from '../utils/git.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 /**
@@ -16,6 +17,15 @@ import { isTransientFailure } from '../utils/retry.js';
 function parsePrUrl(output: string): string | null {
   const match = output.match(/(https:\/\/github\.com\/[^\s]+\/pull\/\d+)/);
   return match?.[1] ?? null;
+}
+
+/**
+ * The numeric id inside a PR URL, so later phases (`pr-review`) address the
+ * Pull Request without querying GitHub again.
+ */
+function parsePrNumber(url: string): number | null {
+  const match = url.match(/\/pull\/(\d+)/);
+  return match?.[1] === undefined ? null : Number(match[1]);
 }
 
 /**
@@ -32,7 +42,7 @@ function issueClosesLine(issue: Issue, fallbackId: string): string {
 
 export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = join('issues', issueNumber);
+  const issueDir = await getIssueDir(issueNumber);
   const tasksPath = join(issueDir, 'tasks.json');
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
@@ -101,6 +111,18 @@ export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promi
   try {
     const plan = await loadTaskPlan(tasksPath);
     plan.pipeline.prCreated = true;
+    const prNumber = prUrl === null ? null : parsePrNumber(prUrl);
+    // Without a URL the PR is still assumed created (the phase succeeded), but
+    // there is nothing trustworthy to record: an invented number would send
+    // `pr-review` at an unrelated Pull Request.
+    if (prUrl !== null && prNumber !== null) {
+      plan.pullRequest = {
+        number: prNumber,
+        url: prUrl,
+        headBranch: branchName,
+        createdAt: isoNow(),
+      };
+    }
     await saveTaskPlan(tasksPath, plan);
   } catch {
     // tasks.json may not exist

@@ -15,6 +15,7 @@ skills:
   - execute-tasks
   - review-issue
   - create-pr
+  - review-pr
 permissionMode: bypassPermissions
 maxTurns: 200
 ---
@@ -345,6 +346,29 @@ The create-pr skill will:
 
 **After PR is created, update `pipeline.prCreated = true` in tasks.json.**
 
+### Step 6b — Review the Pull Request (optional)
+
+Only when the invocation text contains `--pr-review`. Without the flag, skip this step entirely and
+proceed to closing the issue.
+
+**Use the Skill tool to invoke: `review-pr`**
+
+```
+Skill(review-pr, args: "#{PR_NUMBER}")
+```
+
+`review-pr` reviews the PR as a whole (full diff, architecture, duplication, tests, commits, PR
+description) — it does not re-check the acceptance criteria, which `review-issue` already gated.
+It is intended to be read-only (no edits/commits/`gh pr review|comment|merge`) and ends with a
+`<pr-review-result>` block. Parse it:
+
+- `RECOMMENDATION: APPROVE` or `APPROVE_WITH_SUGGESTIONS` → set `pipeline.prReviewCompleted = true`
+  and continue to close the issue
+- `RECOMMENDATION: REQUEST_CHANGES` → leave `pipeline.prReviewCompleted = false`, **do NOT close the
+  issue**, do **not** mark `issueStatus: completed`, and report the blockers to the user with the
+  path of the report
+- No block, or any other value → treat as a failed review, never as an approval
+
 **After the PR URL is returned:**
 
 1. Close the issue through its origin:
@@ -395,6 +419,9 @@ The orchestrator updates `pipeline` flags in tasks.json after each phase complet
 - If `executionCompleted` is true but `reviewCompleted` is false → resume at Phase 4
 - If `reviewCompleted` is true but `prCreated` is false → resume at Phase 6
 - If `prCreated` is true → issue is done, report completion
+
+`prReviewCompleted` is **optional** and only exists when the PR review ran (`--pr-review`); its
+absence means the phase was never requested, not that it failed.
 
 **Note**: The `pipeline` fields are added by convert-prd-to-json when creating tasks.json. If resuming from a tasks.json that doesn't have these fields (created by older version), treat missing fields as `false`.
 

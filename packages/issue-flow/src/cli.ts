@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
-import { resolveNoBranch } from './cli-options.js';
+import { CliFlagError, resolveRunPhaseFlags } from './cli-options.js';
 import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
 import { setGlobalTimeout, setVerbose } from './core/verbose.js';
 import {
@@ -172,21 +172,43 @@ withWebOptions(
     withGlobalOptions(
       program
         .command('run')
-        .description('Execute the full pipeline: prd → plan → execute → review → pr')
+        .description(
+          'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
+        )
         .argument('<issue>', 'Issue number')
         .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
         .option('--from <phase>', 'Resume from a specific phase')
-        .option(
-          '--no-branch',
-          'Run pipeline on current branch without creating a new branch or PR',
-        ),
+        .option('--no-branch', 'Run pipeline on current branch without creating a new branch or PR')
+        .option('--pr-review', 'Review the created Pull Request after the pr phase'),
     ),
   ),
-).action(async (issue: string, options: { mode: string; from?: string; branch?: boolean }) => {
-  const { runPipeline } = await import('./commands/run.js');
-  const code = await runPipeline(issue, options.mode, options.from, resolveNoBranch(options));
-  process.exit(code);
-});
+).action(
+  async (
+    issue: string,
+    options: { mode: string; from?: string; branch?: boolean; prReview?: boolean },
+  ) => {
+    let phases: ReturnType<typeof resolveRunPhaseFlags>;
+    try {
+      phases = resolveRunPhaseFlags(options);
+    } catch (error) {
+      if (error instanceof CliFlagError) {
+        printError(error.message);
+        process.exit(1);
+      }
+      throw error;
+    }
+
+    const { runPipeline } = await import('./commands/run.js');
+    const code = await runPipeline(
+      issue,
+      options.mode,
+      options.from,
+      phases.noBranch,
+      phases.prReview,
+    );
+    process.exit(code);
+  },
+);
 
 // ── analyze ─────────────────────────────────────────────────────────────────
 withIssueOptions(
@@ -298,5 +320,29 @@ withIssueOptions(
   const code = await runPr(issue);
   process.exit(code);
 });
+
+// ── pr-review ───────────────────────────────────────────────────────────────
+withGlobalOptions(
+  program
+    .command('pr-review')
+    .description('Review a Pull Request as a whole via Claude Code Headless')
+    .argument('[pr]', 'Pull Request number (discovered from the session when omitted)')
+    .option('--issue <n>', 'Issue the Pull Request belongs to')
+    .option('--round <n>', 'Rewrite a specific review round instead of appending a new one')
+    .option('--yes', 'Skip the confirmation of the discovered Pull Request')
+    .option(
+      '--fail-on <level>',
+      'Verdict that fails the command: request-changes | suggestions | none',
+    ),
+).action(
+  async (
+    pr: string | undefined,
+    options: { issue?: string; round?: string; yes?: boolean; failOn?: string },
+  ) => {
+    const { runPrReview } = await import('./commands/pr-review.js');
+    const code = await runPrReview(pr, options);
+    process.exit(code);
+  },
+);
 
 program.parse();
