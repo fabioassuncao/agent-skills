@@ -1,7 +1,13 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GLOBAL_ROOT_ENV, type IssuePaths } from '../../storage/paths.js';
+import {
+  resetStorageResolutionCache,
+  resolveIssuePaths,
+  resolveProjectPaths,
+} from '../../storage/resolve.js';
 import type { ExecResult } from '../../utils/shell.js';
 import { hashIssueContent } from '../hash.js';
 import type { IssueMetadata } from '../types.js';
@@ -19,9 +25,26 @@ function result(overrides?: Partial<ExecResult>): ExecResult {
   return { stdout: '', stderr: '', exitCode: 0, ...overrides };
 }
 
+/**
+ * Install a `run` double that always answers git first.
+ *
+ * The provider resolves the project id through `git remote get-url origin`, so
+ * a double that answers every command with the same gh payload would turn that
+ * payload into the "remote" and move the whole global tree. Reporting no remote
+ * keeps the id derived from the temporary root, which is what the path helpers
+ * in this file reproduce.
+ */
+function mockGh(handler: (cmd: string, args: string[]) => Promise<ExecResult>): void {
+  mockRun.mockReset();
+  mockRun.mockImplementation(async (cmd: string, args: string[] = []) => {
+    if (cmd === 'git') return result({ exitCode: 1 });
+    return handler(cmd, args);
+  });
+}
+
 /** gh is unreachable unless a test says otherwise. */
 function ghUnavailable(): void {
-  mockRun.mockRejectedValue(new Error('spawn gh ENOENT'));
+  mockGh(() => Promise.reject(new Error('spawn gh ENOENT')));
 }
 
 function metadata(overrides?: Partial<IssueMetadata>): IssueMetadata {
@@ -41,31 +64,72 @@ function metadata(overrides?: Partial<IssueMetadata>): IssueMetadata {
 }
 
 let root: string;
+let home: string;
+let previousHome: string | undefined;
 let provider: InstanceType<typeof LocalFileIssueProvider>;
 
+/** The same resolution the provider performs, for assertions and fixtures. */
+async function paths(id: string): Promise<IssuePaths> {
+  return resolveIssuePaths(id, { projectRoot: root });
+}
+
+function serializeMetadata(meta: IssueMetadata | string): string {
+  return typeof meta === 'string' ? meta : `${JSON.stringify(meta, null, 2)}\n`;
+}
+
 async function writeIssue(id: string, markdown: string, meta?: IssueMetadata | string) {
+  const { issueDir, issueFile, metadataFile } = await paths(id);
+  await mkdir(issueDir, { recursive: true });
+  await writeFile(issueFile, markdown, 'utf-8');
+  if (meta !== undefined) {
+    await writeFile(metadataFile, serializeMetadata(meta), 'utf-8');
+  }
+}
+
+/**
+ * Fixture in the legacy `<projectRoot>/issues/<id>/` layout, written without
+ * resolving anything — resolving would mark the issue as already checked and
+ * skip the very migration these cases exercise.
+ */
+async function writeLegacyIssue(id: string, markdown: string, meta?: IssueMetadata | string) {
   const dir = join(root, 'issues', id);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'issue.md'), markdown, 'utf-8');
   if (meta !== undefined) {
-    const content = typeof meta === 'string' ? meta : `${JSON.stringify(meta, null, 2)}\n`;
-    await writeFile(join(dir, 'metadata.json'), content, 'utf-8');
+    await writeFile(join(dir, 'metadata.json'), serializeMetadata(meta), 'utf-8');
   }
 }
 
 async function readMetadata(id: string): Promise<IssueMetadata> {
-  return JSON.parse(await readFile(join(root, 'issues', id, 'metadata.json'), 'utf-8'));
+  return JSON.parse(await readFile((await paths(id)).metadataFile, 'utf-8'));
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 beforeEach(async () => {
-  mockRun.mockReset();
   ghUnavailable();
   root = await mkdtemp(join(tmpdir(), 'issue-flow-local-provider-'));
+  // The provider calls resolveIssuePaths() with no options, so the `{ env }`
+  // seam never reaches it: the override has to be on the real process.env.
+  home = await mkdtemp(join(tmpdir(), 'issue-flow-local-home-'));
+  previousHome = process.env[GLOBAL_ROOT_ENV];
+  process.env[GLOBAL_ROOT_ENV] = home;
+  resetStorageResolutionCache();
   provider = new LocalFileIssueProvider(root);
 });
 
 afterEach(async () => {
+  if (previousHome === undefined) delete process.env[GLOBAL_ROOT_ENV];
+  else process.env[GLOBAL_ROOT_ENV] = previousHome;
   await rm(root, { recursive: true, force: true });
+  await rm(home, { recursive: true, force: true });
 });
 
 describe('LocalFileIssueProvider', () => {
@@ -190,7 +254,7 @@ describe('get', () => {
   });
 
   it('returns null when the directory exists without issue.md', async () => {
-    await mkdir(join(root, 'issues', '7'), { recursive: true });
+    await mkdir((await paths('7')).issueDir, { recursive: true });
 
     expect(await provider.get('7')).toBeNull();
   });
@@ -198,20 +262,57 @@ describe('get', () => {
   it('throws citing the path and the field when metadata.json breaks the schema', async () => {
     const invalid = { ...metadata(), state: 'archived' };
     await writeIssue('23', '# Title\n\nBody\n', invalid as unknown as IssueMetadata);
+    const { metadataFile } = await paths('23');
 
-    await expect(provider.get('23')).rejects.toThrow(/issues[/\\]23[/\\]metadata\.json/);
+    await expect(provider.get('23')).rejects.toThrow(metadataFile);
     await expect(provider.get('23')).rejects.toThrow(/state/);
   });
 
   it('throws citing the path when metadata.json is not valid JSON', async () => {
     await writeIssue('23', '# Title\n\nBody\n', '{ not json');
+    const { metadataFile } = await paths('23');
 
-    await expect(provider.get('23')).rejects.toThrow(/Invalid JSON in issues[/\\]23/);
+    await expect(provider.get('23')).rejects.toThrow(`Invalid JSON in ${metadataFile}`);
   });
 
   it('rejects identifiers that would escape the issues directory', async () => {
     await expect(provider.get('../../etc')).rejects.toThrow(/Invalid local issue identifier/);
     await expect(provider.get('   ')).rejects.toThrow(/cannot be empty/);
+  });
+});
+
+describe('global storage', () => {
+  it('reads an issue that still only exists in the legacy tree, leaving it untouched', async () => {
+    await writeLegacyIssue('23', '# Legacy issue\n\nStill in the repo.\n', metadata());
+
+    expect(await provider.get('23')).toMatchObject({
+      id: '23',
+      title: 'Legacy issue',
+      body: 'Still in the repo.',
+    });
+
+    // Migrated, not moved: the copy landed in the global tree and the source is
+    // byte for byte what it was.
+    const { issueFile } = await paths('23');
+    expect(await readFile(issueFile, 'utf-8')).toBe('# Legacy issue\n\nStill in the repo.\n');
+    expect(await readFile(join(root, 'issues', '23', 'issue.md'), 'utf-8')).toBe(
+      '# Legacy issue\n\nStill in the repo.\n',
+    );
+  });
+
+  it('allocates above a number that only the legacy tree knows about', async () => {
+    await writeLegacyIssue('41', '# Legacy\n\nBody\n');
+
+    expect(await provider.create({ title: 'Next', body: 'Body', labels: [] })).toMatchObject({
+      id: '42',
+    });
+  });
+
+  it('never writes under <projectRoot>/issues/', async () => {
+    await provider.create({ title: 'Fresh', body: 'Body', labels: [] });
+    await provider.close('1');
+
+    expect(await exists(join(root, 'issues'))).toBe(false);
   });
 });
 
@@ -235,7 +336,7 @@ describe('create', () => {
       contentHash: hashIssueContent('New local demand', 'Describe it here.'),
     });
 
-    const markdown = await readFile(join(root, 'issues', '1', 'issue.md'), 'utf-8');
+    const markdown = await readFile((await paths('1')).issueFile, 'utf-8');
     expect(markdown).toBe('# New local demand\n\nDescribe it here.\n');
 
     expect(await readMetadata('1')).toMatchObject({
@@ -270,8 +371,7 @@ describe('create', () => {
 
   it('allocates above the highest remote number when GitHub answers', async () => {
     await writeIssue('23', '# Existing\n\nBody\n', metadata());
-    mockRun.mockReset();
-    mockRun.mockResolvedValue(result({ stdout: JSON.stringify([{ number: 108 }]) }));
+    mockGh(async () => result({ stdout: JSON.stringify([{ number: 108 }]) }));
 
     expect(await provider.create({ title: 'Next', body: 'Body', labels: [] })).toMatchObject({
       id: '109',
@@ -279,8 +379,7 @@ describe('create', () => {
   });
 
   it('counts pull requests too, since GitHub shares one counter', async () => {
-    mockRun.mockReset();
-    mockRun.mockImplementation(async (_cmd: string, args: string[] = []) =>
+    mockGh(async (_cmd, args) =>
       result({ stdout: JSON.stringify([{ number: args[0] === 'pr' ? 300 : 7 }]) }),
     );
 
@@ -290,8 +389,7 @@ describe('create', () => {
   });
 
   it('ignores an unreachable or failing remote', async () => {
-    mockRun.mockReset();
-    mockRun.mockResolvedValue(result({ exitCode: 1, stderr: 'no git remote found' }));
+    mockGh(async () => result({ exitCode: 1, stderr: 'no git remote found' }));
 
     expect(await provider.create({ title: 'Offline', body: 'Body', labels: [] })).toMatchObject({
       id: '1',
@@ -352,7 +450,7 @@ describe('create', () => {
       /already exists.*pick another identifier/s,
     );
 
-    const untouched = await readFile(join(root, 'issues', '7', 'issue.md'), 'utf-8');
+    const untouched = await readFile((await paths('7')).issueFile, 'utf-8');
     expect(untouched).toBe('# Existing\n\nBody\n');
   });
 });
@@ -398,17 +496,28 @@ describe('close', () => {
     });
   });
 
-  it('throws when the issue does not exist', async () => {
-    await expect(provider.close('999')).rejects.toThrow(/not found/);
+  it('throws citing the resolved directory when the issue does not exist', async () => {
+    const { issueDir } = await paths('999');
+
+    await expect(provider.close('999')).rejects.toThrow(`not found at ${issueDir}`);
   });
 });
 
 describe('isAvailable', () => {
-  it('is true when the project directory is writable', async () => {
+  it('is true once the project storage directory is writable, creating it if needed', async () => {
+    const { projectDir } = await resolveProjectPaths({ projectRoot: root });
+    expect(await exists(projectDir)).toBe(false);
+
     expect(await provider.isAvailable()).toBe(true);
+    expect(await exists(projectDir)).toBe(true);
   });
 
-  it('is false when the project directory is missing', async () => {
-    expect(await new LocalFileIssueProvider(join(root, 'nope')).isAvailable()).toBe(false);
+  it('is false when the global storage directory cannot be created', async () => {
+    const blocker = join(root, 'not-a-directory');
+    await writeFile(blocker, 'x', 'utf-8');
+    process.env[GLOBAL_ROOT_ENV] = join(blocker, 'home');
+    resetStorageResolutionCache();
+
+    expect(await new LocalFileIssueProvider(root).isAvailable()).toBe(false);
   });
 });

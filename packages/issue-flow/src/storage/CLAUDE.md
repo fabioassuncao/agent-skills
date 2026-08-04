@@ -1,8 +1,8 @@
 # src/storage
 
 Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands through
-`resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr`, `pr-review`, `run` and `execute`
-so far; the local Issue provider is still being migrated off `getIssueDir()`).
+`resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr`, `pr-review`, `run` and `execute`)
+and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the same way.
 
 ## Rules
 
@@ -19,6 +19,10 @@ so far; the local Issue provider is still being migrated off `getIssueDir()`).
   skips the migration and reads an empty directory.
 - `resolve.ts` still creates nothing: a call site that writes keeps its own
   `mkdir(paths.issueDir, { recursive: true })`.
+- **A question about the project rather than about one issue uses
+  `resolveProjectPaths()`** (same module, same cache): "is this writable?" and "which identifiers
+  are taken?" have no issue number to hand to `resolveIssuePaths()`. It returns `projectId`,
+  `projectDir` and `issuesDir`; do not derive them from `dirname(paths.issueDir)`.
 - **A headless phase that puts one of these paths in a prompt placeholder must also pass
   `addDirs: [issueDir]` to `runHeadless`** — the global tree is outside the working directory, so
   `claude -p` denies both the read and the write without a matching `--add-dir`. `core/executor.ts`
@@ -79,6 +83,10 @@ so far; the local Issue provider is still being migrated off `getIssueDir()`).
   real `~/.issue-flow` the moment the summary calls `prReviewDir()`. When a file has several
   `describe` blocks with their own hooks, put the `ISSUE_FLOW_HOME` setup in **file-level**
   `beforeEach`/`afterEach` (they run around each block's own hooks) so no block can forget it.
+- **A test that mocks `utils/shell.js` (or `execa`) wholesale also intercepts `getRemoteUrl`.** The
+  double must answer `git` first — `exitCode: 1`, i.e. no remote — or the payload meant for `gh`
+  becomes the project's "remote" and the whole global tree moves to a different `projectId`
+  (`local.test.ts`'s `mockGh` is the shape to copy).
 - **A `mockImplementation` that writes to a resolved path leaks across `describe` blocks.**
   `vi.clearAllMocks()` clears calls but keeps implementations, so a phase double installed in one
   block still runs in the next one. While each block wrote under its own `join(tmp, 'issues', …)`

@@ -1,18 +1,16 @@
 import { constants } from 'node:fs';
 import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { ZodError } from 'zod';
 import { isoNow } from '../../core/state-manager.js';
 import { issueMetadataSchema } from '../../schemas.js';
+import type { IssuePaths } from '../../storage/paths.js';
+import { resolveIssuePaths, resolveProjectPaths } from '../../storage/resolve.js';
 import { writeFileAtomic } from '../../utils/fs.js';
 import { getProjectRoot } from '../../utils/git.js';
 import { run } from '../../utils/shell.js';
 import { hashIssueContent } from '../hash.js';
 import type { IssueProvider } from '../provider.js';
 import type { Issue, IssueDraft, IssueMetadata } from '../types.js';
-
-/** Directory (relative to the project root) holding one folder per Issue. */
-const ISSUES_DIR = 'issues';
 
 /** Timeout for the optional remote probes done while allocating an identifier. */
 const REMOTE_PROBE_TIMEOUT_MS = 10_000;
@@ -71,12 +69,18 @@ function renderIssueMarkdown(title: string, body: string): string {
 }
 
 /**
- * Issue provider backed by plain files under `issues/<id>/`.
+ * Issue provider backed by plain files in the project's global storage
+ * directory (`~/.issue-flow/projects/<project-id>/issues/<id>/`).
  *
  * Enables the whole pipeline without any network access: no gh, no remote, no
  * authentication. `issue.md` is the source of truth for the content and
  * `metadata.json` for everything else; the content hash is always recomputed
  * from the file so a hand-edited issue.md is never reported as unchanged.
+ *
+ * Every path goes through `resolveIssuePaths()`, exactly like the pipeline
+ * commands, so an issue that still only exists under the legacy
+ * `<projectRoot>/issues/` tree is migrated on first read instead of coming back
+ * as "not found".
  */
 export class LocalFileIssueProvider implements IssueProvider {
   readonly name = 'local' as const;
@@ -84,14 +88,28 @@ export class LocalFileIssueProvider implements IssueProvider {
   private readonly configuredRoot?: string;
   private cachedRoot?: string;
 
+  /**
+   * @param projectRoot Repository the issues belong to. It is no longer the
+   * literal parent of an `issues/` directory: it is the root the project id —
+   * and therefore the global storage directory — is derived from.
+   */
   constructor(projectRoot?: string) {
     this.configuredRoot = projectRoot;
   }
 
-  /** True whenever the project directory exists and is writable. Never throws. */
+  /**
+   * True whenever the project's global storage directory is writable, creating
+   * it when it does not exist yet. Never throws.
+   *
+   * A brand new project has no directory of its own until something writes, so
+   * "does it already exist" would report the provider as unavailable exactly
+   * when it is about to create the very first issue.
+   */
   async isAvailable(): Promise<boolean> {
     try {
-      await access(await this.root(), constants.W_OK);
+      const { projectDir } = await resolveProjectPaths({ projectRoot: await this.root() });
+      await mkdir(projectDir, { recursive: true });
+      await access(projectDir, constants.W_OK);
       return true;
     } catch {
       return false;
@@ -154,9 +172,9 @@ export class LocalFileIssueProvider implements IssueProvider {
     // mirrors: allocating a fresh one would make `issue-flow run <n>` see two
     // unrelated Issues instead of one demand in two places.
     const id = draft.id === undefined ? String(await this.allocateNumber()) : normalizeId(draft.id);
-    const dir = await this.issueDir(id);
+    const paths = await this.paths(id);
 
-    await mkdir(dir, { recursive: true });
+    await mkdir(paths.issueDir, { recursive: true });
 
     // Exclusive create (the 'wx' flag, O_EXCL under the hood) instead of a
     // check-then-write: two concurrent `create()` calls racing the same id
@@ -164,14 +182,14 @@ export class LocalFileIssueProvider implements IssueProvider {
     // second would then silently overwrite the first through the atomic
     // temp+rename writer. The OS now rejects the loser instead.
     try {
-      await writeFile(join(dir, 'issue.md'), renderIssueMarkdown(draft.title, draft.body), {
+      await writeFile(paths.issueFile, renderIssueMarkdown(draft.title, draft.body), {
         encoding: 'utf-8',
         flag: 'wx',
       });
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
         throw new Error(
-          `Local issue '${id}' already exists at ${join(ISSUES_DIR, id, 'issue.md')}. ` +
+          `Local issue '${id}' already exists at ${paths.issueFile}. ` +
             'Remove it or pick another identifier before creating a new Issue.',
         );
       }
@@ -214,7 +232,8 @@ export class LocalFileIssueProvider implements IssueProvider {
   async close(id: string): Promise<void> {
     const issue = await this.get(id);
     if (!issue) {
-      throw new Error(`Local issue '${normalizeId(id)}' not found under ${ISSUES_DIR}/`);
+      const issueDir = (await this.paths(normalizeId(id))).issueDir;
+      throw new Error(`Local issue '${normalizeId(id)}' not found at ${issueDir}`);
     }
 
     const issueId = normalizeId(id);
@@ -252,22 +271,25 @@ export class LocalFileIssueProvider implements IssueProvider {
     return this.cachedRoot;
   }
 
-  private async issueDir(id: string): Promise<string> {
-    return join(await this.root(), ISSUES_DIR, id);
+  /**
+   * Every artifact of one issue, from the same resolver the pipeline commands
+   * use — which is also what triggers the migration of a legacy-only issue.
+   */
+  private async paths(id: string): Promise<IssuePaths> {
+    return resolveIssuePaths(id, { projectRoot: await this.root() });
   }
 
   private async issueFile(id: string): Promise<string> {
-    return join(await this.issueDir(id), 'issue.md');
+    return (await this.paths(id)).issueFile;
   }
 
   private async metadataFile(id: string): Promise<string> {
-    return join(await this.issueDir(id), 'metadata.json');
+    return (await this.paths(id)).metadataFile;
   }
 
   /** Parsed metadata.json, or `null` when the file is absent. */
   private async readMetadata(id: string): Promise<IssueMetadata | null> {
     const path = await this.metadataFile(id);
-    const relative = join(ISSUES_DIR, id, 'metadata.json');
 
     let raw: string;
     try {
@@ -281,7 +303,7 @@ export class LocalFileIssueProvider implements IssueProvider {
     try {
       parsed = JSON.parse(raw);
     } catch (err: unknown) {
-      throw new Error(`Invalid JSON in ${relative}: ${(err as Error).message}`);
+      throw new Error(`Invalid JSON in ${path}: ${(err as Error).message}`);
     }
 
     try {
@@ -291,7 +313,7 @@ export class LocalFileIssueProvider implements IssueProvider {
         const details = err.issues
           .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
           .join('\n');
-        throw new Error(`Invalid issue metadata at ${relative}:\n${details}`);
+        throw new Error(`Invalid issue metadata at ${path}:\n${details}`);
       }
       throw err;
     }
@@ -301,9 +323,16 @@ export class LocalFileIssueProvider implements IssueProvider {
     await writeFileAtomic(await this.metadataFile(id), `${JSON.stringify(metadata, null, 2)}\n`);
   }
 
-  /** Highest number across every issues/<id>/metadata.json and numeric directory name. */
+  /**
+   * Highest number across every `<issuesDir>/<id>/metadata.json` and numeric
+   * directory name.
+   *
+   * Resolving `issuesDir` also migrates the legacy tree when it is the only one
+   * that exists, which is what keeps an already-taken number from being handed
+   * out a second time after adopting the global storage.
+   */
   private async highestLocalNumber(): Promise<number> {
-    const dir = join(await this.root(), ISSUES_DIR);
+    const { issuesDir: dir } = await resolveProjectPaths({ projectRoot: await this.root() });
 
     let entries: string[];
     try {

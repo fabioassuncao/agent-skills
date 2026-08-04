@@ -7,6 +7,7 @@ import {
   type GetGlobalRootOptions,
   getGlobalRoot,
   getIssuePaths,
+  getProjectDir,
   ISSUES_DIR_NAME,
   type IssuePaths,
 } from './paths.js';
@@ -154,6 +155,44 @@ function getProjectResolution(
 
   projectCache.set(key, pending);
   return pending;
+}
+
+/** Project-level directories of the current repository inside the global tree. */
+export interface ProjectStoragePaths {
+  /** Deterministic id derived from the repository's remote (or its path). */
+  projectId: string;
+  /** `<globalRoot>/projects/<projectId>`. */
+  projectDir: string;
+  /** `<projectDir>/issues` — the parent of every issue directory. */
+  issuesDir: string;
+}
+
+/**
+ * Resolve the project-level directories, without naming an issue.
+ *
+ * The issue-agnostic half of {@link resolveIssuePaths}, for the two questions
+ * that are about the project rather than about one issue: "can I write here?"
+ * (`LocalFileIssueProvider.isAvailable`) and "which identifiers are taken?"
+ * (`highestLocalNumber`, which walks `issuesDir`). It shares the same cache, so
+ * asking here and then resolving an issue still costs a single git call.
+ *
+ * Like the rest of this module it creates nothing — a caller that needs the
+ * directory to exist does its own `mkdir(..., { recursive: true })`.
+ */
+export async function resolveProjectPaths(
+  options: ResolveIssuePathsOptions = {},
+): Promise<ProjectStoragePaths> {
+  const { projectRoot: projectRootOption, ...rootOptions } = options;
+  const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
+
+  const project = await getProjectResolution(projectRoot, rootOptions);
+  const projectDir = getProjectDir(project.projectId, rootOptions);
+
+  return {
+    projectId: project.projectId,
+    projectDir,
+    issuesDir: join(projectDir, ISSUES_DIR_NAME),
+  };
 }
 
 /**
