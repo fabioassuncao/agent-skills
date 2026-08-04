@@ -3,9 +3,14 @@ import { Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemoryPublisher } from '../core/session-state.js';
+import {
+  createInitialSnapshot,
+  MemoryPublisher,
+  type SessionSnapshot,
+} from '../core/session-state.js';
 import { sessionSnapshotSchema } from '../schemas.js';
 import { startWebServer, type WebServerHandle } from './server.js';
+import type { ActiveSession, SessionDirectoryHandle } from './session-directory.js';
 
 const noop = (): void => {};
 
@@ -61,7 +66,7 @@ describe('startWebServer', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('referrer-policy')).toBe('no-referrer');
     expect(res.headers.get('x-robots-tag')).toBe('noindex, nofollow');
-    expect(res.headers.get('etag')).toBe('"1"');
+    expect(res.headers.get('etag')).toMatch(/^"[0-9a-f]+"$/);
 
     const payload = await res.json();
     expect(sessionSnapshotSchema.parse(payload)).toBeTruthy();
@@ -148,7 +153,7 @@ describe('startWebServer', () => {
       headers: { 'If-None-Match': etag as string },
     });
     expect(changed.status).toBe(200);
-    expect(changed.headers.get('etag')).toBe('"2"');
+    expect(changed.headers.get('etag')).not.toBe(etag);
   });
 
   it('lists a single session on /api/sessions', async () => {
@@ -162,7 +167,7 @@ describe('startWebServer', () => {
       sessionId: 'session-1',
       issueNumber: 22,
       status: 'running',
-      statusUrl: '/api/status',
+      statusUrl: '/api/status?session=session-1',
     });
   });
 
@@ -287,5 +292,111 @@ describe('startWebServer', () => {
     expect(process.listenerCount('SIGINT')).toBe(sigintBefore);
     expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore);
     await expect(fetch(`${handle.url}/api/health`)).rejects.toThrow();
+  });
+});
+
+// ── Multi-session mode (US-003/US-004/US-005) ──────────────────────────────
+
+function makeSnapshot(sessionId: string, issueNumber: number): SessionSnapshot {
+  return {
+    ...createInitialSnapshot(),
+    sessionId,
+    status: 'running',
+    issue: { ...createInitialSnapshot().issue, number: issueNumber },
+  };
+}
+
+/** A `SessionDirectoryHandle` double backed by a fixed, in-memory list. */
+function fakeSessionDirectory(snapshots: SessionSnapshot[]): SessionDirectoryHandle {
+  const sessions: ActiveSession[] = snapshots.map((snapshot) => ({
+    issueDir: '/fake/issue-dir',
+    filePath: '/fake/issue-dir/session.json',
+    snapshot,
+    updatedAtMs: Date.now(),
+  }));
+  return {
+    sessions: () => sessions,
+    getSession: (sessionId) => sessions.find((s) => s.snapshot.sessionId === sessionId),
+    refresh: async () => {},
+    close: () => {},
+  };
+}
+
+describe('startWebServer — multi-session mode (directory-backed)', () => {
+  const handles: WebServerHandle[] = [];
+
+  afterEach(async () => {
+    for (const handle of handles.splice(0)) {
+      await handle.close();
+    }
+  });
+
+  async function start(snapshots: SessionSnapshot[]): Promise<WebServerHandle> {
+    const handle = await startWebServer({
+      sessions: fakeSessionDirectory(snapshots),
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+    return handle;
+  }
+
+  it('GET /api/sessions lists every active session with a distinct statusUrl each', async () => {
+    const handle = await start([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)]);
+
+    const sessions = await (await fetch(`${handle.url}/api/sessions`)).json();
+    expect(sessions).toHaveLength(2);
+    const urls = sessions.map((s: { statusUrl: string }) => s.statusUrl);
+    expect(new Set(urls).size).toBe(2);
+    expect(urls).toEqual(
+      expect.arrayContaining(['/api/status?session=sess-a', '/api/status?session=sess-b']),
+    );
+  });
+
+  it('GET /api/sessions returns an empty array, not an error, with zero active sessions', async () => {
+    const handle = await start([]);
+    const res = await fetch(`${handle.url}/api/sessions`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('GET /api/status?session=<id> returns that specific session', async () => {
+    const handle = await start([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)]);
+
+    const res = await fetch(`${handle.url}/api/status?session=sess-b`);
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.sessionId).toBe('sess-b');
+    expect(payload.issue.number).toBe(2);
+  });
+
+  it('GET /api/status?session=<unknown> answers 404', async () => {
+    const handle = await start([makeSnapshot('sess-a', 1)]);
+    const res = await fetch(`${handle.url}/api/status?session=does-not-exist`);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /api/status with no query and exactly one active session answers it directly (back-compat)', async () => {
+    const handle = await start([makeSnapshot('sess-a', 1)]);
+    const res = await fetch(`${handle.url}/api/status`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).sessionId).toBe('sess-a');
+  });
+
+  it('GET /api/status with no query and zero active sessions answers 404 explicitly', async () => {
+    const handle = await start([]);
+    const res = await fetch(`${handle.url}/api/status`);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /api/status with no query and several active sessions answers 409 explicitly', async () => {
+    const handle = await start([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)]);
+    const res = await fetch(`${handle.url}/api/status`);
+    expect(res.status).toBe(409);
+    const payload = await res.json();
+    expect(payload.sessions).toEqual(expect.arrayContaining(['sess-a', 'sess-b']));
   });
 });
