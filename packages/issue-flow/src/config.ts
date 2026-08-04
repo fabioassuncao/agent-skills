@@ -9,6 +9,8 @@ import {
   type WebConfig,
   webConfigSchema,
 } from './schemas.js';
+import { getGlobalRoot } from './storage/paths.js';
+import { type GlobalConfig, globalConfigSchema } from './storage/schemas.js';
 import type { EngineConfig, ResolvedPaths } from './types.js';
 import { printWarning } from './ui/logger.js';
 import { getProjectRoot } from './utils/git.js';
@@ -171,6 +173,139 @@ async function readProjectConfigFile(
   }
 
   return parsed as Record<string, unknown>;
+}
+
+// ── Global configuration file ───────────────────────────────────────────────
+
+/** Machine-wide configuration file, read from the global storage root. */
+export const GLOBAL_CONFIG_FILENAME = 'config.json';
+
+export interface LoadGlobalConfigOptions {
+  /** Environment source, forwarded to getGlobalRoot(). Defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** Directory holding config.json. Defaults to getGlobalRoot(). */
+  globalRoot?: string;
+  /** Warning sink. Defaults to printWarning. */
+  warn?: (message: string) => void;
+}
+
+/**
+ * Read and parse `~/.issue-flow/config.json`, the preferences a user sets once
+ * for every project.
+ *
+ * Never throws, exactly like readProjectConfigFile(): an absent file, an
+ * unreadable path, invalid JSON, a non-object root or an invalid key all
+ * degrade to "no global preference" so the caller falls back to the layers
+ * below. Absence is silent — it is the common case; every other failure warns,
+ * because a preference the user did write is being dropped.
+ *
+ * Validation happens key by key on purpose: a typo in `retry` must not cost the
+ * user their `web` settings. Unknown keys are dropped without a warning, which
+ * is what keeps a file written by a newer release readable here.
+ */
+export async function loadGlobalConfig(
+  options: LoadGlobalConfigOptions = {},
+): Promise<GlobalConfig> {
+  const warn = options.warn ?? printWarning;
+
+  let root: string;
+  try {
+    root = options.globalRoot ?? getGlobalRoot({ env: options.env ?? process.env });
+  } catch (err: unknown) {
+    warn(`Ignoring ${GLOBAL_CONFIG_FILENAME}: ${(err as Error).message}`);
+    return {};
+  }
+
+  const filePath = join(root, GLOBAL_CONFIG_FILENAME);
+  let raw: string;
+  try {
+    raw = await readFile(filePath, 'utf-8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      warn(`Ignoring ${GLOBAL_CONFIG_FILENAME}: ${(err as Error).message}`);
+    }
+    return {};
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    warn(`Ignoring ${GLOBAL_CONFIG_FILENAME}: invalid JSON.`);
+    return {};
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    warn(`Ignoring ${GLOBAL_CONFIG_FILENAME}: expected a JSON object.`);
+    return {};
+  }
+
+  const config: GlobalConfig = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    const result = globalConfigSchema.safeParse({ [key]: value });
+    if (!result.success) {
+      warn(
+        `Ignoring "${key}" key of ${GLOBAL_CONFIG_FILENAME}: ${result.error.issues[0]?.message ?? 'invalid value'}.`,
+      );
+      continue;
+    }
+    // An unknown key parses successfully into an empty object and disappears
+    // here, which is the retro-compatible behaviour we want.
+    Object.assign(config, result.data);
+  }
+
+  return config;
+}
+
+/**
+ * The configuration sources of the engine, ordered from the lowest to the
+ * highest precedence:
+ *
+ *   defaults < config.json (global) < .issue-flow.json (project) < env < CLI
+ */
+export interface ConfigLayers<T extends object> {
+  /** Hard-coded fallbacks, e.g. DEFAULTS or the values baked into a schema. */
+  defaults?: Partial<T>;
+  /** ~/.issue-flow/config.json, via loadGlobalConfig(). */
+  global?: Partial<T>;
+  /** The matching key of .issue-flow.json in the project root. */
+  project?: Partial<T>;
+  /** ISSUE_FLOW_* environment variables. */
+  env?: Partial<T>;
+  /** CLI flags. */
+  cli?: Partial<T>;
+}
+
+/**
+ * Merge configuration layers following the documented precedence.
+ *
+ * Pure and shallow: a layer only participates with the keys it actually
+ * carries, so an absent key never erases the layer below it. `undefined` counts
+ * as absent — that is what lets a layer be built by assigning only the values
+ * that were really provided.
+ *
+ * Because the merge is shallow, nested objects (`web`, `retry`) are replaced
+ * whole rather than merged field by field; callers that need per-field
+ * precedence inside a nested key must flatten it into its own merge.
+ *
+ * Caveat for the `project` layer: it must be the *raw* set of keys the user
+ * wrote, not the output of a schema that materializes defaults. In zod 4 a
+ * `.default()` survives `.partial()`, so parsing the project file with
+ * `webConfigSchema.partial()` yields every default and would make the project
+ * layer swallow the global one.
+ */
+export function mergeConfigLayers<T extends object>(layers: ConfigLayers<T>): Partial<T> {
+  const merged: Record<string, unknown> = {};
+
+  for (const layer of [layers.defaults, layers.global, layers.project, layers.env, layers.cli]) {
+    for (const [key, value] of Object.entries(layer ?? {})) {
+      if (value !== undefined) {
+        merged[key] = value;
+      }
+    }
+  }
+
+  return merged as Partial<T>;
 }
 
 // ── Web monitoring configuration ────────────────────────────────────────────

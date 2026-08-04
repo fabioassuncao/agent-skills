@@ -21,6 +21,9 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
   indistinguishable from a value the user wrote and silently overrides the layer above it.
 - Schemas read from disk are never `.strict()`: a file written by a newer version must stay
   readable by an older one.
+- The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other
+  loaders and to `mergeConfigLayers` — this directory owns the **format**, `config.ts` owns the
+  **precedence**. Keep new loaders there rather than splitting precedence across two modules.
 
 ## Gotchas
 

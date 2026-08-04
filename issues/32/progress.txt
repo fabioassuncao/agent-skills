@@ -12,6 +12,8 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
 - Identificadores que viram segmento de path **sempre** passam por validação antes do `join` (rejeitar vazio, `/`, `\`, `.` e `..`) — ver `normalizeId` em `issues/providers/local.ts:29` e `normalizeIssueNumber` em `storage/paths.ts`.
 - Já existe `packages/issue-flow/src/storage/CLAUDE.md` com as regras do módulo de storage; atualize-o quando descobrir algo reusável ali.
 - **zod 4**: `.partial()` NÃO remove `.default()` — `z.object({p: z.number().default(1)}).partial().parse({})` devolve `{p: 1}`. Para reusar um campo sem o default use `.unwrap()` (`webConfigSchema.shape.port.unwrap()`), que preserva as constraints. Consequência: camadas intermediárias de precedência nunca podem ser montadas com `.partial()` de um schema com defaults.
+- Leitores de arquivo de config **nunca lançam**: ausência é silenciosa (caso comum), qualquer outra falha (JSON inválido, raiz não-objeto, IO) devolve camada vazia + `warn()`. Distinga ausência de erro de IO por `(err as NodeJS.ErrnoException).code !== 'ENOENT'`.
+- Precedência oficial do projeto: **CLI > env > `.issue-flow.json` > `config.json` (global) > defaults**, implementada por `mergeConfigLayers()` em `src/config.ts` (shallow, ignora `undefined`).
 - Helpers de git que podem falhar legitimamente (sem remote, base branch desconhecida) retornam `null`/default em vez de lançar; só `getProjectRoot`/`getCurrentBranch` lançam. Toda chamada a git passa por `run()` de `utils/shell.ts` (execa com `reject: false`, nunca lança por exit code).
 
 ---
@@ -93,5 +95,24 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
   - `z.object()` do zod 4 já é não-estrito e **descarta** chaves desconhecidas no parse (não lança) — é o que satisfaz "campos aditivos não invalidam leitura por versão antiga" sem precisar de `.passthrough()`.
   - `nullable` ≠ `optional`: `lastAttemptAt: null` é obrigatório no arquivo; omitir a chave falha o parse de propósito (o teste cobre).
   - `it.each` com tuplas `[label, valor]` e título `'rejects %s'` deixa a tabela de rejeição legível; use `_label` no callback para não irritar o Biome com parâmetro não usado.
+  - Verificação em browser não se aplica.
+---
+
+## 2026-08-03 23:50 - US-006
+- Implementados o leitor do `config.json` global e a função pura de precedência.
+- Arquivos alterados:
+  - `packages/issue-flow/src/config.ts` — nova seção "Global configuration file": `GLOBAL_CONFIG_FILENAME` (`config.json`), `LoadGlobalConfigOptions` (`env`, `globalRoot`, `warn`), `loadGlobalConfig()`, `ConfigLayers<T>` e `mergeConfigLayers<T>()`.
+  - `packages/issue-flow/src/config.test.ts` — 23 testes novos (12 de `loadGlobalConfig`, 11 de `mergeConfigLayers`).
+  - `packages/issue-flow/src/storage/CLAUDE.md` — nota sobre a divisão de responsabilidades (storage owns format, config.ts owns precedence).
+- Comportamento: ausente → `{}` silencioso; JSON inválido, raiz não-objeto (array/null/escalar), IO (EISDIR/permissão) e root irresolvível → `{}` + warning. **Validação chave a chave**: `globalConfigSchema.safeParse({ [key]: value })` por chave, então `retry` inválido não derruba `web`/`commit`; chave desconhecida some sem warning (retrocompatibilidade).
+- `mergeConfigLayers({defaults, global, project, env, cli})` é shallow, ignora `undefined` e não muta as entradas. `loadWebConfig`/`loadIssuesConfig`/`loadPrReviewConfig` **não** foram tocados, como o AC exige.
+- Checks: `npm run typecheck` OK, `npm test` 651 testes OK (38 arquivos), `npm run lint` OK. Nenhum teste existente alterado.
+- **Learnings for future iterations:**
+  - Validar chave a chave (em vez de `schema.safeParse(objetoInteiro)`) é o que permite "chave inválida → só ela é ignorada + warning citando a chave". Bônus: chave desconhecida parseia para `{}` e desaparece sozinha, sem `if` extra.
+  - Para simular erro de IO de forma portável no teste, crie um **diretório** com o nome do arquivo (`mkdir(join(root, 'config.json'))`) → `readFile` falha com `EISDIR`. `chmod 000` não serve (roda como root em vários CIs).
+  - `it.each([...] as const)` com pares `[vencedor, perdedor]` + chaves computadas (`{ [loser]: ..., [winner]: ... }`) cobre a matriz de precedência em um teste só; sem o `as const` o TS não aceita a chave computada.
+  - Nomes de chave em objeto literal computado dentro de `mergeConfigLayers<Sample>` exigem que o tipo genérico seja `object`; `Record<string, string>` funciona bem para o teste da ordem completa.
+  - O AC de "web.port global ausente não derruba o do projeto" é verificado combinando `loadGlobalConfig` + `mergeConfigLayers` — é o teste que amarra as duas metades da story.
+  - US-007 vai precisar de `writeFileAtomic()` (`utils/fs.ts`), que já resolve `EXDEV` no `rename`.
   - Verificação em browser não se aplica.
 ---
