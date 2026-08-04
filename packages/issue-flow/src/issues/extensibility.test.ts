@@ -26,7 +26,12 @@ import type { Issue, IssueDraft, IssuesConfig } from './types.js';
 // prerequisite checks, the commands and the templates are the production ones.
 vi.mock('../core/headless.js', () => ({ runHeadless: vi.fn() }));
 vi.mock('execa', () => ({ execa: vi.fn() }));
-vi.mock('../core/session-git.js', () => ({ publishGitState: vi.fn(async () => {}) }));
+// Partial: run.ts reaches the pr-review discovery, which imports
+// listPullRequests from this same module. Only the publisher is stubbed.
+vi.mock('../core/session-git.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../core/session-git.js')>();
+  return { ...actual, publishGitState: vi.fn(async () => {}) };
+});
 vi.mock('../commands/execute.js', () => ({ runExecute: vi.fn(async () => 0) }));
 vi.mock('../ui/pipeline-renderer.js', () => ({
   runPipelineWithRenderer: vi.fn(

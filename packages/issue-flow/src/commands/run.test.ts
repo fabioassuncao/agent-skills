@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +14,7 @@ vi.mock('./plan.js', () => ({ runPlan: vi.fn(async () => 0) }));
 vi.mock('./execute.js', () => ({ runExecute: vi.fn(async () => 0) }));
 vi.mock('./review.js', () => ({ runReview: vi.fn(async () => 0) }));
 vi.mock('./pr.js', () => ({ runPr: vi.fn(async () => 0) }));
+vi.mock('./pr-review.js', () => ({ runPrReview: vi.fn(async () => 0) }));
 
 // getIssueDir() shells out to `git rev-parse --show-toplevel` (via utils/git.ts)
 // to anchor issues/<N>/ to the repo root instead of process.cwd(). Every test
@@ -83,11 +84,14 @@ import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import type { TaskPlan } from '../types.js';
+import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { startWebServer } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
 import { runPr } from './pr.js';
+import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
 import { runPipeline } from './run.js';
@@ -368,5 +372,169 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
 
     expect(code).toBe(0);
     expect(vi.mocked(runInit)).toHaveBeenCalledWith('local');
+  });
+});
+
+/** Minimal plan the plan phase would have written. */
+function makePlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
+  return {
+    project: 'issue-flow',
+    issueNumber: 42,
+    issueUrl: '',
+    branchName: 'issue/42-sample',
+    description: 'Sample',
+    issueStatus: 'in_progress',
+    completedAt: null,
+    lastAttemptAt: null,
+    lastError: null,
+    correctionCycle: 0,
+    maxCorrectionCycles: 3,
+    pipeline: {
+      prdCompleted: false,
+      jsonCompleted: false,
+      executionCompleted: false,
+      reviewCompleted: false,
+      prCreated: false,
+    },
+    userStories: [],
+    ...overrides,
+  };
+}
+
+describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
+  let tmp: string;
+  let originalCwd: string;
+  let close: ReturnType<typeof vi.fn>;
+  const savedEnv = new Map<string, string | undefined>();
+
+  const tasksPath = (): string => join(tmp, 'issues', '42', 'tasks.json');
+
+  const writePlan = async (plan: TaskPlan): Promise<void> => {
+    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
+    await writeFile(tasksPath(), JSON.stringify(plan, null, 2), 'utf-8');
+  };
+
+  const readPlan = async (): Promise<TaskPlan> =>
+    JSON.parse(await readFile(tasksPath(), 'utf-8')) as TaskPlan;
+
+  /** Phases the renderer was actually asked to run. */
+  const renderedPhases = (): string[] =>
+    vi.mocked(runPipelineWithRenderer).mock.calls[0]?.[0].phases ?? [];
+
+  const runCapturingLines = async (
+    prReview?: boolean,
+  ): Promise<{ code: number; lines: string[] }> => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    try {
+      const code = await runPipeline('42', 'auto', undefined, undefined, prReview);
+      return { code, lines };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-pr-review-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    for (const name of WEB_ENV_VARS) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    close = vi.fn(async () => {});
+    vi.mocked(getProvider).mockReturnValue(makeProvider(close));
+    vi.mocked(runPrReview).mockResolvedValue(0);
+  });
+
+  afterEach(async () => {
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('sem a flag: fases idênticas às atuais, fase não roda e a Issue continua sendo fechada', async () => {
+    const { code } = await runCapturingLines();
+
+    expect(code).toBe(0);
+    expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review', 'pr']);
+    expect(vi.mocked(runPrReview)).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledWith('42');
+  });
+
+  it('com a flag: a fase entra ao final da ordem e roda sem confirmação', async () => {
+    const { code } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review', 'pr', 'pr-review']);
+    expect(vi.mocked(runPrReview)).toHaveBeenCalledWith(undefined, { issue: '42', yes: true });
+    expect(close).toHaveBeenCalledWith('42');
+  });
+
+  it('veredito REQUEST_CHANGES: pipeline retorna 0, não fecha a Issue e destaca o aviso', async () => {
+    vi.mocked(runPrReview).mockResolvedValue(2);
+
+    const { code, lines } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    expect(close).not.toHaveBeenCalled();
+    expect(lines.some((l) => l.includes('PR review requested changes'))).toBe(true);
+    expect(lines.some((l) => l.includes('REQUEST_CHANGES'))).toBe(true);
+  });
+
+  it('falha de execução da fase (código 1) derruba a pipeline', async () => {
+    vi.mocked(runPrReview).mockResolvedValue(1);
+
+    const { code } = await runCapturingLines(true);
+
+    expect(code).toBe(1);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('a opção é persistida em tasks.json logo após a fase plan', async () => {
+    vi.mocked(runPlan).mockImplementation(async () => {
+      await writePlan(makePlan());
+      return 0;
+    });
+
+    const { code } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    expect((await readPlan()).prReview?.enabled).toBe(true);
+  });
+
+  it('sem a flag, o valor persistido no plano liga a fase', async () => {
+    await writePlan(makePlan({ prReview: { enabled: true, rounds: 0 } }));
+
+    const { code } = await runCapturingLines();
+
+    expect(code).toBe(0);
+    expect(renderedPhases()).toContain('pr-review');
+    expect(vi.mocked(runPrReview)).toHaveBeenCalledTimes(1);
+  });
+
+  it('--no-branch persistido descarta o opt-in em vez de falhar', async () => {
+    await writePlan(makePlan({ noBranch: true, prReview: { enabled: true, rounds: 0 } }));
+
+    const { code } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review']);
+    expect(vi.mocked(runPrReview)).not.toHaveBeenCalled();
   });
 });

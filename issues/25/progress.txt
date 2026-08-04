@@ -145,3 +145,22 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - `biome` formata `.option(...)` em uma linha quando cabe em 100 colunas — rodar `npx biome check --write src/` depois de mexer em `cli.ts` evita um falso "erro" de lint no gate.
   - `npx tsx src/cli.ts <cmd> --help` roda a CLI direto do TS sem build: é o jeito barato de verificar o registro de um comando, já que `cli.ts` não tem teste (chama `program.parse()` no import).
 ---
+
+## 2026-08-03 22:15 - US-009 (Integração com o comando run)
+- `src/commands/run.ts`: `RUNNABLE_PHASES_WITH_PR_REVIEW = [...RUNNABLE_PHASES, 'pr-review']`; `runPipeline`/`runPipelinePhases` ganharam o 5º parâmetro `prReview?: boolean`; resolução de três vias `flag ?? plan.prReview?.enabled ?? false`; `activePhases`/`phaseOrder` passam a `PIPELINE_PHASES_WITH_PR_REVIEW`/`RUNNABLE_PHASES_WITH_PR_REVIEW` quando ligado (e `publishSessionStart` já recebe o conjunto resolvido, o que adianta parte da US-011).
+- Runner `'pr-review'` adicionado ao mapa `runners` (herda instrumentação, `publishGitState()` e a task listr2): `runPrReview(undefined, { issue: issueNumber, yes: true })`; código `1` lança e derruba a fase, código `2` é veredito e segue.
+- `plan.prReview.enabled = true` persistido no mesmo bloco pós-`plan` onde `noBranch` é gravado.
+- Em `REQUEST_CHANGES`: aviso destacado com o caminho do relatório, `provider.close()` suprimido (`Issue left open until the review blockers are addressed.`), linhas `Review:`/`Report:` no resumo final e `run` retornando `0`.
+- `--no-branch` persistido + `--pr-review`: o opt-in é descartado com `printWarning` (a CLI só consegue barrar a combinação explícita; o modo persistido só é conhecido dentro do `run`).
+- `src/cli.ts`: `phases.prReview` repassado a `runPipeline`.
+- `src/issues/extensibility.test.ts`: mock de `../core/session-git.js` virou parcial (`importOriginal`) — `run.ts` agora alcança `discovery.ts`, que importa `listPullRequests` do mesmo módulo.
+- `src/commands/run.test.ts`: novo `describe` com 7 testes — sem a flag as fases são idênticas e a issue fecha; com a flag a fase entra ao final e roda com `{ issue: '42', yes: true }`; `REQUEST_CHANGES` → `0` sem `close()` e com aviso; código `1` derruba; `enabled` persistido após `plan`; valor persistido liga a fase sem flag; `--no-branch` persistido descarta o opt-in.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (84 arquivos), `npm test` 496/496 verde.
+
+- **Learnings for future iterations:**
+  - `let x: T | null = null` escrito **apenas dentro de uma closure** mantém o narrowing `null` no ponto de leitura (TS reporta `Property ... does not exist on type 'never'`). O contorno usado foi uma "caixa" (`const box: { outcome: T | null } = { outcome: null }`): narrowing de propriedade é invalidado após chamadas de função. Vale para qualquer resultado que um runner precise devolver ao corpo de `runPipelinePhases`.
+  - O veredito da fase é derivado do **exit code** (`2` = `REQUEST_CHANGES`), não do `tasks.json`: a decisão de não fechar a issue não pode depender de um arquivo que pode não existir. `tasks.json`/`index.json` só enriquecem o resumo (recomendação exata e caminho do relatório).
+  - Mocks de módulo com fábrica literal (`vi.mock('x', () => ({ um: ... }))`) quebram quando o grafo de imports cresce: ligar `run.ts` a `pr-review.ts` fez `extensibility.test.ts` falhar por falta de `listPullRequests`. Para módulos com vários exports, prefira o mock parcial com `importOriginal`.
+  - `run.test.ts` mocka `./pr-review.js`, então a descoberta real nunca roda ali — por isso o teste do veredito não precisa de `gh` nem de artefatos; para exercitar o caminho real, o teste teria de subir `index.json` no tmpdir.
+  - O resumo final do `run` é impresso inline por `console.log` em `run.ts` — `src/ui/summary.ts` (`printSummaryBox`) pertence ao engine da fase `execute`. A US-011 precisa decidir qual dos dois toca.
+---

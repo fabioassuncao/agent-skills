@@ -199,7 +199,13 @@ withWebOptions(
     }
 
     const { runPipeline } = await import('./commands/run.js');
-    const code = await runPipeline(issue, options.mode, options.from, phases.noBranch);
+    const code = await runPipeline(
+      issue,
+      options.mode,
+      options.from,
+      phases.noBranch,
+      phases.prReview,
+    );
     process.exit(code);
   },
 );
