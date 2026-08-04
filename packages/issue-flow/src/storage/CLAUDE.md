@@ -31,6 +31,12 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
   never overwritten.** That is also what makes a failed run resumable — re-running it picks up
   where it stopped instead of clobbering what already crossed over.
 
+- The user-facing documentation of this layer is the `## Global Storage` section of the root
+  `README.md` (tree, project id derivation, `config.json` schema, precedence table,
+  `ISSUE_FLOW_HOME`, migration). Changing the layout, the id format or the precedence means
+  changing that section in the same commit — and `paths.test.ts` already fails on purpose when the
+  `## Pipeline State & File Structure` tree drifts from `getIssuePaths()`.
+
 ## Gotchas
 
 - `IssuePaths.prdFile` is `prd.md`; the task plan is `tasksFile` (`tasks.json`). This differs from

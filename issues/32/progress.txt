@@ -14,6 +14,8 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
 - **zod 4**: `.partial()` NÃO remove `.default()` — `z.object({p: z.number().default(1)}).partial().parse({})` devolve `{p: 1}`. Para reusar um campo sem o default use `.unwrap()` (`webConfigSchema.shape.port.unwrap()`), que preserva as constraints. Consequência: camadas intermediárias de precedência nunca podem ser montadas com `.partial()` de um schema com defaults.
 - Leitores de arquivo de config **nunca lançam**: ausência é silenciosa (caso comum), qualquer outra falha (JSON inválido, raiz não-objeto, IO) devolve camada vazia + `warn()`. Distinga ausência de erro de IO por `(err as NodeJS.ErrnoException).code !== 'ENOENT'`.
 - Precedência oficial do projeto: **CLI > env > `.issue-flow.json` > `config.json` (global) > defaults**, implementada por `mergeConfigLayers()` em `src/config.ts` (shallow, ignora `undefined`).
+- O README da raiz é a documentação canônica do storage global (`## Global Storage`). Mudou layout, formato do project-id ou precedência? Atualize a seção no mesmo commit — `paths.test.ts` já falha de propósito quando a árvore de `## Pipeline State & File Structure` divergir de `getIssuePaths()`.
+- Ao editar o README, **não** mexa na forma do primeiro bloco ``` da seção `## Pipeline State & File Structure` (linhas indentadas com 2 espaços): é o que o teste de superconjunto parseia.
 - Helpers de git que podem falhar legitimamente (sem remote, base branch desconhecida) retornam `null`/default em vez de lançar; só `getProjectRoot`/`getCurrentBranch` lançam. Toda chamada a git passa por `run()` de `utils/shell.ts` (execa com `reject: false`, nunca lança por exit code).
 
 ---
@@ -134,4 +136,19 @@ Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
   - `MigrationResult` expõe `previousMode` (estado **antes** da migração) em vez de estender `StorageStatus`: depois de migrar, `globalExists`/`mode` do status já estão obsoletos e confundiriam o call site.
   - `mkdtemp` no macOS devolve `/var/folders/...`; `resolve()` não resolve o symlink `/var → /private/var`, então comparar `metadata.root` com o `projectRoot` do teste funciona direto — mas não compare com `realpath()`.
   - Verificação em browser não se aplica.
+---
+
+## 2026-08-04 00:05 - US-008
+- Documentada a nova estrutura de armazenamento global e corrigidas as instruções obsoletas de versionamento.
+- Arquivos alterados:
+  - `README.md` — nova seção `## Global Storage` (aviso "not wired up yet", árvore completa `~/.issue-flow/`, `metadata.json` do projeto, derivação do `project-id` em duas tabelas, `ISSUE_FLOW_HOME`, schema do `config.json` + comportamento do `loadGlobalConfig`, tabela de precedência de 5 níveis, migração não destrutiva) entre `### Pull Request and review state` e `## Development`. Seções `## Pipeline State & File Structure` e `### Versioning issues/` reescritas; bloco `gitignore` de `issues/*/session.json` removido das duas ocorrências (essa e a de `### issues/N/session.json`).
+  - `packages/issue-flow/src/storage/CLAUDE.md` — regra nova: o README é a doc canônica do módulo e muda no mesmo commit que o layout.
+- `.gitignore` **não** foi tocado (AC explícito). Nenhum arquivo de teste alterado.
+- Checks: `npm run typecheck` OK, `npm run lint` OK, `npm test` 668 testes / 39 arquivos OK — mesmos números de US-007, confirmando que nenhum teste existente precisou mudar.
+- **Learnings for future iterations:**
+  - O teste `covers every artifact documented in the README file structure` (`storage/paths.test.ts:249`) faz `readme.split('## Pipeline State & File Structure')[1].split('```')[1]` e casa `/^ {2}(\S+)/gm`. Ou seja: pode-se adicionar texto e novas seções à vontade **depois** da árvore, mas o primeiro bloco de código daquela seção precisa continuar sendo a árvore com 2 espaços de indentação. Blocos com indentação de 2 espaços em outras seções (a árvore de `~/.issue-flow/`) não interferem, pois o split é ancorado no heading.
+  - A tabela de precedência do Web Monitoring (`### Configuration`) descreve o comportamento **real de hoje** (sem a camada global) e por isso não foi alterada; a seção nova diz explicitamente que a precedência de 5 níveis está implementada em `mergeConfigLayers()` mas ainda não plugada em `loadWebConfig()`. Quando uma issue futura plugar, as duas tabelas precisam mudar juntas.
+  - Anchors do GitHub em uso: `#versioning-issues` (de `### Versioning \`issues/\``), `#configuration` (a do Web Monitoring — a de Issue Sources vira `#configuration-issue-flowjson`, então não há colisão), `#local-issue-format`, `#global-storage`.
+  - As limitações documentadas em JSDoc nas stories anteriores (fallback por path muda o ID ao mover a pasta; lowercase do path colapsa `org/Repo` e `org/repo`) foram replicadas no README — ao mexer em uma das duas fontes, replique na outra.
+  - Verificação em browser não se aplica (mudança só de documentação).
 ---

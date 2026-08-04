@@ -5,9 +5,9 @@
   "branchName": "issue/32-global-storage-project-id",
   "noBranch": false,
   "description": "Projetar e implementar a camada base de armazenamento global (~/.issue-flow): resolucao de paths, project-id deterministico derivado do git remote, schemas Zod de metadata e config global, loadGlobalConfig com precedencia definida, migracao nao destrutiva e idempotente do layout legado issues/{N}/ e documentacao. Modulo aditivo em src/storage/ — nenhum comando do pipeline e migrado nesta issue.",
-  "issueStatus": "in_progress",
-  "completedAt": null,
-  "lastAttemptAt": "2026-08-04T02:55:00Z",
+  "issueStatus": "completed",
+  "completedAt": "2026-08-04T03:05:00Z",
+  "lastAttemptAt": "2026-08-04T03:05:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -15,7 +15,7 @@
     "analyzeCompleted": true,
     "prdCompleted": true,
     "jsonCompleted": true,
-    "executionCompleted": false,
+    "executionCompleted": true,
     "reviewCompleted": false,
     "prCreated": false
   },
@@ -182,8 +182,8 @@
         "npm run typecheck, npm test e npm run lint passam sem alteracao em testes existentes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": "Validacao final da issue: nenhum teste existente pode precisar de alteracao."
+      "passes": true,
+      "notes": "Nova secao '## Global Storage' no README.md (arvore completa, derivacao do project-id, schema do config.json, tabela de precedencia, ISSUE_FLOW_HOME + limitacao do fallback por path, migracao nao destrutiva) com aviso explicito de que nenhum comando consome a estrutura ainda. Secoes 'Pipeline State & File Structure' e 'Versioning issues/' reescritas em torno do /issues do .gitignore da raiz; instrucao obsoleta de ignorar issues/*/session.json removida das duas ocorrencias. .gitignore intacto; typecheck, lint e 668 testes OK sem alterar nenhum teste existente."
     }
   ]
 }
