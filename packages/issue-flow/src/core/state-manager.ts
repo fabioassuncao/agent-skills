@@ -90,6 +90,22 @@ export function allStoriesPass(plan: TaskPlan): boolean {
 }
 
 /**
+ * The story `execute` should work on next: the highest-priority (lowest
+ * `priority` number) story with `passes: false`. This is the exact same rule
+ * `prompts/execute.md` gives the agent ("pick the highest priority user
+ * story where `passes: false`") — kept here as a single, pure, exported
+ * helper so the engine's `iteration:start` publication and the terminal
+ * renderer read the same computed identity instead of two independent
+ * heuristics.
+ *
+ * Pure: never mutates `stories`. Returns `undefined` when every story
+ * already passes (or the plan has none).
+ */
+export function selectActiveStory(stories: readonly UserStory[]): UserStory | undefined {
+  return [...stories].filter((story) => !story.passes).sort((a, b) => a.priority - b.priority)[0];
+}
+
+/**
  * Mark a specific story as passing.
  */
 export function markStoryPassing(plan: TaskPlan, storyId: string): TaskPlan {

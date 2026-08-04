@@ -510,6 +510,36 @@ export function reduceSessionEvent(
   };
 }
 
+/**
+ * `stage`/`stageSince`/`stageDetail` for one story, on one `stories:update`.
+ *
+ * This event owns exactly one transition — `awaiting_review` the moment a
+ * story flips to `passes: true` (or is first seen already passing, since its
+ * real completion moment is unknown either way). Everything else is a
+ * carry-over: a still-`passes: false` story keeps whatever `iteration:start`
+ * last gave it (defaulting to `'pending'` the very first time it is ever
+ * seen), and a story already passing before this event is left exactly as it
+ * was — `phase:start`/`phase:end` (review) and `correction:cycle` own every
+ * transition past `awaiting_review`.
+ */
+function deriveStageOnStoriesUpdate(
+  story: UserStory,
+  before: SessionStorySnapshot | undefined,
+  at: string,
+): Pick<SessionStorySnapshot, 'stage' | 'stageSince' | 'stageDetail'> {
+  if (!story.passes) {
+    return {
+      stage: before?.stage ?? 'pending',
+      stageSince: before?.stageSince ?? at,
+      stageDetail: before?.stageDetail ?? null,
+    };
+  }
+  if (before?.passes) {
+    return { stage: before.stage, stageSince: before.stageSince, stageDetail: before.stageDetail };
+  }
+  return { stage: 'awaiting_review', stageSince: at, stageDetail: null };
+}
+
 function applyEvent(
   snapshot: SessionSnapshot,
   event: SessionEvent,
@@ -624,11 +654,41 @@ function applyEvent(
       };
     }
 
-    case 'iteration:start':
+    case 'iteration:start': {
+      // The story matching storyId becomes 'executing'; every other
+      // not-yet-passing story becomes 'pending' (a story that was already
+      // 'executing' in a previous iteration but lost the turn reverts here).
+      // Passing stories are untouched — this event owns only the
+      // execute-loop's own pending/executing transition, never review or
+      // correction. No-op branches (`return story`) avoid needless object
+      // churn when the stage is already correct.
+      const storyId = event.storyId;
+      const stories = snapshot.stories.map((story) => {
+        if (story.passes) return story;
+        if (story.id === storyId) {
+          return story.stage === 'executing'
+            ? story
+            : { ...story, stage: 'executing' as const, stageSince: event.at, stageDetail: null };
+        }
+        return story.stage === 'pending'
+          ? story
+          : { ...story, stage: 'pending' as const, stageSince: event.at, stageDetail: null };
+      });
       return {
         ...snapshot,
         execution: { ...snapshot.execution, iteration: event.iteration },
+        stories,
+        // Finally populates the `story` field of the activity payload during
+        // execute — today this phase never publishes an `activity` event at
+        // all (no streaming), so `currentActivity` stays whatever an earlier
+        // phase left it at. Left untouched when storyId is absent (every
+        // story already passes, or the caller could not determine one).
+        currentActivity:
+          storyId !== undefined
+            ? { story: storyId, tool: null, detail: null, since: event.at }
+            : snapshot.currentActivity,
       };
+    }
 
     case 'iteration:end':
       return { ...snapshot, currentActivity: null };
@@ -675,14 +735,7 @@ function applyEvent(
           cacheReadTokens: before?.cacheReadTokens ?? null,
           cacheCreationTokens: before?.cacheCreationTokens ?? null,
           costUsd: before?.costUsd ?? null,
-          // Minimal placeholder: the real transition logic (executing/pending
-          // carry-over, awaiting_review on a passes flip) is implemented in
-          // applyEvent's iteration:start case and refined here once that
-          // lands. Kept as a stub for now so every constructed snapshot has a
-          // well-defined stage.
-          stage: before?.stage ?? 'pending',
-          stageSince: before?.stageSince ?? null,
-          stageDetail: before?.stageDetail ?? null,
+          ...deriveStageOnStoriesUpdate(story, before, event.at),
         };
       });
       return {
