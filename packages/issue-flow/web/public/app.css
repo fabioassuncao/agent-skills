@@ -465,6 +465,16 @@ progress {
   font-weight: 700;
 }
 
+/* Story cuja stage é 'executing' (issue 38) — destaque visual na lista de
+   "User stories". A borda esquerda usa box-shadow (não border) para não
+   deslocar o conteúdo do item ao ganhar/perder a classe. */
+.story-executing {
+  background: var(--run-bg);
+  border-radius: 6px;
+  box-shadow: inset 3px 0 0 0 var(--run);
+  padding-left: 9px;
+}
+
 .icon-completed {
   color: var(--ok);
 }

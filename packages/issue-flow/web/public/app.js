@@ -32,6 +32,20 @@
     done: 'concluída',
   };
 
+  // Rótulos do `stage` granular (issue 38) — mais fino que STORY_STATUS_LABELS,
+  // deriva de eventos reais do pipeline (iteration:start, stories:update,
+  // phase:start/phase:end da review, correction:cycle). Ver README, seção
+  // "Story stage".
+  const STORY_STAGE_LABELS = {
+    pending: 'aguardando',
+    executing: 'em execução',
+    awaiting_review: 'aguardando revisão',
+    in_review: 'em revisão',
+    in_correction: 'em correção',
+    done: 'concluída',
+    failed: 'falhou',
+  };
+
   // Colunas do Kanban, na ordem em que a execução avança. Os títulos são os das
   // colunas, não os rótulos dos badges (STORY_STATUS_LABELS), que seguem em minúsculas.
   const KANBAN_COLUMNS = [
@@ -226,9 +240,14 @@
   // que nenhum consumidor precise repetir a checagem de ausência.
   function normalizeStory(story) {
     const status = story.status !== null && story.status !== undefined ? story.status : 'backlog';
+    const stage = story.stage !== null && story.stage !== undefined ? story.stage : 'pending';
     return {
       ...story,
       status: STORY_STATUS_LABELS[status] !== undefined ? status : 'backlog',
+      stage: STORY_STAGE_LABELS[stage] !== undefined ? stage : 'pending',
+      stageSince: story.stageSince !== null && story.stageSince !== undefined ? story.stageSince : null,
+      stageDetail:
+        story.stageDetail !== null && story.stageDetail !== undefined ? story.stageDetail : null,
       dependencies: list(story.dependencies),
       description: text(story.description),
       acceptanceCriteria: list(story.acceptanceCriteria),
@@ -588,7 +607,10 @@
       return;
     }
     for (const story of snapshot.stories) {
-      const item = el('li');
+      // stage vem com default no schema ('pending'), mas session.json gravado
+      // antes da issue 38 pode chegar sem ele.
+      const storyStage = story.stage !== null && story.stage !== undefined ? story.stage : 'pending';
+      const item = el('li', storyStage === 'executing' ? 'story-executing' : null);
       const status = story.passes ? 'completed' : 'pending';
       item.appendChild(el('span', 'item-icon icon-' + status, story.passes ? '✓' : '○'));
       const main = el('div', 'item-main');
@@ -612,7 +634,12 @@
 
       item.appendChild(main);
       const duration = metric(story.durationSeconds);
+      const stageLabel = STORY_STAGE_LABELS[storyStage] || storyStage;
+      const stageText = story.stageSince
+        ? stageLabel + ' ' + formatAgo(story.stageSince)
+        : stageLabel;
       const side = itemSideText([
+        stageText,
         story.completedAt ? 'concluída ' + formatClock(story.completedAt) : '',
         duration !== null ? formatDuration(duration) : '',
         formatUsage(story),
