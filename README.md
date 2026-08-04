@@ -414,6 +414,16 @@ A missing file, invalid JSON or an invalid `issues` key falls back to the defaul
 
 At the top of the page, two cards give the full context of the run without leaving the browser: **"Resumo da issue"** (issue number, title, full description, labels, and open/closed state -- with a neutral "Não definida" placeholder for priority, since the `Issue` domain has no such field) and **"Repositório"** (current branch, short HEAD commit, repository name, and the project's working directory). The **"User stories"** card shows, per story, a status badge (`backlog` / `in_progress` / `in_review` / `done`), its existing pass/fail indicator and duration, and, when declared, the story IDs it depends on. All three cards degrade gracefully to neutral placeholders (`—`, "Sem título", "Sem descrição") whenever the underlying `session.json` predates these fields or a value simply isn't available (no remote configured, no commits yet, etc.) -- nothing about the pre-existing sections (progress, current phase, next steps, commits, PRs, logs) changes.
 
+### Views: "Execução" and "Kanban"
+
+Below the header and the alerts, the panel is split into two tabs. **"Execução"** is the vertical panel described above, unchanged. **"Kanban"** is a second reading of the same data: every user story laid out in four columns -- **Backlog**, **Em andamento**, **Em revisão**, **Concluído** -- grouped by the story's `status`, each column showing its own story count. A story whose `status` is absent (older `session.json`) or unrecognized falls into Backlog rather than disappearing, and every column renders even when it is empty, so an empty plan still shows the board instead of a blank page.
+
+Each card carries the story id, its title, a short excerpt of the description (clamped to three lines -- the full text stays in the DOM), a status badge, and the same `✓`/`○` completion indicator the "User stories" card uses. Clicking a card -- or focusing it and pressing Enter -- opens a **side drawer** with the story's full title, status, description, acceptance criteria, declared dependencies, and its duration and completion time when known. A section for the story's update history is rendered only if a future `session.json` publishes one; today no such field exists, so the section is simply absent. The drawer closes on the overlay, the close button, or `Esc`, and returns focus to the card that opened it.
+
+Switching tabs never interrupts polling: both views are re-rendered on every refresh, so the Kanban is already current the moment it is opened, and an open drawer stays open across refreshes, updating in place (it closes on its own if the story disappears from the plan). The drawer issues **no** additional network requests -- everything it shows already came with the snapshot.
+
+Like the rest of the panel, both views are strictly read-only: `snapshot.readOnly` stays `true`, `capabilities` stays empty, and the interface exposes no control that edits, deletes, reorders, or changes the status of anything.
+
 ```bash
 # Enable with defaults (http://127.0.0.1:3737)
 npx issue-flow run 42 --web
@@ -541,6 +551,7 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
     {
       "id": "US-001", "title": "…", "priority": 1, "passes": true, "completedAt": "…",
       "status": "done", "dependencies": [],
+      "description": "…", "acceptanceCriteria": ["…"],
       "durationSeconds": 188, "inputTokens": 203, "outputTokens": 10780,
       "cacheReadTokens": 321000, "cacheCreationTokens": 24100, "costUsd": 0.8547
     }
@@ -609,6 +620,8 @@ Two consequences are worth stating explicitly:
 
 - **`in_review` is never derived automatically.** It only ever enters through an explicit `status` in `tasks.json`, and once set it sticks until `passes` flips to `true`.
 - **`passes` still wins.** A story declaring `status: "done"` with `passes: false` is reported as `backlog` (or `in_progress`): rule 1 governs, and `passes` remains the single source of truth for what the pipeline executes.
+
+Each entry also carries the plan's `description` and `acceptanceCriteria`, so the panel's story drawer can show them without reading `tasks.json`. Both are copied straight from the plan on every `stories:update`. Like every other addition, they are tolerant on input: a `session.json` written before they existed parses with `""` and `[]`, never `undefined`.
 
 ### Tokens and cost
 
