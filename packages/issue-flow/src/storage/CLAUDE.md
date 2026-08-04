@@ -19,6 +19,11 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   skips the migration and reads an empty directory.
 - `resolve.ts` still creates nothing: a call site that writes keeps its own
   `mkdir(paths.issueDir, { recursive: true })`.
+- **This is enforced, not merely agreed on.** `handmade-issue-paths.test.ts` scans every
+  non-test `src/**/*.ts` for a `join(...)` that names the `issues` segment itself and fails on it;
+  only `paths.ts` and `compat.ts` are exempt. There is no `getIssueDir()` any more — it was removed
+  rather than deprecated, precisely so no second way to resolve an issue directory can exist. If a
+  new file legitimately needs the segment, it belongs in this directory, not in the allow-list.
 - **A question about the project rather than about one issue uses
   `resolveProjectPaths()`** (same module, same cache): "is this writable?" and "which identifiers
   are taken?" have no issue number to hand to `resolveIssuePaths()`. It returns `projectId`,
@@ -95,6 +100,10 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   block's plan. Use `mockImplementationOnce` for doubles that touch the filesystem.
 - `paths.test.ts` mocks only `getRemoteUrl` from `../utils/git.js` (via `importOriginal` spread) so
   the real `normalizeRemoteUrl` keeps being exercised.
+- `resolve.cwd.test.ts` mocks **nothing**: the CWD-independence guarantee is about what
+  `git rev-parse --show-toplevel` answers from a subdirectory, so it needs a real `git init` and a
+  real `process.chdir` (restored in `afterEach`). Keep it in its own file — the file-level
+  `vi.mock('../utils/git.js')` of `resolve.test.ts` would fake away the very thing under test.
 - Filesystem walks use `readdir(dir, { withFileTypes: true })` and act only on `isDirectory()` /
   `isFile()`. Symlinks are skipped on purpose: following one could copy content from outside the
   legacy directory into the global tree.
