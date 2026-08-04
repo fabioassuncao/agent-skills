@@ -79,7 +79,14 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   site that has the root in hand should do the same instead of letting the resolver shell out to
   `git rev-parse --show-toplevel` again.
 - Issue identifiers are not always numeric (`auth-refactor`, `pr-184`) — accept `string | number`.
-- Tests that touch the filesystem must point `ISSUE_FLOW_HOME` at a `mkdtemp` directory. A test that
+- **The safety net is `src/test-setup.ts`** (vitest `setupFiles`): it points `ISSUE_FLOW_HOME` at a
+  throwaway `mkdtemp` for every test file, so a suite that forgets its own setup can no longer write
+  into the real `~/.issue-flow`. It must not import anything from `src/` — doing so loads that
+  module and its `utils/git.js` dependency into the registry before a test file's `vi.mock()` calls
+  are hoisted, and every one of those mocks silently stops applying (60 tests failed exactly that
+  way). `storage/test-home.test.ts` guards both the net and the duplicated variable name.
+- Tests that touch the filesystem must point `ISSUE_FLOW_HOME` at a `mkdtemp` directory — the net
+  above is per *file*, so per-*case* isolation is still each suite's job. A test that
   drives a **command** (rather than a storage helper) has to set it on the real `process.env` and
   restore it afterwards — commands call `resolveIssuePaths()` with no options, so the `{ env }` seam
   never reaches them. Pair it with `resetStorageResolutionCache()` in `beforeEach`, or the previous

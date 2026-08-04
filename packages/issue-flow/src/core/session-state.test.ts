@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { GLOBAL_ROOT_ENV, getIssuePaths } from '../storage/paths.js';
 import type { UserStory } from '../types.js';
 import {
   createInitialSnapshot,
@@ -536,11 +537,16 @@ describe('FilePublisher', () => {
 
   it('creates the parent directory on the first write when it does not exist yet', async () => {
     await withTempDir(async (dir) => {
-      const issueDir = join(dir, 'issues', '23');
-      const filePath = join(issueDir, 'session.json');
+      // The real destination: `run` hands the publisher `paths.sessionFile`,
+      // several levels deep inside the global storage, where not even the
+      // project directory has to exist yet.
+      const { sessionFile } = getIssuePaths('widgets-0123456789ab', 23, {
+        env: { [GLOBAL_ROOT_ENV]: dir },
+      });
+      const filePath = sessionFile;
       const warn = vi.fn();
       // Regression: the very first publish() used to fire before any phase
-      // had a chance to mkdir issues/N/, throwing ENOENT on write.
+      // had a chance to mkdir the issue directory, throwing ENOENT on write.
       const publisher = new FilePublisher(filePath, { throttleMs: 0, onWarn: warn });
       publisher.publish({
         type: 'session:start',
