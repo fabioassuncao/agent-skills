@@ -25,12 +25,29 @@ export const claudeUsageSchema = z.object({
 export const userStoryStatusSchema = z.enum(['backlog', 'in_progress', 'in_review', 'done']);
 
 /**
+ * Fine-grained execution stage — mirrors `StoryStage` in `src/types.ts`. See
+ * that type's doc comment for what each value means and which pipeline event
+ * produces it.
+ */
+export const storyStageSchema = z.enum([
+  'pending',
+  'executing',
+  'awaiting_review',
+  'in_review',
+  'in_correction',
+  'done',
+  'failed',
+]);
+
+/**
  * The metrics fields are additive and optional: plans written before they
  * existed keep parsing, and nothing is filled in with artificial zeros.
  *
  * `status` and `dependencies` follow the same rule and are `.optional()` rather
  * than `.default()` on purpose: a legacy plan must not gain a `'backlog'` and an
- * empty array it never declared just because `saveTaskPlan` rewrote it.
+ * empty array it never declared just because `saveTaskPlan` rewrote it. `stage`
+ * and friends follow the exact same treatment — nothing in the pipeline writes
+ * them back onto `tasks.json`, so they stay `.optional()` too.
  */
 export const userStorySchema = z.object({
   id: z.string(),
@@ -44,6 +61,9 @@ export const userStorySchema = z.object({
   durationSeconds: z.number().optional(),
   status: userStoryStatusSchema.optional(),
   dependencies: z.array(z.string()).optional(),
+  stage: storyStageSchema.optional(),
+  stageSince: z.string().optional(),
+  stageDetail: z.string().optional(),
 });
 
 export const pipelineStateSchema = z.object({
@@ -206,6 +226,12 @@ const sessionStorySchema = z.object({
   // value, so the client never has to tell them apart.
   description: z.string().default(''),
   acceptanceCriteria: z.array(z.string()).default([]),
+  // Additive like the rest of this schema: a session.json written before
+  // `stage` existed parses into 'pending'/null, the same values a fresh
+  // snapshot starts a story at.
+  stage: storyStageSchema.default('pending'),
+  stageSince: z.string().nullable().default(null),
+  stageDetail: z.string().nullable().default(null),
   ...sessionUsageShape,
 });
 

@@ -1,7 +1,7 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import type { UserStory, UserStoryStatus } from '../types.js';
+import type { StoryStage, UserStory, UserStoryStatus } from '../types.js';
 
 /**
  * Session state publishing layer for the optional web monitoring mode.
@@ -57,7 +57,19 @@ export type SessionEvent =
     }
   | { type: 'phase:start'; at: string; phase: string }
   | { type: 'phase:end'; at: string; phase: string; success: boolean; error?: string }
-  | { type: 'iteration:start'; at: string; iteration: number }
+  | {
+      type: 'iteration:start';
+      at: string;
+      iteration: number;
+      /**
+       * Id of the story `execute` is about to work on, computed by
+       * `core/engine.ts` with the same "highest priority, `passes: false`"
+       * rule `prompts/execute.md` gives the agent. Optional so a caller that
+       * cannot determine it (or an older build) is still a valid event —
+       * `applyEvent` simply skips the `executing`/`pending` transition then.
+       */
+      storyId?: string;
+    }
   | { type: 'iteration:end'; at: string; iteration: number }
   | { type: 'retry'; at: string; attempt: number; delaySeconds?: number; reason?: string }
   | { type: 'stories:update'; at: string; stories: UserStory[] }
@@ -178,6 +190,19 @@ export interface SessionStorySnapshot extends SessionUsageSnapshot {
   description: string;
   /** The plan's acceptance criteria; empty when the plan carries none. */
   acceptanceCriteria: string[];
+  /**
+   * Fine-grained execution stage, derived only from real pipeline events —
+   * see {@link StoryStage} and the `applyEvent` cases for `iteration:start`,
+   * `stories:update`, `phase:start`/`phase:end` (phase `'review'`) and
+   * `correction:cycle`. Unlike `status`, this is not a post-hoc derivation
+   * recomputed on every reduction: it is set directly, event by event, like
+   * `completedAt`.
+   */
+  stage: StoryStage;
+  /** ISO timestamp of the event that produced the current `stage`. */
+  stageSince: string | null;
+  /** Short human detail for the current stage (e.g. a correction cycle). */
+  stageDetail: string | null;
 }
 
 export interface SessionActivity {
@@ -650,6 +675,14 @@ function applyEvent(
           cacheReadTokens: before?.cacheReadTokens ?? null,
           cacheCreationTokens: before?.cacheCreationTokens ?? null,
           costUsd: before?.costUsd ?? null,
+          // Minimal placeholder: the real transition logic (executing/pending
+          // carry-over, awaiting_review on a passes flip) is implemented in
+          // applyEvent's iteration:start case and refined here once that
+          // lands. Kept as a stub for now so every constructed snapshot has a
+          // well-defined stage.
+          stage: before?.stage ?? 'pending',
+          stageSince: before?.stageSince ?? null,
+          stageDetail: before?.stageDetail ?? null,
         };
       });
       return {

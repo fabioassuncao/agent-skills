@@ -15,6 +15,34 @@ import type { ClaudeUsage } from './core/metrics.js';
 export type UserStoryStatus = 'backlog' | 'in_progress' | 'in_review' | 'done';
 
 /**
+ * Fine-grained execution stage of a story, tracking the real pipeline cycle
+ * (execute -> review -> correction when needed -> done) instead of the
+ * binary `passes`. Unlike {@link UserStoryStatus} (a board-style summary),
+ * `stage` is derived only from real pipeline events — see
+ * `core/session-state.ts`'s `applyEvent` for the transition rules.
+ *
+ * - `pending`: not yet the story `execute` is working on.
+ * - `executing`: the story `iteration:start` published as the active one.
+ * - `awaiting_review`: `passes` just flipped to `true`, but the `review`
+ *   phase has not started yet.
+ * - `in_review`: the `review` phase is running (`phase:start`).
+ * - `in_correction`: an automatic correction cycle is in progress
+ *   (`correction:cycle`) — pipeline-wide, since correction re-runs the whole
+ *   `execute`+`review` cycle rather than targeting one story.
+ * - `done`: the `review` phase finished successfully (`phase:end`, success).
+ * - `failed`: the `review` phase finished in failure after exhausting the
+ *   correction cycles.
+ */
+export type StoryStage =
+  | 'pending'
+  | 'executing'
+  | 'awaiting_review'
+  | 'in_review'
+  | 'in_correction'
+  | 'done'
+  | 'failed';
+
+/**
  * A single story of the plan.
  *
  * The metrics inherited from {@link ClaudeUsage} plus `durationSeconds` are all
@@ -43,6 +71,16 @@ export interface UserStory extends ClaudeUsage {
    * nothing in the pipeline orders execution by it.
    */
   dependencies?: string[];
+  /**
+   * Execution-stage snapshot, mirroring `SessionStorySnapshot.stage`.
+   * Nothing in the pipeline writes this back onto `tasks.json` today; it
+   * exists purely as an optional, observational hint (same treatment as
+   * `status`) for a plan that wants to seed a story's stage explicitly.
+   * Absent means "not informed".
+   */
+  stage?: StoryStage;
+  stageSince?: string;
+  stageDetail?: string;
 }
 
 export interface LastError {

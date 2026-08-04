@@ -312,6 +312,9 @@ describe('reduceSessionEvent', () => {
         cacheReadTokens: null,
         cacheCreationTokens: null,
         costUsd: null,
+        stage: 'pending',
+        stageSince: null,
+        stageDetail: null,
       },
       {
         id: 'US-002',
@@ -329,6 +332,9 @@ describe('reduceSessionEvent', () => {
         cacheReadTokens: null,
         cacheCreationTokens: null,
         costUsd: null,
+        stage: 'pending',
+        stageSince: null,
+        stageDetail: null,
       },
     ]);
     expect(snap.progress.storiesCompleted).toBe(1);
