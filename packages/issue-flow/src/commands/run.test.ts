@@ -102,13 +102,14 @@ vi.mock('../web/server.js', async (importOriginal) => {
 
 import { execa } from 'execa';
 import { listPullRequests } from '../core/session-git.js';
+import { MemoryPublisher, type SessionSnapshot } from '../core/session-state.js';
 import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
-import type { TaskPlan } from '../types.js';
+import type { TaskPlan, UserStory } from '../types.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { startWebServer } from '../web/server.js';
 import { runExecute } from './execute.js';
@@ -118,7 +119,7 @@ import { runPr } from './pr.js';
 import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
-import { runPipeline } from './run.js';
+import { publishStorySeed, runPipeline } from './run.js';
 
 /**
  * `run` resolves every artifact through the global storage, so every test in
@@ -905,5 +906,146 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
     expect(code).toBe(0);
     expect(lines.some((l) => l.trimStart().startsWith('Review:'))).toBe(false);
     expect(lines.some((l) => l.trimStart().startsWith('Report:'))).toBe(false);
+  });
+});
+
+/** Minimal story the plan phase would have written. */
+function makeStory(overrides: Partial<UserStory> = {}): UserStory {
+  return {
+    id: 'US-001',
+    title: 'First story',
+    description: 'Test story',
+    acceptanceCriteria: ['Criterion 1'],
+    priority: 1,
+    passes: false,
+    notes: '',
+    ...overrides,
+  };
+}
+
+describe('publishStorySeed', () => {
+  it('publica as stories do plano', () => {
+    const publisher = new MemoryPublisher();
+    expect(publishStorySeed(publisher, [makeStory()], '2026-08-03T12:00:00Z')).toBe(true);
+
+    expect(publisher.snapshot().stories.map((s) => s.id)).toEqual(['US-001']);
+    expect(publisher.version()).toBe(1);
+  });
+
+  it('não publica nada — nem bump de versão — com um plano sem stories', () => {
+    const publisher = new MemoryPublisher();
+    expect(publishStorySeed(publisher, [], '2026-08-03T12:00:00Z')).toBe(false);
+
+    expect(publisher.snapshot().stories).toEqual([]);
+    expect(publisher.version()).toBe(0);
+  });
+});
+
+describe('runPipeline — seed das user stories do tasks.json (issue 29, US-003)', () => {
+  let tmp: string;
+  let originalCwd: string;
+  const savedEnv = new Map<string, string | undefined>();
+
+  const writePlan = async (plan: TaskPlan): Promise<void> => {
+    const paths = await globalPaths();
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(paths.tasksFile, JSON.stringify(plan, null, 2), 'utf-8');
+  };
+
+  /**
+   * Snapshot the web UI would see at its first poll: `/api/status` is read from
+   * inside the very first phase runner, so anything asserted here was already
+   * in the snapshot before a single phase did any work.
+   */
+  const snapshotAtFirstPhase = async (): Promise<SessionSnapshot> => {
+    const box: { snapshot: SessionSnapshot | null } = { snapshot: null };
+    vi.mocked(runPrd).mockImplementationOnce(async () => {
+      const handle = serverHandles[0];
+      expect(handle).toBeDefined();
+      const res = await fetch(`${handle.url}/api/status`);
+      box.snapshot = sessionSnapshotSchema.parse(await res.json());
+      return 0;
+    });
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      expect(await runPipeline('42', 'auto')).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(box.snapshot).not.toBeNull();
+    return box.snapshot as SessionSnapshot;
+  };
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-seed-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    for (const name of WEB_ENV_VARS) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    serverHandles.length = 0;
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    vi.mocked(getProvider).mockReturnValue(makeProvider(vi.fn(async () => {})));
+    setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
+  });
+
+  afterEach(async () => {
+    await Promise.all(serverHandles.map((h) => h.close()));
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('com tasks.json em disco, as stories já estão no snapshot antes da primeira fase', async () => {
+    await writePlan(
+      makePlan({
+        userStories: [
+          makeStory({ id: 'US-001', passes: true }),
+          makeStory({ id: 'US-002', title: 'Second', priority: 2, dependencies: ['US-001'] }),
+        ],
+      }),
+    );
+
+    const snapshot = await snapshotAtFirstPhase();
+
+    expect(snapshot.stories.map((s) => s.id)).toEqual(['US-001', 'US-002']);
+    expect(snapshot.progress.storiesTotal).toBe(2);
+    expect(snapshot.progress.storiesCompleted).toBe(1);
+    expect(snapshot.stories[1].dependencies).toEqual(['US-001']);
+    // Já passava antes desta sessão: duração desconhecida, não zero.
+    expect(snapshot.stories[0].completedAt).toBeNull();
+    // O seed não mexe no progresso de fases: a porcentagem continua vindo delas.
+    expect(snapshot.progress.phasesCompleted).toBe(1);
+    expect(snapshot.progress.percent).toBeGreaterThan(0);
+  });
+
+  it('sem tasks.json, nada é semeado e o card fica vazio como antes', async () => {
+    const snapshot = await snapshotAtFirstPhase();
+
+    expect(snapshot.stories).toEqual([]);
+    expect(snapshot.progress.storiesTotal).toBe(0);
+  });
+
+  it('com tasks.json sem user stories, nada é publicado', async () => {
+    await writePlan(makePlan({ userStories: [] }));
+
+    const snapshot = await snapshotAtFirstPhase();
+
+    expect(snapshot.stories).toEqual([]);
+    expect(snapshot.progress.storiesTotal).toBe(0);
   });
 });

@@ -24,3 +24,18 @@ Concretely, a new phase command must:
 
 `phase:start`/`phase:end` stay the only source of a phase's `durationSeconds`;
 the duration carried by a metrics event is informational.
+
+## Publication order in run.ts
+
+`session:start` rebuilds the snapshot from `createInitialSnapshot()`, so
+**everything that enriches the snapshot is published after
+`publishSessionStart(...)`** and before the `init` phase events — that window is
+what the monitor's first `/api/status` poll sees. The current order is
+`session:start` → story seed → `phase:start`/`phase:end` (init) →
+`publishGitState`. A new enrichment belongs in the same window, not before it.
+
+Anything that window needs from `tasks.json` is read in the single `try` block
+that already loads the plan (the one resolving `--no-branch`): a run must not
+gain a second disk read per enrichment. The seed publishes nothing on an empty
+plan — an event with no content still bumps the publisher's version and forces a
+write plus a cache miss on every poller.

@@ -217,6 +217,45 @@ describe('reduceSessionEvent', () => {
     expect(snap.progress.storiesTotal).toBe(2);
   });
 
+  it('session:start wipes the stories, so a seed only survives when published after it', () => {
+    const seededTooEarly = reduceSessionEvent(createInitialSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T11:59:00Z',
+      stories: [makeStory({ id: 'US-001' })],
+    });
+    expect(seededTooEarly.stories).toHaveLength(1);
+
+    // session:start rebuilds from createInitialSnapshot(): anything published
+    // before it is thrown away. This is why run.ts seeds the plan's stories
+    // right *after* publishSessionStart().
+    const restarted = reduceSessionEvent(seededTooEarly, {
+      type: 'session:start',
+      at: '2026-08-03T12:00:00Z',
+      sessionId: 'abc',
+      issueNumber: 22,
+      phases: ['init', 'prd', 'execute'],
+    });
+    expect(restarted.stories).toEqual([]);
+    expect(restarted.progress.storiesTotal).toBe(0);
+
+    const seeded = reduceSessionEvent(restarted, {
+      type: 'stories:update',
+      at: '2026-08-03T12:00:01Z',
+      stories: [
+        makeStory({ id: 'US-001', passes: true }),
+        makeStory({ id: 'US-002', priority: 2 }),
+      ],
+    });
+    expect(seeded.stories.map((s) => s.id)).toEqual(['US-001', 'US-002']);
+    expect(seeded.progress.storiesTotal).toBe(2);
+    expect(seeded.progress.storiesCompleted).toBe(1);
+    // Passing before the session started: the duration is unknown, not zero.
+    expect(seeded.stories[0].completedAt).toBeNull();
+    // The seed is stories-only; the phase counters stay where session:start
+    // left them, so the percentage never regresses because of it.
+    expect(seeded.progress.percent).toBe(restarted.progress.percent);
+  });
+
   it('derives in_progress from the current activity and back to backlog when it moves on', () => {
     let snap = reduceSessionEvent(startedSnapshot(), {
       type: 'stories:update',
