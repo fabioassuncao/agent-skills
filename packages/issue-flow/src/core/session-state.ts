@@ -174,6 +174,10 @@ export interface SessionStorySnapshot extends SessionUsageSnapshot {
   status: UserStoryStatus;
   /** IDs of the stories this one depends on, as declared in the plan. */
   dependencies: string[];
+  /** The plan's description; empty string when the plan carries none. */
+  description: string;
+  /** The plan's acceptance criteria; empty when the plan carries none. */
+  acceptanceCriteria: string[];
 }
 
 export interface SessionActivity {
@@ -636,6 +640,10 @@ function applyEvent(
           // value survives just for 'in_review', which no derivation produces.
           status: story.status ?? before?.status ?? 'backlog',
           dependencies: story.dependencies ?? [],
+          // Required on UserStory, so the plan is always the source — no
+          // carry-over from `before` the way the accumulated fields need.
+          description: story.description,
+          acceptanceCriteria: story.acceptanceCriteria,
           durationSeconds: before?.durationSeconds ?? null,
           inputTokens: before?.inputTokens ?? null,
           outputTokens: before?.outputTokens ?? null,
