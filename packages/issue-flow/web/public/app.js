@@ -191,6 +191,46 @@
     return match ? match[1] : null;
   }
 
+  // ---- Camada de leitura das stories ----------------------------------------
+  // Único ponto de acesso a uma story individual: o Kanban e o drawer nunca
+  // varrem snapshot.stories por conta própria. Quando a escrita existir, é aqui
+  // que a leitura passa a conversar com ela, sem tocar na UI.
+
+  function text(value) {
+    return typeof value === 'string' ? value : '';
+  }
+
+  function list(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  // Normaliza os campos que um session.json anterior pode não ter gravado, para
+  // que nenhum consumidor precise repetir a checagem de ausência.
+  function normalizeStory(story) {
+    const status = story.status !== null && story.status !== undefined ? story.status : 'backlog';
+    return {
+      ...story,
+      status: STORY_STATUS_LABELS[status] !== undefined ? status : 'backlog',
+      dependencies: list(story.dependencies),
+      description: text(story.description),
+      acceptanceCriteria: list(story.acceptanceCriteria),
+    };
+  }
+
+  function getStoryById(snapshot, id) {
+    if (!snapshot) return null;
+    const stories = list(snapshot.stories);
+    for (const story of stories) {
+      if (story.id === id) return normalizeStory(story);
+    }
+    return null;
+  }
+
+  function getStories(snapshot) {
+    if (!snapshot) return [];
+    return list(snapshot.stories).map(normalizeStory);
+  }
+
   // ---- Abas -----------------------------------------------------------------
   // Troca apenas visibilidade e estado ARIA. Não toca no polling: render()
   // segue atualizando os dois painéis, então a aba inativa nunca fica defasada.
