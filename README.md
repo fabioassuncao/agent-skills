@@ -59,6 +59,14 @@ Each phase can also be run independently: `issue-flow prd 42`, `issue-flow plan 
 
 ## Commands
 
+Every artifact the pipeline reads or writes lives in the issue directory of the [global storage](#global-storage):
+
+```
+~/.issue-flow/projects/<project-id>/issues/42/
+```
+
+Throughout this document that path is abbreviated to `~/.issue-flow/…/issues/42/`. Nothing is written to `<projectRoot>/issues/` any more: an existing legacy directory is copied into the global storage the first time a command touches the project, and is then left untouched -- see [Migrating from `issues/`](#migrating-from-issues).
+
 ### `run` -- Full pipeline (end-to-end)
 
 ```bash
@@ -121,7 +129,7 @@ Analyzes the project and drafts the issue via Claude headless; the draft is then
 | Flag | Destination |
 |------|-------------|
 | `--github` | GitHub only (current behavior) |
-| `--local` | `issues/<N>/issue.md` + `issues/<N>/metadata.json` only, no network access |
+| `--local` | `issue.md` + `metadata.json` in `~/.issue-flow/…/issues/<N>/` only, no network access |
 | `--both` | GitHub **and** a local mirror that reuses the GitHub number and records `remote.ref` / `remote.syncedContentHash` |
 
 The flags are mutually exclusive. With `--both`, the remote issue is created first because it owns the number: a failure there leaves nothing on disk, and a failure writing the mirror is reported with the URL that already exists.
@@ -132,7 +140,7 @@ The flags are mutually exclusive. With `--both`, the remote issue is created fir
 npx issue-flow analyze 42
 ```
 
-Fetches issue data, analyzes the codebase, and produces a structured analysis saved to `issues/42/analysis.md`. This is a standalone command not part of the default `run` pipeline -- use it when you need a deeper pre-analysis before generating the PRD.
+Fetches issue data, analyzes the codebase, and produces a structured analysis saved to `~/.issue-flow/…/issues/42/analysis.md`. This is a standalone command not part of the default `run` pipeline -- use it when you need a deeper pre-analysis before generating the PRD.
 
 ### `prd` -- Generate a PRD
 
@@ -140,7 +148,7 @@ Fetches issue data, analyzes the codebase, and produces a structured analysis sa
 npx issue-flow prd 42
 ```
 
-Generates a Product Requirements Document from the issue analysis. Saves to `issues/42/prd.md`.
+Generates a Product Requirements Document from the issue analysis (`analysis.md` in the same directory, when the standalone `analyze` command produced one). Saves to `~/.issue-flow/…/issues/42/prd.md`.
 
 ### `plan` -- Convert PRD to task plan
 
@@ -148,7 +156,7 @@ Generates a Product Requirements Document from the issue analysis. Saves to `iss
 npx issue-flow plan 42
 ```
 
-Converts the PRD into a structured `issues/42/tasks.json` with ordered user stories, acceptance criteria, and pipeline state.
+Converts the PRD into a structured `~/.issue-flow/…/issues/42/tasks.json` with ordered user stories, acceptance criteria, and pipeline state.
 
 ### `execute` -- Run the story execution loop
 
@@ -162,7 +170,7 @@ Runs the iterative agent loop. Each iteration is a fresh Claude instance that pi
 
 | Flag | Description |
 |------|-------------|
-| `--issue N` | Issue number -- reads artifacts from `issues/N/` |
+| `--issue N` | Issue number -- reads artifacts from `~/.issue-flow/…/issues/N/` |
 | `--max-iterations N` | Stop after N iterations (default: unlimited) |
 | `--retry-limit N` | Retry transient Claude failures up to N consecutive times (default: 10) |
 | `--retry-forever` | Retry transient Claude failures indefinitely |
@@ -182,7 +190,7 @@ Verifies acceptance criteria, runs tests, and checks for regressions. Outputs `P
 npx issue-flow pr 42
 ```
 
-Creates a well-structured PR referencing the issue, with summary and test plan. When the issue has no remote counterpart (a local issue), the `Closes #N` reference is omitted and the PR body points at `issues/N/issue.md` instead.
+Creates a well-structured PR referencing the issue, with summary and test plan. When the issue has no remote counterpart (a local issue), the `Closes #N` reference is omitted and the PR body points at the local `issue.md` instead.
 
 ### `pr-review` -- Review a Pull Request
 
@@ -193,7 +201,7 @@ npx issue-flow pr-review 184
 # Discover the Pull Request from the current session/branch
 npx issue-flow pr-review
 
-# Associate the review with an issue (persists state in issues/42/tasks.json)
+# Associate the review with an issue (persists state in the issue's tasks.json)
 npx issue-flow pr-review 184 --issue 42
 
 # Rewrite round 2 instead of appending a new one
@@ -207,7 +215,7 @@ The phase is **intended to be read-only**: Write/Edit are not in the tool allow-
 | Flag | Description |
 |------|-------------|
 | `[pr]` | Pull Request number (discovered from the session when omitted) |
-| `--issue <n>` | Issue the Pull Request belongs to -- enables state persistence in `issues/<n>/tasks.json` |
+| `--issue <n>` | Issue the Pull Request belongs to -- enables state persistence in `~/.issue-flow/…/issues/<n>/tasks.json` |
 | `--round <n>` | Rewrite a specific review round instead of appending a new one |
 | `--yes` | Skip the confirmation of the discovered Pull Request |
 | `--fail-on <level>` | Verdict that fails the command: `request-changes` (default), `suggestions`, `none` |
@@ -219,7 +227,7 @@ The [issue source flags](#flags) do not apply: the command never fetches the iss
 With no argument, the PR is resolved in this deterministic order:
 
 1. The explicit argument (`184`, `#184` or a PR URL)
-2. `pullRequest` in `issues/<N>/tasks.json`, written by the `pr` phase (when `--issue` is set)
+2. `pullRequest` in `~/.issue-flow/…/issues/<N>/tasks.json`, written by the `pr` phase (when `--issue` is set)
 3. `pullRequests[]` of the active in-memory session publisher (populated during `run --web` by `publishGitState` — not by reading `session.json` from disk)
 4. `gh pr list --head <current branch>` -- the most recent PR (highest number)
 5. Failure with an actionable message
@@ -231,11 +239,13 @@ The plan is preferred over the session so a stale or higher-numbered PR listed f
 Reports are versionable and rounds are additive -- writing round N+1 never overwrites an earlier report nor drops entries from `index.json`:
 
 ```
-issues/42/pr-review/          # issues/pr-184/pr-review/ when there is no associated issue
+~/.issue-flow/…/issues/42/pr-review/   # …/issues/pr-184/pr-review/ when there is no associated issue
   pr-184-round-1.md
   pr-184-round-2.md
   index.json
 ```
+
+With no `--issue`, the Pull Request number becomes the issue identifier of the directory (`pr-184`): the global storage accepts non-numeric identifiers, so a review with no associated issue still gets a first-class directory of its own.
 
 The Markdown report always carries the same eight sections: executive summary, strengths, issues found, suggested improvements, architectural observations, risks identified, required before merge, and final recommendation. `index.json` is the structured counterpart, so integrations do not have to reparse Markdown:
 
@@ -284,7 +294,7 @@ Where reports are published is configuration, not code. Precedence is **CLI > en
 }
 ```
 
-`local` writes the `.md` report and `index.json` under `issues/<N>/pr-review/`. Publishing back to GitHub is not implemented in v1 -- the publisher port exists so that adding it is a configuration change. An unknown value degrades to `local` with a warning instead of throwing.
+`local` writes the `.md` report and `index.json` under `~/.issue-flow/…/issues/<N>/pr-review/`. Publishing back to GitHub is not implemented in v1 -- the publisher port exists so that adding it is a configuration change. An unknown value degrades to `local` with a warning instead of throwing.
 
 ## Issue Sources (Providers)
 
@@ -293,7 +303,7 @@ The demand reaches the pipeline through an **issue provider**, so every phase wo
 | Provider | Origin | Requires |
 |----------|--------|----------|
 | `github` (default) | GitHub issues, read through `gh` | `gh` installed and authenticated |
-| `local` | `issues/<N>/issue.md` + `issues/<N>/metadata.json` | nothing beyond git -- works offline, in a repo with no remote, or on a demand that is not public yet |
+| `local` | `issue.md` + `metadata.json` in `~/.issue-flow/…/issues/<N>/` | nothing beyond git -- works offline, in a repo with no remote, or on a demand that is not public yet |
 
 The issue content is fetched **in the CLI** and injected into every prompt (`analyze`, `prd`, `plan`, `review`, `pr`). The agent never runs `gh issue view`, so all phases see byte-identical content and a local issue is not a special case for them.
 
@@ -354,7 +364,7 @@ A missing file, invalid JSON or an invalid `issues` key falls back to the defaul
 ### Local issue format
 
 ```
-issues/42/
+~/.issue-flow/projects/<project-id>/issues/42/
   issue.md        # H1 (first non-empty line) is the title, everything after it is the body
   metadata.json   # validated against the issue metadata schema
 ```
@@ -383,7 +393,7 @@ issues/42/
 - `remote` is optional and written only by `generate --both`; all four of its fields go together.
 - `contentHash` is **recalculated from `issue.md` on every read**, so editing the file by hand immediately shows up as a divergence against the GitHub copy instead of being silently ignored.
 - `metadata.json` may be absent: when only `issue.md` exists, minimal metadata is derived (id, H1 title, `state: "open"`, file timestamps). An invalid `metadata.json` is a hard error naming the path and the offending field.
-- Identifiers for new local issues are allocated above the highest number found in `issues/*/metadata.json` and, when `gh` is reachable, above the highest GitHub issue/PR number too, so a local issue never collides with a future remote one.
+- Identifiers for new local issues are allocated above the highest number found among the project's issue directories in the global storage -- which includes anything migrated out of a legacy `issues/` tree, so a number already used before the migration is never reissued -- and, when `gh` is reachable, above the highest GitHub issue/PR number too, so a local issue never collides with a future remote one.
 
 ## Web Monitoring
 
@@ -440,9 +450,9 @@ npx issue-flow run 42 --web --host 100.101.102.103
 
 Binding to `0.0.0.0` also works but exposes the server to your entire local network -- the CLI prints an explicit warning when you do. The interface is strictly read-only (no control endpoints), but prefer the Tailscale IP over `0.0.0.0` when possible.
 
-### `issues/N/session.json`
+### `session.json`
 
-When monitoring is enabled, the same snapshot served over HTTP is also persisted to `issues/N/session.json` (atomic writes, throttled to ~1s, final state flushed at the end of the run). Abridged format:
+When monitoring is enabled, the same snapshot served over HTTP is also persisted to `~/.issue-flow/…/issues/N/session.json` (atomic writes, throttled to ~1s, final state flushed at the end of the run). Abridged format:
 
 ```json
 {
@@ -471,14 +481,14 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
 }
 ```
 
-`session.json` is a runtime artifact, rewritten from scratch on every run -- see [Versioning `issues/`](#versioning-issues) for how it fits into what you commit.
+`session.json` is a runtime artifact, rewritten from scratch on every run. It lives outside the working tree, so it never shows up in `git status` -- see [The legacy `issues/` directory](#the-legacy-issues-directory) if your project used to commit it.
 
 ## Pipeline State & File Structure
 
-Each issue's state is tracked in `issues/N/tasks.json`:
+Each issue's state is tracked in a directory of its own inside the [global storage](#global-storage), keyed by the project id and the issue identifier:
 
 ```
-issues/42/
+~/.issue-flow/projects/<project-id>/issues/42/
   issue.md       # Issue statement (local issues only -- title in the H1, body below)
   metadata.json  # Issue metadata (local issues only -- see Local issue format)
   prd.md         # Product requirements
@@ -486,23 +496,14 @@ issues/42/
   progress.txt   # Execution log
   analysis.md    # Issue analysis (optional, from standalone analyze command)
   session.json   # Live session snapshot (only with web monitoring enabled)
+  .last-branch   # Last branch the execution loop worked on
+  archive/       # Artifacts superseded by a later iteration
   pr-review/     # PR review reports and index (only when the pr-review phase ran)
 ```
 
-`issue.md` and `metadata.json` only exist for issues created or mirrored locally; a GitHub-only run never writes them.
+`issue.md` and `metadata.json` only exist for issues created or mirrored locally; a GitHub-only run never writes them. Every path above is resolved by a single function (`getIssuePaths`), so no command can invent a layout of its own -- a test fails the build if any file outside `src/storage/` builds an issue path by hand.
 
-The directory is not tracked in this repository: the root `.gitignore` ignores `/issues` in full, so nothing under it is committed here -- see [Versioning `issues/`](#versioning-issues) for the trade-off in your own project.
-
-This per-project layout is the one every command reads and writes today. A machine-wide layout under `~/.issue-flow` also exists as a library -- see [Global Storage](#global-storage) -- but no command consumes it yet.
-
-### Versioning `issues/`
-
-Whether to commit `issues/` is a per-project call, and the two answers are both legitimate:
-
-- **Ignore the whole directory.** This is what the Issue Flow repository itself does -- its root `.gitignore` carries a single `/issues` entry, so every artifact of every run stays local. Prefer this when your issues live on GitHub: the demand is already tracked there and the pipeline artifacts are reproducible working notes.
-- **Commit it.** Prefer this when you use [local issues](#local-issue-format): the demand itself lives in the directory, so `issue.md` and `metadata.json` are source, not build output -- leaving them untracked means the issue exists on one machine only. The planning artifacts (`prd.md`, `tasks.json`, `progress.txt`, `analysis.md`) are useful in review for the same reason.
-
-If you do commit the directory, the one artifact worth excluding is `session.json` (plus its `.tmp` sibling): it is a live snapshot rewritten roughly once a second during a run, so it produces noisy diffs and carries nothing you cannot recompute.
+Nothing here is inside your repository, so a run leaves your working tree untouched: no artifact to ignore, no artifact to commit, and no diff noise from `session.json`. The trade-off is that the artifacts are machine-local -- see below.
 
 The `pipeline` field tracks which phases have completed, enabling resume from any point:
 
@@ -549,14 +550,25 @@ The `pr` and `pr-review` phases add three optional fields. All of them are **abs
 | `pipeline.prReviewCompleted` | `pr-review` | `true` only on `APPROVE` / `APPROVE_WITH_SUGGESTIONS`; stays `false` on `REQUEST_CHANGES` |
 | `pullRequest` | `pr` | The created PR, so later phases do not have to query GitHub again |
 | `prReview.enabled` | `run --pr-review` | Persisted opt-in; the standalone command never turns it on |
-| `prReview.rounds` | `pr-review` | Number of review rounds recorded under `issues/<N>/pr-review/` |
+| `prReview.rounds` | `pr-review` | Number of review rounds recorded under the issue's `pr-review/` directory |
 | `prReview.lastRecommendation` | `pr-review` | `APPROVE` \| `APPROVE_WITH_SUGGESTIONS` \| `REQUEST_CHANGES` |
+
+### The legacy `issues/` directory
+
+Earlier releases wrote all of the above to `<projectRoot>/issues/N/`. That directory is now **legacy and read-only**: the first command that touches the project copies it into the global storage and never writes, renames or deletes anything inside it again (see [Migrating from `issues/`](#migrating-from-issues)). It is preserved on purpose -- rolling back to an earlier version of Issue Flow finds its data exactly where it left it.
+
+Two consequences are worth knowing:
+
+- **Artifacts are no longer shareable through git.** If your project used to commit `issues/` to review `prd.md` or `tasks.json`, those files are now under `~/.issue-flow` on the machine that ran the pipeline. The committed copies stay valid as a historical record, but they stop being updated.
+- **Local issues are machine-local too.** With [local issues](#local-issue-format), `issue.md` and `metadata.json` are the demand itself rather than build output, and they now live outside the repository. A clone on another machine does not see them; `--both` (a GitHub issue plus a local mirror) is the way to keep the demand shared.
+
+The root `.gitignore` of this repository keeps its `/issues` entry: it now guards the legacy directory of anyone running the pipeline from a checkout, so a migrated-from tree is never committed by accident.
 
 ## Global Storage
 
-Alongside the per-project `issues/` directory, Issue Flow ships a machine-wide storage layer rooted at `~/.issue-flow`. It keeps every run's state out of your working tree and lets preferences be set once for all projects.
+Issue Flow keeps every artifact in a machine-wide storage layer rooted at `~/.issue-flow`. It keeps each run's state out of your working tree and lets preferences be set once for all projects.
 
-> **Not wired up yet.** This release adds the layer as a library (`src/storage/`) plus the loader of the global config file. **No command reads or writes `~/.issue-flow` today** -- `run`, `execute`, `review`, `pr` and the web server all still use `issues/N/` exactly as before, and the precedence table below is implemented and tested but not yet consumed by `loadWebConfig()`. Nothing in your setup changes by upgrading.
+Every phase (`analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review`, `run`) and the [local issue provider](#issue-sources-providers) resolve their paths here, through a single resolver that also triggers the [migration](#migrating-from-issues) of a legacy `issues/` tree on first use. The one part still on the way is the config file: the [precedence table](#precedence) below is implemented and tested, but `loadWebConfig()` does not read the global layer yet.
 
 ### Directory tree
 
@@ -681,13 +693,19 @@ Settings resolve from the highest-priority source that provides them:
 
 The merge is per key and shallow: a layer only participates with the keys it actually carries, so a global `config.json` that sets `web.host` but not `web.port` leaves a project-level `web.port` untouched. Nested objects (`web`, `retry`) are replaced whole rather than field by field.
 
-As noted above, this is the documented and implemented precedence (`mergeConfigLayers()` in `src/config.ts`), but the global layer is not yet plugged into the commands: today `loadWebConfig()` still resolves **CLI flag > environment variable > `.issue-flow.json` > default**, as described under [Web Monitoring → Configuration](#configuration).
+As noted above, this is the documented and implemented precedence (`mergeConfigLayers()` in `src/config.ts`), but the global config file is not yet plugged into the commands: today `loadWebConfig()` still resolves **CLI flag > environment variable > `.issue-flow.json` > default**, as described under [Web Monitoring → Configuration](#configuration). This is about `config.json` only -- the storage tree itself is fully wired up.
 
 ### Migrating from `issues/`
 
-The compatibility layer (`resolveStorageMode()` / `migrateLegacyStorage()`) copies an existing `issues/` tree into the global storage. It is **non-destructive by construction**: `<projectRoot>/issues/` is never modified, renamed or removed -- there is no removal option, not even opt-in. Migration is a copy that refuses to overwrite, which also makes it idempotent (running it twice copies nothing the second time) and resumable after a partial failure. Subdirectories (`archive/`, `pr-review/`) and dotfiles (`.last-branch`) come across intact.
+Migration is **automatic**: the first command that resolves a path for a project copies an existing `<projectRoot>/issues/` tree into the global storage before reading anything. There is no command to run and no flag to pass -- upgrading and running `issue-flow run 42` is all it takes.
 
-An existing global directory always wins: once artifacts live there, that is the source of truth, and a legacy directory left behind is simply preserved.
+It is **non-destructive by construction**: `<projectRoot>/issues/` is never modified, renamed or removed -- there is no removal option, not even opt-in. Migration is a copy that refuses to overwrite, which also makes it idempotent (running it twice copies nothing the second time) and resumable after a partial failure. Subdirectories (`archive/`, `pr-review/`) and dotfiles (`.last-branch`) come across intact.
+
+When files are actually copied, the CLI prints the source directory, the destination directory and how many files moved across, plus a reminder that the legacy directory was left untouched. A run that copies nothing prints nothing, so the notice appears once and does not turn into per-command noise.
+
+An existing global directory always wins: once artifacts live there, that is the source of truth, and a legacy directory left behind is simply preserved. The check also runs **per issue**, not only per project: an issue that appears under `<projectRoot>/issues/` after the project was migrated is picked up the first time it is resolved.
+
+**Known scenario -- collaborators on different versions.** In a repository where `issues/` is committed and part of the team is still on an older release, state can be split for a while: the older version keeps writing into `<projectRoot>/issues/N/`, while an upgraded machine reads its own copy under `~/.issue-flow`. Nothing is lost or corrupted: the legacy tree stays intact and readable for the older version, and an issue the older version *creates* is pulled in by the per-issue check the first time an upgraded machine resolves it. What does not cross over is an *update* to an issue that has already been migrated -- once a global copy exists it wins, and a newer `tasks.json` committed by the older version is not merged into it. Upgrading the whole team, or moving the demand to GitHub issues, is what closes the gap.
 
 ## Development
 

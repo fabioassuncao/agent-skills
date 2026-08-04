@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { resolveIssuePaths } from '../../storage/resolve.js';
 import type { PrReviewRecommendation } from '../../types.js';
-import { getIssueDir } from '../../utils/git.js';
 
 /**
  * Everything the `pr-review` phase produces out of a headless run: the parsed
@@ -357,13 +357,21 @@ export function buildReportMarkdown(input: BuildReportInput): string {
   return `${parts.join('\n').trimEnd()}\n`;
 }
 
-/** `issues/<N>/pr-review/`, or `issues/pr-<N>/pr-review/` with no issue. */
+/**
+ * The global `issues/<N>/pr-review/`, or `issues/pr-<N>/pr-review/` with no
+ * issue.
+ *
+ * A Pull Request with no associated Issue still needs somewhere to keep its
+ * rounds, so it gets the synthetic `pr-<N>` identifier — `getIssuePaths()`
+ * accepts non-numeric identifiers, so it is a first-class issue directory as
+ * far as the storage layer is concerned.
+ */
 export async function prReviewDir(opts: { issue?: string; pullRequest: number }): Promise<string> {
   const slug =
     opts.issue === undefined || opts.issue === ''
       ? `pr-${opts.pullRequest}`
       : opts.issue.replace(/^#/, '');
-  return join(await getIssueDir(slug), 'pr-review');
+  return (await resolveIssuePaths(slug)).prReviewDir;
 }
 
 export function reportFileName(pullRequest: number, round: number): string {

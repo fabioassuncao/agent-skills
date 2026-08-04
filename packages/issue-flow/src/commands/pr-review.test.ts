@@ -4,15 +4,19 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskPlan } from '../types.js';
 
-// getIssueDir() and the `gh pr view` metadata lookup both go through execa; the
-// mock answers with the temporary repo root and a fixed Pull Request payload,
-// so no test touches the network or the real repository.
-const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
+// resolveIssuePaths() and the `gh pr view` metadata lookup both go through
+// execa; the mock answers with the temporary repo root, a stable remote (so the
+// derived project id is deterministic) and a fixed Pull Request payload, so no
+// test touches the network or the real repository.
+const mockRepo = vi.hoisted(() => ({ root: '', remote: 'https://github.com/acme/widgets.git' }));
 const mockBranch = vi.hoisted(() => ({ current: '' }));
 vi.mock('execa', () => ({
   execa: vi.fn(async (file: string, args: string[] = []) => {
     if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
-      return { stdout: mockProjectRoot.current, exitCode: 0 };
+      return { stdout: mockRepo.root, exitCode: 0 };
+    }
+    if (file === 'git' && args[0] === 'remote' && args[1] === 'get-url') {
+      return { stdout: mockRepo.remote, exitCode: 0 };
     }
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
       return { stdout: mockBranch.current, exitCode: 0 };
@@ -47,6 +51,8 @@ vi.mock('../core/headless.js', () => ({
 
 import type { PrReviewIndex } from '../core/pr-review/report.js';
 import { setGlobalTimeout } from '../core/verbose.js';
+import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
+import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
 import { runPrReview } from './pr-review.js';
 
 function agentOutput(recommendation: string, extra = ''): string {
@@ -107,16 +113,31 @@ function makePlan(): TaskPlan {
 
 describe('runPrReview', () => {
   let tmpDir: string;
+  let globalHome: string;
+  let previousHome: string | undefined;
+  let issueDir: string;
   let tasksPath: string;
+  let prdPath: string;
   let reviewDir: string;
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-pr-review-'));
-    mockProjectRoot.current = tmpDir;
+    globalHome = await mkdtemp(join(tmpdir(), 'issue-flow-home-'));
+    mockRepo.root = tmpDir;
     mockBranch.current = '';
-    tasksPath = join(tmpDir, 'issues', '42', 'tasks.json');
-    reviewDir = join(tmpDir, 'issues', '42', 'pr-review');
-    await mkdir(join(tmpDir, 'issues', '42'), { recursive: true });
+
+    // runPrReview calls resolveIssuePaths() with no options, so the override
+    // has to reach it through the real process environment.
+    previousHome = process.env[GLOBAL_ROOT_ENV];
+    process.env[GLOBAL_ROOT_ENV] = globalHome;
+    resetStorageResolutionCache();
+
+    const paths = await resolveIssuePaths('42');
+    issueDir = paths.issueDir;
+    tasksPath = paths.tasksFile;
+    prdPath = paths.prdFile;
+    reviewDir = paths.prReviewDir;
+    await mkdir(issueDir, { recursive: true });
     await writeFile(tasksPath, JSON.stringify(makePlan(), null, 2), 'utf-8');
     headless.success = true;
     headless.error = null;
@@ -125,7 +146,12 @@ describe('runPrReview', () => {
   });
 
   afterEach(async () => {
+    resetStorageResolutionCache();
+    if (previousHome === undefined) delete process.env[GLOBAL_ROOT_ENV];
+    else process.env[GLOBAL_ROOT_ENV] = previousHome;
+
     await rm(tmpDir, { recursive: true, force: true });
+    await rm(globalHome, { recursive: true, force: true });
     // There is no "unset"; the cast restores the module's initial state so the
     // phase default applies again in the next test.
     setGlobalTimeout(undefined as unknown as number);
@@ -165,9 +191,21 @@ describe('runPrReview', () => {
     const prompt = String(headless.options?.prompt);
     expect(prompt).toContain('Pull Request #128');
     expect(prompt).toContain(tasksPath);
-    expect(prompt).toContain(join(tmpDir, 'issues', '42', 'prd.md'));
+    expect(prompt).toContain(prdPath);
     expect(prompt).toContain(join(reviewDir, 'pr-128-round-1.md'));
     expect(prompt).not.toMatch(/__[A-Z_]+__/);
+  });
+
+  it('writes every artifact under the global storage, never under <repoRoot>/issues/', async () => {
+    const code = await runPrReview('128', { issue: '42' });
+
+    expect(code).toBe(0);
+    expect(reviewDir.startsWith(globalHome)).toBe(true);
+    // The parent covers the report destination plus tasks.json and prd.md.
+    expect(headless.options?.addDirs).toEqual([issueDir]);
+    await expect(
+      readFile(join(tmpDir, 'issues', '42', 'pr-review', 'index.json')),
+    ).rejects.toThrow();
   });
 
   it('writes the report and the index, and records the round on the plan', async () => {
@@ -329,7 +367,10 @@ describe('runPrReview', () => {
     const code = await runPrReview('128');
 
     expect(code).toBe(0);
-    const standaloneDir = join(tmpDir, 'issues', 'pr-128', 'pr-review');
+    // No issue means no paths to resolve: the report lands under the synthetic
+    // `pr-<N>` slug and the path placeholders stay empty.
+    const standaloneDir = (await resolveIssuePaths('pr-128')).prReviewDir;
+    expect(standaloneDir.startsWith(globalHome)).toBe(true);
     await expect(readFile(join(standaloneDir, 'pr-128-round-1.md'), 'utf-8')).resolves.toContain(
       '#128',
     );
@@ -337,6 +378,8 @@ describe('runPrReview', () => {
     // The unrelated plan on disk is left untouched.
     expect((await readPlan()).prReview).toBeUndefined();
     expect(String(headless.options?.prompt)).toContain('#none');
+    expect(String(headless.options?.prompt)).toContain('(none)');
+    expect(headless.options?.addDirs).toEqual([standaloneDir]);
   });
 
   it('publishes through the injected publisher instead of the local one', async () => {

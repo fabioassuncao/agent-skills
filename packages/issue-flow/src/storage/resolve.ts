@@ -1,0 +1,239 @@
+import { stat } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
+import { printInfo } from '../ui/logger.js';
+import { getProjectRoot } from '../utils/git.js';
+import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
+import {
+  type GetGlobalRootOptions,
+  getGlobalRoot,
+  getIssuePaths,
+  getProjectDir,
+  ISSUES_DIR_NAME,
+  type IssuePaths,
+} from './paths.js';
+
+/**
+ * The single entry point every pipeline command uses to learn where an issue's
+ * artifacts live.
+ *
+ * `paths.ts` and `compat.ts` stay pure and explicit — they take a `projectId` or
+ * a `projectRoot` and never decide anything on their own. This module is the
+ * opposite end: it knows the current repository, resolves the storage mode,
+ * triggers the legacy migration when one is due, and caches all of that for the
+ * lifetime of the process, so a call site is reduced to one line.
+ *
+ * It deliberately does **not** create the issue directory. Callers that write
+ * keep doing their own `mkdir(..., { recursive: true })`, which preserves the
+ * rule in `storage/CLAUDE.md` that path resolution never touches the
+ * filesystem's shape.
+ */
+
+export interface ResolveIssuePathsOptions extends GetGlobalRootOptions {
+  /**
+   * Repository root. Defaults to {@link getProjectRoot}, i.e. the git toplevel
+   * of the current working directory — which is what makes the result identical
+   * from the repo root and from any subdirectory.
+   */
+  projectRoot?: string;
+}
+
+/** Everything the process needs to know about a project, resolved once. */
+interface ProjectResolution {
+  projectId: string;
+  legacyDir: string;
+}
+
+/**
+ * Cached project resolutions, keyed by `<globalRoot>::<projectRoot>`.
+ *
+ * `projectRoot` is the identity of the project, but the global root takes part
+ * in the key as well: `ISSUE_FLOW_HOME` decides *where* the resolution lands,
+ * so two different roots must never share an entry (that would silently hand a
+ * test the previous test's tree).
+ *
+ * The cached value is the in-flight promise rather than its result, so two
+ * commands resolving concurrently share a single git call instead of racing
+ * into two migrations.
+ */
+const projectCache = new Map<string, Promise<ProjectResolution>>();
+
+/**
+ * Issues whose global directory has already been checked in this process, so
+ * the per-issue fallback below stats each issue at most once.
+ */
+const checkedIssues = new Set<string>();
+
+/**
+ * Drop every cached resolution.
+ *
+ * Exported for tests: the cache is keyed by project and global root, so a suite
+ * that moves `ISSUE_FLOW_HOME` between cases must reset it in `beforeEach`.
+ */
+export function resetStorageResolutionCache(): void {
+  projectCache.clear();
+  checkedIssues.clear();
+}
+
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Tell the user that their artifacts moved, and that nothing was taken away.
+ *
+ * A migration that copied nothing stays silent: `migrateLegacyStorage` is
+ * called speculatively (once per project, then once per issue seen for the
+ * first time), and every one of those runs after the first copies zero files.
+ * Printing on those would turn a one-time notice into noise on every command.
+ *
+ * The "one notice per process" guarantee falls out of the US-001 cache: the
+ * project-level migration runs once, and the per-issue fallback only reaches a
+ * second migration when an issue really is still legacy-only — in which case a
+ * notice is the correct output, not a duplicate.
+ */
+function announceMigration(result: MigrationResult): void {
+  if (result.copied.length === 0) return;
+
+  const count = result.copied.length;
+  const target = join(result.globalDir, ISSUES_DIR_NAME);
+
+  printInfo(
+    `Migrated ${count} file${count === 1 ? '' : 's'} from ${result.legacyDir} to ${target}`,
+  );
+  printInfo(
+    `The legacy directory was not modified or removed — ${result.legacyDir} is kept as-is, read-only, for compatibility.`,
+  );
+}
+
+/**
+ * Resolve the project id, migrating the legacy tree when it is the only thing
+ * that exists yet.
+ *
+ * A migration failure is not swallowed: `migrateLegacyStorage` already names the
+ * issue and file that failed and states that the legacy directory was left
+ * untouched, which is exactly what the user needs to fix it and retry.
+ */
+async function resolveProject(
+  projectRoot: string,
+  options: GetGlobalRootOptions,
+): Promise<ProjectResolution> {
+  // resolveStorageMode returns the project id *and* the remote in a single git
+  // call — calling getProjectId() afterwards would shell out to
+  // `git remote get-url origin` a second time for the same answer.
+  const status = await resolveStorageMode(projectRoot, options);
+
+  if (status.mode === 'needs-migration') {
+    announceMigration(await migrateLegacyStorage(projectRoot, options));
+  }
+
+  return {
+    projectId: status.projectId,
+    legacyDir: status.legacyDir,
+  };
+}
+
+/** Cached half of {@link resolveIssuePaths}: one git call per project, per process. */
+function getProjectResolution(
+  projectRoot: string,
+  options: GetGlobalRootOptions,
+): Promise<ProjectResolution> {
+  const key = `${getGlobalRoot(options)}::${projectRoot}`;
+
+  const cached = projectCache.get(key);
+  if (cached) return cached;
+
+  // A rejected resolution is evicted so the next command retries instead of
+  // inheriting a permanently failed promise.
+  const pending = resolveProject(projectRoot, options).catch((err) => {
+    projectCache.delete(key);
+    throw err;
+  });
+
+  projectCache.set(key, pending);
+  return pending;
+}
+
+/** Project-level directories of the current repository inside the global tree. */
+export interface ProjectStoragePaths {
+  /** Deterministic id derived from the repository's remote (or its path). */
+  projectId: string;
+  /** `<globalRoot>/projects/<projectId>`. */
+  projectDir: string;
+  /** `<projectDir>/issues` — the parent of every issue directory. */
+  issuesDir: string;
+}
+
+/**
+ * Resolve the project-level directories, without naming an issue.
+ *
+ * The issue-agnostic half of {@link resolveIssuePaths}, for the two questions
+ * that are about the project rather than about one issue: "can I write here?"
+ * (`LocalFileIssueProvider.isAvailable`) and "which identifiers are taken?"
+ * (`highestLocalNumber`, which walks `issuesDir`). It shares the same cache, so
+ * asking here and then resolving an issue still costs a single git call.
+ *
+ * Like the rest of this module it creates nothing — a caller that needs the
+ * directory to exist does its own `mkdir(..., { recursive: true })`.
+ */
+export async function resolveProjectPaths(
+  options: ResolveIssuePathsOptions = {},
+): Promise<ProjectStoragePaths> {
+  const { projectRoot: projectRootOption, ...rootOptions } = options;
+  const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
+
+  const project = await getProjectResolution(projectRoot, rootOptions);
+  const projectDir = getProjectDir(project.projectId, rootOptions);
+
+  return {
+    projectId: project.projectId,
+    projectDir,
+    issuesDir: join(projectDir, ISSUES_DIR_NAME),
+  };
+}
+
+/**
+ * Resolve every path of `issueNumber` under the global storage, migrating the
+ * legacy `<projectRoot>/issues/` tree first when needed.
+ *
+ * The migration is triggered in two situations:
+ *
+ * 1. project level — the global project directory does not exist at all and the
+ *    legacy one does (`mode === 'needs-migration'`);
+ * 2. issue level — the project directory exists (so the mode is already
+ *    `global`) but *this* issue is only present in the legacy tree. That
+ *    happens whenever a project was migrated before an older issue was ever
+ *    read, or when a collaborator on a previous version added an issue to the
+ *    legacy directory afterwards. Re-running the migration is cheap and safe:
+ *    it skips every destination that already exists.
+ */
+export async function resolveIssuePaths(
+  issueNumber: string | number,
+  options: ResolveIssuePathsOptions = {},
+): Promise<IssuePaths> {
+  const { projectRoot: projectRootOption, ...rootOptions } = options;
+  const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
+
+  const project = await getProjectResolution(projectRoot, rootOptions);
+  const paths = getIssuePaths(project.projectId, issueNumber, rootOptions);
+
+  if (!checkedIssues.has(paths.issueDir)) {
+    // `getIssuePaths` already validated and normalized the identifier, so the
+    // last segment of issueDir is the safe form to look for under the legacy
+    // tree.
+    const legacyIssueDir = join(project.legacyDir, basename(paths.issueDir));
+
+    if (!(await directoryExists(paths.issueDir)) && (await directoryExists(legacyIssueDir))) {
+      announceMigration(await migrateLegacyStorage(projectRoot, rootOptions));
+    }
+
+    // Marked only once the check completed: a failed migration must be retried
+    // by the next command, not remembered as done.
+    checkedIssues.add(paths.issueDir);
+  }
+
+  return paths;
+}

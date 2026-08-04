@@ -1,12 +1,11 @@
-import { join } from 'node:path';
 import { runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
+import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
-import { getIssueDir } from '../utils/git.js';
 
 export interface ReviewResult {
   status: 'PASS' | 'FAIL';
@@ -45,8 +44,8 @@ function parseReviewResult(output: string): ReviewResult {
 
 export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = await getIssueDir(issueNumber);
-  const tasksPath = join(issueDir, 'tasks.json');
+  const paths = await resolveIssuePaths(issueNumber);
+  const tasksPath = paths.tasksFile;
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
   if (!resolution.ok) {
@@ -66,6 +65,7 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     timeout: getGlobalTimeout() ?? 300_000,
     outputFormat: 'text',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
+    addDirs: [paths.issueDir],
     statusMessage: `Reviewing issue #${issueNumber} resolution...`,
   });
 

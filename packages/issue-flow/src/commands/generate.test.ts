@@ -226,3 +226,24 @@ describe('runGenerate failures', () => {
     expect(await runGenerate('add retries', 'local')).toBe(1);
   });
 });
+
+describe('runGenerate prompt', () => {
+  // The duplicate check reads the local issues, which moved out of the working
+  // directory: the prompt has to carry the resolved path, and `claude` has to be
+  // allowed into it.
+  it('hands the global issues directory to the agent', async () => {
+    const { loadPrompt } = await import('../core/prompt-resolver.js');
+    vi.mocked(loadPrompt).mockResolvedValueOnce(
+      'Duplicates in __LOCAL_ISSUES_DIR__/*/metadata.json',
+    );
+
+    const { resolveProjectPaths } = await import('../storage/resolve.js');
+    const { issuesDir } = await resolveProjectPaths();
+
+    expect(await runGenerate('add retries')).toBe(0);
+
+    const options = runHeadless.mock.calls.at(-1)?.[0];
+    expect(options.prompt).toBe(`Duplicates in ${issuesDir}/*/metadata.json`);
+    expect(options.addDirs).toEqual([issuesDir]);
+  });
+});

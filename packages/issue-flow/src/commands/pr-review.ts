@@ -19,9 +19,9 @@ import {
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
+import { resolveIssuePaths } from '../storage/resolve.js';
 import type { PrReviewRecommendation } from '../types.js';
 import { printError, printInfo, printSuccess } from '../ui/logger.js';
-import { getIssueDir } from '../utils/git.js';
 import { run } from '../utils/shell.js';
 
 /**
@@ -197,9 +197,12 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
     return 1;
   }
 
-  const issueDir = issue === undefined ? null : await getIssueDir(issue);
-  const tasksPath = issueDir === null ? null : join(issueDir, 'tasks.json');
-  const prdPath = issueDir === null ? null : join(issueDir, 'prd.md');
+  // With no Issue there is nothing to resolve: the placeholders take NO_PATH
+  // and the report lands under the synthetic `pr-<N>` slug resolved below.
+  const issuePaths = issue === undefined ? null : await resolveIssuePaths(issue);
+  const issueDir = issuePaths?.issueDir ?? null;
+  const tasksPath = issuePaths?.tasksFile ?? null;
+  const prdPath = issuePaths?.prdFile ?? null;
 
   const dir = await prReviewDir({ issue, pullRequest: target.number });
   const round = await resolveRound(dir, target.number, explicitRound);
@@ -221,6 +224,9 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
     timeout: getGlobalTimeout() ?? 900_000,
     outputFormat: 'text',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
+    // With an Issue, `dir` sits under `issueDir`, so the parent covers both the
+    // report destination and the tasks.json/prd.md the prompt points at.
+    addDirs: issueDir === null ? [dir] : [issueDir],
     statusMessage: `Reviewing Pull Request #${target.number} (round ${round})...`,
   });
 

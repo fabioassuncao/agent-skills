@@ -4,14 +4,18 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskPlan } from '../types.js';
 
-// getIssueDir() shells out to `git rev-parse --show-toplevel` and runPr reads
-// the branch from `git branch --show-current`; both go through execa, so the
-// mock answers with the temporary repo root and a fixed branch name.
-const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
+// resolveIssuePaths() shells out to `git rev-parse --show-toplevel` and
+// `git remote get-url origin`, and runPr reads the branch from
+// `git branch --show-current`; all three go through execa, so the mock answers
+// with the temporary repo root, a stable remote and a fixed branch name.
+const mockRepo = vi.hoisted(() => ({ root: '', remote: 'https://github.com/acme/widgets.git' }));
 vi.mock('execa', () => ({
   execa: vi.fn(async (file: string, args: string[] = []) => {
     if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
-      return { stdout: mockProjectRoot.current, exitCode: 0 };
+      return { stdout: mockRepo.root, exitCode: 0 };
+    }
+    if (file === 'git' && args[0] === 'remote' && args[1] === 'get-url') {
+      return { stdout: mockRepo.remote, exitCode: 0 };
     }
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
       return { stdout: 'issue/42-sample', exitCode: 0 };
@@ -21,11 +25,17 @@ vi.mock('execa', () => ({
 }));
 
 const headlessOutput = vi.hoisted(() => ({ current: '' }));
+const headlessOptions = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
 vi.mock('../core/headless.js', () => ({
-  runHeadless: vi.fn(async () => ({ success: true, result: headlessOutput.current })),
+  runHeadless: vi.fn(async (options: Record<string, unknown>) => {
+    headlessOptions.last = options;
+    return { success: true, result: headlessOutput.current };
+  }),
 }));
 
 import type { Issue, ResolvedIssue } from '../issues/types.js';
+import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
+import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
 import { runPr } from './pr.js';
 
 function makeResolved(): ResolvedIssue {
@@ -81,18 +91,37 @@ function makePlan(): TaskPlan {
 
 describe('runPr — persisted Pull Request', () => {
   let tmpDir: string;
+  let globalHome: string;
+  let previousHome: string | undefined;
+  let issueDir: string;
   let tasksPath: string;
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-pr-'));
-    mockProjectRoot.current = tmpDir;
-    tasksPath = join(tmpDir, 'issues', '42', 'tasks.json');
-    await mkdir(join(tmpDir, 'issues', '42'), { recursive: true });
+    globalHome = await mkdtemp(join(tmpdir(), 'issue-flow-home-'));
+    mockRepo.root = tmpDir;
+
+    // runPr calls resolveIssuePaths() with no options, so the override has to
+    // reach it through the real process environment.
+    previousHome = process.env[GLOBAL_ROOT_ENV];
+    process.env[GLOBAL_ROOT_ENV] = globalHome;
+    resetStorageResolutionCache();
+    headlessOptions.last = null;
+
+    const paths = await resolveIssuePaths('42');
+    issueDir = paths.issueDir;
+    tasksPath = paths.tasksFile;
+    await mkdir(issueDir, { recursive: true });
     await writeFile(tasksPath, JSON.stringify(makePlan(), null, 2), 'utf-8');
   });
 
   afterEach(async () => {
+    resetStorageResolutionCache();
+    if (previousHome === undefined) delete process.env[GLOBAL_ROOT_ENV];
+    else process.env[GLOBAL_ROOT_ENV] = previousHome;
+
     await rm(tmpDir, { recursive: true, force: true });
+    await rm(globalHome, { recursive: true, force: true });
     vi.clearAllMocks();
   });
 
@@ -133,5 +162,17 @@ describe('runPr — persisted Pull Request', () => {
     headlessOutput.current = 'https://github.com/acme/repo/pull/7';
 
     await expect(runPr('42', makeResolved())).resolves.toBe(0);
+  });
+
+  it('points the prompt and the headless session at the global issue directory', async () => {
+    headlessOutput.current = 'https://github.com/acme/repo/pull/128';
+
+    await runPr('42', makeResolved());
+
+    expect(tasksPath.startsWith(globalHome)).toBe(true);
+    expect(String(headlessOptions.last?.prompt)).toContain(tasksPath);
+    expect(headlessOptions.last?.addDirs).toEqual([issueDir]);
+    // Nothing was written under the legacy tree.
+    await expect(readFile(join(tmpDir, 'issues', '42', 'tasks.json'), 'utf-8')).rejects.toThrow();
   });
 });

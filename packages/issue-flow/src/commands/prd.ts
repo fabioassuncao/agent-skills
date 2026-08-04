@@ -1,5 +1,4 @@
 import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { runHeadless } from '../core/headless.js';
 import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
@@ -7,26 +6,29 @@ import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
+import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
-import { getIssueDir } from '../utils/git.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = await getIssueDir(issueNumber);
-  const prdPath = join(issueDir, 'prd.md');
+  const paths = await resolveIssuePaths(issueNumber);
+  const prdPath = paths.prdFile;
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
   if (!resolution.ok) {
     return resolution.code;
   }
 
-  await mkdir(issueDir, { recursive: true });
+  await mkdir(paths.issueDir, { recursive: true });
 
   const template = await loadPrompt('prd');
   const prompt = applyPlaceholders(template, {
     __ISSUE_NUMBER__: issueNumber,
     __PRD_PATH__: prdPath,
+    // Absolute: the analysis lives in the global storage, outside the working
+    // directory the agent is started in.
+    __ANALYSIS_PATH__: paths.analysisFile,
     ...issuePlaceholders(resolution.resolved),
   });
 
@@ -39,6 +41,7 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
         timeout: getGlobalTimeout() ?? 300_000,
         outputFormat: 'text',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
+        addDirs: [paths.issueDir],
         statusMessage: `Generating PRD for issue #${issueNumber}...`,
       });
 
@@ -72,7 +75,7 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
   }
 
   // Update pipeline state
-  const tasksPath = join(issueDir, 'tasks.json');
+  const tasksPath = paths.tasksFile;
   try {
     const plan = await loadTaskPlan(tasksPath);
     plan.pipeline.prdCompleted = true;

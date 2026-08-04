@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import { execa } from 'execa';
 import { runHeadless } from '../core/headless.js';
 import { runPhaseWithRetry } from '../core/phase-runner.js';
@@ -7,8 +6,8 @@ import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { Issue, ResolvedIssue } from '../issues/types.js';
+import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
-import { getIssueDir } from '../utils/git.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 /**
@@ -42,8 +41,8 @@ function issueClosesLine(issue: Issue, fallbackId: string): string {
 
 export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = await getIssueDir(issueNumber);
-  const tasksPath = join(issueDir, 'tasks.json');
+  const paths = await resolveIssuePaths(issueNumber);
+  const tasksPath = paths.tasksFile;
 
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
   if (!resolution.ok) {
@@ -84,6 +83,7 @@ export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promi
         timeout: getGlobalTimeout() ?? 300_000,
         outputFormat: 'text',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
+        addDirs: [paths.issueDir],
         statusMessage: `Creating PR for issue #${issueNumber}...`,
       });
 

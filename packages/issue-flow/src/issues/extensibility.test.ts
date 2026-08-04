@@ -58,6 +58,8 @@ import { runAnalyze } from '../commands/analyze.js';
 import { runPipeline } from '../commands/run.js';
 import { setIssuesCliOverrides } from '../config.js';
 import { runHeadless } from '../core/headless.js';
+import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
+import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
 
 /** The origin this proof invents. Nothing outside this file mentions it. */
 const MEMORY_SOURCE = 'memory';
@@ -179,6 +181,8 @@ const VALID_TASK_PLAN = {
 
 describe('extensibilidade: um provider novo roda o pipeline sem tocar em commands/prompts', () => {
   let tmp: string;
+  let globalHome: string;
+  let previousHome: string | undefined;
   let originalCwd: string;
   let provider: MemoryIssueProvider;
   /** Prompt of every headless invocation, in order. */
@@ -188,6 +192,15 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     originalCwd = process.cwd();
     tmp = await mkdtemp(join(tmpdir(), 'issue-flow-ext-'));
     process.chdir(tmp);
+
+    // The migrated phases resolve their artifacts under the global storage, so
+    // the whole tree is pointed at a temporary home — otherwise this suite
+    // would write into the developer's real ~/.issue-flow.
+    globalHome = await mkdtemp(join(tmpdir(), 'issue-flow-ext-home-'));
+    previousHome = process.env[GLOBAL_ROOT_ENV];
+    process.env[GLOBAL_ROOT_ENV] = globalHome;
+    resetStorageResolutionCache();
+
     setIssuesCliOverrides({});
     vi.clearAllMocks();
     prompts = [];
@@ -213,6 +226,11 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
       if (file === 'git' && args[0] === 'rev-parse') {
         return { stdout: tmp, stderr: '', exitCode: 0 };
       }
+      // No origin: the project id falls back to the (temporary) path, which is
+      // unique per test and keeps the global tree isolated.
+      if (file === 'git' && args[0] === 'remote') {
+        return { stdout: '', stderr: '', exitCode: 1 };
+      }
       if (file === 'git' && args[0] === 'branch') {
         return { stdout: 'issue/42-memory', stderr: '', exitCode: 0 };
       }
@@ -224,7 +242,9 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
       async (options: HeadlessOptions): Promise<HeadlessResult> => {
         prompts.push(options.prompt);
         const status = options.statusMessage ?? '';
-        const issueDir = join(tmp, 'issues', ISSUE_ID);
+        // Where the phase told the agent it may write: the same directory it
+        // will read the artifact back from, whichever layout it resolved.
+        const issueDir = options.addDirs?.[0] ?? join(tmp, 'issues', ISSUE_ID);
         if (status.startsWith('Analyzing')) {
           await writeFile(join(issueDir, 'analysis.md'), '# Analysis\n\nDone.', 'utf-8');
         }
@@ -260,7 +280,11 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     setIssuesCliOverrides({});
     clearProviders();
     process.chdir(originalCwd);
+    resetStorageResolutionCache();
+    if (previousHome === undefined) delete process.env[GLOBAL_ROOT_ENV];
+    else process.env[GLOBAL_ROOT_ENV] = previousHome;
     await rm(tmp, { recursive: true, force: true });
+    await rm(globalHome, { recursive: true, force: true });
   });
 
   it('o resolver elege a origem nova sem nenhuma configuração', async () => {
@@ -319,7 +343,10 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
       expect(prompt).toContain(ISSUE_BODY);
       expect(prompt).not.toContain('__ISSUE_');
     }
-    expect(await readFile(join(tmp, 'issues', ISSUE_ID, 'prd.md'), 'utf-8')).toContain('# PRD');
+    const paths = await resolveIssuePaths(ISSUE_ID);
+    expect(await readFile(paths.prdFile, 'utf-8')).toContain('# PRD');
+    // Nothing was written back into the repository itself.
+    await expect(readFile(join(tmp, 'issues', ISSUE_ID, 'prd.md'), 'utf-8')).rejects.toThrow();
   });
 
   it('a Issue é lida uma única vez e fechada pelo provider da origem', async () => {

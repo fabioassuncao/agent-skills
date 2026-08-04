@@ -10,6 +10,7 @@ import {
   webConfigSchema,
 } from './schemas.js';
 import { getGlobalRoot } from './storage/paths.js';
+import { resolveIssuePaths } from './storage/resolve.js';
 import { type GlobalConfig, globalConfigSchema } from './storage/schemas.js';
 import type { EngineConfig, ResolvedPaths } from './types.js';
 import { printWarning } from './ui/logger.js';
@@ -43,13 +44,24 @@ export function createConfig(options: Partial<EngineConfig>): EngineConfig {
 /**
  * Resolve file paths based on issue number and project root.
  *
- * With --issue N:
- *   prdFile = {projectRoot}/issues/{N}/tasks.json
- *   progressFile = {projectRoot}/issues/{N}/progress.txt
+ * With --issue N, every artifact comes from the global storage layer via
+ * `resolveIssuePaths()`, which also migrates the legacy `<projectRoot>/issues/`
+ * tree on first read:
+ *   prdFile = ~/.issue-flow/projects/{id}/issues/{N}/tasks.json
+ *   progressFile = ~/.issue-flow/projects/{id}/issues/{N}/progress.txt
  *
  * Standalone:
  *   prdFile = {projectRoot}/prd.json
  *   progressFile = {projectRoot}/progress.txt
+ *
+ * Beware of the asymmetric mapping in the issue branch: `ResolvedPaths.prdFile`
+ * is the engine's *task plan*, so it maps to `IssuePaths.tasksFile`
+ * (`tasks.json`) and **not** to `IssuePaths.prdFile` (`prd.md`, the human-facing
+ * document produced by the `prd` phase). The name predates the split and is kept
+ * because standalone mode really does read a `prd.json`.
+ *
+ * `projectRoot` stays on the result either way: `core/engine.ts` uses it as the
+ * cwd of its git operations, which the global storage does not replace.
  */
 export async function resolvePaths(
   config: EngineConfig,
@@ -58,12 +70,14 @@ export async function resolvePaths(
   const projectRoot = await getProjectRoot();
 
   if (config.issueNumber) {
-    const issueDir = join(projectRoot, 'issues', config.issueNumber);
+    // projectRoot is forwarded so the resolver does not shell out to
+    // `git rev-parse --show-toplevel` a second time for the answer we just got.
+    const issuePaths = await resolveIssuePaths(config.issueNumber, { projectRoot });
     return {
-      prdFile: join(issueDir, 'tasks.json'),
-      progressFile: join(issueDir, 'progress.txt'),
-      archiveDir: join(issueDir, 'archive'),
-      lastBranchFile: join(issueDir, '.last-branch'),
+      prdFile: issuePaths.tasksFile,
+      progressFile: issuePaths.progressFile,
+      archiveDir: issuePaths.archiveDir,
+      lastBranchFile: issuePaths.lastBranchFile,
       projectRoot,
     };
   }

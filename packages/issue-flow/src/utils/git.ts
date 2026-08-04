@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import { type ExecResult, run } from './shell.js';
 
 /**
@@ -15,24 +14,6 @@ export async function getProjectRoot(): Promise<string> {
   }
 
   return result.stdout.trim();
-}
-
-/**
- * Resolve `issues/<issueNumber>/`, always anchored to the git repository
- * root — never to `process.cwd()`.
- *
- * Every command must go through this instead of `join('issues', issueNumber)`:
- * a plain CWD-relative join means the pipeline resolves a different directory
- * depending on which subdirectory of the repo the command was launched from,
- * which is exactly what let `plan` write to `<subdir>/issues/<N>/` while
- * `execute` (already anchored to the project root via `resolvePaths()` in
- * config.ts) looked for it at `<repoRoot>/issues/<N>/` and failed. Anchoring
- * every command the same way makes the outcome identical regardless of CWD,
- * so there is nothing left for a user to get wrong by running from a
- * subdirectory.
- */
-export async function getIssueDir(issueNumber: string): Promise<string> {
-  return join(await getProjectRoot(), 'issues', issueNumber);
 }
 
 /**
