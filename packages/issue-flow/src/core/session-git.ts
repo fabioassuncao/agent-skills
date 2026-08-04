@@ -6,6 +6,7 @@ import {
   getProjectRoot,
   getRemoteUrl,
   normalizeRemoteUrl,
+  stripRemoteUrlCredentials,
 } from '../utils/git.js';
 import { run } from '../utils/shell.js';
 import {
@@ -157,7 +158,11 @@ export async function publishGitState(
       commits,
       pullRequests,
       repositoryName: deriveRepositoryName(remoteUrl),
-      remoteUrl,
+      // Never publish the raw remote: an HTTPS remote configured for
+      // automation commonly embeds a token (user:token@host), and this event
+      // is served unauthenticated by the web monitor and persisted to
+      // session.json.
+      remoteUrl: stripRemoteUrlCredentials(remoteUrl),
       headCommit,
       repositoryRoot,
     });

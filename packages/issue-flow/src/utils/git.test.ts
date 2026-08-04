@@ -11,6 +11,7 @@ const {
   getProjectRoot,
   getRemoteUrl,
   normalizeRemoteUrl,
+  stripRemoteUrlCredentials,
 } = await import('./git.js');
 
 const mockRun = vi.mocked(run);
@@ -168,6 +169,46 @@ describe('normalizeRemoteUrl', () => {
   it('returns null for null and undefined', () => {
     expect(normalizeRemoteUrl(null)).toBeNull();
     expect(normalizeRemoteUrl(undefined)).toBeNull();
+  });
+});
+
+describe('stripRemoteUrlCredentials', () => {
+  it.each([
+    ['https://user:token@github.com/org/repo.git', 'https://github.com/org/repo.git'],
+    ['https://x-access-token:ghp_abc123@github.com/org/repo', 'https://github.com/org/repo'],
+    ['https://token@github.com/org/repo.git', 'https://github.com/org/repo.git'],
+    ['HTTPS://user:token@github.com/org/repo.git', 'HTTPS://github.com/org/repo.git'],
+    ['http://user:token@internal.example/org/repo.git', 'http://internal.example/org/repo.git'],
+  ])('strips the embedded credentials from %s', (input, expected) => {
+    expect(stripRemoteUrlCredentials(input)).toBe(expected);
+  });
+
+  // SSH has no password-in-URL syntax; the user segment is a required,
+  // non-secret protocol field (almost always "git") that the remote would
+  // stop working without — so it must survive untouched.
+  it.each([
+    'https://github.com/org/repo.git',
+    'https://github.com/Org/Repo/',
+    'git://github.com/org/repo.git',
+    'ssh://git@github.com:22/org/repo.git',
+    'ssh://user:pass@github.com:22/org/repo.git',
+    'git@github.com:org/repo.git',
+    '/local/path/to/repo',
+  ])('leaves %s unchanged', (input) => {
+    expect(stripRemoteUrlCredentials(input)).toBe(input);
+  });
+
+  it('trims surrounding whitespace like normalizeRemoteUrl does', () => {
+    expect(stripRemoteUrlCredentials('  https://user:token@github.com/org/repo.git  ')).toBe(
+      'https://github.com/org/repo.git',
+    );
+  });
+
+  it('returns null for empty, blank, null and undefined', () => {
+    expect(stripRemoteUrlCredentials('')).toBeNull();
+    expect(stripRemoteUrlCredentials('   ')).toBeNull();
+    expect(stripRemoteUrlCredentials(null)).toBeNull();
+    expect(stripRemoteUrlCredentials(undefined)).toBeNull();
   });
 });
 

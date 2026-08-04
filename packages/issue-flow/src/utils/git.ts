@@ -174,6 +174,47 @@ export function normalizeRemoteUrl(url: string | null | undefined): string | nul
 }
 
 /**
+ * Remove Basic-Auth-style credentials (`user:token@`, `user@`) embedded in an
+ * `http(s)` remote URL, without touching anything else about it — case, port,
+ * the `.git` suffix, query string and trailing slashes are all preserved.
+ *
+ * Deliberately scoped to `http`/`https`: that is the only place a git remote
+ * can carry a real secret (a PAT is routinely embedded as
+ * `https://x-access-token:TOKEN@host/...` by CI and automation), and the URL
+ * stays a valid, clonable remote once the userinfo is gone. SSH has no
+ * equivalent syntax — both `ssh://user@host/path` and the scp-like shorthand
+ * `user@host:path` require that user segment to connect at all (it is almost
+ * always the fixed, non-secret `git` service account), so this function
+ * leaves any other scheme, the scp-like form and local paths untouched.
+ *
+ * Unlike {@link normalizeRemoteUrl}, which collapses a URL to a lossy
+ * `host/path` identity, this keeps the URL "as configured" — it exists for
+ * surfaces (like the web monitor's `repository.remoteUrl`) that want to show
+ * the real remote, minus whatever secret an HTTPS token commonly embeds in
+ * it.
+ *
+ * Pure function, never throws. Returns `null` for a nullish or empty input.
+ */
+export function stripRemoteUrlCredentials(url: string | null | undefined): string | null {
+  if (typeof url !== 'string') return null;
+
+  const trimmed = url.trim();
+  if (trimmed === '') return null;
+
+  const httpScheme = /^https?:\/\//i.exec(trimmed);
+  if (!httpScheme) return trimmed;
+
+  const rest = trimmed.slice(httpScheme[0].length);
+  const slash = rest.indexOf('/');
+  const authority = slash === -1 ? rest : rest.slice(0, slash);
+  const remainder = slash === -1 ? '' : rest.slice(slash);
+
+  const at = authority.lastIndexOf('@');
+  if (at === -1) return trimmed;
+  return `${httpScheme[0]}${authority.slice(at + 1)}${remainder}`;
+}
+
+/**
  * List commits on HEAD that are not on the given base branch (base..HEAD),
  * most recent first. Never throws; returns [] when the range cannot be
  * resolved (e.g. unknown base branch or shallow clone).

@@ -529,7 +529,7 @@ Both sections are published in the same window as `session:start`, so the **firs
 | `issue.labels` | The issue | `[]` when the issue has none |
 | `issue.state` | The provider | `open` / `closed` for the built-in providers; typed as `string \| null` so other providers can report their own |
 | `repository.name` | `origin` remote | `owner/repo`; `null` without a remote |
-| `repository.remoteUrl` | `origin` remote | Raw URL as configured |
+| `repository.remoteUrl` | `origin` remote | As configured, minus any embedded `http(s)` credentials (`user:token@`) |
 | `repository.branch` | Current checkout | Same value as `git.branch` |
 | `repository.headCommit` | `git rev-parse --short HEAD` | `null` in a repository with no commits yet |
 | `repository.root` | Project root | Absolute path the pipeline runs from |
@@ -537,6 +537,8 @@ Both sections are published in the same window as `session:start`, so the **firs
 There is no textual **priority** on the issue: the domain has no such attribute, and Issue Flow does not invent one. Consumers that want a priority derive it from `labels`.
 
 Every `repository` field is collected independently and failure-tolerant -- no remote configured, no commits yet or a missing `git` binary each show up as `null` instead of failing the publication. `repository.name` inherits the lowercasing of the remote-URL normalizer, a known limitation: a repository named `Owner/Repo` is reported as `owner/repo`.
+
+`repository.remoteUrl` is served unauthenticated by `/api/status` and persisted to `session.json`, so it is never the raw output of `git remote get-url origin`: an `http`/`https` remote's userinfo (`user:token@host/...`, the shape CI commonly uses to embed a PAT) is stripped before publication. SSH remotes are left untouched -- both `ssh://user@host/path` and the scp-like `user@host:path` shorthand require that user segment to connect at all (it is almost always the fixed `git` service account, never a secret), so removing it would just break the remote for no security benefit.
 
 ### Story `status`
 

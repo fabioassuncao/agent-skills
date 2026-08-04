@@ -65,6 +65,22 @@ describe('publishGitState', () => {
     });
   });
 
+  it('never publishes credentials embedded in the origin remote', async () => {
+    const publisher = new MemoryPublisher({ onWarn: () => {} });
+    await publishGitState(
+      publisher,
+      makeSources({
+        remoteUrl: async () => 'https://x-access-token:ghp_secret@github.com/acme/repo.git',
+      }),
+    );
+
+    expect(publisher.snapshot().repository).toMatchObject({
+      name: 'acme/repo',
+      remoteUrl: 'https://github.com/acme/repo.git',
+    });
+    expect(JSON.stringify(publisher.snapshot())).not.toContain('ghp_secret');
+  });
+
   it('reports a repository with no remote as name and remoteUrl null', async () => {
     const publisher = new MemoryPublisher({ onWarn: () => {} });
     await publishGitState(publisher, makeSources({ remoteUrl: async () => null }));
