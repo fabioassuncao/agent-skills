@@ -7,7 +7,7 @@
   "description": "Adiciona a fase opcional `pr-review` como etapa final da pipeline (apos `pr`), disponivel tambem como comando independente `issue-flow pr-review [pr]`. A fase avalia o Pull Request como um todo (diff completo, arquitetura, duplicacao, testes, commits, descricao do PR), complementando o gate de conformidade da fase `review`. Inclui descoberta automatica do PR com ordem de precedencia deterministica, artefatos versionaveis em `issues/<N>/pr-review/` com suporte a multiplas rodadas, estado retrocompativel em `tasks.json`, codigos de saida distintos (0/1/2) e a porta `PrReviewPublisher` preparada para integracao futura com o GitHub. Corrige de passagem dois defeitos: o numero do PR criado descartado por `pr.ts` e o comando quebrado `gh pr list --head ''` em `run.ts`. Sem a flag `--pr-review`, o comportamento atual permanece identico.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-04T01:20:00Z",
+  "lastAttemptAt": "2026-08-04T01:25:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -195,8 +195,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "A ordem dos blocos finais do run mudou: branch e plano sao lidos antes do resumo, para que `plan.pullRequest.url` (gravado na US-003) seja preferido e o `gh` so seja consultado no fallback. `mostRecent()` passou a ser exportado de core/pr-review/discovery.ts e e reusado aqui — 'PR mais recente' = maior numero, mesma semantica da US-004. Branch vazia (detached HEAD) nao consulta o gh."
     },
     {
       "id": "US-011",

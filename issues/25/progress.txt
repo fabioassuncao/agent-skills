@@ -166,3 +166,17 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - `run.test.ts` mocka `./pr-review.js`, então a descoberta real nunca roda ali — por isso o teste do veredito não precisa de `gh` nem de artefatos; para exercitar o caminho real, o teste teria de subir `index.json` no tmpdir.
   - O resumo final do `run` é impresso inline por `console.log` em `run.ts` — `src/ui/summary.ts` (`printSummaryBox`) pertence ao engine da fase `execute`. A US-011 precisa decidir qual dos dois toca.
 ---
+
+## 2026-08-03 22:22 - US-010 (Correção do `gh pr list --head` vazio)
+- `src/commands/run.ts`: o bloco `execa('gh', ['pr','list','--head','', ...])` do resumo final foi substituído por `listPullRequests(branchName)` + `mostRecent()`. A ordem dos blocos finais mudou: branch e `tasks.json` passam a ser lidos **antes** do resumo, para que `plan.pullRequest.url` (gravado na US-003) seja preferido e o `gh` só seja consultado no fallback. Branch vazia (detached HEAD) não consulta o `gh`. Condições preservadas: `!effectiveNoBranch && resolvedIssue.source === 'github'`; sem PR, o resumo continua exibindo `unknown` e nenhuma exceção propaga.
+- `src/core/pr-review/discovery.ts`: `mostRecent()` passou a ser exportado (mesma semântica da US-004: "mais recente" = maior número), em vez de duplicar a lógica no `run`.
+- `src/commands/run.test.ts`: mock de `../core/session-git.js` convertido para parcial com `importOriginal` (a factory literal deixaria `listPullRequests` fora do grafo); novo box `mockBranch` no mock de `execa` para responder `git branch --show-current`; novo `describe` US-010 com 4 testes (URL do plano preferida sem tocar no `gh`, fallback pela branch atual usando o PR de maior número, falha do `gh` mantendo `unknown`, detached HEAD sem consulta). O teste de origem local também passou a assertar que `listPullRequests` não é chamado.
+- Arquivos alterados: `src/commands/run.ts`, `src/commands/run.test.ts`, `src/core/pr-review/discovery.ts`.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (84 arquivos), `npm test` 500/500 verde.
+
+- **Learnings for future iterations:**
+  - O mock literal de `../core/session-git.js` em `run.test.ts` era exatamente o caso do padrão já registrado: bastou `run.ts` importar um segundo símbolo do módulo para o teste quebrar. Ao adicionar um import em um módulo já mockado, **conferir se o mock é literal antes de rodar os testes**.
+  - O mock global de `execa` em `run.test.ts` responde `{ stdout: '' }` por padrão, então `branchName` é `''` em todos os testes antigos — qualquer código novo que dependa da branch precisa de um box `vi.hoisted` para o comando específico, restaurado no `afterEach` para não vazar entre describes.
+  - `biome check` reclama de formatação (não só de lint) e o `--write` resolve; rodar `npx biome check --write src/` antes do commit poupa um ciclo.
+  - O resumo final imprime `  PR:       <url>` com padding; testes que leem a linha devem casar por `trimStart().startsWith('PR:')`, não por igualdade da linha inteira.
+---

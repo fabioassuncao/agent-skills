@@ -24,15 +24,30 @@ vi.mock('./pr-review.js', () => ({ runPrReview: vi.fn(async () => 0) }));
 // ...) path the assertions already expect. Every other execa invocation keeps
 // the previous harmless default.
 const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
+// Branch answered by `git branch --show-current`; empty (the previous default)
+// unless a test needs the summary to look a Pull Request up by head branch.
+const mockBranch = vi.hoisted(() => ({ current: '' }));
 vi.mock('execa', () => ({
   execa: vi.fn(async (file: string, args: string[] = []) => {
     if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
       return { stdout: mockProjectRoot.current, exitCode: 0 };
     }
+    if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
+      return { stdout: mockBranch.current, exitCode: 0 };
+    }
     return { stdout: '' };
   }),
 }));
-vi.mock('../core/session-git.js', () => ({ publishGitState: vi.fn(async () => {}) }));
+// Partial mock: run.ts imports listPullRequests from the same module, and a
+// literal factory would drop it from the graph.
+vi.mock('../core/session-git.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../core/session-git.js')>();
+  return {
+    ...actual,
+    publishGitState: vi.fn(async () => {}),
+    listPullRequests: vi.fn(async () => []),
+  };
+});
 
 // The resolver is the single decision point; the pipeline must call it once.
 vi.mock('../issues/resolver.js', async (importOriginal) => {
@@ -80,6 +95,7 @@ vi.mock('../web/server.js', async (importOriginal) => {
 });
 
 import { execa } from 'execa';
+import { listPullRequests } from '../core/session-git.js';
 import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
@@ -341,6 +357,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
         ([file, args]) => file === 'gh' && Array.isArray(args) && args[0] === 'pr',
       );
     expect(ghPrCalls).toEqual([]);
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
   });
 
   it('identificador local não numérico é publicado como issue.number null', async () => {
@@ -536,5 +553,112 @@ describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
     expect(code).toBe(0);
     expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review']);
     expect(vi.mocked(runPrReview)).not.toHaveBeenCalled();
+  });
+});
+
+describe('runPipeline — URL do PR no resumo final (issue 25, US-010)', () => {
+  let tmp: string;
+  let originalCwd: string;
+  const savedEnv = new Map<string, string | undefined>();
+
+  const writePlan = async (plan: TaskPlan): Promise<void> => {
+    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
+    await writeFile(
+      join(tmp, 'issues', '42', 'tasks.json'),
+      JSON.stringify(plan, null, 2),
+      'utf-8',
+    );
+  };
+
+  /** The `PR:` line of the final summary, without the label. */
+  const prLine = (lines: string[]): string | undefined =>
+    lines
+      .find((l) => l.trimStart().startsWith('PR:'))
+      ?.replace(/^\s*PR:\s*/, '')
+      .trim();
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-pr-url-'));
+    mockProjectRoot.current = tmp;
+    mockBranch.current = 'issue/42-sample';
+    process.chdir(tmp);
+    for (const name of WEB_ENV_VARS) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    vi.mocked(getProvider).mockReturnValue(makeProvider(vi.fn(async () => {})));
+    vi.mocked(listPullRequests).mockResolvedValue([]);
+  });
+
+  afterEach(async () => {
+    mockBranch.current = '';
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('usa a URL persistida pela fase pr, sem consultar o gh', async () => {
+    await writePlan(
+      makePlan({
+        pullRequest: {
+          number: 184,
+          url: 'https://github.com/acme/repo/pull/184',
+          headBranch: 'issue/42-sample',
+          createdAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    );
+
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(prLine(lines)).toBe('https://github.com/acme/repo/pull/184');
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+  });
+
+  it('sem URL no plano, busca pela branch atual e usa o PR mais recente', async () => {
+    await writePlan(makePlan());
+    vi.mocked(listPullRequests).mockResolvedValue([
+      { number: 12, url: 'https://github.com/acme/repo/pull/12', title: 'old' },
+      { number: 184, url: 'https://github.com/acme/repo/pull/184', title: 'new' },
+    ]);
+
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(vi.mocked(listPullRequests)).toHaveBeenCalledWith('issue/42-sample');
+    expect(prLine(lines)).toBe('https://github.com/acme/repo/pull/184');
+  });
+
+  it('nenhum PR encontrado mantém unknown, sem exceção', async () => {
+    vi.mocked(listPullRequests).mockRejectedValue(new Error('gh exploded'));
+
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(prLine(lines)).toBe('unknown');
+  });
+
+  it('branch indetectável (detached HEAD) não consulta o gh', async () => {
+    mockBranch.current = '';
+
+    const { code, lines } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+    expect(prLine(lines)).toBe('unknown');
   });
 });

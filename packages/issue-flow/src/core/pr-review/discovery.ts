@@ -108,7 +108,7 @@ const defaultSources: PrDiscoverySources = {
  * The most recent of several Pull Requests: the highest number, which does not
  * depend on the order the source returned them.
  */
-function mostRecent(pullRequests: SessionPullRequest[]): SessionPullRequest | null {
+export function mostRecent(pullRequests: SessionPullRequest[]): SessionPullRequest | null {
   let latest: SessionPullRequest | null = null;
   for (const pr of pullRequests) {
     if (latest === null || pr.number > latest.number) {

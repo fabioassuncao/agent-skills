@@ -9,12 +9,13 @@ import {
   PipelineManager,
   type PipelinePhase,
 } from '../core/pipeline.js';
+import { mostRecent } from '../core/pr-review/discovery.js';
 import {
   type PrReviewRoundEntry,
   prReviewDir,
   readPrReviewIndex,
 } from '../core/pr-review/report.js';
-import { publishGitState } from '../core/session-git.js';
+import { listPullRequests, publishGitState } from '../core/session-git.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
@@ -492,25 +493,6 @@ async function runPipelinePhases(
     }
   }
 
-  // Get PR URL for summary. Only GitHub-hosted Issues have a pull request to
-  // look up, and --no-branch never opens one.
-  let prUrl = 'unknown';
-  if (!effectiveNoBranch && resolvedIssue.source === 'github') {
-    try {
-      const proc = await execa(
-        'gh',
-        ['pr', 'list', '--head', '', '--json', 'url', '--limit', '1'],
-        { reject: false },
-      );
-      const parsed = JSON.parse(proc.stdout?.toString() ?? '[]');
-      if (parsed[0]?.url) {
-        prUrl = parsed[0].url;
-      }
-    } catch {
-      /* non-critical */
-    }
-  }
-
   // Get branch and story count
   let branchName = 'unknown';
   try {
@@ -521,9 +503,13 @@ async function runPipelinePhases(
   }
 
   let storyCount = 0;
+  let planPrUrl: string | null = null;
   try {
     const plan = await loadTaskPlan(tasksPath);
     storyCount = plan.userStories.length;
+    // The `pr` phase records the Pull Request it opened; trusting it spares a
+    // round-trip to the GitHub CLI below.
+    planPrUrl = plan.pullRequest?.url ?? null;
 
     // Mark as completed
     plan.issueStatus = 'completed';
@@ -532,6 +518,26 @@ async function runPipelinePhases(
     await saveTaskPlan(tasksPath, plan);
   } catch {
     /* non-critical */
+  }
+
+  // Get PR URL for summary. Only GitHub-hosted Issues have a pull request to
+  // look up, and --no-branch never opens one. Falling back to the GitHub CLI
+  // uses the branch actually checked out: a query without a head branch would
+  // return an unrelated Pull Request.
+  let prUrl = 'unknown';
+  if (!effectiveNoBranch && resolvedIssue.source === 'github') {
+    if (planPrUrl !== null) {
+      prUrl = planPrUrl;
+    } else if (branchName !== 'unknown' && branchName !== '') {
+      try {
+        const latest = mostRecent(await listPullRequests(branchName));
+        if (latest !== null) {
+          prUrl = latest.url;
+        }
+      } catch {
+        /* non-critical */
+      }
+    }
   }
 
   const totalDuration = formatDuration(result.overallElapsedSeconds);
