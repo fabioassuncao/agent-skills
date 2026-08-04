@@ -368,6 +368,11 @@ progress {
   color: var(--muted);
   font-size: 0.84rem;
   font-variant-numeric: tabular-nums;
+  /* Com duração + tokens + custo o slot fica bem mais largo; alinhar à
+     direita e limitar a largura mantém o título legível. Sem métricas o
+     conteúdo é curto e o layout é o mesmo de antes. */
+  text-align: right;
+  max-width: 70%;
 }
 
 .story-id {

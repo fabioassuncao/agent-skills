@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ClaudeUsage } from './core/metrics.js';
 import type { SessionSnapshot } from './core/session-state.js';
 import type { IssueMetadata, IssuesConfig } from './issues/types.js';
 
@@ -8,6 +9,23 @@ import type { IssueMetadata, IssuesConfig } from './issues/types.js';
  * configuration.
  */
 
+/**
+ * Token/cost metrics of a single `claude` invocation, mirroring ClaudeUsage in
+ * src/core/metrics.ts. Every field is optional: the CLI only reports what it
+ * knows, and an absent field means "not reported", never zero.
+ */
+export const claudeUsageSchema = z.object({
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  cacheReadTokens: z.number().optional(),
+  cacheCreationTokens: z.number().optional(),
+  costUsd: z.number().optional(),
+}) satisfies z.ZodType<ClaudeUsage>;
+
+/**
+ * The metrics fields are additive and optional: plans written before they
+ * existed keep parsing, and nothing is filled in with artificial zeros.
+ */
 export const userStorySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -16,6 +34,8 @@ export const userStorySchema = z.object({
   priority: z.number().int().positive(),
   passes: z.boolean(),
   notes: z.string(),
+  ...claudeUsageSchema.shape,
+  durationSeconds: z.number().optional(),
 });
 
 export const pipelineStateSchema = z.object({
@@ -123,12 +143,7 @@ export const taskPlanSchema = z.object({
 export const headlessResultSchema = z.object({
   success: z.boolean(),
   result: z.string(),
-  cost: z
-    .object({
-      inputTokens: z.number().optional(),
-      outputTokens: z.number().optional(),
-    })
-    .nullable(),
+  cost: claudeUsageSchema.nullable(),
   error: z.string().nullable(),
 });
 
@@ -138,6 +153,23 @@ const sessionLogEntrySchema = z.object({
   message: z.string(),
 });
 
+/**
+ * Usage counters attached to a phase or a story in the session snapshot.
+ * Unlike claudeUsageSchema (a single invocation, optional fields), these are
+ * always present and nullable: null means "never reported", not zero.
+ *
+ * They default to null on input so a session.json written before the metrics
+ * existed still parses -- absent and null mean the same thing here, and the
+ * parsed value keeps the `number | null` shape the snapshot interface declares.
+ */
+const sessionUsageShape = {
+  inputTokens: z.number().nullable().default(null),
+  outputTokens: z.number().nullable().default(null),
+  cacheReadTokens: z.number().nullable().default(null),
+  cacheCreationTokens: z.number().nullable().default(null),
+  costUsd: z.number().nullable().default(null),
+};
+
 const sessionPhaseSchema = z.object({
   name: z.string(),
   status: z.enum(['pending', 'running', 'completed', 'failed']),
@@ -145,6 +177,7 @@ const sessionPhaseSchema = z.object({
   endedAt: z.string().nullable(),
   durationSeconds: z.number().nullable(),
   error: z.string().nullable(),
+  ...sessionUsageShape,
 });
 
 const sessionStorySchema = z.object({
@@ -153,6 +186,9 @@ const sessionStorySchema = z.object({
   priority: z.number(),
   passes: z.boolean(),
   completedAt: z.string().nullable(),
+  // Also introduced with the metrics, hence the same tolerant default.
+  durationSeconds: z.number().nullable().default(null),
+  ...sessionUsageShape,
 });
 
 /**
@@ -191,6 +227,23 @@ export const sessionSnapshotSchema = z.object({
     .nullable(),
   phases: z.array(sessionPhaseSchema),
   stories: z.array(sessionStorySchema),
+  // The whole aggregate is additive: a snapshot from before it existed parses
+  // into the same "nothing reported" object the reducer starts from.
+  metrics: z
+    .object({
+      totalInputTokens: z.number().nullable().default(null),
+      totalOutputTokens: z.number().nullable().default(null),
+      totalCacheReadTokens: z.number().nullable().default(null),
+      totalCacheCreationTokens: z.number().nullable().default(null),
+      totalCostUsd: z.number().nullable().default(null),
+    })
+    .default({
+      totalInputTokens: null,
+      totalOutputTokens: null,
+      totalCacheReadTokens: null,
+      totalCacheCreationTokens: null,
+      totalCostUsd: null,
+    }),
   execution: z.object({
     iteration: z.number(),
     retries: z.number(),

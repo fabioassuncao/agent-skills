@@ -23,17 +23,29 @@ vi.mock('execa', () => ({
 
 const headlessOutput = vi.hoisted(() => ({ current: '' }));
 const headlessOptions = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
+const headlessCost = vi.hoisted(() => ({ current: null as Record<string, number> | null }));
 vi.mock('../core/headless.js', () => ({
   runHeadless: vi.fn(async (options: Record<string, unknown>) => {
     headlessOptions.last = options;
-    return { success: true, result: headlessOutput.current };
+    return { success: true, result: headlessOutput.current, cost: headlessCost.current };
   }),
 }));
 
+import { setSessionPublisher } from '../core/session-publisher.js';
+import { MemoryPublisher, type SessionEvent } from '../core/session-state.js';
 import type { Issue, ResolvedIssue } from '../issues/types.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
 import { runReview } from './review.js';
+
+/** Publisher that keeps every event, so the metrics payload can be asserted. */
+class RecordingPublisher extends MemoryPublisher {
+  readonly events: SessionEvent[] = [];
+
+  protected override afterPublish(event: SessionEvent): void {
+    this.events.push(event);
+  }
+}
 
 function makeResolved(): ResolvedIssue {
   const issue: Issue = {
@@ -106,6 +118,7 @@ describe('runReview — persisting review outcome to tasks.json', () => {
     process.env[GLOBAL_ROOT_ENV] = globalHome;
     resetStorageResolutionCache();
     headlessOptions.last = null;
+    headlessCost.current = null;
 
     const paths = await resolveIssuePaths('42');
     issueDir = paths.issueDir;
@@ -182,5 +195,86 @@ describe('runReview — persisting review outcome to tasks.json', () => {
     expect(headlessOptions.last?.addDirs).toEqual([issueDir]);
     // Nothing was written under the legacy tree.
     await expect(readFile(join(tmpDir, 'issues', '42', 'tasks.json'), 'utf-8')).rejects.toThrow();
+  });
+
+  describe('metrics', () => {
+    let publisher: RecordingPublisher;
+
+    beforeEach(() => {
+      publisher = new RecordingPublisher({ onWarn: () => {} });
+      setSessionPublisher(publisher);
+      publisher.publish({
+        type: 'session:start',
+        at: '2026-01-01T00:00:00Z',
+        sessionId: 's1',
+        issueNumber: 42,
+        phases: ['review'],
+      });
+    });
+
+    afterEach(() => {
+      setSessionPublisher(undefined);
+    });
+
+    function metricsEvents(): Extract<SessionEvent, { type: 'metrics:update' }>[] {
+      return publisher.events.filter(
+        (e): e is Extract<SessionEvent, { type: 'metrics:update' }> => e.type === 'metrics:update',
+      );
+    }
+
+    it('asks the CLI for usage by running in json output format', async () => {
+      headlessOutput.current = '<review-result>\nSTATUS: PASS\n</review-result>';
+
+      await runReview('42', makeResolved());
+
+      expect(headlessOptions.last?.outputFormat).toBe('json');
+    });
+
+    it('publishes the invocation usage against the review phase', async () => {
+      headlessOutput.current = '<review-result>\nSTATUS: PASS\n</review-result>';
+      headlessCost.current = { inputTokens: 12, outputTokens: 34, costUsd: 0.25 };
+
+      const code = await runReview('42', makeResolved());
+
+      expect(code).toBe(0);
+      expect(metricsEvents()).toHaveLength(1);
+      expect(metricsEvents()[0]).toMatchObject({
+        scope: 'phase',
+        phase: 'review',
+        inputTokens: 12,
+        outputTokens: 34,
+        costUsd: 0.25,
+      });
+      const phase = publisher.snapshot().phases.find((p) => p.name === 'review');
+      expect(phase).toMatchObject({ inputTokens: 12, costUsd: 0.25 });
+    });
+
+    it('publishes nothing, and still returns 0, when the CLI reports no usage', async () => {
+      headlessOutput.current = '<review-result>\nSTATUS: PASS\n</review-result>';
+      headlessCost.current = null;
+
+      const code = await runReview('42', makeResolved());
+
+      expect(code).toBe(0);
+      expect(metricsEvents()).toHaveLength(0);
+      const phase = publisher.snapshot().phases.find((p) => p.name === 'review');
+      expect(phase?.inputTokens).toBeNull();
+    });
+
+    it('sums one event per invocation across a correction cycle', async () => {
+      headlessOutput.current = '<review-result>\nSTATUS: FAIL\nFINDINGS:\n- x\n</review-result>';
+      headlessCost.current = { inputTokens: 10, costUsd: 0.1 };
+      await runReview('42', makeResolved());
+
+      headlessOutput.current = '<review-result>\nSTATUS: PASS\n</review-result>';
+      headlessCost.current = { inputTokens: 4, costUsd: 0.05 };
+      await runReview('42', makeResolved());
+
+      expect(metricsEvents()).toHaveLength(2);
+      const phase = publisher.snapshot().phases.find((p) => p.name === 'review');
+      expect(phase).toMatchObject({ inputTokens: 14 });
+      expect(phase?.costUsd).toBeCloseTo(0.15, 10);
+      expect(publisher.snapshot().metrics.totalInputTokens).toBe(14);
+    });
   });
 });

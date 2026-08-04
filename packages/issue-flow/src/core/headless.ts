@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { execa } from 'execa';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
+import { type ClaudeUsage, parseUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
 import { isoNow } from './state-manager.js';
 import { getOutputCallback, isVerbose } from './verbose.js';
@@ -25,10 +26,14 @@ export interface HeadlessOptions {
   onOutput?: (line: string) => void;
 }
 
-export interface HeadlessCost {
-  inputTokens?: number;
-  outputTokens?: number;
-}
+/**
+ * Token/cost metrics of a headless invocation.
+ *
+ * Alias of {@link ClaudeUsage} — the name is kept for the existing call sites,
+ * but the shape (and the parsing behind it) now lives in core/metrics.ts, so
+ * cache tokens and USD cost come along for free.
+ */
+export type HeadlessCost = ClaudeUsage;
 
 export interface HeadlessResult {
   success: boolean;
@@ -222,12 +227,9 @@ async function runHeadlessVerbose(options: {
         if (event.type === 'result') {
           resultText = event.result ?? '';
           isError = event.is_error === true;
-          if (event.total_cost_usd != null && event.usage) {
-            costData = {
-              inputTokens: event.usage.input_tokens,
-              outputTokens: event.usage.output_tokens,
-            };
-          }
+          // Keep the previous metrics when this event carries none, so a
+          // malformed trailing result never erases what was already captured.
+          costData = parseUsage(event) ?? costData;
         }
       } catch {
         // ignore malformed lines
@@ -366,10 +368,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
         return {
           success: true,
           result: parsed.result ?? stdout,
-          cost:
-            parsed.cost_usd != null
-              ? { inputTokens: parsed.num_input_tokens, outputTokens: parsed.num_output_tokens }
-              : null,
+          cost: parseUsage(parsed),
           error: null,
         };
       } catch {

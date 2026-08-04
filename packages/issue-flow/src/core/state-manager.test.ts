@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TaskPlan } from '../types.js';
 import {
   allStoriesPass,
+  applyStoryMetrics,
   clearLastError,
   hasPendingCorrection,
   initializeState,
@@ -137,6 +138,73 @@ describe('state-manager', () => {
       const loaded = await loadTaskPlan(filePath);
       expect(loaded.issueNumber).toBe(22);
       expect(loaded.issueUrl).toBe('https://github.com/fabioassuncao/issue-flow/issues/22');
+    });
+
+    // Backwards compatibility guard for the story metrics: every field is
+    // additive and optional, so a plan from a run that predates them loads
+    // untouched and gains no artificial zeros on a round-trip.
+    it('should load a tasks.json written before the story metrics existed', async () => {
+      const legacyPlan = {
+        project: 'issue-flow',
+        issueNumber: 30,
+        issueUrl: 'https://github.com/fabioassuncao/issue-flow/issues/30',
+        branchName: 'issue/30-pr-review',
+        noBranch: false,
+        description: 'Plan from a run before token metrics existed',
+        issueStatus: 'completed',
+        completedAt: '2026-07-20T18:31:04Z',
+        lastAttemptAt: '2026-07-20T18:31:04Z',
+        lastError: null,
+        correctionCycle: 0,
+        maxCorrectionCycles: 3,
+        lastReviewFindings: null,
+        pipeline: {
+          analyzeCompleted: true,
+          prdCompleted: true,
+          jsonCompleted: true,
+          executionCompleted: true,
+          reviewCompleted: true,
+          prCreated: true,
+        },
+        userStories: [
+          {
+            id: 'US-001',
+            title: 'Story without metrics',
+            description: 'As a user...',
+            acceptanceCriteria: ['Criterion 1', 'Typecheck passes'],
+            priority: 1,
+            passes: true,
+            notes: '',
+          },
+          {
+            id: 'US-002',
+            title: 'Another story without metrics',
+            description: 'As a maintainer...',
+            acceptanceCriteria: ['Criterion 1'],
+            priority: 2,
+            passes: true,
+            notes: 'Implemented alongside US-001.',
+          },
+        ],
+      };
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(legacyPlan, null, 2), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      expect(loaded.userStories).toHaveLength(2);
+      for (const story of loaded.userStories) {
+        expect(story.inputTokens).toBeUndefined();
+        expect(story.outputTokens).toBeUndefined();
+        expect(story.cacheReadTokens).toBeUndefined();
+        expect(story.cacheCreationTokens).toBeUndefined();
+        expect(story.costUsd).toBeUndefined();
+        expect(story.durationSeconds).toBeUndefined();
+      }
+
+      await saveTaskPlan(filePath, loaded);
+      const rewritten = JSON.parse(await readFile(filePath, 'utf-8'));
+      expect(rewritten.userStories[0]).not.toHaveProperty('inputTokens');
+      expect(rewritten.userStories[0]).not.toHaveProperty('durationSeconds');
     });
 
     it('should load a tasks.json without issueUrl', async () => {
@@ -359,6 +427,87 @@ describe('state-manager', () => {
       const updated = markStoryPassing(plan, 'US-002');
       expect(updated.userStories[0]!.passes).toBe(false);
       expect(updated.userStories[1]!.passes).toBe(true);
+    });
+  });
+
+  describe('applyStoryMetrics', () => {
+    it('should write the share onto the targeted stories only', () => {
+      const plan = createMinimalPlan();
+      const updated = applyStoryMetrics(plan, ['US-001'], { inputTokens: 5, costUsd: 0.25 }, 30);
+
+      expect(updated.userStories[0]).toMatchObject({
+        inputTokens: 5,
+        costUsd: 0.25,
+        durationSeconds: 30,
+      });
+      expect(updated.userStories[1]).not.toHaveProperty('inputTokens');
+      expect(updated.userStories[1]).not.toHaveProperty('durationSeconds');
+    });
+
+    it('should accumulate over values already on the story', () => {
+      const plan = createMinimalPlan();
+      const first = applyStoryMetrics(plan, ['US-001'], { inputTokens: 5, costUsd: 0.25 }, 30);
+      const second = applyStoryMetrics(first, ['US-001'], { inputTokens: 3, costUsd: 0.1 }, 12);
+
+      expect(second.userStories[0]).toMatchObject({
+        inputTokens: 8,
+        costUsd: 0.35,
+        durationSeconds: 42,
+      });
+    });
+
+    it('should leave unreported fields absent instead of writing zeros', () => {
+      const plan = createMinimalPlan();
+      const updated = applyStoryMetrics(plan, ['US-001'], { inputTokens: 5 });
+
+      const story = updated.userStories[0]!;
+      expect(story.inputTokens).toBe(5);
+      expect(story).not.toHaveProperty('outputTokens');
+      expect(story).not.toHaveProperty('cacheReadTokens');
+      expect(story).not.toHaveProperty('costUsd');
+      expect(story).not.toHaveProperty('durationSeconds');
+    });
+
+    it('should return the plan untouched when no story completed', () => {
+      const plan = createMinimalPlan();
+      expect(applyStoryMetrics(plan, [], { inputTokens: 5 }, 10)).toBe(plan);
+    });
+
+    it('should not mutate the input plan', () => {
+      const plan = createMinimalPlan();
+      applyStoryMetrics(plan, ['US-001'], { inputTokens: 5 }, 10);
+
+      expect(plan.userStories[0]).not.toHaveProperty('inputTokens');
+      expect(plan.userStories[0]).not.toHaveProperty('durationSeconds');
+    });
+
+    it('should ignore ids that are not in the plan', () => {
+      const plan = createMinimalPlan();
+      const updated = applyStoryMetrics(plan, ['US-999'], { inputTokens: 5 }, 10);
+
+      expect(updated.userStories.every((s) => s.inputTokens === undefined)).toBe(true);
+    });
+
+    it('should survive a save -> load round-trip', async () => {
+      const plan = applyStoryMetrics(
+        createMinimalPlan(),
+        ['US-001'],
+        { inputTokens: 5, outputTokens: 2, cacheReadTokens: 100, costUsd: 0.25 },
+        30,
+      );
+      const filePath = join(tmpDir, 'tasks.json');
+
+      await saveTaskPlan(filePath, plan);
+      const reloaded = await loadTaskPlan(filePath);
+
+      expect(reloaded.userStories[0]).toMatchObject({
+        inputTokens: 5,
+        outputTokens: 2,
+        cacheReadTokens: 100,
+        costUsd: 0.25,
+        durationSeconds: 30,
+      });
+      expect(reloaded.userStories[1]).not.toHaveProperty('inputTokens');
     });
   });
 

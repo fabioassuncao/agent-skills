@@ -51,6 +51,16 @@ describe('createInitialSnapshot', () => {
     expect(snap.logs).toEqual([]);
     expect(snap.startedAt).toBeNull();
   });
+
+  it('starts every aggregate metric as null, never zero', () => {
+    expect(createInitialSnapshot().metrics).toEqual({
+      totalInputTokens: null,
+      totalOutputTokens: null,
+      totalCacheReadTokens: null,
+      totalCacheCreationTokens: null,
+      totalCostUsd: null,
+    });
+  });
 });
 
 describe('reduceSessionEvent', () => {
@@ -77,6 +87,15 @@ describe('reduceSessionEvent', () => {
     expect(snap.elapsedSeconds).toBe(0);
     expect(snap.progress.phasesTotal).toBe(3);
     expect(snap.phases.map((p) => p.status)).toEqual(['pending', 'pending', 'pending']);
+  });
+
+  it('session:start creates phases with null metric fields', () => {
+    const phase = startedSnapshot().phases[0];
+    expect(phase.inputTokens).toBeNull();
+    expect(phase.outputTokens).toBeNull();
+    expect(phase.cacheReadTokens).toBeNull();
+    expect(phase.cacheCreationTokens).toBeNull();
+    expect(phase.costUsd).toBeNull();
   });
 
   it('phase:start marks the phase running and sets currentPhase', () => {
@@ -163,8 +182,32 @@ describe('reduceSessionEvent', () => {
       ],
     });
     expect(snap.stories).toEqual([
-      { id: 'US-001', title: 'First story', priority: 1, passes: true, completedAt: null },
-      { id: 'US-002', title: 'Second', priority: 2, passes: false, completedAt: null },
+      {
+        id: 'US-001',
+        title: 'First story',
+        priority: 1,
+        passes: true,
+        completedAt: null,
+        durationSeconds: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheCreationTokens: null,
+        costUsd: null,
+      },
+      {
+        id: 'US-002',
+        title: 'Second',
+        priority: 2,
+        passes: false,
+        completedAt: null,
+        durationSeconds: null,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheCreationTokens: null,
+        costUsd: null,
+      },
     ]);
     expect(snap.progress.storiesCompleted).toBe(1);
     expect(snap.progress.storiesTotal).toBe(2);
@@ -431,6 +474,224 @@ describe('reduceSessionEvent', () => {
       success: true,
     });
     expect(ended.phases.find((p) => p.name === 'prd')?.durationSeconds).toBeNull();
+  });
+
+  it('metrics:update with scope phase accumulates on the phase and the aggregate', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'metrics:update',
+      at: '2026-08-03T12:01:00Z',
+      scope: 'phase',
+      phase: 'prd',
+      inputTokens: 100,
+      outputTokens: 20,
+      cacheReadTokens: 5000,
+      cacheCreationTokens: 300,
+      costUsd: 0.12,
+    });
+    // A second invocation of the same phase sums onto the first.
+    snap = reduceSessionEvent(snap, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:02:00Z',
+      scope: 'phase',
+      phase: 'prd',
+      inputTokens: 50,
+      outputTokens: 10,
+      costUsd: 0.03,
+    });
+
+    const prd = snap.phases.find((p) => p.name === 'prd');
+    expect(prd?.inputTokens).toBe(150);
+    expect(prd?.outputTokens).toBe(30);
+    expect(prd?.cacheReadTokens).toBe(5000);
+    expect(prd?.cacheCreationTokens).toBe(300);
+    expect(prd?.costUsd).toBeCloseTo(0.15, 10);
+    expect(snap.metrics.totalInputTokens).toBe(150);
+    expect(snap.metrics.totalOutputTokens).toBe(30);
+    expect(snap.metrics.totalCacheReadTokens).toBe(5000);
+    expect(snap.metrics.totalCacheCreationTokens).toBe(300);
+    expect(snap.metrics.totalCostUsd).toBeCloseTo(0.15, 10);
+
+    // Untouched phases stay null — never zero.
+    expect(snap.phases.find((p) => p.name === 'execute')?.inputTokens).toBeNull();
+  });
+
+  it('metrics:update with scope iteration accumulates on the named phase and the aggregate', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'metrics:update',
+      at: '2026-08-03T12:05:00Z',
+      scope: 'iteration',
+      phase: 'execute',
+      iteration: 1,
+      inputTokens: 900,
+      outputTokens: 120,
+      costUsd: 0.5,
+      durationSeconds: 42,
+    });
+    const execute = snap.phases.find((p) => p.name === 'execute');
+    expect(execute?.inputTokens).toBe(900);
+    expect(execute?.outputTokens).toBe(120);
+    expect(execute?.costUsd).toBe(0.5);
+    // phase:start/phase:end remain the only source of a phase's duration.
+    expect(execute?.durationSeconds).toBeNull();
+    expect(snap.metrics.totalInputTokens).toBe(900);
+    expect(snap.metrics.totalCostUsd).toBe(0.5);
+  });
+
+  it('metrics:update with scope story touches only the story, never the phase or the aggregate', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' }), makeStory({ id: 'US-002', priority: 2 })],
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'story',
+      storyId: 'US-001',
+      inputTokens: 400,
+      outputTokens: 60,
+      costUsd: 0.25,
+      durationSeconds: 21,
+    });
+
+    const story = snap.stories.find((s) => s.id === 'US-001');
+    expect(story?.inputTokens).toBe(400);
+    expect(story?.outputTokens).toBe(60);
+    expect(story?.costUsd).toBe(0.25);
+    expect(story?.durationSeconds).toBe(21);
+
+    expect(snap.stories.find((s) => s.id === 'US-002')?.inputTokens).toBeNull();
+    expect(snap.phases.every((p) => p.inputTokens === null)).toBe(true);
+    expect(snap.metrics.totalInputTokens).toBeNull();
+    expect(snap.metrics.totalCostUsd).toBeNull();
+  });
+
+  it('metrics:update does not double count iteration and story events of the same cycle', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001', passes: true })],
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'story',
+      storyId: 'US-001',
+      inputTokens: 1000,
+      costUsd: 1,
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:01Z',
+      scope: 'iteration',
+      phase: 'execute',
+      iteration: 1,
+      inputTokens: 1000,
+      costUsd: 1,
+    });
+    expect(snap.metrics.totalInputTokens).toBe(1000);
+    expect(snap.metrics.totalCostUsd).toBe(1);
+    expect(snap.phases.find((p) => p.name === 'execute')?.inputTokens).toBe(1000);
+    expect(snap.stories[0].inputTokens).toBe(1000);
+  });
+
+  it('metrics:update accumulated on a story survives later stories:update events', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001', passes: true })],
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'story',
+      storyId: 'US-001',
+      inputTokens: 400,
+      durationSeconds: 10,
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:07:00Z',
+      stories: [makeStory({ id: 'US-001', passes: true })],
+    });
+    expect(snap.stories[0].inputTokens).toBe(400);
+    expect(snap.stories[0].durationSeconds).toBe(10);
+  });
+
+  it('metrics:update whose target does not exist is ignored without error', () => {
+    const base = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' })],
+    });
+
+    const unknownPhase = reduceSessionEvent(base, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'phase',
+      phase: 'nonexistent',
+      inputTokens: 99,
+    });
+    expect(unknownPhase).toBe(base);
+
+    const unknownStory = reduceSessionEvent(base, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'story',
+      storyId: 'US-404',
+      inputTokens: 99,
+    });
+    expect(unknownStory).toBe(base);
+
+    const noTarget = reduceSessionEvent(base, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'phase',
+      inputTokens: 99,
+    });
+    expect(noTarget).toBe(base);
+  });
+
+  it('metrics:update leaves never-reported fields null instead of zeroing them', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'phase',
+      phase: 'prd',
+      inputTokens: 0,
+    });
+    const prd = snap.phases.find((p) => p.name === 'prd');
+    // An explicitly reported zero is a value; the rest was never reported.
+    expect(prd?.inputTokens).toBe(0);
+    expect(prd?.outputTokens).toBeNull();
+    expect(prd?.costUsd).toBeNull();
+    expect(snap.metrics.totalInputTokens).toBe(0);
+    expect(snap.metrics.totalCostUsd).toBeNull();
+  });
+
+  it('metrics:update does not mutate the input snapshot', () => {
+    const before = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' })],
+    });
+    const frozen = JSON.parse(JSON.stringify(before));
+    reduceSessionEvent(before, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'phase',
+      phase: 'prd',
+      inputTokens: 10,
+      costUsd: 0.01,
+    });
+    reduceSessionEvent(before, {
+      type: 'metrics:update',
+      at: '2026-08-03T12:06:00Z',
+      scope: 'story',
+      storyId: 'US-001',
+      inputTokens: 10,
+    });
+    expect(before).toEqual(frozen);
   });
 
   it('ignores unknown event types', () => {

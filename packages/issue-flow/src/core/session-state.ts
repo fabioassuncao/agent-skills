@@ -48,6 +48,27 @@ export type SessionEvent =
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }
   | { type: 'correction:cycle'; at: string; cycle: number; maxCycles: number }
   | {
+      type: 'metrics:update';
+      at: string;
+      /**
+       * Where the metrics land:
+       * - `phase`: the named phase plus the issue-wide aggregate;
+       * - `iteration`: one execute-loop pass — same targets as `phase`;
+       * - `story`: the story alone, never the phase nor the aggregate (the
+       *   iteration event of the same cycle already counted those tokens).
+       */
+      scope: 'phase' | 'iteration' | 'story';
+      phase?: string;
+      storyId?: string;
+      iteration?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
+      costUsd?: number;
+      durationSeconds?: number;
+    }
+  | {
       type: 'git:update';
       at: string;
       branch?: string;
@@ -68,7 +89,31 @@ export interface SessionLogEntry {
   message: string;
 }
 
-export interface SessionPhaseSnapshot {
+/**
+ * Token/cost counters attached to a phase or a story.
+ *
+ * `null` means "never reported" — the `claude` CLI does not always return
+ * usage data, and a metric that was never observed must stay distinguishable
+ * from an observed zero.
+ */
+export interface SessionUsageSnapshot {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
+  costUsd: number | null;
+}
+
+/** Issue-wide totals, accumulated from phase- and iteration-scoped metrics. */
+export interface SessionMetricsSnapshot {
+  totalInputTokens: number | null;
+  totalOutputTokens: number | null;
+  totalCacheReadTokens: number | null;
+  totalCacheCreationTokens: number | null;
+  totalCostUsd: number | null;
+}
+
+export interface SessionPhaseSnapshot extends SessionUsageSnapshot {
   name: string;
   status: SessionPhaseStatus;
   startedAt: string | null;
@@ -77,7 +122,7 @@ export interface SessionPhaseSnapshot {
   error: string | null;
 }
 
-export interface SessionStorySnapshot {
+export interface SessionStorySnapshot extends SessionUsageSnapshot {
   id: string;
   title: string;
   priority: number;
@@ -87,6 +132,8 @@ export interface SessionStorySnapshot {
    * that were already passing at session start (their duration is unknown).
    */
   completedAt: string | null;
+  /** Wall-clock seconds attributed to the story, or null when unknown. */
+  durationSeconds: number | null;
 }
 
 export interface SessionActivity {
@@ -130,6 +177,7 @@ export interface SessionSnapshot {
   currentActivity: SessionActivity | null;
   phases: SessionPhaseSnapshot[];
   stories: SessionStorySnapshot[];
+  metrics: SessionMetricsSnapshot;
   execution: {
     iteration: number;
     retries: number;
@@ -149,6 +197,27 @@ export interface SessionSnapshot {
 export interface SessionReducerOptions {
   /** Max entries retained in the logs ring buffer. */
   logLimit?: number;
+}
+
+/** Fresh, all-null usage counters for a new phase or story entry. */
+function emptyUsage(): SessionUsageSnapshot {
+  return {
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheCreationTokens: null,
+    costUsd: null,
+  };
+}
+
+function emptyMetrics(): SessionMetricsSnapshot {
+  return {
+    totalInputTokens: null,
+    totalOutputTokens: null,
+    totalCacheReadTokens: null,
+    totalCacheCreationTokens: null,
+    totalCostUsd: null,
+  };
 }
 
 export function createInitialSnapshot(): SessionSnapshot {
@@ -175,6 +244,7 @@ export function createInitialSnapshot(): SessionSnapshot {
     currentActivity: null,
     phases: [],
     stories: [],
+    metrics: emptyMetrics(),
     execution: { iteration: 0, retries: 0, correctionCycle: 0, maxCorrectionCycles: null },
     git: { branch: null, baseBranch: null, commits: [] },
     pullRequests: [],
@@ -184,6 +254,29 @@ export function createInitialSnapshot(): SessionSnapshot {
     lastError: null,
     nextSteps: [],
     environment: null,
+  };
+}
+
+type MetricsUpdateEvent = Extract<SessionEvent, { type: 'metrics:update' }>;
+
+/**
+ * Add a reported delta to an accumulator. `undefined` means "not reported":
+ * it leaves the accumulator untouched, so a metric the CLI never returned
+ * stays null instead of collapsing to zero.
+ */
+function accumulate(current: number | null, delta: number | undefined): number | null {
+  return delta === undefined ? current : (current ?? 0) + delta;
+}
+
+/** Fold the event's token/cost fields into a phase or story entry. */
+function accumulateUsage<T extends SessionUsageSnapshot>(target: T, event: MetricsUpdateEvent): T {
+  return {
+    ...target,
+    inputTokens: accumulate(target.inputTokens, event.inputTokens),
+    outputTokens: accumulate(target.outputTokens, event.outputTokens),
+    cacheReadTokens: accumulate(target.cacheReadTokens, event.cacheReadTokens),
+    cacheCreationTokens: accumulate(target.cacheCreationTokens, event.cacheCreationTokens),
+    costUsd: accumulate(target.costUsd, event.costUsd),
   };
 }
 
@@ -292,6 +385,7 @@ function applyEvent(
           endedAt: null,
           durationSeconds: null,
           error: null,
+          ...emptyUsage(),
         })),
         git: { branch: event.branch ?? null, baseBranch: event.baseBranch ?? null, commits: [] },
         environment: event.environment ?? null,
@@ -321,6 +415,7 @@ function applyEvent(
               endedAt: null,
               durationSeconds: null,
               error: null,
+              ...emptyUsage(),
             },
           ];
       return {
@@ -383,12 +478,21 @@ function applyEvent(
           : before && !before.passes
             ? event.at
             : (before?.completedAt ?? null);
+        // stories:update rebuilds the array from the plan on every publish, so
+        // metrics already attributed to a story must be carried over here or
+        // the next update would wipe them.
         return {
           id: story.id,
           title: story.title,
           priority: story.priority,
           passes: story.passes,
           completedAt,
+          durationSeconds: before?.durationSeconds ?? null,
+          inputTokens: before?.inputTokens ?? null,
+          outputTokens: before?.outputTokens ?? null,
+          cacheReadTokens: before?.cacheReadTokens ?? null,
+          cacheCreationTokens: before?.cacheCreationTokens ?? null,
+          costUsd: before?.costUsd ?? null,
         };
       });
       return {
@@ -446,6 +550,54 @@ function applyEvent(
           maxCorrectionCycles: event.maxCycles,
         },
       };
+
+    case 'metrics:update': {
+      if (event.scope === 'story') {
+        // Story metrics are a rateio of the iteration that completed them;
+        // the iteration-scoped event already fed the phase and the aggregate,
+        // so counting them again here would double the totals.
+        if (event.storyId === undefined) return snapshot;
+        if (!snapshot.stories.some((s) => s.id === event.storyId)) return snapshot;
+        return {
+          ...snapshot,
+          stories: snapshot.stories.map((story) =>
+            story.id === event.storyId
+              ? {
+                  ...accumulateUsage(story, event),
+                  durationSeconds: accumulate(story.durationSeconds, event.durationSeconds),
+                }
+              : story,
+          ),
+        };
+      }
+
+      // phase and iteration scopes both land on the named phase. An event for
+      // a phase the snapshot never saw is ignored rather than appended: it
+      // would show up as a phantom entry in the UI.
+      if (event.phase === undefined) return snapshot;
+      if (!snapshot.phases.some((p) => p.name === event.phase)) return snapshot;
+      return {
+        ...snapshot,
+        // durationSeconds is deliberately untouched here: phase:start and
+        // phase:end remain the single source of a phase's wall-clock time.
+        phases: snapshot.phases.map((phase) =>
+          phase.name === event.phase ? accumulateUsage(phase, event) : phase,
+        ),
+        metrics: {
+          totalInputTokens: accumulate(snapshot.metrics.totalInputTokens, event.inputTokens),
+          totalOutputTokens: accumulate(snapshot.metrics.totalOutputTokens, event.outputTokens),
+          totalCacheReadTokens: accumulate(
+            snapshot.metrics.totalCacheReadTokens,
+            event.cacheReadTokens,
+          ),
+          totalCacheCreationTokens: accumulate(
+            snapshot.metrics.totalCacheCreationTokens,
+            event.cacheCreationTokens,
+          ),
+          totalCostUsd: accumulate(snapshot.metrics.totalCostUsd, event.costUsd),
+        },
+      };
+    }
 
     case 'session:end':
       return {

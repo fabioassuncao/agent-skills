@@ -17,6 +17,7 @@ import {
   resolveRound,
 } from '../core/pr-review/report.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
+import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
@@ -218,17 +219,22 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
     __ROUND__: String(round),
   });
 
+  const startedAtMs = Date.now();
   const result = await runHeadless({
     prompt,
     maxTurns: 40,
     timeout: getGlobalTimeout() ?? 900_000,
-    outputFormat: 'text',
+    // json (not text) so the CLI reports usage: the envelope's `result` field
+    // carries the same assistant text the parsers below already consumed.
+    outputFormat: 'json',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
     // With an Issue, `dir` sits under `issueDir`, so the parent covers both the
     // report destination and the tasks.json/prd.md the prompt points at.
     addDirs: issueDir === null ? [dir] : [issueDir],
     statusMessage: `Reviewing Pull Request #${target.number} (round ${round})...`,
   });
+  // Before the success check: the tokens were spent either way.
+  publishPhaseMetrics('pr-review', result.cost, startedAtMs);
 
   if (!result.success) {
     printError(`PR review failed: ${result.error}`);

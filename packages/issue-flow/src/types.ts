@@ -3,7 +3,18 @@
  * These types mirror the tasks.json schema used by the issue-flow pipeline.
  */
 
-export interface UserStory {
+import type { ClaudeUsage } from './core/metrics.js';
+
+/**
+ * A single story of the plan.
+ *
+ * The metrics inherited from {@link ClaudeUsage} plus `durationSeconds` are all
+ * optional and purely observational: they are written by the execute loop when
+ * the story completes, and a `tasks.json` produced before they existed (or by a
+ * CLI that reports no usage) simply omits them. Absent means "not reported",
+ * never zero.
+ */
+export interface UserStory extends ClaudeUsage {
   id: string;
   title: string;
   description: string;
@@ -11,6 +22,7 @@ export interface UserStory {
   priority: number;
   passes: boolean;
   notes: string;
+  durationSeconds?: number;
 }
 
 export interface LastError {
@@ -112,4 +124,6 @@ export interface ResolvedPaths {
 export interface ClaudeResult {
   exitCode: number;
   output: string;
+  /** Token/cost metrics reported by the CLI, or null when unavailable. */
+  cost: ClaudeUsage | null;
 }

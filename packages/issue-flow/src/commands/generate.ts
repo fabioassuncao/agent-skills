@@ -1,6 +1,7 @@
 import { loadIssuesConfig } from '../config.js';
 import { runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
+import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { ensureProvidersRegistered } from '../issues/bootstrap.js';
@@ -34,15 +35,20 @@ async function draftIssue(promptText: string): Promise<IssueDraft> {
     __LOCAL_ISSUES_DIR__: issuesDir,
   });
 
+  const startedAtMs = Date.now();
   const result = await runHeadless({
     prompt,
     maxTurns: 15,
     timeout: getGlobalTimeout() ?? 300_000,
-    outputFormat: 'text',
+    // json (not text) so the CLI reports usage: the envelope's `result` field
+    // carries the same assistant text parseIssueDraft() already consumed.
+    outputFormat: 'json',
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
     addDirs: [issuesDir],
     statusMessage: 'Drafting issue...',
   });
+  // Before the success check: the tokens were spent either way.
+  publishPhaseMetrics('generate', result.cost, startedAtMs);
 
   if (!result.success) {
     throw new Error(`Issue creation failed: ${result.error}`);

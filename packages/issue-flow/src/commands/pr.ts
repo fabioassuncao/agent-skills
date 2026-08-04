@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import { runHeadless } from '../core/headless.js';
 import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
+import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
@@ -77,15 +78,20 @@ export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promi
   const outcome = await runPhaseWithRetry({
     phase: 'pr',
     attempt: async () => {
+      const startedAtMs = Date.now();
       const result = await runHeadless({
         prompt,
         maxTurns: 15,
         timeout: getGlobalTimeout() ?? 300_000,
-        outputFormat: 'text',
+        // json (not text) so the CLI reports usage: the envelope's `result`
+        // field carries the same assistant text parsePrUrl() already consumed.
+        outputFormat: 'json',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
         addDirs: [paths.issueDir],
         statusMessage: `Creating PR for issue #${issueNumber}...`,
       });
+      // One event per attempt; the reducer sums them into the phase total.
+      publishPhaseMetrics('pr', result.cost, startedAtMs);
 
       if (!result.success) {
         return {

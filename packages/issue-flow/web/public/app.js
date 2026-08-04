@@ -108,6 +108,70 @@
     return new Date(ms).toLocaleTimeString('pt-BR');
   }
 
+  // ---- Métricas (tokens e custo) --------------------------------------------
+  // session.json antigo não tem os campos; os novos podem vir null. Os dois
+  // casos significam "não informado" e nunca devem virar 0/NaN na tela.
+
+  function metric(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  // 1523 → 1.5k, 2400000 → 2.4M (mesma regra do resumo no terminal).
+  function compactTokens(value) {
+    const abs = Math.abs(value);
+    if (abs >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+    if (abs >= 1000) return (value / 1000).toFixed(1) + 'k';
+    return String(Math.round(value));
+  }
+
+  // Custos abaixo de um centavo perderiam todo o significado com 2 casas.
+  function formatCost(value) {
+    return '~$' + (Math.abs(value) < 0.01 ? value.toFixed(4) : value.toFixed(2));
+  }
+
+  // Ex.: '12.4k in / 3.1k out · 88.0k cache · ~$0.42'. Segmentos sem dado são
+  // omitidos; sem dado algum devolve '' — sinal para não renderizar nada.
+  function formatUsage(usage) {
+    if (!usage) return '';
+    const segments = [];
+
+    const input = metric(usage.inputTokens);
+    const output = metric(usage.outputTokens);
+    const io = [];
+    if (input !== null) io.push(compactTokens(input) + ' in');
+    if (output !== null) io.push(compactTokens(output) + ' out');
+    if (io.length > 0) segments.push(io.join(' / '));
+
+    const cacheRead = metric(usage.cacheReadTokens);
+    const cacheCreation = metric(usage.cacheCreationTokens);
+    if (cacheRead !== null || cacheCreation !== null) {
+      segments.push(compactTokens((cacheRead || 0) + (cacheCreation || 0)) + ' cache');
+    }
+
+    const cost = metric(usage.costUsd);
+    if (cost !== null) segments.push(formatCost(cost));
+
+    return segments.join(' · ');
+  }
+
+  // O agregado da issue usa nomes próprios (total*); traduz para o formato
+  // comum antes de formatar.
+  function formatTotals(metrics) {
+    if (!metrics) return '';
+    return formatUsage({
+      inputTokens: metrics.totalInputTokens,
+      outputTokens: metrics.totalOutputTokens,
+      cacheReadTokens: metrics.totalCacheReadTokens,
+      cacheCreationTokens: metrics.totalCacheCreationTokens,
+      costUsd: metrics.totalCostUsd,
+    });
+  }
+
+  // Duração + métricas no mesmo slot .item-side, unidos por ' · '.
+  function itemSideText(parts) {
+    return parts.filter((part) => part).join(' · ');
+  }
+
   // URL do repositório derivada da URL da issue (…/issues/N → raiz do repo).
   function repoUrl(snapshot) {
     const url = snapshot.issue && snapshot.issue.url;
@@ -281,7 +345,7 @@
     const progress = snapshot.progress;
     els.progressBar.value = progress.percent;
     els.progressPercent.textContent = progress.percent + '%';
-    els.progressCounters.textContent =
+    const counters =
       'Fases ' +
       progress.phasesCompleted +
       '/' +
@@ -290,6 +354,8 @@
       progress.storiesCompleted +
       '/' +
       progress.storiesTotal;
+    const totals = formatTotals(snapshot.metrics);
+    els.progressCounters.textContent = totals ? counters + ' · ' + totals : counters;
   }
 
   function nowRow(grid, label, value) {
@@ -346,9 +412,12 @@
       main.appendChild(el('div', 'item-title', phase.name));
       if (phase.error) main.appendChild(el('div', 'item-error', phase.error));
       item.appendChild(main);
-      if (phase.durationSeconds !== null) {
-        item.appendChild(el('span', 'item-side', formatDuration(phase.durationSeconds)));
-      }
+      const duration = metric(phase.durationSeconds);
+      const side = itemSideText([
+        duration !== null ? formatDuration(duration) : '',
+        formatUsage(phase),
+      ]);
+      if (side) item.appendChild(el('span', 'item-side', side));
       els.phases.appendChild(item);
     }
   }
@@ -384,9 +453,13 @@
       title.appendChild(document.createTextNode(story.title));
       main.appendChild(title);
       item.appendChild(main);
-      if (story.completedAt) {
-        item.appendChild(el('span', 'item-side', 'concluída ' + formatClock(story.completedAt)));
-      }
+      const duration = metric(story.durationSeconds);
+      const side = itemSideText([
+        story.completedAt ? 'concluída ' + formatClock(story.completedAt) : '',
+        duration !== null ? formatDuration(duration) : '',
+        formatUsage(story),
+      ]);
+      if (side) item.appendChild(el('span', 'item-side', side));
       els.stories.appendChild(item);
     }
   }
