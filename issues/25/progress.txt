@@ -16,6 +16,8 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
 - Erros de domínio carregam o exit code (`IssueResolutionError`, `PrDiscoveryError`) em vez de o chamador inventar um.
 - Estado global de módulo em testes (`setGlobalTimeout`, `setVerbose`) precisa ser restaurado no `afterEach` — não há "unset" para o timeout; use `setGlobalTimeout(undefined as unknown as number)`.
 - Implementação selecionável por configuração entra por um `Record<kind, factory>` + `createX(kind = default)` no próprio módulo (ex.: `createPrReviewPublisher`); o consumidor importa só a interface e a factory, nunca a classe concreta.
+- `src/cli.ts` roda `program.parse()` no import e por isso é intestável: toda lógica de flag (mapeamento e validação de combinação) vive em `src/cli-options.ts` ou `src/issues/cli-flags.ts`, com o erro de domínio (`CliFlagError`/`IssueFlagError`) capturado na action → `printError` + `process.exit(1)`. Comandos são sempre `await import('./commands/x.js')` dentro da action (lazy loading).
+- Commander camel-caseia flags com hífen (`--pr-review` → `opts.prReview`) e inverte as negadas (`--no-branch` → `opts.branch === false`). Quando um teste depende desse nome, feche o contrato parseando com um `Command` real em vez de assumir a chave.
 - Há mudanças **não commitadas pré-existentes** no working tree (`getIssueDir`, `exitOnError` do listr2, testes de `git.ts`/`pipeline-renderer.ts`) que NÃO são da issue 25. Commitar sempre com `git add <arquivos específicos>`, nunca `git add -A`.
 
 ---
@@ -127,4 +129,19 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - Mock de `execa` cobre `git rev-parse --show-toplevel`, `git branch --show-current` **e** `gh pr view` de uma vez — com ele, `resolvePullRequest`, `getIssueDir` e o completamento de metadados rodam sem rede e sem `vi.mock` dos módulos internos.
   - `runPrReview` recebe a issue como *string opcional em `opts`*, não como 1º parâmetro (o 1º é o PR) — é a única fase da pipeline que foge da assinatura `runX(issue, resolvedIssue?)`. A US-009 precisa chamar `runPrReview(undefined, { issue: issueNumber, yes: true })`.
   - O comando não chama `resolveCommandIssue()`: não precisa do conteúdo da issue (o prompt só usa caminhos) e resolver a issue transformaria um PR sem issue em falha. Só `getIssueDir()` é usado, que é puramente local.
+---
+
+## 2026-08-03 22:06 - US-008 (Registro na CLI)
+- `src/cli-options.ts`: `CliFlagError` (padrão de `IssueFlagError`), `RunPhaseFlagOptions`/`RunPhaseFlags` e `resolveRunPhaseFlags(options)` — retorna `{ noBranch, prReview }` **tri-state** (`undefined` = usuário não opinou, para a resolução de três vias da US-009) e lança `CliFlagError` em `--pr-review` + `--no-branch`.
+- `src/cli.ts`: comando `pr-review` com `withGlobalOptions`, `.argument('[pr]', ...)` e `--issue <n>`, `--round <n>`, `--yes`, `--fail-on <level>`, com import dinâmico de `./commands/pr-review.js`. O `run` ganhou `--pr-review`, a descrição virou `prd → plan → execute → review → pr (→ pr-review, optional)` e a action valida as flags **antes** do `import('./commands/run.js')` — combinação inválida sai com `1` sem carregar nada.
+- `src/cli-options.test.ts`: 4 testes novos (ambos ausentes → `undefined`; cada flag isolada; combinação inválida → `CliFlagError` com a mensagem explicativa; parse com um `Command` real fixando `--pr-review` → `prReview`).
+- Smoke test manual: `tsx src/cli.ts pr-review --help` lista argumento e as 4 opções; `tsx src/cli.ts run 25 --pr-review --no-branch` imprime o erro e sai com `1`.
+- Arquivos alterados: `src/cli.ts`, `src/cli-options.ts`, `src/cli-options.test.ts`.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (84 arquivos), `npm test` 489/489 verde.
+
+- **Learnings for future iterations:**
+  - `resolveRunPhaseFlags` já devolve `prReview`, mas a US-008 **não** o repassa a `runPipeline` (a assinatura ainda é `(issue, mode, from, noBranch)`). A US-009 só precisa adicionar o 5º parâmetro e trocar `phases.noBranch` por `phases.noBranch, phases.prReview` em `src/cli.ts:202`.
+  - `withIssueOptions` **não** foi aplicado a `pr-review`: o comando não resolve a issue (ver learnings da US-007), então as flags de provider não teriam efeito. Se a US-012/US-014 documentar o comando, não listar `--local/--github` nele.
+  - `biome` formata `.option(...)` em uma linha quando cabe em 100 colunas — rodar `npx biome check --write src/` depois de mexer em `cli.ts` evita um falso "erro" de lint no gate.
+  - `npx tsx src/cli.ts <cmd> --help` roda a CLI direto do TS sem build: é o jeito barato de verificar o registro de um comando, já que `cli.ts` não tem teste (chama `program.parse()` no import).
 ---
