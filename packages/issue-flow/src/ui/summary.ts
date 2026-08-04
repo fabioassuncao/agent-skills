@@ -5,6 +5,7 @@ import {
   getIcons,
   getTermWidth,
   printSuccess,
+  printWarning,
   useColor,
   useUnicode,
 } from './logger.js';
@@ -231,7 +232,13 @@ export function buildRunSummaryLines(info: RunSummaryInfo): string[] {
  */
 export function printRunSummary(info: RunSummaryInfo): void {
   console.log('');
-  printSuccess(`Pipeline complete for issue #${info.issueNumber}!`);
+  if (info.prReview?.requestedChanges) {
+    printWarning(
+      `Pipeline finished for issue #${info.issueNumber}, but the PR review requested changes.`,
+    );
+  } else {
+    printSuccess(`Pipeline complete for issue #${info.issueNumber}!`);
+  }
   for (const line of buildRunSummaryLines(info)) {
     console.log(line);
   }

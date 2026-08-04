@@ -33,8 +33,10 @@ import { run } from '../utils/shell.js';
  * target has to be discovered (`core/pr-review/discovery.ts`) and the outcome
  * is an artifact on disk, written through a `PrReviewPublisher`.
  *
- * The phase is read-only by construction: the agent may only run `Bash`,
- * `Read`, `Glob` and `Grep`, so it can never "fix" what it is reviewing.
+ * The phase is intended to be read-only: Write/Edit are not allowed, and the
+ * prompt forbids commits and `gh pr review|comment|merge`. Bash remains
+ * available for `gh`/`git` inspection, so the restriction is policy plus tool
+ * allow-list — not a sandbox that can stop every write.
  */
 
 /** Which verdicts make the command fail. */

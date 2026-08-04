@@ -207,8 +207,8 @@ Both surfaces produce the same verdict from the same axes:
 **Pull Request discovery** (both the skill and the CLI resolve it in the same order, and neither ever reviews a guessed PR):
 
 1. The explicit argument (`184`, `#184` or a PR URL)
-2. The active session snapshot (`issues/<N>/session.json`) -- CLI only
-3. `pullRequest` in `issues/<N>/tasks.json`, written when the PR was created
+2. `pullRequest` in `issues/<N>/tasks.json`, written when the PR was created (when an issue is known)
+3. The active in-memory session publisher (populated during `run --web` -- CLI only; not by reading `session.json` from disk)
 4. `gh pr list --head <current branch>` -- the most recent PR
 5. Failure with an actionable message asking for the number
 
@@ -230,7 +230,7 @@ issues/42/pr-review/          # issues/pr-184/pr-review/ when there is no associ
 
 A malformed verdict is never coerced into `APPROVE`: it fails with `1` and the raw output is preserved in the report. `--fail-on <level>` shifts the threshold (`suggestions` also fails on `APPROVE_WITH_SUGGESTIONS`, `none` never fails on a verdict), but it never suppresses code `1`.
 
-The review is **read-only** on both surfaces: no edits, no commits, and no `gh pr review|comment|merge`. On `REQUEST_CHANGES`, the sub-agent and `run` leave the issue open and report the blockers with the report path; `run` itself still exits `0`. See [the CLI reference](../README.md#pr-review----review-a-pull-request) for the flags and the `prReview` key of `.issue-flow.json`.
+The review is **intended to be read-only** on both surfaces: Write/Edit are not allowed, and the prompt forbids edits, commits and `gh pr review|comment|merge` (Bash remains available for inspection). On `REQUEST_CHANGES`, the sub-agent and `run` leave the issue open (and do not mark the local plan completed) and report the blockers with the report path; `run` itself still exits `0`. See [the CLI reference](../README.md#pr-review----review-a-pull-request) for the flags and the `prReview` key of `.issue-flow.json`.
 
 ## Installation (Claude Code)
 

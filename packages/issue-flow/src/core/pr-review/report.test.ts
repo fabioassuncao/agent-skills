@@ -155,6 +155,25 @@ describe('parseFindings', () => {
   it('returns nothing when the body has no findings section', () => {
     expect(parseFindings('## Executive summary\n\nAll good.')).toEqual([]);
   });
+
+  it('skips findings with an unknown severity instead of inventing medium', () => {
+    const findings = parseFindings(
+      [
+        '## Issues found',
+        '- [unknown] src/a.ts:1 — Invented severity',
+        '- [high] src/b.ts:2 — Real finding',
+      ].join('\n'),
+    );
+
+    expect(findings).toEqual([
+      {
+        severity: 'high',
+        file: 'src/b.ts',
+        line: 2,
+        title: 'Real finding',
+      },
+    ]);
+  });
 });
 
 describe('buildReportMarkdown', () => {

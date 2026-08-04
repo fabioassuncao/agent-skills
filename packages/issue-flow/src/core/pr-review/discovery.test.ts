@@ -77,37 +77,11 @@ describe('resolvePullRequest', () => {
     });
   });
 
-  describe('session snapshot (source 2)', () => {
-    it('uses the most recent PR of the active session', async () => {
-      const planPullRequest = vi.fn(async () => null);
-      const resolved = await resolvePullRequest(undefined, {
-        issue: '25',
-        yes: true,
-        sources: makeSources({
-          sessionPullRequests: () => [
-            { number: 180, url: 'https://github.com/acme/repo/pull/180', title: 'Older' },
-            { number: 184, url: 'https://github.com/acme/repo/pull/184', title: 'PR review phase' },
-          ],
-          planPullRequest,
-        }),
-        info,
-        warn,
-      });
-
-      expect(resolved).toEqual({
-        number: 184,
-        url: 'https://github.com/acme/repo/pull/184',
-        title: 'PR review phase',
-        headBranch: null,
-        source: 'session',
-      });
-      // Source 2 hit: the later sources are never consulted.
-      expect(planPullRequest).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('tasks.json (source 3)', () => {
-    it('uses plan.pullRequest when the session knows nothing', async () => {
+  describe('tasks.json (source 2)', () => {
+    it('uses plan.pullRequest when present', async () => {
+      const sessionPullRequests = vi.fn(() => [
+        { number: 999, url: 'https://github.com/acme/repo/pull/999', title: 'Stale session PR' },
+      ]);
       const branchPullRequests = vi.fn(async () => []);
       const resolved = await resolvePullRequest(undefined, {
         issue: '25',
@@ -119,6 +93,7 @@ describe('resolvePullRequest', () => {
             headBranch: 'issue/25-pr-review-phase',
             createdAt: '2026-08-03T21:00:00Z',
           }),
+          sessionPullRequests,
           branchPullRequests,
         }),
         info,
@@ -132,6 +107,8 @@ describe('resolvePullRequest', () => {
         headBranch: 'issue/25-pr-review-phase',
         source: 'plan',
       });
+      // Plan wins over a higher-numbered (or stale) session PR.
+      expect(sessionPullRequests).not.toHaveBeenCalled();
       expect(branchPullRequests).not.toHaveBeenCalled();
     });
 
@@ -146,6 +123,34 @@ describe('resolvePullRequest', () => {
         }),
       ).rejects.toBeInstanceOf(PrDiscoveryError);
       expect(planPullRequest).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('session snapshot (source 3)', () => {
+    it('uses the most recent PR of the active session when the plan has none', async () => {
+      const branchPullRequests = vi.fn(async () => []);
+      const resolved = await resolvePullRequest(undefined, {
+        issue: '25',
+        yes: true,
+        sources: makeSources({
+          sessionPullRequests: () => [
+            { number: 180, url: 'https://github.com/acme/repo/pull/180', title: 'Older' },
+            { number: 184, url: 'https://github.com/acme/repo/pull/184', title: 'PR review phase' },
+          ],
+          branchPullRequests,
+        }),
+        info,
+        warn,
+      });
+
+      expect(resolved).toEqual({
+        number: 184,
+        url: 'https://github.com/acme/repo/pull/184',
+        title: 'PR review phase',
+        headBranch: null,
+        source: 'session',
+      });
+      expect(branchPullRequests).not.toHaveBeenCalled();
     });
   });
 
@@ -200,6 +205,22 @@ describe('resolvePullRequest', () => {
         }),
       ).rejects.toBeInstanceOf(PrDiscoveryError);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('not a git repository'));
+    });
+
+    it('warns and fails instead of throwing when listing PRs fails', async () => {
+      await expect(
+        resolvePullRequest(undefined, {
+          yes: true,
+          sources: makeSources({
+            branchPullRequests: async () => {
+              throw new Error('gh unavailable');
+            },
+          }),
+          info,
+          warn,
+        }),
+      ).rejects.toBeInstanceOf(PrDiscoveryError);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('gh unavailable'));
     });
   });
 

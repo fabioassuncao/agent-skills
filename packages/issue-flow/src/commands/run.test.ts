@@ -434,9 +434,11 @@ describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
   const readPlan = async (): Promise<TaskPlan> =>
     JSON.parse(await readFile(tasksPath(), 'utf-8')) as TaskPlan;
 
-  /** Phases the renderer was actually asked to run. */
-  const renderedPhases = (): string[] =>
-    vi.mocked(runPipelineWithRenderer).mock.calls[0]?.[0].phases ?? [];
+  /** Phases the renderer was actually asked to run (most recent invocation). */
+  const renderedPhases = (): string[] => {
+    const calls = vi.mocked(runPipelineWithRenderer).mock.calls;
+    return calls[calls.length - 1]?.[0].phases ?? [];
+  };
 
   const runCapturingLines = async (
     prReview?: boolean,
@@ -504,6 +506,7 @@ describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
   });
 
   it('veredito REQUEST_CHANGES: pipeline retorna 0, não fecha a Issue e destaca o aviso', async () => {
+    await writePlan(makePlan({ issueStatus: 'in_progress', completedAt: null }));
     vi.mocked(runPrReview).mockResolvedValue(2);
 
     const { code, lines } = await runCapturingLines(true);
@@ -512,6 +515,50 @@ describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
     expect(close).not.toHaveBeenCalled();
     expect(lines.some((l) => l.includes('PR review requested changes'))).toBe(true);
     expect(lines.some((l) => l.includes('REQUEST_CHANGES'))).toBe(true);
+    expect(lines.some((l) => l.includes('Pipeline complete'))).toBe(false);
+
+    const plan = await readPlan();
+    expect(plan.issueStatus).toBe('in_progress');
+    expect(plan.completedAt).toBeNull();
+    expect(plan.prReview?.enabled).toBe(true);
+  });
+
+  it('opt-in mid-pipeline (--from pr) persiste enabled para retomadas sem a flag', async () => {
+    await writePlan(
+      makePlan({
+        pipeline: {
+          prdCompleted: true,
+          jsonCompleted: true,
+          executionCompleted: true,
+          reviewCompleted: true,
+          prCreated: false,
+        },
+      }),
+    );
+    vi.mocked(runPrReview).mockResolvedValue(2);
+
+    const first = await runPipeline('42', 'auto', 'pr', undefined, true);
+    expect(first).toBe(0);
+    expect((await readPlan()).prReview?.enabled).toBe(true);
+
+    vi.mocked(runPrReview).mockClear();
+    vi.mocked(runPrReview).mockResolvedValue(0);
+    // Simulate the incomplete phase the previous REQUEST_CHANGES left behind.
+    const afterReview = await readPlan();
+    afterReview.pipeline.prCreated = true;
+    afterReview.pipeline.prReviewCompleted = false;
+    afterReview.prReview = {
+      ...afterReview.prReview,
+      enabled: true,
+      rounds: afterReview.prReview?.rounds ?? 1,
+      lastRecommendation: 'REQUEST_CHANGES',
+    };
+    await writePlan(afterReview);
+
+    const second = await runPipeline('42', 'auto');
+    expect(second).toBe(0);
+    expect(vi.mocked(runPrReview)).toHaveBeenCalledTimes(1);
+    expect(renderedPhases()).toContain('pr-review');
   });
 
   it('falha de execução da fase (código 1) derruba a pipeline', async () => {

@@ -359,12 +359,14 @@ Skill(review-pr, args: "#{PR_NUMBER}")
 
 `review-pr` reviews the PR as a whole (full diff, architecture, duplication, tests, commits, PR
 description) — it does not re-check the acceptance criteria, which `review-issue` already gated.
-It is read-only and ends with a `<pr-review-result>` block. Parse it:
+It is intended to be read-only (no edits/commits/`gh pr review|comment|merge`) and ends with a
+`<pr-review-result>` block. Parse it:
 
 - `RECOMMENDATION: APPROVE` or `APPROVE_WITH_SUGGESTIONS` → set `pipeline.prReviewCompleted = true`
   and continue to close the issue
 - `RECOMMENDATION: REQUEST_CHANGES` → leave `pipeline.prReviewCompleted = false`, **do NOT close the
-  issue**, and report the blockers to the user with the path of the report
+  issue**, do **not** mark `issueStatus: completed`, and report the blockers to the user with the
+  path of the report
 - No block, or any other value → treat as a failed review, never as an approval
 
 **After the PR URL is returned:**

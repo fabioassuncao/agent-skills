@@ -274,7 +274,11 @@ export function parseFindings(body: string): PrReviewFinding[] {
       const item = line.trim().match(FINDING_LINE);
       if (item?.[1] === undefined || item[2] === undefined) continue;
 
-      const severity = SEVERITY_ALIASES[item[1].toLowerCase()] ?? 'medium';
+      const severity = SEVERITY_ALIASES[item[1].toLowerCase()];
+      // Unknown markers stay in the Markdown only — inventing `medium` would
+      // mislead any automation that keys off index.json severities.
+      if (severity === undefined) continue;
+
       const rest = item[2].trim();
       const location = rest.match(FINDING_LOCATION);
       if (location?.[1] === undefined || location[3] === undefined) {

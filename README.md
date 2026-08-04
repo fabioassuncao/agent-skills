@@ -89,7 +89,7 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `-v, --verbose` | Show Claude progress output in real time |
 
-`--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists the choice after the `plan` phase, so a resumed run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open**, and still exits `0`.
+`--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists `prReview.enabled` as soon as a `tasks.json` exists (including mid-pipeline resumes such as `--from pr --pr-review`), so a later run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open** (locally and on the remote), does **not** mark `issueStatus: completed`, and still exits `0`.
 
 It also accepts the [issue source flags](#flags) (`--local`, `--github`, `--prefer-local`, `--prefer-github`, `--ask`). The origin is resolved **once**, at the start, and the same issue content is handed to every phase.
 
@@ -202,7 +202,7 @@ npx issue-flow pr-review 184 --round 2
 
 Reviews the Pull Request **as a whole** -- description, issue/PRD/implementation alignment, the full diff, code quality, architecture, complexity, duplication, adherence to project conventions, regressions, risks, test coverage, documentation, commit messages, and simplification opportunities. It complements the `review` phase, which is a conformance gate against the acceptance criteria of `tasks.json`.
 
-The phase is **read-only by construction**: the agent runs with `Bash`, `Read`, `Glob` and `Grep` only, and never edits files, commits, or writes anything to GitHub (`gh pr review|comment|merge` are off-limits). The report is persisted locally by the CLI, not by the agent.
+The phase is **intended to be read-only**: Write/Edit are not in the tool allow-list, and the prompt forbids edits, commits and `gh pr review|comment|merge`. Bash stays available so the agent can run `gh`/`git` inspection commands — the restriction is policy plus allow-list, not a sandbox that can block every write. The report is persisted locally by the CLI, not by the agent.
 
 | Flag | Description |
 |------|-------------|
@@ -219,12 +219,12 @@ The [issue source flags](#flags) do not apply: the command never fetches the iss
 With no argument, the PR is resolved in this deterministic order:
 
 1. The explicit argument (`184`, `#184` or a PR URL)
-2. `pullRequests[]` of the active session snapshot (`issues/<N>/session.json`)
-3. `pullRequest` in `issues/<N>/tasks.json`, written by the `pr` phase
+2. `pullRequest` in `issues/<N>/tasks.json`, written by the `pr` phase (when `--issue` is set)
+3. `pullRequests[]` of the active in-memory session publisher (populated during `run --web` by `publishGitState` — not by reading `session.json` from disk)
 4. `gh pr list --head <current branch>` -- the most recent PR (highest number)
 5. Failure with an actionable message
 
-The command **never reviews a guessed PR**: when no source answers, it fails with exit code `1` instructing `issue-flow pr-review <number>`. When the PR comes from sources 2-4 in an interactive terminal, its number, title and branch are shown for a `(Y/n)` confirmation. The prompt is skipped in non-TTY environments, with `CI` set, with `--yes`, and when the phase runs from `run --pr-review` -- the discovered number is logged instead, so an automated run never hangs.
+The plan is preferred over the session so a stale or higher-numbered PR listed for the same branch cannot override the Pull Request this pipeline just opened. The command **never reviews a guessed PR**: when no source answers, it fails with exit code `1` instructing `issue-flow pr-review <number>`. When the PR comes from sources 2-4 in an interactive terminal, its number, title and branch are shown for a `(Y/n)` confirmation. The prompt is skipped in non-TTY environments, with `CI` set, with `--yes`, and when the phase runs from `run --pr-review` -- the discovered number is logged instead, so an automated run never hangs.
 
 #### Artifacts
 

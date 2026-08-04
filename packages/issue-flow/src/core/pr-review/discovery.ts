@@ -224,10 +224,16 @@ async function confirm(
  * Settle on the Pull Request to review, in this order:
  *
  * 1. the explicit argument;
- * 2. the PRs the active session publisher already knows about;
- * 3. `plan.pullRequest`, written by the `pr` phase;
+ * 2. `plan.pullRequest`, written by the `pr` phase (when an issue is known);
+ * 3. the PRs the active in-memory session publisher already knows about
+ *    (populated during `run --web` via `publishGitState` — not by reading
+ *    `session.json` from disk);
  * 4. the PRs of the current branch, via `gh`;
  * 5. an actionable failure.
+ *
+ * The plan is preferred over the session: after `pr`, `plan.pullRequest` is the
+ * authoritative record of what this pipeline opened, while the session may
+ * still list older PRs for the same branch (`gh pr list --state all`).
  *
  * Sources 2–4 were discovered rather than requested, so an interactive
  * terminal is asked to confirm before a long (and paid) review runs against
@@ -300,6 +306,23 @@ async function discover(
   issue: string | undefined,
   warn: (message: string) => void,
 ): Promise<ResolvedPullRequest | null> {
+  if (issue !== undefined && issue !== '') {
+    try {
+      const fromPlan = await sources.planPullRequest(issue);
+      if (fromPlan !== null) {
+        return {
+          number: fromPlan.number,
+          url: fromPlan.url,
+          title: null,
+          headBranch: fromPlan.headBranch,
+          source: 'plan',
+        };
+      }
+    } catch {
+      // An unreadable plan is "no candidate", never a hard failure.
+    }
+  }
+
   let sessionPrs: SessionPullRequest[] = [];
   try {
     sessionPrs = sources.sessionPullRequests();
@@ -317,19 +340,6 @@ async function discover(
     };
   }
 
-  if (issue !== undefined && issue !== '') {
-    const fromPlan = await sources.planPullRequest(issue);
-    if (fromPlan !== null) {
-      return {
-        number: fromPlan.number,
-        url: fromPlan.url,
-        title: null,
-        headBranch: fromPlan.headBranch,
-        source: 'plan',
-      };
-    }
-  }
-
   let branch = '';
   try {
     branch = await sources.currentBranch();
@@ -342,7 +352,16 @@ async function discover(
     return null;
   }
 
-  const fromBranch = mostRecent(await sources.branchPullRequests(branch));
+  let branchPrs: SessionPullRequest[] = [];
+  try {
+    branchPrs = await sources.branchPullRequests(branch);
+  } catch (err) {
+    warn(
+      `Could not list Pull Requests for branch '${branch}': ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
+  const fromBranch = mostRecent(branchPrs);
   if (fromBranch === null) {
     return null;
   }

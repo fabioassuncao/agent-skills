@@ -259,6 +259,22 @@ async function runPipelinePhases(
     effectivePrReview = false;
   }
 
+  // Persist the opt-in as soon as we know it, not only after the `plan` phase.
+  // A mid-pipeline `--pr-review` (e.g. `--from pr --pr-review`) never re-enters
+  // the plan runner, and without `enabled: true` a later resume without the flag
+  // would drop the phase even when `prReviewCompleted` is still false.
+  if (effectivePrReview) {
+    try {
+      const plan = await loadTaskPlan(tasksPath);
+      if (plan.prReview?.enabled !== true) {
+        plan.prReview = { ...plan.prReview, enabled: true, rounds: plan.prReview?.rounds ?? 0 };
+        await saveTaskPlan(tasksPath, plan);
+      }
+    } catch {
+      // No tasks.json yet — the plan runner persists it after creating the file.
+    }
+  }
+
   const activePhases = effectiveNoBranch
     ? PIPELINE_PHASES_NO_BRANCH
     : effectivePrReview
@@ -477,6 +493,9 @@ async function runPipelinePhases(
 
   // Close the issue through whoever owns it. A provider without close() (a
   // read-only origin) has nothing to do here, so the step is simply skipped.
+  // REQUEST_CHANGES also leaves the local plan unfinished: marking
+  // `issueStatus: completed` while `prReviewCompleted` is false would lie to
+  // every tool that keys off the local status.
   if (review?.requestedChanges) {
     printInfo('Issue left open until the review blockers are addressed.');
   } else {
@@ -509,10 +528,11 @@ async function runPipelinePhases(
     // round-trip to the GitHub CLI below.
     planPrUrl = plan.pullRequest?.url ?? null;
 
-    // Mark as completed
-    plan.issueStatus = 'completed';
-    plan.completedAt = isoNow();
     plan.lastAttemptAt = isoNow();
+    if (!review?.requestedChanges) {
+      plan.issueStatus = 'completed';
+      plan.completedAt = isoNow();
+    }
     await saveTaskPlan(tasksPath, plan);
   } catch {
     /* non-critical */

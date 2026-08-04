@@ -85,4 +85,23 @@ describe('printRunSummary', () => {
     expect(lines[1]).toContain('Pipeline complete for issue #42!');
     expect(lines.slice(2)).toEqual(buildRunSummaryLines(info()));
   });
+
+  it('não declara Pipeline complete quando o PR review pediu mudanças', () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    const withChanges = info({
+      prReview: { requestedChanges: true, recommendation: 'REQUEST_CHANGES', reportPath: null },
+    });
+    try {
+      printRunSummary(withChanges);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(lines[1]).toContain('requested changes');
+    expect(lines[1]).not.toContain('Pipeline complete');
+    expect(lines.slice(2)).toEqual(buildRunSummaryLines(withChanges));
+  });
 });

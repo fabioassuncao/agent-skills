@@ -27,7 +27,7 @@ Without a number, the skill discovers the Pull Request from `issues/{N}/tasks.js
 4. **Reviews 15 axes** — PR description, issue → PRD → implementation, correctness, code quality, architecture, complexity, readability, duplication, project conventions, regressions, risks, test coverage, documentation, commit messages and simplification opportunities
 5. **Emits the verdict** — a report with fixed headings, findings as `- [severity] file:line — title`, and the machine-parseable `<pr-review-result>` block as the last thing in the output
 
-> The skill is **read-only**: it never edits, commits, pushes, or runs `gh pr review`/`gh pr comment`/`gh pr merge`.
+> The skill is **intended to be read-only**: do not edit, commit, push, or run `gh pr review`/`gh pr comment`/`gh pr merge`. Bash may still be used for inspection (`gh`/`git`/`rg`).
 
 ## Output
 
