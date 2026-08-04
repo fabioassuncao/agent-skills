@@ -146,6 +146,79 @@ describe('state-manager', () => {
       expect(loaded.issueUrl).toBe('');
     });
 
+    // Backwards compatibility guard for the pr-review phase: the three new
+    // fields are opt-in, so a plan without them must load untouched and a
+    // load -> save round-trip must not sprout any of them.
+    it('should load a tasks.json without the pr-review fields and not add them on save', async () => {
+      const plan = createMinimalPlan();
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(plan, null, 2), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      expect(loaded.pullRequest).toBeUndefined();
+      expect(loaded.prReview).toBeUndefined();
+      expect(loaded.pipeline.prReviewCompleted).toBeUndefined();
+
+      await saveTaskPlan(filePath, loaded);
+      const rewritten = JSON.parse(await readFile(filePath, 'utf-8'));
+      expect(rewritten).not.toHaveProperty('pullRequest');
+      expect(rewritten).not.toHaveProperty('prReview');
+      expect(rewritten.pipeline).not.toHaveProperty('prReviewCompleted');
+    });
+
+    it('should load and round-trip a tasks.json with the pr-review fields', async () => {
+      const plan = createMinimalPlan({
+        pipeline: {
+          prdCompleted: true,
+          jsonCompleted: true,
+          executionCompleted: true,
+          reviewCompleted: true,
+          prCreated: true,
+          prReviewCompleted: true,
+        },
+        pullRequest: {
+          number: 42,
+          url: 'https://github.com/test/test/pull/42',
+          headBranch: 'issue/1-test',
+          createdAt: '2026-08-03T12:00:00Z',
+        },
+        prReview: {
+          enabled: true,
+          pullRequestNumber: 42,
+          rounds: 2,
+          lastRecommendation: 'REQUEST_CHANGES',
+          lastReviewedAt: '2026-08-03T13:00:00Z',
+        },
+      });
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(plan, null, 2), 'utf-8');
+
+      const loaded = await loadTaskPlan(filePath);
+      expect(loaded.pullRequest).toEqual(plan.pullRequest);
+      expect(loaded.prReview).toEqual(plan.prReview);
+      expect(loaded.pipeline.prReviewCompleted).toBe(true);
+
+      await saveTaskPlan(filePath, loaded);
+      const reloaded = await loadTaskPlan(filePath);
+      expect(reloaded.pullRequest).toEqual(plan.pullRequest);
+      expect(reloaded.prReview).toEqual(plan.prReview);
+      expect(reloaded.pipeline.prReviewCompleted).toBe(true);
+    });
+
+    it('should reject an unknown pr-review recommendation', async () => {
+      const plan = createMinimalPlan({
+        prReview: {
+          enabled: true,
+          rounds: 1,
+          lastRecommendation: 'LGTM' as never,
+        },
+      });
+      const filePath = join(tmpDir, 'tasks.json');
+      await writeFile(filePath, JSON.stringify(plan), 'utf-8');
+
+      await expect(loadTaskPlan(filePath)).rejects.toThrow('Invalid tasks.json');
+    });
+
     it('should load a tasks.json with a non-numeric local issueNumber', async () => {
       const plan = createMinimalPlan({ issueNumber: 'auth-refactor', issueUrl: '' });
       const filePath = join(tmpDir, 'tasks.json');
@@ -199,6 +272,29 @@ describe('state-manager', () => {
       const plan = createMinimalPlan({ issueStatus: 'in_progress' });
       const initialized = initializeState(plan);
       expect(initialized.issueStatus).toBe('in_progress');
+    });
+
+    it('should not introduce the pr-review fields when they are absent', () => {
+      const initialized = initializeState(createMinimalPlan());
+      expect(initialized).not.toHaveProperty('pullRequest');
+      expect(initialized).not.toHaveProperty('prReview');
+      expect(initialized.pipeline).not.toHaveProperty('prReviewCompleted');
+    });
+
+    it('should preserve the pr-review fields when they are present', () => {
+      const plan = createMinimalPlan({
+        pullRequest: {
+          number: 7,
+          url: 'https://github.com/test/test/pull/7',
+          headBranch: 'issue/1-test',
+          createdAt: '2026-08-03T12:00:00Z',
+        },
+        prReview: { enabled: true, rounds: 1, lastRecommendation: 'APPROVE' },
+      });
+
+      const initialized = initializeState(plan);
+      expect(initialized.pullRequest?.number).toBe(7);
+      expect(initialized.prReview?.lastRecommendation).toBe('APPROVE');
     });
   });
 

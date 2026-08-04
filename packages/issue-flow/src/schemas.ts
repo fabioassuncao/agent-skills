@@ -25,6 +25,36 @@ export const pipelineStateSchema = z.object({
   executionCompleted: z.boolean(),
   reviewCompleted: z.boolean(),
   prCreated: z.boolean(),
+  prReviewCompleted: z.boolean().optional(),
+});
+
+/**
+ * Pull Request opened by the `pr` phase. Optional on the plan: plans written
+ * before the field existed (and runs with `--no-branch`) simply omit it.
+ */
+export const pullRequestRefSchema = z.object({
+  number: z.number().int().positive(),
+  url: z.string(),
+  headBranch: z.string(),
+  createdAt: z.string(),
+});
+
+export const prReviewRecommendationSchema = z.enum([
+  'APPROVE',
+  'APPROVE_WITH_SUGGESTIONS',
+  'REQUEST_CHANGES',
+]);
+
+/**
+ * State of the opt-in `pr-review` phase. `enabled` and `rounds` carry defaults
+ * so a partially written object still parses instead of invalidating the plan.
+ */
+export const prReviewStateSchema = z.object({
+  enabled: z.boolean().default(false),
+  pullRequestNumber: z.number().int().positive().optional(),
+  rounds: z.number().int().min(0).default(0),
+  lastRecommendation: prReviewRecommendationSchema.optional(),
+  lastReviewedAt: z.string().optional(),
 });
 
 const lastErrorSchema = z.object({
@@ -78,6 +108,8 @@ export const taskPlanSchema = z.object({
   correctionCycle: z.number().int().min(0),
   maxCorrectionCycles: z.number().int().min(0),
   pipeline: pipelineStateSchema,
+  pullRequest: pullRequestRefSchema.optional(),
+  prReview: prReviewStateSchema.optional(),
   userStories: z.array(userStorySchema),
 });
 
