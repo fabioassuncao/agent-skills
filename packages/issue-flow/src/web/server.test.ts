@@ -94,6 +94,30 @@ describe('startWebServer', () => {
     });
   });
 
+  it('serves the repository section with branch, head commit, name and root', async () => {
+    const publisher = makePublisher();
+    publisher.publish({
+      type: 'git:update',
+      at: '2026-08-03T12:00:02Z',
+      branch: 'issue/22-test',
+      baseBranch: 'main',
+      repositoryName: 'acme/repo',
+      remoteUrl: 'git@github.com:acme/repo.git',
+      headCommit: 'c56b163',
+      repositoryRoot: '/repo/root',
+    });
+    const handle = await start({ publisher });
+
+    const payload = await (await fetch(`${handle.url}/api/status`)).json();
+    expect(payload.repository).toEqual({
+      name: 'acme/repo',
+      remoteUrl: 'git@github.com:acme/repo.git',
+      branch: 'issue/22-test',
+      headCommit: 'c56b163',
+      root: '/repo/root',
+    });
+  });
+
   it('serves the same payload on the /status.json alias', async () => {
     const handle = await start();
     const [status, alias] = await Promise.all([

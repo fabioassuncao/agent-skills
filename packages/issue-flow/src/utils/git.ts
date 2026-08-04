@@ -83,6 +83,30 @@ export async function getRemoteUrl(cwd?: string): Promise<string | null> {
 }
 
 /**
+ * Get the abbreviated hash of the current HEAD commit.
+ * Never throws, same discipline as {@link getRemoteUrl}: a repository with no
+ * commits yet, a non-zero exit code, an empty stdout or a git binary that
+ * cannot be spawned all resolve to `null`, so callers can treat "no HEAD" as
+ * an ordinary state instead of an error path.
+ *
+ * `cwd` selects which repository is queried; omitting it falls back to
+ * `process.cwd()`.
+ */
+export async function getHeadCommit(cwd?: string): Promise<string | null> {
+  let result: ExecResult;
+  try {
+    result = await run('git', ['rev-parse', '--short', 'HEAD'], { cwd });
+  } catch {
+    return null;
+  }
+
+  if (result.exitCode !== 0) return null;
+
+  const hash = result.stdout.trim();
+  return hash === '' ? null : hash;
+}
+
+/**
  * Reduce a git remote URL to a canonical `host/path` identity, so that every
  * way of addressing the same repository collapses to the same string:
  *

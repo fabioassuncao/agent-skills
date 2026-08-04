@@ -107,6 +107,19 @@ describe('reduceSessionEvent', () => {
     expect(snap.phases.map((p) => p.status)).toEqual(['pending', 'pending', 'pending']);
   });
 
+  it('session:start seeds only the branch of the repository section', () => {
+    // Everything else waits for publishGitState; the branch is already known
+    // here, so a poll landing before the first git:update sees it in both
+    // git.branch and repository.branch.
+    expect(startedSnapshot().repository).toEqual({
+      name: null,
+      remoteUrl: null,
+      branch: 'issue/22-test',
+      headCommit: null,
+      root: null,
+    });
+  });
+
   it('session:start creates phases with null metric fields', () => {
     const phase = startedSnapshot().phases[0];
     expect(phase.inputTokens).toBeNull();
@@ -1111,5 +1124,49 @@ describe('git:update event', () => {
     expect(snap.git.baseBranch).toBe('develop');
     expect(snap.git.commits).toEqual([{ hash: 'abc1234', subject: 'first' }]);
     expect(snap.pullRequests).toEqual([{ number: 30, url: 'https://example.com/30', title: 'PR' }]);
+  });
+
+  it('fills the repository section from the same publication', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'git:update',
+      at: '2026-08-03T12:05:00Z',
+      branch: 'issue/22-test',
+      baseBranch: 'main',
+      repositoryName: 'acme/repo',
+      remoteUrl: 'git@github.com:acme/repo.git',
+      headCommit: 'c56b163',
+      repositoryRoot: '/repo/root',
+    });
+
+    expect(snap.repository).toEqual({
+      name: 'acme/repo',
+      remoteUrl: 'git@github.com:acme/repo.git',
+      branch: 'issue/22-test',
+      headCommit: 'c56b163',
+      root: '/repo/root',
+    });
+  });
+
+  it('distinguishes an omitted repository field from one reported as null', () => {
+    const enriched = reduceSessionEvent(startedSnapshot(), {
+      type: 'git:update',
+      at: '2026-08-03T12:05:00Z',
+      repositoryName: 'acme/repo',
+      headCommit: 'c56b163',
+      repositoryRoot: '/repo/root',
+    });
+    const snap = reduceSessionEvent(enriched, {
+      type: 'git:update',
+      at: '2026-08-03T12:06:00Z',
+      // Collected and unavailable this time: it must overwrite.
+      headCommit: null,
+      // Not collected at all: the previous value stands.
+    });
+
+    expect(snap.repository).toMatchObject({
+      name: 'acme/repo',
+      headCommit: null,
+      root: '/repo/root',
+    });
   });
 });

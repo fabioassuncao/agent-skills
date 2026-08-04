@@ -277,6 +277,18 @@ export const sessionSnapshotSchema = z.object({
     baseBranch: z.string().nullable(),
     commits: z.array(z.object({ hash: z.string(), subject: z.string() })),
   }),
+  // Additive like the metrics aggregate: a session.json written before the
+  // repository section existed parses into the same all-null object
+  // createInitialSnapshot() starts from.
+  repository: z
+    .object({
+      name: z.string().nullable().default(null),
+      remoteUrl: z.string().nullable().default(null),
+      branch: z.string().nullable().default(null),
+      headCommit: z.string().nullable().default(null),
+      root: z.string().nullable().default(null),
+    })
+    .default({ name: null, remoteUrl: null, branch: null, headCommit: null, root: null }),
   pullRequests: z.array(z.object({ number: z.number(), url: z.string(), title: z.string() })),
   logs: z.array(sessionLogEntrySchema),
   errors: z.array(sessionLogEntrySchema),

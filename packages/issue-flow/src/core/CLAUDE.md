@@ -36,6 +36,13 @@ never had them must not gain artificial nulls on a round trip.
   origin with no remote never erases an identifier the run already knew. The
   enrichment fields (title, description, labels, state) are written as reported
   — an empty body is a value, not "unknown".
+- `git:update` feeds two sections from one publication: `git` (branch, base,
+  commits) and `repository` (identity and location). On the repository fields
+  `undefined` means "not collected in this publication" and keeps the previous
+  value, while an explicit `null` means "collected and unavailable" and
+  overwrites it — that is why they go through `reported()` instead of `??`.
+  New repository data belongs on this event, not on a second one, or the two
+  sections drift apart on `branch`.
 - Derived fields (`errors`, `warnings`, `nextSteps`, `estimatedRemainingSeconds`
   and each story's `status`) are recomputed in `reduceSessionEvent` **after**
   `applyEvent`, never accumulated inside a case. A new derived field belongs

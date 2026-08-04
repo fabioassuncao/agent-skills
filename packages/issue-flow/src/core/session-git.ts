@@ -1,4 +1,12 @@
-import { getBaseBranch, getCommitsSince, getCurrentBranch } from '../utils/git.js';
+import {
+  getBaseBranch,
+  getCommitsSince,
+  getCurrentBranch,
+  getHeadCommit,
+  getProjectRoot,
+  getRemoteUrl,
+  normalizeRemoteUrl,
+} from '../utils/git.js';
 import { run } from '../utils/shell.js';
 import {
   NullPublisher,
@@ -25,6 +33,12 @@ export interface GitStateSources {
   baseBranch(): Promise<string>;
   commitsSince(base: string): Promise<SessionCommit[]>;
   pullRequests(branch: string): Promise<SessionPullRequest[]>;
+  /** URL of the origin remote, or null when none is configured. */
+  remoteUrl(): Promise<string | null>;
+  /** Abbreviated hash of HEAD, or null when there is none. */
+  headCommit(): Promise<string | null>;
+  /** Working directory of the run; falls back to process.cwd(). */
+  projectRoot(): Promise<string | null>;
   now(): string;
 }
 
@@ -72,12 +86,50 @@ const defaultSources: GitStateSources = {
   baseBranch: getBaseBranch,
   commitsSince: getCommitsSince,
   pullRequests: listPullRequests,
+  remoteUrl: () => getRemoteUrl(),
+  headCommit: () => getHeadCommit(),
+  // getProjectRoot() throws outside a git repository; the directory the run
+  // happens in is still worth reporting, so fall back to it.
+  projectRoot: async () => {
+    try {
+      return await getProjectRoot();
+    } catch {
+      return process.cwd();
+    }
+  },
   now: isoNow,
 };
 
 /**
- * Gather branch, base branch, commits and PRs, then publish a single
- * git:update event. Never throws.
+ * Run a source in isolation: its failure yields null instead of aborting the
+ * whole publication, so one unavailable field never hides the others.
+ */
+async function collect<T>(source: () => Promise<T | null>): Promise<T | null> {
+  try {
+    return await source();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reduce an origin URL to the `owner/repo` identity, dropping the host that
+ * normalizeRemoteUrl() prepends. Returns null without a remote.
+ *
+ * Known limitation inherited from normalizeRemoteUrl(): the result is
+ * lowercased, so a repository whose path has uppercase letters is reported in
+ * lowercase.
+ */
+function deriveRepositoryName(remoteUrl: string | null): string | null {
+  const normalized = normalizeRemoteUrl(remoteUrl);
+  if (normalized === null) return null;
+  const slash = normalized.indexOf('/');
+  return slash === -1 ? null : normalized.slice(slash + 1);
+}
+
+/**
+ * Gather branch, base branch, commits, PRs and repository identity, then
+ * publish a single git:update event. Never throws.
  */
 export async function publishGitState(
   publisher: SessionPublisher,
@@ -89,9 +141,12 @@ export async function publishGitState(
   try {
     const branch = await src.currentBranch();
     const baseBranch = await src.baseBranch();
-    const [commits, pullRequests] = await Promise.all([
+    const [commits, pullRequests, remoteUrl, headCommit, repositoryRoot] = await Promise.all([
       src.commitsSince(baseBranch),
       src.pullRequests(branch),
+      collect(() => src.remoteUrl()),
+      collect(() => src.headCommit()),
+      collect(() => src.projectRoot()),
     ]);
 
     publisher.publish({
@@ -101,6 +156,10 @@ export async function publishGitState(
       baseBranch,
       commits,
       pullRequests,
+      repositoryName: deriveRepositoryName(remoteUrl),
+      remoteUrl,
+      headCommit,
+      repositoryRoot,
     });
   } catch {
     // Monitoring enrichment must never propagate errors to the pipeline.

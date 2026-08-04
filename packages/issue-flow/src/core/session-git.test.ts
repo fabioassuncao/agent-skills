@@ -8,6 +8,9 @@ function makeSources(overrides?: Partial<GitStateSources>): GitStateSources {
     baseBranch: async () => 'main',
     commitsSince: async () => [{ hash: 'abc1234', subject: 'feat: US-001' }],
     pullRequests: async () => [{ number: 30, url: 'https://example.com/30', title: 'PR' }],
+    remoteUrl: async () => 'git@github.com:acme/repo.git',
+    headCommit: async () => 'c56b163',
+    projectRoot: async () => '/repo/root',
     now: () => '2026-08-03T12:00:00Z',
     ...overrides,
   };
@@ -45,6 +48,67 @@ describe('publishGitState', () => {
       ),
     ).resolves.toBeUndefined();
     expect(publisher.version()).toBe(0);
+  });
+
+  it('publishes the repository identity of a repository with a remote', async () => {
+    const publisher = new MemoryPublisher({ onWarn: () => {} });
+    await publishGitState(publisher, makeSources());
+
+    expect(publisher.snapshot().repository).toEqual({
+      // Derived from the remote, host dropped and lowercased.
+      name: 'acme/repo',
+      remoteUrl: 'git@github.com:acme/repo.git',
+      // The same publication feeds git.branch and repository.branch.
+      branch: 'issue/22-test',
+      headCommit: 'c56b163',
+      root: '/repo/root',
+    });
+  });
+
+  it('reports a repository with no remote as name and remoteUrl null', async () => {
+    const publisher = new MemoryPublisher({ onWarn: () => {} });
+    await publishGitState(publisher, makeSources({ remoteUrl: async () => null }));
+
+    expect(publisher.snapshot().repository).toMatchObject({
+      name: null,
+      remoteUrl: null,
+      branch: 'issue/22-test',
+      headCommit: 'c56b163',
+      root: '/repo/root',
+    });
+  });
+
+  it('reports an unavailable HEAD as null without dropping the other fields', async () => {
+    const publisher = new MemoryPublisher({ onWarn: () => {} });
+    await publishGitState(publisher, makeSources({ headCommit: async () => null }));
+
+    expect(publisher.snapshot().repository).toMatchObject({
+      name: 'acme/repo',
+      headCommit: null,
+      root: '/repo/root',
+    });
+  });
+
+  it('keeps publishing when one of the repository sources throws', async () => {
+    const publisher = new MemoryPublisher({ onWarn: () => {} });
+    await expect(
+      publishGitState(
+        publisher,
+        makeSources({
+          headCommit: async () => {
+            throw new Error('git rev-parse blew up');
+          },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(publisher.version()).toBe(1);
+    expect(publisher.snapshot().repository).toMatchObject({
+      name: 'acme/repo',
+      headCommit: null,
+      root: '/repo/root',
+    });
+    expect(publisher.snapshot().git.branch).toBe('issue/22-test');
   });
 
   it('passes the resolved base branch to commitsSince', async () => {

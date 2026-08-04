@@ -4,8 +4,14 @@ import type { ExecResult } from './shell.js';
 vi.mock('./shell.js', () => ({ run: vi.fn() }));
 
 const { run } = await import('./shell.js');
-const { getBaseBranch, getCommitsSince, getProjectRoot, getRemoteUrl, normalizeRemoteUrl } =
-  await import('./git.js');
+const {
+  getBaseBranch,
+  getCommitsSince,
+  getHeadCommit,
+  getProjectRoot,
+  getRemoteUrl,
+  normalizeRemoteUrl,
+} = await import('./git.js');
 
 const mockRun = vi.mocked(run);
 
@@ -82,6 +88,41 @@ describe('getRemoteUrl', () => {
   it('returns null instead of throwing when git cannot be spawned', async () => {
     mockRun.mockRejectedValueOnce(new Error('spawn git ENOENT'));
     await expect(getRemoteUrl()).resolves.toBeNull();
+  });
+});
+
+describe('getHeadCommit', () => {
+  it('returns the trimmed abbreviated hash of HEAD', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: 'c56b163\n' }));
+    await expect(getHeadCommit()).resolves.toBe('c56b163');
+    expect(mockRun).toHaveBeenCalledWith('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: undefined,
+    });
+  });
+
+  it('queries the given cwd instead of process.cwd()', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: 'c56b163\n' }));
+    await expect(getHeadCommit('/some/project/root')).resolves.toBe('c56b163');
+    expect(mockRun).toHaveBeenCalledWith('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: '/some/project/root',
+    });
+  });
+
+  it('returns null in a repository with no commits yet (non-zero exit)', async () => {
+    mockRun.mockResolvedValueOnce(
+      result({ exitCode: 128, stderr: "fatal: ambiguous argument 'HEAD'" }),
+    );
+    await expect(getHeadCommit()).resolves.toBeNull();
+  });
+
+  it('returns null when stdout is empty or blank', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: '  \n' }));
+    await expect(getHeadCommit()).resolves.toBeNull();
+  });
+
+  it('returns null instead of throwing when git cannot be spawned', async () => {
+    mockRun.mockRejectedValueOnce(new Error('spawn git ENOENT'));
+    await expect(getHeadCommit()).resolves.toBeNull();
   });
 });
 

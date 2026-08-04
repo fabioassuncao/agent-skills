@@ -86,12 +86,27 @@ export type SessionEvent =
       durationSeconds?: number;
     }
   | {
+      /**
+       * One publication feeds both the `git` section (branch, base, commits)
+       * and the `repository` section (identity and location). They come from
+       * the same collection pass, so extending this event keeps `branch`
+       * consistent across the two instead of racing a second event.
+       *
+       * Every field is optional: `undefined` means "not collected in this
+       * publication" and leaves the snapshot untouched, while an explicit
+       * `null` means "collected and unavailable" and is written as-is.
+       */
       type: 'git:update';
       at: string;
       branch?: string;
       baseBranch?: string;
       commits?: SessionCommit[];
       pullRequests?: SessionPullRequest[];
+      /** `owner/repo`, derived from the origin remote. */
+      repositoryName?: string | null;
+      remoteUrl?: string | null;
+      headCommit?: string | null;
+      repositoryRoot?: string | null;
     }
   | { type: 'session:end'; at: string; status: 'completed' | 'failed'; error?: string };
 
@@ -198,6 +213,25 @@ export interface SessionIssueSnapshot {
   state: string | null;
 }
 
+/**
+ * Where the run is happening: which repository, which checkout, which commit.
+ *
+ * Fed by `git:update` (see `publishGitState`). Every field is nullable because
+ * each source is independent and failure-tolerant — no remote configured, a
+ * repository with no commits yet or a missing git binary all show up as
+ * `null` instead of failing the publication.
+ */
+export interface SessionRepositorySnapshot {
+  /** `owner/repo`, derived from the origin remote; null without one. */
+  name: string | null;
+  remoteUrl: string | null;
+  branch: string | null;
+  /** Abbreviated hash of HEAD. */
+  headCommit: string | null;
+  /** Absolute path of the working directory the pipeline runs from. */
+  root: string | null;
+}
+
 export interface SessionSnapshot {
   schemaVersion: 1;
   sessionId: string | null;
@@ -229,6 +263,7 @@ export interface SessionSnapshot {
     maxCorrectionCycles: number | null;
   };
   git: { branch: string | null; baseBranch: string | null; commits: SessionCommit[] };
+  repository: SessionRepositorySnapshot;
   pullRequests: SessionPullRequest[];
   logs: SessionLogEntry[];
   errors: SessionLogEntry[];
@@ -291,6 +326,7 @@ export function createInitialSnapshot(): SessionSnapshot {
     metrics: emptyMetrics(),
     execution: { iteration: 0, retries: 0, correctionCycle: 0, maxCorrectionCycles: null },
     git: { branch: null, baseBranch: null, commits: [] },
+    repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
     pullRequests: [],
     logs: [],
     errors: [],
@@ -322,6 +358,15 @@ function accumulateUsage<T extends SessionUsageSnapshot>(target: T, event: Metri
     cacheCreationTokens: accumulate(target.cacheCreationTokens, event.cacheCreationTokens),
     costUsd: accumulate(target.costUsd, event.costUsd),
   };
+}
+
+/**
+ * Pick between a reported value and the one already in the snapshot.
+ * Unlike `??`, an explicitly reported `null` wins: only `undefined` — the
+ * absence of the field on the event — keeps the previous value.
+ */
+function reported<T>(value: T | undefined, previous: T): T {
+  return value === undefined ? previous : value;
 }
 
 /**
@@ -464,6 +509,11 @@ function applyEvent(
           ...emptyUsage(),
         })),
         git: { branch: event.branch ?? null, baseBranch: event.baseBranch ?? null, commits: [] },
+        // The branch is the one piece of repository identity the session
+        // already knows here; the rest waits for publishGitState. Seeding it
+        // keeps git.branch and repository.branch consistent for a poll that
+        // lands before the first git:update.
+        repository: { ...initial.repository, branch: event.branch ?? null },
         environment: event.environment ?? null,
       };
     }
@@ -636,6 +686,15 @@ function applyEvent(
           branch: event.branch ?? snapshot.git.branch,
           baseBranch: event.baseBranch ?? snapshot.git.baseBranch,
           commits: event.commits ?? snapshot.git.commits,
+        },
+        repository: {
+          // `undefined` is "not collected", so the previous value stands; an
+          // explicit `null` is "collected and unavailable" and overwrites it.
+          name: reported(event.repositoryName, snapshot.repository.name),
+          remoteUrl: reported(event.remoteUrl, snapshot.repository.remoteUrl),
+          branch: event.branch ?? snapshot.repository.branch,
+          headCommit: reported(event.headCommit, snapshot.repository.headCommit),
+          root: reported(event.repositoryRoot, snapshot.repository.root),
         },
         pullRequests: event.pullRequests ?? snapshot.pullRequests,
       };

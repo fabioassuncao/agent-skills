@@ -468,6 +468,18 @@ describe('backwards compatibility with pre-metrics artifacts', () => {
     });
   });
 
+  it('fills the absent repository section of an older session.json', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    expect(snapshot.repository).toEqual({
+      name: null,
+      remoteUrl: null,
+      branch: null,
+      headCommit: null,
+      root: null,
+    });
+  });
+
   it('fills the absent story status and dependencies of an older session.json', () => {
     const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
 
