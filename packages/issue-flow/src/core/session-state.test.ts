@@ -188,6 +188,8 @@ describe('reduceSessionEvent', () => {
         priority: 1,
         passes: true,
         completedAt: null,
+        status: 'done',
+        dependencies: [],
         durationSeconds: null,
         inputTokens: null,
         outputTokens: null,
@@ -201,6 +203,8 @@ describe('reduceSessionEvent', () => {
         priority: 2,
         passes: false,
         completedAt: null,
+        status: 'backlog',
+        dependencies: [],
         durationSeconds: null,
         inputTokens: null,
         outputTokens: null,
@@ -211,6 +215,88 @@ describe('reduceSessionEvent', () => {
     ]);
     expect(snap.progress.storiesCompleted).toBe(1);
     expect(snap.progress.storiesTotal).toBe(2);
+  });
+
+  it('derives in_progress from the current activity and back to backlog when it moves on', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' }), makeStory({ id: 'US-002', priority: 2 })],
+    });
+    expect(snap.stories.map((s) => s.status)).toEqual(['backlog', 'backlog']);
+
+    snap = reduceSessionEvent(snap, {
+      type: 'activity',
+      at: '2026-08-03T12:02:00Z',
+      story: 'US-001',
+      tool: 'Edit',
+    });
+    expect(snap.stories.map((s) => s.status)).toEqual(['in_progress', 'backlog']);
+
+    // The derivation is recomputed from scratch on every reduction, so moving
+    // the activity elsewhere releases the previous story instead of latching.
+    snap = reduceSessionEvent(snap, {
+      type: 'activity',
+      at: '2026-08-03T12:03:00Z',
+      story: 'US-002',
+      tool: 'Edit',
+    });
+    expect(snap.stories.map((s) => s.status)).toEqual(['backlog', 'in_progress']);
+
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:04:00Z',
+      stories: [
+        makeStory({ id: 'US-001', passes: true }),
+        makeStory({ id: 'US-002', priority: 2 }),
+      ],
+    });
+    expect(snap.stories.map((s) => s.status)).toEqual(['done', 'in_progress']);
+  });
+
+  it('keeps an explicit in_review but never honours an explicit done without passes', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [
+        makeStory({ id: 'US-001', status: 'in_review' }),
+        makeStory({ id: 'US-002', priority: 2, status: 'done' }),
+      ],
+    });
+    // in_review has no automatic derivation, so the plan's value survives;
+    // done is overruled by passes: false.
+    expect(snap.stories.map((s) => s.status)).toEqual(['in_review', 'backlog']);
+
+    // in_review outranks the activity, but not a story that starts passing.
+    snap = reduceSessionEvent(snap, {
+      type: 'activity',
+      at: '2026-08-03T12:02:00Z',
+      story: 'US-001',
+      tool: 'Edit',
+    });
+    expect(snap.stories[0].status).toBe('in_review');
+
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:03:00Z',
+      stories: [
+        makeStory({ id: 'US-001', status: 'in_review', passes: true }),
+        makeStory({ id: 'US-002', priority: 2, status: 'done' }),
+      ],
+    });
+    expect(snap.stories[0].status).toBe('done');
+  });
+
+  it('stories:update copies dependencies from the plan, defaulting to an empty array', () => {
+    const snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [
+        makeStory({ id: 'US-001' }),
+        makeStory({ id: 'US-002', priority: 2, dependencies: ['US-001'] }),
+      ],
+    });
+    expect(snap.stories.map((s) => s.dependencies)).toEqual([[], ['US-001']]);
   });
 
   it('stories:update stamps completedAt only when a story flips to passing', () => {

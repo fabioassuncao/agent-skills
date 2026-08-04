@@ -1,7 +1,7 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import type { UserStory } from '../types.js';
+import type { UserStory, UserStoryStatus } from '../types.js';
 
 /**
  * Session state publishing layer for the optional web monitoring mode.
@@ -134,6 +134,14 @@ export interface SessionStorySnapshot extends SessionUsageSnapshot {
   completedAt: string | null;
   /** Wall-clock seconds attributed to the story, or null when unknown. */
   durationSeconds: number | null;
+  /**
+   * Board-style status, recomputed on every reduction by
+   * {@link deriveStoryStatus}. Observational: the pipeline keeps deciding what
+   * to execute from `passes`.
+   */
+  status: UserStoryStatus;
+  /** IDs of the stories this one depends on, as declared in the plan. */
+  dependencies: string[];
 }
 
 export interface SessionActivity {
@@ -333,12 +341,43 @@ function deriveNextSteps(snapshot: SessionSnapshot): string[] {
 }
 
 /**
+ * Board status of a single story, in a fixed order that makes the derivation
+ * idempotent — recomputing it over its own result yields the same value:
+ *
+ * 1. `passes: true` → `done` (execution is the only authority on completion);
+ * 2. already `in_review` → kept, since nothing here can produce or clear it;
+ * 3. the story owns the current activity → `in_progress`;
+ * 4. otherwise → `backlog`.
+ *
+ * `in_review` is therefore never derived: it only enters through an explicit
+ * `status` in tasks.json, and leaves when the story starts passing.
+ */
+function deriveStoryStatus(
+  story: SessionStorySnapshot,
+  activeStory: string | null,
+): UserStoryStatus {
+  if (story.passes) return 'done';
+  if (story.status === 'in_review') return 'in_review';
+  if (activeStory !== null && activeStory === story.id) return 'in_progress';
+  return 'backlog';
+}
+
+/** Recompute every story's status; entries that do not change keep identity. */
+function deriveStoryStatuses(snapshot: SessionSnapshot): SessionStorySnapshot[] {
+  const activeStory = snapshot.currentActivity?.story ?? null;
+  return snapshot.stories.map((story) => {
+    const status = deriveStoryStatus(story, activeStory);
+    return status === story.status ? story : { ...story, status };
+  });
+}
+
+/**
  * Fold a SessionEvent into a SessionSnapshot. Pure: never mutates the input
  * and performs no I/O. Unknown event types return the snapshot unchanged.
  *
  * errors/warnings are derived slices of the logs ring buffer, recomputed on
  * each reduction — they are never accumulated separately. The same applies
- * to estimatedRemainingSeconds and nextSteps.
+ * to estimatedRemainingSeconds, nextSteps and each story's status.
  */
 export function reduceSessionEvent(
   snapshot: SessionSnapshot,
@@ -353,6 +392,7 @@ export function reduceSessionEvent(
     ...next,
     updatedAt: event.at,
     elapsedSeconds,
+    stories: deriveStoryStatuses(next),
     estimatedRemainingSeconds: estimateRemainingSeconds(next),
     errors: next.logs.filter((entry) => entry.level === 'error'),
     warnings: next.logs.filter((entry) => entry.level === 'warn'),
@@ -487,6 +527,12 @@ function applyEvent(
           priority: story.priority,
           passes: story.passes,
           completedAt,
+          // Seed only: deriveStoryStatus() recomputes it right after, so an
+          // explicit 'done' in the plan on a story with passes: false is not
+          // honoured — `passes` remains the single source of truth. The plan's
+          // value survives just for 'in_review', which no derivation produces.
+          status: story.status ?? before?.status ?? 'backlog',
+          dependencies: story.dependencies ?? [],
           durationSeconds: before?.durationSeconds ?? null,
           inputTokens: before?.inputTokens ?? null,
           outputTokens: before?.outputTokens ?? null,

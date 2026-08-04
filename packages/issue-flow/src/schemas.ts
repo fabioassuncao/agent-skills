@@ -196,6 +196,11 @@ const sessionStorySchema = z.object({
   completedAt: z.string().nullable(),
   // Also introduced with the metrics, hence the same tolerant default.
   durationSeconds: z.number().nullable().default(null),
+  // Snapshot fields are always present on output and defaulted on input, so a
+  // session.json written before they existed still parses. This is the mirror
+  // image of userStorySchema, where the same two fields are plainly optional.
+  status: userStoryStatusSchema.default('backlog'),
+  dependencies: z.array(z.string()).default([]),
   ...sessionUsageShape,
 });
 
