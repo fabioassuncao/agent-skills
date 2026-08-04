@@ -45,6 +45,7 @@ Skills and sub-agents are invoked differently in Claude Code:
 | [`execute-tasks`](../skills/execute-tasks/) | Skill | Iteratively implements user stories from a JSON task plan with quality checks and commits. |
 | [`create-pr`](../skills/create-pr/) | Skill | Creates a Pull Request from the current branch with context from issue data, PRD, and git history. |
 | [`review-issue`](../skills/review-issue/) | Skill | Reviews whether a GitHub issue has been fully resolved, with structured output for the correction loop. |
+| [`review-pr`](../skills/review-pr/) | Skill | Reviews a Pull Request as a whole (diff, architecture, duplication, tests, commits, description) and returns a structured verdict. Optional -- runs after `create-pr` when `--pr-review` is requested. |
 
 ## Execution Modes
 
@@ -188,7 +189,7 @@ Issue Flow has two types of components with different installation methods:
 
 | Component | Type | Portable | Claude Code required |
 |-----------|------|----------|---------------------|
-| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `generate-issue`, `generate-local-issue` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
+| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `review-pr`, `generate-issue`, `generate-local-issue` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
 | `resolve-issue` (orchestrator) | Sub-agent (`agents/`) | **No** -- exclusive to Claude Code | **Yes** |
 
 ### Full installation (sub-agent + all skills)
@@ -247,6 +248,7 @@ Without the `resolve-issue` sub-agent, each skill can still be used independentl
 | Execute tasks (`execute-tasks`) | Yes |
 | Create PRs (`create-pr`) | Yes |
 | Review issues (`review-issue`) | Yes |
+| Review Pull Requests (`review-pr`) | Yes |
 | **Full orchestrated pipeline** | **No -- requires sub-agent** |
 | **Execution modes (auto/manual)** | **No -- requires sub-agent** |
 | **Auto-correction loop** | **No -- requires sub-agent** |
@@ -267,6 +269,7 @@ claude --agent resolve-issue -p "#42 --mode manual"
 claude -p "/execute-tasks for issue #42"
 claude -p "/review-issue #42"
 claude -p "/create-pr for issue #42"
+claude -p "/review-pr #42"
 ```
 
 ## Quick Start (Interactive)
