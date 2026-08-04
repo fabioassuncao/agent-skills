@@ -7,7 +7,7 @@
   "description": "Adiciona a fase opcional `pr-review` como etapa final da pipeline (apos `pr`), disponivel tambem como comando independente `issue-flow pr-review [pr]`. A fase avalia o Pull Request como um todo (diff completo, arquitetura, duplicacao, testes, commits, descricao do PR), complementando o gate de conformidade da fase `review`. Inclui descoberta automatica do PR com ordem de precedencia deterministica, artefatos versionaveis em `issues/<N>/pr-review/` com suporte a multiplas rodadas, estado retrocompativel em `tasks.json`, codigos de saida distintos (0/1/2) e a porta `PrReviewPublisher` preparada para integracao futura com o GitHub. Corrige de passagem dois defeitos: o numero do PR criado descartado por `pr.ts` e o comando quebrado `gh pr list --head ''` em `run.ts`. Sem a flag `--pr-review`, o comportamento atual permanece identico.",
   "issueStatus": "in_progress",
   "completedAt": null,
-  "lastAttemptAt": "2026-08-04T00:32:00Z",
+  "lastAttemptAt": "2026-08-04T00:52:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -109,8 +109,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "parsePrReviewResult() retorna um discriminated union ({ ok: true, result } | { ok: false, error }) — falha de parse nunca vira APPROVE. buildReportMarkdown() monta as 8 secoes canonicas a partir da saida do agente (aliases pt/en para os headings) e preserva o que nao casa em 'Additional notes'; com parseError, a saida bruta entra em 'Raw agent output'. resolveRound() cruza index.json com os arquivos em disco, entao um indice corrompido nunca sobrescreve um relatorio. LocalReportPublisher(dir) implementa PrReviewPublisher; findings estruturados vem de itens '- [severity] file:line - titulo'."
     },
     {
       "id": "US-006",
@@ -125,8 +125,8 @@
         "Exige, ao final, o bloco `<pr-review-result>` / `RECOMMENDATION: ...` / `BLOCKERS:` / `</pr-review-result>`"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "packages/issue-flow/prompts/pr-review.md em ingles, como os demais prompts. Os headings pedidos sao literalmente REPORT_SECTIONS e o exemplo de finding e '- [severity] path/to/file.ts:123 — Titulo' (o formato que parseFindings indexa). src/core/pr-review/prompt.test.ts fixa esse contrato prompt<->parser: placeholders, headings, bloco de resultado parseavel e linha de finding indexavel."
     },
     {
       "id": "US-007",

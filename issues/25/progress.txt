@@ -12,6 +12,7 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
 - Zod é v4 (`^4.3.6`). O padrão `satisfies z.ZodType<Interface>` só funciona em schemas **sem** `.default()` (o default torna o tipo de entrada divergente da saída) — em schemas com default, não use `satisfies`.
 - Fontes de dados injetáveis seguem o padrão `GitStateSources` (`session-git.ts`): uma `interface` com métodos, um `const defaultSources` no módulo e `{ ...defaultSources, ...opts.sources }` na função — testes passam só o que exercitam, sem `vi.mock`.
 - Prompt interativo: `interactive` default = `stdin.isTTY && stdout.isTTY && !CI`; `stdin`/`stdout`/`info`/`warn` sempre injetáveis (padrão de `issues/resolver.ts`). Nos testes, `PassThrough` para a resposta e um `Writable` sumidouro para o eco do readline.
+- Prompts (`prompts/*.md`) são em inglês e carregáveis nos testes com `loadPrompt('<nome>')` sem nenhum mock. Quando um prompt tem contrato com um parser (headings, formato de item, bloco de resultado), fixe o contrato em teste extraindo os exemplos do próprio arquivo — desalinhamento aqui degrada em silêncio, nunca em erro.
 - Erros de domínio carregam o exit code (`IssueResolutionError`, `PrDiscoveryError`) em vez de o chamador inventar um.
 - Há mudanças **não commitadas pré-existentes** no working tree (`getIssueDir`, `exitOnError` do listr2, testes de `git.ts`/`pipeline-renderer.ts`) que NÃO são da issue 25. Commitar sempre com `git add <arquivos específicos>`, nunca `git add -A`.
 
@@ -76,4 +77,34 @@ Started: Mon Aug 03 2026 21:12:45 GMT-0300 (Horário Padrão de Brasília)
   - A fonte 3 só é consultada quando há `issue` nas options — revisar um PR sem issue associada nunca toca em `tasks.json`, o que sustenta o critério "a resolução da issue é best-effort" da US-007.
   - `loadPlanPullRequest` engole qualquer erro (plano ausente/inválido) de propósito: uma fonte quebrada não pode mascarar a próxima.
   - Não existe helper compartilhado de prompt no repo; o leitor de linhas com fila (evita o descarte de input do `rl.question`) foi reimplementado localmente a partir de `issues/resolver.ts:154-194`. Se uma terceira ocorrência aparecer, vale extrair para `utils/prompt.ts`.
+---
+
+## 2026-08-03 21:45 - US-005 (Parser, relatório e índice estruturado)
+- `src/core/pr-review/report.ts` (novo): `parsePrReviewResult()` (bloco `<pr-review-result>` → `RECOMMENDATION:`/`BLOCKERS:`, com fallback para `RECOMMENDATION:` no texto cru), `parseFindings()`, `buildReportMarkdown()`, `prReviewDir()`, `reportFileName()`, `readPrReviewIndex()`, `resolveRound()`, `upsertRound()` e os tipos do `index.json` (`schemaVersion: 1`).
+- `src/core/pr-review/publisher.ts` (novo): `interface PrReviewPublisher { publish(report): Promise<void> }` e `LocalReportPublisher(dir)` — escreve `pr-<N>-round-<k>.md` + `index.json` via `writeFileAtomic()`, sem nenhuma chamada de escrita ao GitHub.
+- `report.test.ts` (23 testes) e `publisher.test.ts` (4 testes): três vereditos, saída malformada, recomendação desconhecida, findings, seções do relatório, diretório de artefatos (com e sem issue) e numeração/adição de rodadas.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (81 arquivos), `npm test` 460/460 verde.
+
+- **Learnings for future iterations:**
+  - O relatório **não** é escrito pelo agente: a fase é read-only (`allowedTools: ['Bash','Read','Glob','Grep']`), então `__REPORT_PATH__` no prompt é só informativo — quem persiste é o publisher, a partir do texto retornado por `runHeadless`.
+  - `buildReportMarkdown()` reescreve o corpo do agente nas 8 seções canônicas em ordem fixa; headings desconhecidos e o preâmbulo vão para `## Additional notes` (nada é descartado). Com `parseError`, o cru vai para `## Raw agent output` e a recomendação aparece como `UNPARSED`.
+  - Cuidado com strip de markdown na recomendação: remover `_` global apaga o `_` de `APPROVE_WITH_SUGGESTIONS` (bug pego pelos testes). Só `*`/`` ` `` são removidos globalmente; `_` apenas nas bordas.
+  - `resolveRound()` consulta o `index.json` **e** os arquivos `pr-<N>-round-<k>.md` do diretório: um índice corrompido volta a `null` em `readPrReviewIndex()`, e sem o cruzamento com o disco a próxima rodada sobrescreveria o relatório 1.
+  - Os `findings` de `index.json` saem de itens no formato `- [severity] arquivo:linha — Título` nas seções "Issues found"/"Required before merge" — o prompt da US-006 **precisa** pedir esse formato, senão o índice fica com `findings: []` (o markdown continua completo).
+  - US-007 monta o report com `buildReportMarkdown()` + `parseFindings()` e publica via a interface; o caminho a exibir é `join(dir, reportFileName(pr, round))`.
+---
+
+## 2026-08-03 21:50 - US-006 (Prompt pr-review.md)
+- `packages/issue-flow/prompts/pr-review.md` (novo): prompt em inglês (como todos os outros), com os 6 placeholders (`__PR_NUMBER__`, `__ISSUE_NUMBER__`, `__TASKS_PATH__`, `__PRD_PATH__`, `__REPORT_PATH__`, `__ROUND__`) e 5 passos — coleta de contexto (`gh pr view`, `gh pr diff --name-only`, `--stat`, `git log`, PRD/`tasks.json`, `CLAUDE.md`/`README.md`), orçamento do diff, 15 eixos de análise, critérios explícitos por veredito e formato de saída.
+- Contra estouro de contexto: o `--name-only`/`--stat` vem **antes** de qualquer hunk; ranking de arquivos por impacto (domínio/API/segurança primeiro, gerados/lockfiles por último); PR grande → relatório com escopo declarado no resumo executivo, nunca falha.
+- Read-only explícito: proíbe editar/commitar/`gh pr review|comment|merge` e escrever o próprio relatório (`__REPORT_PATH__` é informativo — quem persiste é o publisher).
+- `src/core/pr-review/prompt.test.ts` (novo): 7 testes fixando o contrato prompt↔parser — presença dos placeholders, nenhum `__X__` sobrando após `applyPlaceholders`, comandos de coleta, headings exatamente iguais a `REPORT_SECTIONS` e na ordem, os três vereditos, o bloco `<pr-review-result>` de exemplo passando por `parsePrReviewResult()` e a linha de exemplo de finding passando por `parseFindings()`.
+- Quality: `tsc --noEmit` OK, `biome check src/` OK (82 arquivos), `npm test` 467/467 verde.
+
+- **Learnings for future iterations:**
+  - O prompt é a outra metade do parser da US-005 e **nada em runtime denuncia um desalinhamento**: se os headings divergirem dos aliases, o relatório fica com todas as seções `_Not reported._` e o `index.json` com `findings: []`, sem erro nenhum. Por isso o teste extrai os headings do próprio arquivo e compara com `REPORT_SECTIONS` — qualquer edição futura do prompt que renomeie uma seção quebra o teste em vez de degradar em silêncio.
+  - Os exemplos dentro do prompt são testados como se fossem saída do agente (`parsePrReviewResult(template)` e `parseFindings()` sobre a linha `- [severity] ...`). Isso pega, por exemplo, trocar o travessão `—` por `-` no exemplo (o regex `FINDING_LOCATION` aceita ambos, mas o formato do arquivo passa a divergir do documentado).
+  - `loadPrompt()` funciona nos testes sem mock algum (lê `prompts/` do pacote real), então validar um prompt custa um teste trivial — vale repetir esse padrão para os prompts existentes se algum outro ganhar formato parseável.
+  - `applyPlaceholders` é `replaceAll` puro: um placeholder citado dentro de bloco de código no prompt (ex.: `gh pr diff __PR_NUMBER__ --stat`) também é substituído, o que é justamente o desejado — os comandos saem prontos para o agente colar.
+  - US-007 deve passar `__ISSUE_NUMBER__` vazio ou `none` quando não há issue associada: o prompt já instrui a pular o eixo issue/PRD nesse caso.
 ---
