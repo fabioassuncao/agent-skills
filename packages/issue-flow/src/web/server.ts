@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
@@ -5,8 +6,13 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { resolvePackageDir } from '../core/prompt-resolver.js';
-import type { SessionPublisher } from '../core/session-state.js';
+import {
+  NullPublisher,
+  type SessionPublisher,
+  type SessionSnapshot,
+} from '../core/session-state.js';
 import { printInfo, printWarning } from '../ui/logger.js';
+import type { SessionDirectoryHandle } from './session-directory.js';
 
 /**
  * HTTP server for the web monitoring mode. Plain node:http — no new runtime
@@ -31,7 +37,19 @@ function readPackageVersion(): string {
 }
 
 export interface WebServerOptions {
-  publisher: SessionPublisher;
+  /**
+   * Legacy single-session mode (pre-US-003, still used by the US-006
+   * fallback): serves this publisher's in-memory snapshot directly, with no
+   * directory scan and no lock file involved. Mutually exclusive with
+   * `sessions` — when both are given, `sessions` wins.
+   */
+  publisher?: SessionPublisher;
+  /**
+   * Multi-session mode: sessions discovered by polling the global storage
+   * tree (`web/session-directory.ts`). This is what every current entry
+   * point (`web serve`) passes; `publisher` only exists for the legacy path.
+   */
+  sessions?: SessionDirectoryHandle;
   port: number;
   host: string;
   /** Suggested UI polling interval, exposed via /api/health. */
@@ -44,6 +62,14 @@ export interface WebServerOptions {
   info?: (message: string) => void;
   /** Warning logger. Default: printWarning. */
   warn?: (message: string) => void;
+  /**
+   * Whether to `unref()` the underlying socket so it never keeps the process
+   * alive on its own. Default `true`, matching the historical contract for a
+   * server bound inline in the pipeline process. The standalone `web serve`
+   * process (the detached server itself) passes `false`: it has nothing else
+   * to do, so staying alive for as long as the server is bound *is* the job.
+   */
+  unref?: boolean;
 }
 
 export interface WebServerHandle {
@@ -68,6 +94,43 @@ interface StaticAsset {
 }
 
 const JSON_TYPE = 'application/json; charset=utf-8';
+
+/**
+ * Uniform view over "whatever sessions this server knows about", so the route
+ * handlers below never care whether they are backed by a single in-memory
+ * publisher (legacy mode) or by the global directory scan (US-003/US-004).
+ */
+interface SessionSource {
+  /** Every session currently considered active, in no particular order. */
+  list(): SessionSnapshot[];
+  /** A specific session by id, or undefined when it is not currently active. */
+  get(sessionId: string): SessionSnapshot | undefined;
+}
+
+function publisherSessionSource(publisher: SessionPublisher): SessionSource {
+  return {
+    list: () => {
+      const snapshot = publisher.snapshot();
+      return snapshot.sessionId === null ? [] : [snapshot];
+    },
+    get: (sessionId) => {
+      const snapshot = publisher.snapshot();
+      return snapshot.sessionId === sessionId ? snapshot : undefined;
+    },
+  };
+}
+
+function directorySessionSource(handle: SessionDirectoryHandle): SessionSource {
+  return {
+    list: () => handle.sessions().map((entry) => entry.snapshot),
+    get: (sessionId) => handle.getSession(sessionId)?.snapshot,
+  };
+}
+
+function resolveSessionSource(options: WebServerOptions): SessionSource {
+  if (options.sessions) return directorySessionSource(options.sessions);
+  return publisherSessionSource(options.publisher ?? new NullPublisher());
+}
 
 const STATIC_ROUTES: Record<string, { file: string; contentType: string }> = {
   '/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
@@ -125,21 +188,30 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     options.publicDir ?? resolvePackageDir(join('web', 'public')),
   );
 
-  // JSON serialization memoized by publisher version; the version doubles as
-  // the ETag, so an unchanged poll answers 304 with an empty body.
-  let cached: { version: number; body: string; etag: string } | null = null;
-  const statusPayload = (): { body: string; etag: string } => {
-    const v = options.publisher.version();
-    if (cached === null || cached.version !== v) {
-      cached = { version: v, body: JSON.stringify(options.publisher.snapshot()), etag: `"${v}"` };
-    }
-    return cached;
+  const source = resolveSessionSource(options);
+
+  // JSON serialization memoized per session id: an unchanged poll answers 304
+  // with an empty body. Content-hashed rather than counter-based, unlike the
+  // pre-multi-session version — a directory-backed session has no in-process
+  // publisher to hand out a monotonic version(), and a hash works uniformly
+  // for both sources.
+  const statusCache = new Map<string, { body: string; etag: string }>();
+  const statusPayload = (snapshot: SessionSnapshot): { body: string; etag: string } => {
+    const key = snapshot.sessionId ?? '';
+    const body = JSON.stringify(snapshot);
+    const cached = statusCache.get(key);
+    if (cached !== undefined && cached.body === body) return cached;
+    const etag = `"${createHash('sha1').update(body).digest('hex')}"`;
+    const entry = { body, etag };
+    statusCache.set(key, entry);
+    return entry;
   };
 
   const handleRequest = (req: IncomingMessage, res: ServerResponse): void => {
     baseHeaders(res);
 
-    const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+    const requestUrl = new URL(req.url ?? '/', 'http://localhost');
+    const path = requestUrl.pathname;
 
     // POST /api/control/* is reserved for future write operations (pause,
     // retry, ...); intentionally NOT registered — the v1 surface is
@@ -150,7 +222,38 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     }
 
     if (path === '/api/status' || path === '/status.json') {
-      const { body, etag } = statusPayload();
+      const sessionId = requestUrl.searchParams.get('session');
+      let snapshot: SessionSnapshot | undefined;
+      if (sessionId !== null) {
+        snapshot = source.get(sessionId);
+        if (snapshot === undefined) {
+          respondJson(res, 404, { error: `No active session with id '${sessionId}'.` });
+          return;
+        }
+      } else {
+        // Back-compat shorthand (US-005): with exactly one active session,
+        // GET /api/status with no query string still answers it directly, the
+        // same behavior a single-session run always had. Zero or several
+        // active sessions is genuinely ambiguous without an id and answers an
+        // explicit error instead of guessing.
+        const active = source.list();
+        if (active.length === 0) {
+          respondJson(res, 404, {
+            error: 'No active session. Pass ?session=<id> — see GET /api/sessions.',
+          });
+          return;
+        }
+        if (active.length > 1) {
+          respondJson(res, 409, {
+            error: 'Multiple active sessions; specify ?session=<id>.',
+            sessions: active.map((entry) => entry.sessionId),
+          });
+          return;
+        }
+        snapshot = active[0];
+      }
+
+      const { body, etag } = statusPayload(snapshot);
       res.setHeader('ETag', etag);
       if (req.headers['if-none-match'] === etag) {
         res.statusCode = 304;
@@ -162,17 +265,18 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     }
 
     if (path === '/api/sessions') {
-      const snapshot = options.publisher.snapshot();
-      respondJson(res, 200, [
-        {
+      respondJson(
+        res,
+        200,
+        source.list().map((snapshot) => ({
           sessionId: snapshot.sessionId,
           issueNumber: snapshot.issue.number,
           status: snapshot.status,
           startedAt: snapshot.startedAt,
           updatedAt: snapshot.updatedAt,
-          statusUrl: '/api/status',
-        },
-      ]);
+          statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
+        })),
+      );
       return;
     }
 
@@ -227,8 +331,13 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
 
   if (!listening) return null;
 
-  // Never keep the process alive: the pipeline ending must end the process.
-  server.unref();
+  // Never keep the process alive on its own, unless explicitly told not to
+  // unref: the pipeline ending must end the process. The one exception is the
+  // detached `web serve` process (options.unref === false) — it has no other
+  // work, so staying alive for as long as the server is bound is the point.
+  if (options.unref !== false) {
+    server.unref();
+  }
   // Post-listen errors must never become uncaught exceptions.
   server.on('error', (err) => {
     warn(`Web monitor server error: ${err.message}`);

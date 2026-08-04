@@ -1,12 +1,13 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryPublisher } from '../core/session-state.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import {
   detectActiveInstance,
   ensureSingleWebServer,
+  ensureWebMonitor,
   getWebLockFile,
   readWebLock,
   removeWebLock,
@@ -170,5 +171,155 @@ describe('web/lock', () => {
     // Exactly one of the two owns a local server; the other reused it.
     const owners = [a, b].filter((h) => h?.server !== undefined);
     expect(owners).toHaveLength(1);
+  });
+
+  describe('ensureWebMonitor (US-002)', () => {
+    /** A ChildProcess-shaped double: only `.unref()` is ever called on it. */
+    function fakeChild(): { unref: () => void } {
+      return { unref: () => {} };
+    }
+
+    it('reuses an active instance without spawning anything', async () => {
+      const existing = await start();
+      const spawn = vi.fn();
+
+      const handle = await ensureWebMonitor(
+        { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn: noop },
+        { ...envOptions, spawn },
+      );
+      if (handle) handles.push(handle);
+
+      expect(handle?.port).toBe(existing.port);
+      expect(handle?.server).toBeUndefined();
+      expect(spawn).not.toHaveBeenCalled();
+    });
+
+    it('spawns a detached, stdio-ignored child when no instance is active', async () => {
+      const spawn = vi.fn((_command: string, _args: string[], _opts: unknown) => {
+        // Simulate the detached `web serve` process binding and claiming the
+        // lock, using the exact same low-level path production code takes.
+        void ensureSingleWebServer(
+          { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn: noop },
+          envOptions,
+        ).then((h) => {
+          if (h) handles.push(h);
+        });
+        return fakeChild();
+      });
+
+      const handle = await ensureWebMonitor(
+        { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn: noop },
+        { ...envOptions, spawn, entryScript: '/cli.js', claimPollIntervalMs: 10 },
+      );
+      if (handle) handles.push(handle);
+
+      expect(handle).not.toBeNull();
+      // This process never owns the spawned instance's Server.
+      expect(handle?.server).toBeUndefined();
+      expect(spawn).toHaveBeenCalledTimes(1);
+      const [command, args, opts] = spawn.mock.calls[0] as [string, string[], unknown];
+      expect(command).toBe(process.execPath);
+      expect(args).toEqual(['/cli.js', 'web', 'serve', '--port', '0', '--host', '127.0.0.1']);
+      expect(opts).toEqual({ detached: true, stdio: 'ignore' });
+    });
+
+    it('includes --refresh only when refreshSeconds is set', async () => {
+      const spawn = vi.fn((_c: string, _a: string[]) => fakeChild());
+
+      await ensureWebMonitor(
+        { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn: noop },
+        {
+          ...envOptions,
+          spawn,
+          entryScript: '/cli.js',
+          claimTimeoutMs: 30,
+          claimPollIntervalMs: 10,
+        },
+      );
+
+      const [, argsWithout] = spawn.mock.calls[0] as [string, string[]];
+      expect(argsWithout).not.toContain('--refresh');
+
+      await ensureWebMonitor(
+        {
+          publisher: makePublisher(),
+          port: 0,
+          host: '127.0.0.1',
+          refreshSeconds: 7,
+          info: noop,
+          warn: noop,
+        },
+        {
+          ...envOptions,
+          spawn,
+          entryScript: '/cli.js',
+          claimTimeoutMs: 30,
+          claimPollIntervalMs: 10,
+        },
+      );
+      const [, argsWith] = spawn.mock.calls[1] as [string, string[]];
+      expect(argsWith).toEqual(expect.arrayContaining(['--refresh', '7']));
+    });
+
+    it('gives up and returns null (never affecting the pipeline) when the spawned instance never claims the lock', async () => {
+      const warn = vi.fn();
+      const spawn = vi.fn((_c: string, _a: string[]) => fakeChild()); // never actually binds
+
+      const handle = await ensureWebMonitor(
+        { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn },
+        {
+          ...envOptions,
+          spawn,
+          entryScript: '/cli.js',
+          claimTimeoutMs: 30,
+          claimPollIntervalMs: 10,
+        },
+      );
+
+      expect(handle).toBeNull();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('did not start in time'));
+    });
+
+    it('returns null (and warns) instead of throwing when spawn itself fails', async () => {
+      const warn = vi.fn();
+      const spawn = vi.fn(() => {
+        throw new Error('ENOENT: no such file');
+      });
+
+      const handle = await ensureWebMonitor(
+        { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn },
+        { ...envOptions, spawn, entryScript: '/cli.js' },
+      );
+
+      expect(handle).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('failed to start the detached server'),
+      );
+    });
+
+    it('never spawns when the entry script cannot be determined', async () => {
+      const spawn = vi.fn();
+      const warn = vi.fn();
+      const originalArgv1 = process.argv[1];
+      // ensureWebMonitor falls back to process.argv[1] when no entryScript is
+      // injected; the only way to exercise "cannot be determined" is to make
+      // that fallback itself absent, same as a Node embedding with no script.
+      process.argv[1] = undefined as unknown as string;
+
+      try {
+        const handle = await ensureWebMonitor(
+          { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn },
+          { ...envOptions, spawn },
+        );
+
+        expect(handle).toBeNull();
+        expect(spawn).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('could not determine the CLI entry point'),
+        );
+      } finally {
+        process.argv[1] = originalArgv1;
+      }
+    });
   });
 });

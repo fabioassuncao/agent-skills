@@ -1,5 +1,7 @@
+import { type ChildProcess, spawn as nodeSpawn } from 'node:child_process';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import chalk from 'chalk';
 import { isoNow } from '../core/state-manager.js';
 import { type GetGlobalRootOptions, getGlobalRoot } from '../storage/paths.js';
 import { type WebLock, webLockSchema } from '../storage/schemas.js';
@@ -9,11 +11,19 @@ import { startWebServer, type WebServerHandle, type WebServerOptions } from './s
 /**
  * Single-instance guard for the web monitoring server (`~/.issue-flow/web.lock`).
  *
- * A machine runs at most one monitoring server: before binding a port, a `run
- * --web` invocation checks this lock for a live, healthy instance and reuses
- * it instead of starting a second one. `ensureSingleWebServer` is the only
- * entry point commands should call — `startWebServer` (server.ts) stays the
- * low-level bind, used directly only by this module and by its own tests.
+ * A machine runs at most one monitoring server. Two entry points build on top
+ * of the same lock:
+ *
+ * - `ensureSingleWebServer` binds (or reuses) a server **in the calling
+ *   process**. It is the low-level primitive, used by the `web serve` command
+ *   (the standalone process that ends up owning the lock) and by this
+ *   module's own tests. Nothing else should call it directly.
+ * - `ensureWebMonitor` (US-002) is what `run`/`execute` call: it reuses an
+ *   active instance exactly like `ensureSingleWebServer`, but when none
+ *   exists it spawns `web serve` as a **detached** child instead of binding
+ *   locally, so the server outlives the pipeline process. Falls back to the
+ *   legacy in-process `startWebServer` (US-006) when the global storage tree
+ *   itself is unreachable.
  */
 
 /** Lock file name, sibling of `config.json` at the global storage root. */
@@ -215,5 +225,115 @@ export async function ensureSingleWebServer(
   }
 
   warn('Could not determine the web monitor lock ownership. Continuing without the web server.');
+  return null;
+}
+
+/** Bounded wait for a freshly spawned `web serve` child to claim the lock. */
+const DETACHED_CLAIM_TIMEOUT_MS = 5000;
+const DETACHED_CLAIM_POLL_MS = 150;
+
+export interface EnsureWebMonitorOptions extends GetGlobalRootOptions {
+  /** Injectable for tests. Defaults to `node:child_process`'s `spawn`. */
+  spawn?: (
+    command: string,
+    args: string[],
+    options: { detached: true; stdio: 'ignore' },
+  ) => ChildProcess;
+  /** Node executable to spawn. Defaults to `process.execPath`. */
+  execPath?: string;
+  /** CLI entry script re-invoked as `<entry> web serve ...`. Defaults to `process.argv[1]`. */
+  entryScript?: string;
+  /** How long to wait for the spawned instance's lock to become healthy. */
+  claimTimeoutMs?: number;
+  claimPollIntervalMs?: number;
+}
+
+/**
+ * Entry point for `run`/`execute`: get a web monitor without binding one in
+ * this process (US-002).
+ *
+ * 1. Reuse a live, healthy instance exactly like `ensureSingleWebServer`.
+ * 2. Otherwise, spawn `<node> <cli> web serve --port … --host … [--refresh …]`
+ *    detached (`{ detached: true, stdio: 'ignore' }`) and `unref()`ed, so it
+ *    survives this process exiting and never pipes its own stdio back here.
+ * 3. Poll the lock file (bounded) until the spawned instance claims it, then
+ *    return a *reused* handle for it — this process never owns that `Server`,
+ *    the same shape `ensureSingleWebServer`'s reuse path already returns.
+ *
+ * Two failure modes degrade gracefully rather than affecting the pipeline:
+ * the global storage tree being unreachable (no resolvable home directory)
+ * falls back to `startWebServer` bound right here, exactly the pre-US-001
+ * behavior (US-006); a spawn or claim failure with the storage tree otherwise
+ * healthy just returns null, same contract `startWebServer` itself has.
+ */
+export async function ensureWebMonitor(
+  options: WebServerOptions,
+  monitorOptions: EnsureWebMonitorOptions = {},
+): Promise<WebServerHandle | null> {
+  const warn = options.warn ?? printWarning;
+  const info = options.info ?? printInfo;
+
+  let lockFile: string;
+  try {
+    lockFile = getWebLockFile(monitorOptions);
+  } catch (err) {
+    warn(
+      `Web monitor: global storage unavailable (${err instanceof Error ? err.message : String(err)}). Falling back to legacy in-process mode.`,
+    );
+    return startWebServer(options);
+  }
+
+  const active = await detectActiveInstance(lockFile);
+  if (active !== null) {
+    info(`Reusing existing web monitor at ${reusedHandle(active).url}`);
+    return reusedHandle(active);
+  }
+
+  const execPath = monitorOptions.execPath ?? process.execPath;
+  const entryScript = monitorOptions.entryScript ?? process.argv[1];
+  if (entryScript === undefined) {
+    warn('Web monitor: could not determine the CLI entry point to spawn a detached server.');
+    return null;
+  }
+
+  const args = [
+    entryScript,
+    'web',
+    'serve',
+    '--port',
+    String(options.port),
+    '--host',
+    options.host,
+  ];
+  if (options.refreshSeconds !== undefined) {
+    args.push('--refresh', String(options.refreshSeconds));
+  }
+
+  const spawnFn = monitorOptions.spawn ?? nodeSpawn;
+  try {
+    const child = spawnFn(execPath, args, { detached: true, stdio: 'ignore' });
+    child.unref();
+  } catch (err) {
+    warn(
+      `Web monitor: failed to start the detached server (${err instanceof Error ? err.message : String(err)}). Continuing without the web server.`,
+    );
+    return null;
+  }
+
+  const timeoutMs = monitorOptions.claimTimeoutMs ?? DETACHED_CLAIM_TIMEOUT_MS;
+  const pollMs = monitorOptions.claimPollIntervalMs ?? DETACHED_CLAIM_POLL_MS;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const claimed = await detectActiveInstance(lockFile);
+    if (claimed !== null) {
+      info(`Web monitor running at ${chalk.bold.cyan(reusedHandle(claimed).url)}`);
+      return reusedHandle(claimed);
+    }
+    await sleep(pollMs);
+  }
+
+  warn(
+    'Web monitor: the detached server did not start in time. Continuing without the web server.',
+  );
   return null;
 }

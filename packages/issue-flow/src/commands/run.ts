@@ -31,8 +31,7 @@ import type { UserStory } from '../types.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { printRunSummary, type RunSummaryPrReview } from '../ui/summary.js';
-import { ensureSingleWebServer } from '../web/lock.js';
-import type { WebServerHandle } from '../web/server.js';
+import { ensureWebMonitor } from '../web/lock.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
@@ -174,12 +173,12 @@ export async function runPipeline(
   setSessionPublisher(publisher);
 
   // A null handle (port in use, ...) means the pipeline runs without a server.
-  // ensureSingleWebServer reuses an already-running, healthy instance instead
-  // of binding a second one (US-001): the returned handle may not own a local
-  // server at all.
-  let webServer: WebServerHandle | null = null;
+  // ensureWebMonitor reuses an already-running, healthy instance instead of
+  // binding a second one (US-001), or spawns it detached when none exists
+  // (US-002) — either way the returned handle never owns a local server that
+  // this process would need to close.
   if (webConfig.enabled) {
-    webServer = await ensureSingleWebServer({
+    await ensureWebMonitor({
       publisher,
       port: webConfig.port,
       host: webConfig.host,
@@ -205,7 +204,9 @@ export async function runPipeline(
       at: isoNow(),
       status: exitCode === 0 ? 'completed' : 'failed',
     });
-    await webServer?.close();
+    // The web monitor is no longer this process's to close (US-002): it is a
+    // detached, single machine-wide instance meant to outlive the pipeline
+    // and serve other invocations. Only this run's own publication ends here.
     await publisher.close();
     setSessionPublisher(undefined);
   }

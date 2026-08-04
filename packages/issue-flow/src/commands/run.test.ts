@@ -100,6 +100,46 @@ vi.mock('../web/server.js', async (importOriginal) => {
   };
 });
 
+// ensureWebMonitor() (US-002) spawns `<node> <cli> web serve ...` detached
+// when no instance is active. There is no built CLI to exec from a vitest
+// run (and forking a real subprocess per test would be slow and flaky), so
+// this simulates the detached process in-process instead: parse the same
+// argv production code passes and run the same bind-and-claim path
+// `runWebServe` (commands/web.ts) uses, through the wrapped startWebServer
+// above so `serverHandles` still captures the real handle. The one deliberate
+// difference from `runWebServe` is a short session-directory poll interval —
+// a real detached process races nothing, these tests race a 5s test timeout.
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    spawn: vi.fn((_command: string, args: string[]) => {
+      const opts: { port?: number; host?: string; refresh?: number } = {};
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--port') opts.port = Number(args[++i]);
+        else if (args[i] === '--host') opts.host = args[++i];
+        else if (args[i] === '--refresh') opts.refresh = Number(args[++i]);
+      }
+      void (async () => {
+        const { watchSessionDirectory } = await import('../web/session-directory.js');
+        const { ensureSingleWebServer } = await import('../web/lock.js');
+        const sessions = watchSessionDirectory({ pollIntervalMs: 20 });
+        const handle = await ensureSingleWebServer({
+          sessions,
+          port: opts.port ?? 3737,
+          host: opts.host ?? '0.0.0.0',
+          refreshSeconds: opts.refresh,
+          unref: false,
+          info: () => {},
+          warn: () => {},
+        });
+        if (handle?.server === undefined) sessions.close();
+      })();
+      return { unref: () => {} } as unknown as ReturnType<typeof actual.spawn>;
+    }),
+  };
+});
+
 import { execa } from 'execa';
 import { listPullRequests } from '../core/session-git.js';
 import { MemoryPublisher, NullPublisher, type SessionSnapshot } from '../core/session-state.js';
@@ -335,11 +375,15 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     vi.mocked(runExecute).mockImplementationOnce(async () => {
       const handle = serverHandles[0];
       expect(handle).toBeDefined();
-      const res = await fetch(`${handle.url}/api/status`);
+      // /api/health rather than /api/status: with the server now backed by
+      // the (polled) session directory instead of an in-process publisher,
+      // whether this run's own session.json has been scanned yet is a timing
+      // detail this test does not care about — only that the server is up.
+      const res = await fetch(`${handle.url}/api/health`);
       expect(res.status).toBe(200);
       // Simula o servidor morrendo no meio da execução.
       await handle.close();
-      await expect(fetch(`${handle.url}/api/status`)).rejects.toThrow();
+      await expect(fetch(`${handle.url}/api/health`)).rejects.toThrow();
       return 0;
     });
 
@@ -1013,8 +1057,21 @@ describe('runPipeline — enriquecimento do snapshot no início da sessão (issu
     vi.mocked(runPrd).mockImplementationOnce(async () => {
       const handle = serverHandles[0];
       expect(handle).toBeDefined();
-      const res = await fetch(`${handle.url}/api/status`);
-      box.snapshot = sessionSnapshotSchema.parse(await res.json());
+      // The server now discovers this run's session through a polled
+      // directory scan (US-003) instead of holding it in memory, so it can
+      // briefly answer "no active session" right after startup — poll for it
+      // instead of asserting on the very first fetch.
+      let payload: unknown;
+      const deadline = Date.now() + 2000;
+      do {
+        const res = await fetch(`${handle.url}/api/status`);
+        if (res.status === 200) {
+          payload = await res.json();
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      } while (Date.now() < deadline);
+      box.snapshot = sessionSnapshotSchema.parse(payload);
       return 0;
     });
 

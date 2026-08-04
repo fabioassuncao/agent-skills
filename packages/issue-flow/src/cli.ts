@@ -321,6 +321,36 @@ withIssueOptions(
   process.exit(code);
 });
 
+// ── web ─────────────────────────────────────────────────────────────────────
+const webCommand = program.command('web').description('Manage the web monitoring server');
+
+webCommand
+  .command('serve')
+  .description(
+    'Run the web monitor server in the foreground (internal — spawned detached by --web)',
+  )
+  .option('--port <n>', 'Web server port (default: 3737)', parseInteger)
+  .option('--host <h>', 'Web server host (default: 0.0.0.0)')
+  .option('--refresh <s>', 'Suggested UI polling interval in seconds', parseInteger)
+  .action(async (options: { port?: number; host?: string; refresh?: number }) => {
+    const { runWebServe } = await import('./commands/web.js');
+    const code = await runWebServe(options);
+    // On success this process stays alive for as long as the server is bound
+    // (server.ts binds it with unref: false) — only a failure exits here.
+    if (code !== 0) {
+      process.exit(code);
+    }
+  });
+
+webCommand
+  .command('stop')
+  .description('Stop the running web monitor server')
+  .action(async () => {
+    const { runWebStop } = await import('./commands/web.js');
+    const code = await runWebStop();
+    process.exit(code);
+  });
+
 // ── pr-review ───────────────────────────────────────────────────────────────
 withGlobalOptions(
   program
