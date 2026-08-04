@@ -33,7 +33,12 @@ import {
   setLastError,
   trimErrorMessage,
 } from './state-manager.js';
-import { getOutputCallback, getStoryUpdateCallback, isVerbose } from './verbose.js';
+import {
+  getOutputCallback,
+  getStoryStageCallback,
+  getStoryUpdateCallback,
+  isVerbose,
+} from './verbose.js';
 
 /**
  * Emit a message through the output callback if available, otherwise console.log.
@@ -234,9 +239,10 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       iteration: i,
       storyId: activeStoryId,
     });
+    getStoryStageCallback()?.(activeStoryId);
 
     if (isVerbose()) {
-      printIterationHeader(i, config.maxIterations, plan.userStories);
+      printIterationHeader(i, config.maxIterations, plan.userStories, activeStoryId);
     }
 
     // Apply placeholders to prompt

@@ -1,7 +1,11 @@
 import { Listr, type ListrTask, PRESET_TIMER, PRESET_TIMESTAMP } from 'listr2';
 import type { PipelinePhase } from '../core/pipeline.js';
 import { loadTaskPlan } from '../core/state-manager.js';
-import { setOutputCallback, setStoryUpdateCallback } from '../core/verbose.js';
+import {
+  setOutputCallback,
+  setStoryStageCallback,
+  setStoryUpdateCallback,
+} from '../core/verbose.js';
 import type { UserStory } from '../types.js';
 
 /** Minimal interface for the listr2 task wrapper properties we use. */
@@ -84,6 +88,19 @@ function selectRenderer(verbose: boolean): 'default' | 'verbose' | 'simple' {
 }
 
 /**
+ * Plain subtask title for a story, optionally suffixed to show it is the one
+ * `execute` is currently working on. Exported standalone for testing without
+ * spinning up a `listr2` renderer.
+ */
+export function storySubtaskTitle(
+  story: Pick<UserStory, 'id' | 'title'>,
+  executing: boolean,
+): string {
+  const base = `${story.id}: ${story.title}`;
+  return executing ? `${base} → Executando...` : base;
+}
+
+/**
  * Build the execute phase task with dynamic subtasks for each user story.
  *
  * Stories that already pass are displayed as skipped. Pending stories wait for
@@ -129,12 +146,45 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
       }
     });
 
+    // Own listr2 task handle per story subtask, so the story-stage callback
+    // below can update a title after the subtask has already started — the
+    // resolvers map alone has no reference back into the renderer.
+    const storyTasks = new Map<string, TaskContext>();
+    let activeStoryId: string | undefined;
+
+    // Engine calls this alongside every iteration:start, with the same
+    // storyId the published event and the session snapshot carry — never a
+    // second, independently computed "who is active" heuristic. Only ever
+    // meaningful for a story still pending (an already-passing one has no
+    // subtask left to update: it already resolved and disappeared from view).
+    setStoryStageCallback((storyId: string | undefined) => {
+      if (activeStoryId !== undefined && activeStoryId !== storyId) {
+        const previous = storyTasks.get(activeStoryId);
+        if (previous) {
+          previous.title = storySubtaskTitle(
+            stories.find((s) => s.id === activeStoryId) ?? { id: activeStoryId, title: '' },
+            false,
+          );
+        }
+      }
+      activeStoryId = storyId;
+      if (storyId !== undefined) {
+        const current = storyTasks.get(storyId);
+        if (current) {
+          current.title = storySubtaskTitle(
+            stories.find((s) => s.id === storyId) ?? { id: storyId, title: '' },
+            true,
+          );
+        }
+      }
+    });
+
     // Build subtask definitions for each story
     const subtaskDefs = stories.map((story) => ({
-      title: `${story.id}: ${story.title}`,
+      title: storySubtaskTitle(story, false),
       skip: story.passes ? 'already passing' : false,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      task: async () => {
+      task: async (_c: unknown, subTask: TaskContext) => {
+        storyTasks.set(story.id, subTask);
         await new Promise<void>((resolve, reject) => {
           resolvers.set(story.id, { resolve, reject });
         });
@@ -156,6 +206,7 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
         } finally {
           setOutputCallback(undefined);
           setStoryUpdateCallback(undefined);
+          setStoryStageCallback(undefined);
           // Resolve any remaining pending stories (engine finished successfully)
           for (const [, { resolve }] of resolvers) {
             resolve();
@@ -275,6 +326,7 @@ export async function runPipelineWithRenderer(
     // Ensure global callbacks are always cleaned up, even on unexpected errors
     setOutputCallback(undefined);
     setStoryUpdateCallback(undefined);
+    setStoryStageCallback(undefined);
   }
 
   const overallElapsedSeconds = Math.floor((Date.now() - overallStart) / 1000);

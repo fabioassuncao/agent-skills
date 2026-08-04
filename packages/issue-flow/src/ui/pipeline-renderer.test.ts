@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PIPELINE_PHASES } from '../core/pipeline.js';
+import { getStoryStageCallback } from '../core/verbose.js';
 import type { TaskPlan } from '../types.js';
-import { phaseLabel, runPipelineWithRenderer } from './pipeline-renderer.js';
+import { phaseLabel, runPipelineWithRenderer, storySubtaskTitle } from './pipeline-renderer.js';
 
 /**
  * Regression coverage for the pipeline renderer itself.
@@ -53,6 +54,18 @@ function minimalPlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
     ...overrides,
   };
 }
+
+describe('storySubtaskTitle', () => {
+  it('is the plain "id: title" when not executing', () => {
+    expect(storySubtaskTitle({ id: 'US-003', title: 'Add X' }, false)).toBe('US-003: Add X');
+  });
+
+  it('gets an "Executando..." suffix while executing', () => {
+    expect(storySubtaskTitle({ id: 'US-003', title: 'Add X' }, true)).toBe(
+      'US-003: Add X → Executando...',
+    );
+  });
+});
 
 describe('phaseLabel (issue 25, US-011)', () => {
   it('rotula a fase pr-review como "PR Review"', () => {
@@ -190,6 +203,35 @@ describe('runPipelineWithRenderer — stops the pipeline on a failed phase', () 
       expect(result.success).toBe(true);
       expect(result.failedPhase).toBeUndefined();
       expect(started).toEqual(['prd', 'plan', 'execute', 'review', 'pr']);
+    });
+
+    it('registers a story-stage callback while execute runs, and clears it afterward', async () => {
+      let sawCallbackDuringExecute = false;
+      const runners: Record<string, () => Promise<void>> = {
+        prd: async () => {},
+        plan: async () => {},
+        execute: async () => {
+          // Mirrors what engine.ts does alongside iteration:start — must not
+          // throw, and must reach a registered callback.
+          sawCallbackDuringExecute = getStoryStageCallback() !== undefined;
+          getStoryStageCallback()?.('US-001');
+        },
+        review: async () => {},
+        pr: async () => {},
+      };
+
+      const result = await runPipelineWithRenderer({
+        phases: ['prd', 'plan', 'execute', 'review', 'pr'],
+        startIndex: 0,
+        verbose: false,
+        runners,
+        tasksPath,
+      });
+
+      expect(result.success).toBe(true);
+      expect(sawCallbackDuringExecute).toBe(true);
+      // Cleaned up like every other global callback once the renderer is done.
+      expect(getStoryStageCallback()).toBeUndefined();
     });
   });
 });
