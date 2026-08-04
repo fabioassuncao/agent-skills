@@ -1,0 +1,45 @@
+# Issue Flow Progress Log
+Started: Mon Aug 03 2026 23:21:41 GMT-0300 (Horário Padrão de Brasília)
+---
+
+## Codebase Patterns
+- O pacote real fica em `packages/issue-flow/` (monorepo sem package.json na raiz). Rode `npm run typecheck`, `npm test` e `npm run lint` **de dentro** de `packages/issue-flow/`.
+- Testes são colocados ao lado do código (`foo.ts` + `foo.test.ts`), vitest com `globals: true`, include `src/**/*.test.ts`.
+- Para mockar módulos, o padrão do repo é `vi.mock('./x.js', ...)` seguido de `const { y } = await import('./x.js')` no topo (top-level await), e `vi.mocked(y)`.
+- Loaders/config seguem o padrão de **options injetáveis**: `{ env?: NodeJS.ProcessEnv, warn?: (msg: string) => void, projectRoot?: string }` com defaults (`process.env`, `printWarning`). Ver `LoadWebConfigOptions` em `src/config.ts:188`.
+- Imports internos sempre com extensão `.js` (ESM) e protocolo `node:` obrigatório para builtins (regra biome `useNodejsImportProtocol`).
+- Biome: aspas simples, trailing commas, 2 espaços, lineWidth 100. Rode `npm run lint` antes de commitar. Se falhar só por formatação, `npx biome check --write <arquivos>` resolve.
+- Helpers de git que podem falhar legitimamente (sem remote, base branch desconhecida) retornam `null`/default em vez de lançar; só `getProjectRoot`/`getCurrentBranch` lançam. Toda chamada a git passa por `run()` de `utils/shell.ts` (execa com `reject: false`, nunca lança por exit code).
+
+---
+
+## 2026-08-03 23:24 - US-001
+- Implementada a resolução da raiz do storage global com override por env var.
+- Arquivos criados:
+  - `packages/issue-flow/src/storage/paths.ts` — `getGlobalRoot(options?)`, constantes `GLOBAL_DIR_NAME` (`.issue-flow`) e `GLOBAL_ROOT_ENV` (`ISSUE_FLOW_HOME`).
+  - `packages/issue-flow/src/storage/paths.test.ts` — 8 testes (env definida, com espaços, vazia/branca, relativa, ausente, default `process.env`, homedir inutilizável, ausência de efeito colateral).
+- Comportamento: `ISSUE_FLOW_HOME` (após `trim()`) vence e é passado por `resolve()`; sem ela, `join(homedir(), '.issue-flow')`. Única exceção possível é `homedir()` inutilizável, com mensagem citando `ISSUE_FLOW_HOME`. Função síncrona e sem efeito colateral.
+- Checks: `npm run typecheck` OK, `npm test` 537 testes OK (37 arquivos), `npm run lint` OK.
+- **Learnings for future iterations:**
+  - `homedir()` do Node não lança na prática em macOS/Linux, mas o AC exige o caminho de exceção: cobrimos os dois casos (string vazia e throw) mockando `node:os` com `importOriginal` e substituindo só `homedir`.
+  - Para testar o default `process.env` sem poluir o processo, use `vi.stubEnv()` + `vi.unstubAllEnvs()` (vitest já disponível, sem helper próprio no repo).
+  - `src/storage/` é um módulo **novo e aditivo** nesta issue — nenhum comando do pipeline deve ser migrado para ele aqui (ver descrição do tasks.json).
+  - Ainda não existe nenhum CLAUDE.md no repositório; se surgir conhecimento reusável do módulo storage, o lugar natural é `packages/issue-flow/src/storage/CLAUDE.md`.
+  - Verificação em browser não se aplica (mudança puramente de biblioteca/CLI).
+---
+
+## 2026-08-03 23:26 - US-002
+- Implementadas a leitura do remote `origin` e sua normalização canônica.
+- Arquivos alterados:
+  - `packages/issue-flow/src/utils/git.ts` — `getRemoteUrl()` (async, nunca lança: exit code != 0, stdout vazio ou falha de spawn → `null`) e `normalizeRemoteUrl(url)` (função pura, `string | null | undefined` → `host/path` ou `null`).
+  - `packages/issue-flow/src/utils/git.test.ts` — 25 testes novos (4 de `getRemoteUrl`, toda a tabela de normalização, equivalência https/ssh, 8 casos de `null` + `null`/`undefined`).
+- Normalização: remove protocolo, credenciais embutidas (`user:token@`), usuário SSH, porta, query/fragment, sufixo `.git` (case-insensitive), barras duplicadas e finais; host e path em lowercase. Sintaxe SCP (`git@host:path`) tratada como o próprio git faz — tudo após o primeiro `:` é path, sem porta possível.
+- Checks: `npm run typecheck` OK, `npm test` 563 testes OK (37 arquivos), `npm run lint` OK.
+- **Learnings for future iterations:**
+  - O arquivo de teste já mocka `./shell.js` globalmente (`vi.mock` + top-level await import); para adicionar funções novas basta incluí-las no destructuring do `await import('./git.js')` — não crie um segundo arquivo de teste.
+  - `mockRun.mockRejectedValueOnce()` é o jeito de cobrir o `try/catch` de "git não pôde ser executado" — sem isso o `catch` fica sem cobertura.
+  - `it.each([[input, expected]])` com título `'normaliza %s'` é ótimo para tabelas de normalização e mantém o diff pequeno quando um caso novo aparece.
+  - Limitação assumida e documentada em JSDoc: path em lowercase colapsa `org/Repo` e `org/repo` em servidores self-hosted case-sensitive. US-003 vai depender disso ao gerar a semente `remote:<normalizado>`.
+  - `type ExecResult` precisa ser importado de `./shell.js` (import de tipo inline: `import { type ExecResult, run } from './shell.js'`) para tipar a variável do `try/catch`.
+  - Verificação em browser não se aplica.
+---
