@@ -9,6 +9,14 @@ Global storage layer (`~/.issue-flow`). Additive module: no pipeline command con
   and it is what keeps tests, CI and sandboxes off the real `$HOME`.
 - **Never build an issue path by hand either.** Ask `getIssuePaths(projectId, issueNumber)` for the
   artifact you need. Adding or renaming an artifact must stay a one-file change.
+- **Outside this directory, always go through `resolveIssuePaths(issueNumber)` (`resolve.ts`)** —
+  never `getIssuePaths()` directly. `paths.ts` and `compat.ts` are pure and take a `projectId` /
+  `projectRoot` they never discover on their own; `resolve.ts` is the one place that knows the
+  current repository, resolves the storage mode, triggers the legacy migration (project-level *and*
+  per-issue) and caches the answer for the process. A command that calls `getIssuePaths()` itself
+  skips the migration and reads an empty directory.
+- `resolve.ts` still creates nothing: a call site that writes keeps its own
+  `mkdir(paths.issueDir, { recursive: true })`.
 - Path helpers are pure and synchronous: they never create directories. Callers decide when (and
   whether) a directory should exist. `getProjectId()` is the exception — it is `async` because it
   shells out to `git remote get-url origin`, explicitly passing `projectRoot` as `cwd` so the
