@@ -5,9 +5,9 @@
   "branchName": "issue/25-pr-review-phase",
   "noBranch": false,
   "description": "Adiciona a fase opcional `pr-review` como etapa final da pipeline (apos `pr`), disponivel tambem como comando independente `issue-flow pr-review [pr]`. A fase avalia o Pull Request como um todo (diff completo, arquitetura, duplicacao, testes, commits, descricao do PR), complementando o gate de conformidade da fase `review`. Inclui descoberta automatica do PR com ordem de precedencia deterministica, artefatos versionaveis em `issues/<N>/pr-review/` com suporte a multiplas rodadas, estado retrocompativel em `tasks.json`, codigos de saida distintos (0/1/2) e a porta `PrReviewPublisher` preparada para integracao futura com o GitHub. Corrige de passagem dois defeitos: o numero do PR criado descartado por `pr.ts` e o comando quebrado `gh pr list --head ''` em `run.ts`. Sem a flag `--pr-review`, o comportamento atual permanece identico.",
-  "issueStatus": "in_progress",
-  "completedAt": null,
-  "lastAttemptAt": "2026-08-04T01:40:00Z",
+  "issueStatus": "completed",
+  "completedAt": "2026-08-04T01:52:00Z",
+  "lastAttemptAt": "2026-08-04T01:52:00Z",
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
@@ -15,7 +15,7 @@
     "analyzeCompleted": true,
     "prdCompleted": true,
     "jsonCompleted": true,
-    "executionCompleted": false,
+    "executionCompleted": true,
     "reviewCompleted": false,
     "prCreated": false
   },
@@ -256,8 +256,8 @@
         "Validacao manual: `issue-flow pr-review <N>` executado contra um PR real deste repositorio, produzindo relatorio e `index.json`"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "README: diagrama com `pr-review` opcional, `--pr-review` na tabela de flags do `run` (com a resolucao de tres vias), secao `pr-review` (opcoes, ordem de descoberta, artefatos + exemplo de index.json, exit codes, chave prReview/ISSUE_FLOW_PR_REVIEW_PUBLISHER) e o bloco 'Pull Request and review state' com os tres campos novos de tasks.json. docs/skills-and-agents.md: fluxo end-to-end com o ramo opt-in e nova secao 'Reviewing the Pull Request'. Validacao manual: `pr-review 28` contra o PR real #28 deste repositorio -> APPROVE_WITH_SUGGESTIONS, exit 0, relatorio de 12KB com as 8 secoes e index.json com 4 findings estruturados (artefatos removidos apos a verificacao)."
     }
   ]
 }

@@ -46,10 +46,16 @@ flowchart LR
         F -- No --> H{"Retries\n< max?"}
         H -- Yes --> D
         H -- No --> I["Stop"]
+        G --> J{"--pr-review?"}
+        J -- Yes --> K["pr-review\n(optional)"]
+        J -- No --> L["Done"]
+        K --> L
     end
 ```
 
-Each phase can also be run independently: `issue-flow prd 42`, `issue-flow plan 42`, etc. The `analyze` command is available standalone for deeper issue analysis when needed. The `generate` command creates issues separately: `issue-flow generate --prompt '...'`.
+The default order is **init -> prd -> plan -> execute -> review -> pr**, with **pr-review** appended only when explicitly requested (see [`pr-review`](#pr-review----review-a-pull-request)). Without `--pr-review`, the behavior is identical to previous versions.
+
+Each phase can also be run independently: `issue-flow prd 42`, `issue-flow plan 42`, etc. The `analyze` command is available standalone for deeper issue analysis when needed, and `issue-flow pr-review [pr]` works as a standalone assisted code review, with or without an associated issue. The `generate` command creates issues separately: `issue-flow generate --prompt '...'`.
 
 ## Commands
 
@@ -67,17 +73,23 @@ npx issue-flow run 42 --no-branch
 
 # Watch the run live in the browser (see "Web Monitoring" below)
 npx issue-flow run 42 --web
+
+# Review the created Pull Request as a final phase
+npx issue-flow run 42 --pr-review
 ```
 
-Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> **review** -> **pr**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, runs correction cycles (re-execute + re-review) up to `maxCorrectionCycles`.
+Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> **review** -> **pr**, plus the optional **pr-review**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, runs correction cycles (re-execute + re-review) up to `maxCorrectionCycles`.
 
 | Flag | Description |
 |------|-------------|
 | `--mode <mode>` | Execution mode: `auto` (default) or `manual` |
 | `--from <phase>` | Resume from a specific phase |
 | `--no-branch` | Run on the current branch without creating a new branch or PR |
+| `--pr-review` | Review the created Pull Request after the `pr` phase (see [`pr-review`](#pr-review----review-a-pull-request)) |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `-v, --verbose` | Show Claude progress output in real time |
+
+`--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists the choice after the `plan` phase, so a resumed run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open**, and still exits `0`.
 
 It also accepts the [issue source flags](#flags) (`--local`, `--github`, `--prefer-local`, `--prefer-github`, `--ask`). The origin is resolved **once**, at the start, and the same issue content is handed to every phase.
 
@@ -171,6 +183,108 @@ npx issue-flow pr 42
 ```
 
 Creates a well-structured PR referencing the issue, with summary and test plan. When the issue has no remote counterpart (a local issue), the `Closes #N` reference is omitted and the PR body points at `issues/N/issue.md` instead.
+
+### `pr-review` -- Review a Pull Request
+
+```bash
+# Review a specific Pull Request
+npx issue-flow pr-review 184
+
+# Discover the Pull Request from the current session/branch
+npx issue-flow pr-review
+
+# Associate the review with an issue (persists state in issues/42/tasks.json)
+npx issue-flow pr-review 184 --issue 42
+
+# Rewrite round 2 instead of appending a new one
+npx issue-flow pr-review 184 --round 2
+```
+
+Reviews the Pull Request **as a whole** -- description, issue/PRD/implementation alignment, the full diff, code quality, architecture, complexity, duplication, adherence to project conventions, regressions, risks, test coverage, documentation, commit messages, and simplification opportunities. It complements the `review` phase, which is a conformance gate against the acceptance criteria of `tasks.json`.
+
+The phase is **read-only by construction**: the agent runs with `Bash`, `Read`, `Glob` and `Grep` only, and never edits files, commits, or writes anything to GitHub (`gh pr review|comment|merge` are off-limits). The report is persisted locally by the CLI, not by the agent.
+
+| Flag | Description |
+|------|-------------|
+| `[pr]` | Pull Request number (discovered from the session when omitted) |
+| `--issue <n>` | Issue the Pull Request belongs to -- enables state persistence in `issues/<n>/tasks.json` |
+| `--round <n>` | Rewrite a specific review round instead of appending a new one |
+| `--yes` | Skip the confirmation of the discovered Pull Request |
+| `--fail-on <level>` | Verdict that fails the command: `request-changes` (default), `suggestions`, `none` |
+
+The [issue source flags](#flags) do not apply: the command never fetches the issue content, so reviewing a PR with no associated issue is a supported case, not a failure.
+
+#### Pull Request discovery
+
+With no argument, the PR is resolved in this deterministic order:
+
+1. The explicit argument (`184`, `#184` or a PR URL)
+2. `pullRequests[]` of the active session snapshot (`issues/<N>/session.json`)
+3. `pullRequest` in `issues/<N>/tasks.json`, written by the `pr` phase
+4. `gh pr list --head <current branch>` -- the most recent PR (highest number)
+5. Failure with an actionable message
+
+The command **never reviews a guessed PR**: when no source answers, it fails with exit code `1` instructing `issue-flow pr-review <number>`. When the PR comes from sources 2-4 in an interactive terminal, its number, title and branch are shown for a `(Y/n)` confirmation. The prompt is skipped in non-TTY environments, with `CI` set, with `--yes`, and when the phase runs from `run --pr-review` -- the discovered number is logged instead, so an automated run never hangs.
+
+#### Artifacts
+
+Reports are versionable and rounds are additive -- writing round N+1 never overwrites an earlier report nor drops entries from `index.json`:
+
+```
+issues/42/pr-review/          # issues/pr-184/pr-review/ when there is no associated issue
+  pr-184-round-1.md
+  pr-184-round-2.md
+  index.json
+```
+
+The Markdown report always carries the same eight sections: executive summary, strengths, issues found, suggested improvements, architectural observations, risks identified, required before merge, and final recommendation. `index.json` is the structured counterpart, so integrations do not have to reparse Markdown:
+
+```json
+{
+  "schemaVersion": 1,
+  "pullRequest": { "number": 184, "title": "feat: …", "url": "…", "headBranch": "issue/42-dark-mode" },
+  "rounds": [
+    {
+      "round": 1,
+      "at": "2026-08-03T16:00:00Z",
+      "recommendation": "APPROVE_WITH_SUGGESTIONS",
+      "headSha": "abc1234…",
+      "reportPath": "pr-184-round-1.md",
+      "findings": [{ "severity": "high", "file": "src/api/handler.ts", "line": 42, "title": "…" }]
+    }
+  ]
+}
+```
+
+`severity` is one of `blocker`, `high`, `medium`, `low`. `recommendation` is `null` when the agent output could not be parsed -- a malformed verdict is never coerced into `APPROVE`; the raw output is preserved in the report and the command exits `1`. The `title`, `url` and `headBranch` of `pullRequest` are `null` when `gh` could not supply them; the number is always known.
+
+#### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | `APPROVE` or `APPROVE_WITH_SUGGESTIONS` |
+| `2` | `REQUEST_CHANGES` |
+| `1` | Execution failure: headless run, `gh`, PR not found, invalid options, or an unparseable verdict |
+
+`--fail-on suggestions` also returns `2` for `APPROVE_WITH_SUGGESTIONS`; `--fail-on none` always returns `0` for any verdict. Code `1` is never suppressed by `--fail-on` -- it means the review did not happen.
+
+#### Configuration (`.issue-flow.json`)
+
+Where reports are published is configuration, not code. Precedence is **CLI > environment variable > `.issue-flow.json` > default**:
+
+| Environment variable | `.issue-flow.json` key | Values | Default |
+|----------------------|------------------------|--------|---------|
+| `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` | `local` | `local` |
+
+```json
+{
+  "prReview": {
+    "publisher": "local"
+  }
+}
+```
+
+`local` writes the `.md` report and `index.json` under `issues/<N>/pr-review/`. Publishing back to GitHub is not implemented in v1 -- the publisher port exists so that adding it is a configuration change. An unknown value degrades to `local` with a warning instead of throwing.
 
 ## Issue Sources (Providers)
 
@@ -377,6 +491,7 @@ issues/42/
   progress.txt   # Execution log
   analysis.md    # Issue analysis (optional, from standalone analyze command)
   session.json   # Live session snapshot (only with web monitoring enabled)
+  pr-review/     # PR review reports and index (only when the pr-review phase ran)
 ```
 
 `issue.md` and `metadata.json` only exist for issues created or mirrored locally; a GitHub-only run never writes them.
@@ -403,6 +518,40 @@ The `pipeline` field tracks which phases have completed, enabling resume from an
   }
 }
 ```
+
+### Pull Request and review state
+
+The `pr` and `pr-review` phases add three optional fields. All of them are **absent** until the corresponding phase runs, so a `tasks.json` written by an earlier version keeps loading unchanged:
+
+```json
+{
+  "pipeline": {
+    "prCreated": true,
+    "prReviewCompleted": true
+  },
+  "pullRequest": {
+    "number": 184,
+    "url": "https://github.com/owner/repo/pull/184",
+    "headBranch": "issue/42-dark-mode",
+    "createdAt": "2026-08-03T16:00:00Z"
+  },
+  "prReview": {
+    "enabled": true,
+    "pullRequestNumber": 184,
+    "rounds": 2,
+    "lastRecommendation": "APPROVE_WITH_SUGGESTIONS",
+    "lastReviewedAt": "2026-08-03T16:30:00Z"
+  }
+}
+```
+
+| Field | Written by | Meaning |
+|-------|-----------|---------|
+| `pipeline.prReviewCompleted` | `pr-review` | `true` only on `APPROVE` / `APPROVE_WITH_SUGGESTIONS`; stays `false` on `REQUEST_CHANGES` |
+| `pullRequest` | `pr` | The created PR, so later phases do not have to query GitHub again |
+| `prReview.enabled` | `run --pr-review` | Persisted opt-in; the standalone command never turns it on |
+| `prReview.rounds` | `pr-review` | Number of review rounds recorded under `issues/<N>/pr-review/` |
+| `prReview.lastRecommendation` | `pr-review` | `APPROVE` \| `APPROVE_WITH_SUGGESTIONS` \| `REQUEST_CHANGES` |
 
 ## Development
 

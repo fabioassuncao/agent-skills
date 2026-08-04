@@ -95,13 +95,20 @@ flowchart TD
     N -- Yes --> V["review-issue<br/>(structured verdict)"]
     V --> S{PASS or FAIL?}
     S -- PASS --> R["create-pr<br/>Open Pull Request"]
-    R --> T["Close issue<br/>Pipeline complete"]
     S -- FAIL --> W{"Correction cycle < 3?"}
     W -- Yes --> X["Reset affected stories<br/>Re-execute + re-review"]
     X --> V
     W -- No --> Y[Stop and report to user]
     P --> Q["Resume later: resolve-issue or execute-tasks"]
+    R --> AA{"--pr-review?"}
+    AA -- Yes --> AB["review-pr<br/>(structured verdict)"]
+    AB --> AC{"REQUEST_CHANGES?"}
+    AC -- No --> T["Close issue<br/>Pipeline complete"]
+    AC -- Yes --> AD["Keep the issue open<br/>and report the blockers"]
+    AA -- No --> T
 ```
+
+> `review-pr` is **opt-in**: without `--pr-review` the flow ends at `create-pr` + closing the issue, exactly as before.
 
 ## Interactive Walkthrough
 
@@ -181,7 +188,49 @@ The `tasks.json` file tracks pipeline state:
 ```
 
 When re-invoking `resolve-issue`, the sub-agent reads these flags and resumes from the last incomplete phase. In `auto` mode, this happens without any user interaction.
+
+`prReviewCompleted` joins these flags only when the optional `pr-review` phase runs -- its absence means the phase was never requested, not that it is pending.
 </details>
+
+## Reviewing the Pull Request (`review-pr` / `pr-review`)
+
+The `review-issue` skill is a **conformance gate**: it checks the implementation against the acceptance criteria of `tasks.json`. `review-pr` answers a different question -- is this Pull Request, as a whole, good enough to merge? It reads the PR description, the issue/PRD/implementation alignment, the full diff, architecture, complexity, duplication, project conventions, regressions, risks, test coverage, documentation, commit messages, and simplification opportunities.
+
+Both surfaces produce the same verdict from the same axes:
+
+| Surface | Invocation |
+|---------|-----------|
+| Skill | `/review-pr #184`, or natural language ("review this PR", "revisar o PR") |
+| Sub-agent | Step 6b of `resolve-issue`, opt-in via `--pr-review` |
+| CLI phase | `issue-flow pr-review [pr]`, or `issue-flow run 42 --pr-review` |
+
+**Pull Request discovery** (both the skill and the CLI resolve it in the same order, and neither ever reviews a guessed PR):
+
+1. The explicit argument (`184`, `#184` or a PR URL)
+2. The active session snapshot (`issues/<N>/session.json`) -- CLI only
+3. `pullRequest` in `issues/<N>/tasks.json`, written when the PR was created
+4. `gh pr list --head <current branch>` -- the most recent PR
+5. Failure with an actionable message asking for the number
+
+**Artifacts** are versionable and rounds are additive -- a new round never overwrites an earlier report:
+
+```
+issues/42/pr-review/          # issues/pr-184/pr-review/ when there is no associated issue
+  pr-184-round-1.md           # the eight canonical report sections
+  index.json                  # { schemaVersion, pullRequest, rounds[] } with structured findings
+```
+
+**Exit codes** (CLI):
+
+| Code | Meaning |
+|------|---------|
+| `0` | `APPROVE` or `APPROVE_WITH_SUGGESTIONS` |
+| `2` | `REQUEST_CHANGES` |
+| `1` | Execution failure: headless run, `gh`, PR not found, invalid options, or an unparseable verdict |
+
+A malformed verdict is never coerced into `APPROVE`: it fails with `1` and the raw output is preserved in the report. `--fail-on <level>` shifts the threshold (`suggestions` also fails on `APPROVE_WITH_SUGGESTIONS`, `none` never fails on a verdict), but it never suppresses code `1`.
+
+The review is **read-only** on both surfaces: no edits, no commits, and no `gh pr review|comment|merge`. On `REQUEST_CHANGES`, the sub-agent and `run` leave the issue open and report the blockers with the report path; `run` itself still exits `0`. See [the CLI reference](../README.md#pr-review----review-a-pull-request) for the flags and the `prReview` key of `.issue-flow.json`.
 
 ## Installation (Claude Code)
 
