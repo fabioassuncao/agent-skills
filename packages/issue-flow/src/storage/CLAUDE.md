@@ -1,7 +1,7 @@
 # src/storage
 
 Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands through
-`resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr` and `pr-review` so far; `run`,
+`resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr`, `pr-review` and `run` so far;
 `execute` and the local Issue provider are still being migrated off `getIssueDir()`).
 
 ## Rules
@@ -74,6 +74,12 @@ Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands throug
   real `~/.issue-flow` the moment the summary calls `prReviewDir()`. When a file has several
   `describe` blocks with their own hooks, put the `ISSUE_FLOW_HOME` setup in **file-level**
   `beforeEach`/`afterEach` (they run around each block's own hooks) so no block can forget it.
+- **A `mockImplementation` that writes to a resolved path leaks across `describe` blocks.**
+  `vi.clearAllMocks()` clears calls but keeps implementations, so a phase double installed in one
+  block still runs in the next one. While each block wrote under its own `join(tmp, 'issues', …)`
+  the stale write landed in an already-deleted directory and was harmless; now that every block
+  resolves to the same `<globalHome>/projects/<id>/issues/<N>/`, it silently overwrites the next
+  block's plan. Use `mockImplementationOnce` for doubles that touch the filesystem.
 - `paths.test.ts` mocks only `getRemoteUrl` from `../utils/git.js` (via `importOriginal` spread) so
   the real `normalizeRemoteUrl` keeps being exercised.
 - Filesystem walks use `readdir(dir, { withFileTypes: true })` and act only on `isDirectory()` /

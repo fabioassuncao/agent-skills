@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { loadIssuesConfig, loadWebConfig } from '../config.js';
@@ -22,10 +23,11 @@ import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
+import type { IssuePaths } from '../storage/paths.js';
+import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { printRunSummary, type RunSummaryPrReview } from '../ui/summary.js';
-import { getIssueDir } from '../utils/git.js';
 import { startWebServer, type WebServerHandle } from '../web/server.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
@@ -103,15 +105,24 @@ export async function runPipeline(
   prReview?: boolean,
 ): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
-  const issueDir = await getIssueDir(issueNumber);
+  // Resolved once, at the top: every phase that runs below shares the process
+  // cache, so the git call and the legacy migration happen a single time for
+  // the whole run instead of once per phase.
+  const paths = await resolveIssuePaths(issueNumber);
 
   const webConfig = await loadWebConfig();
-  const publisher: SessionPublisher = webConfig.enabled
-    ? new FilePublisher(join(issueDir, 'session.json'), {
-        logLimit: webConfig.logLimit,
-        includeLogs: webConfig.includeLogs,
-      })
-    : new NullPublisher();
+  let publisher: SessionPublisher = new NullPublisher();
+  if (webConfig.enabled) {
+    // resolveIssuePaths never creates directories, and a run may well be the
+    // first thing to touch this issue's global folder — so the writer creates
+    // it. Only under --web: with monitoring off the pipeline still creates
+    // nothing at all (US-009).
+    await mkdir(paths.issueDir, { recursive: true });
+    publisher = new FilePublisher(paths.sessionFile, {
+      logLimit: webConfig.logLimit,
+      includeLogs: webConfig.includeLogs,
+    });
+  }
   setSessionPublisher(publisher);
 
   // A null handle (port in use, ...) means the pipeline runs without a server.
@@ -129,7 +140,7 @@ export async function runPipeline(
   try {
     exitCode = await runPipelinePhases(
       issueNumber,
-      issueDir,
+      paths,
       mode,
       publisher,
       from,
@@ -151,14 +162,14 @@ export async function runPipeline(
 
 async function runPipelinePhases(
   issueNumber: string,
-  issueDir: string,
+  paths: IssuePaths,
   mode: string,
   publisher: SessionPublisher,
   from?: string,
   noBranch?: boolean,
   prReview?: boolean,
 ): Promise<number> {
-  const tasksPath = join(issueDir, 'tasks.json');
+  const tasksPath = paths.tasksFile;
   const sessionId = randomUUID();
 
   // Refined with the provider's own number once the Issue is resolved.

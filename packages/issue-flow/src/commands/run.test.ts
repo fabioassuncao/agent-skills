@@ -16,13 +16,13 @@ vi.mock('./review.js', () => ({ runReview: vi.fn(async () => 0) }));
 vi.mock('./pr.js', () => ({ runPr: vi.fn(async () => 0) }));
 vi.mock('./pr-review.js', () => ({ runPrReview: vi.fn(async () => 0) }));
 
-// getIssueDir() shells out to `git rev-parse --show-toplevel` (via utils/git.ts)
-// to anchor issues/<N>/ to the repo root instead of process.cwd(). Every test
-// below chdir's into a fresh tmpdir that is not itself a git repo, so that
-// call must be stubbed to answer with the same tmpdir — mutated per test via
-// mockProjectRoot.current — for issueDir to resolve to the join(tmp, 'issues',
-// ...) path the assertions already expect. Every other execa invocation keeps
-// the previous harmless default.
+// resolveIssuePaths() shells out to `git rev-parse --show-toplevel` (via
+// utils/git.ts) to identify the project instead of trusting process.cwd().
+// Every test below chdir's into a fresh tmpdir that is not itself a git repo,
+// so that call must be stubbed to answer with the same tmpdir — mutated per
+// test via mockProjectRoot.current — for the project id (and therefore every
+// path under ISSUE_FLOW_HOME) to stay deterministic per test. Every other execa
+// invocation keeps the previous harmless default.
 const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
 // Branch answered by `git branch --show-current`; empty (the previous default)
 // unless a test needs the summary to look a Pull Request up by head branch.
@@ -121,7 +121,7 @@ import { runReview } from './review.js';
 import { runPipeline } from './run.js';
 
 /**
- * `prReviewDir()` already resolves through the global storage, so every test in
+ * `run` resolves every artifact through the global storage, so every test in
  * this file needs `ISSUE_FLOW_HOME` pointed at a throwaway directory — without
  * it the suite writes into the developer's real `~/.issue-flow`. The hooks are
  * file-level on purpose: they run before/after each `describe`'s own hooks, so
@@ -143,6 +143,12 @@ afterEach(async () => {
   else process.env[GLOBAL_ROOT_ENV] = previousGlobalHome;
   await rm(globalHome, { recursive: true, force: true });
 });
+
+/**
+ * Where `run` actually writes: the same resolver the command uses, so the
+ * assertions follow the storage layout instead of restating it by hand.
+ */
+const globalPaths = async (id = '42') => await resolveIssuePaths(id);
 
 function makeResolved(
   overrides: Partial<Issue> = {},
@@ -259,8 +265,10 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
 
     expect(code).toBe(0);
     expect(vi.mocked(startWebServer)).not.toHaveBeenCalled();
-    expect(existsSync(join(tmp, 'issues', '42', 'session.json'))).toBe(false);
-    // O modo desligado não cria nenhum arquivo: o diretório issues/ nem existe.
+    expect(existsSync((await globalPaths()).sessionFile)).toBe(false);
+    // O modo desligado não cria nenhum arquivo: nem o diretório global da
+    // issue, nem o legado issues/ dentro do repositório.
+    expect(existsSync((await globalPaths()).issueDir)).toBe(false);
     expect(existsSync(join(tmp, 'issues'))).toBe(false);
   });
 
@@ -268,7 +276,6 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     const { code: offCode, lines: offLines } = await runCaptured();
     expect(offCode).toBe(0);
 
-    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
     // host pinned to loopback: this test is about US-009 (zero pipeline
     // impact from monitoring), not about the 0.0.0.0 security warning,
     // which is covered separately in web/server.test.ts.
@@ -282,24 +289,24 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(onLines.filter((l) => !l.includes('Web monitor running at'))).toEqual(offLines);
   });
 
-  it('com --web: ao término, issues/N/session.json contém o estado final', async () => {
-    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
+  it('com --web: ao término, session.json global contém o estado final', async () => {
     setWebCliOverrides({ enabled: true, port: await getFreePort() });
 
     const { code } = await runCaptured();
     expect(code).toBe(0);
 
-    const raw = await readFile(join(tmp, 'issues', '42', 'session.json'), 'utf-8');
+    const raw = await readFile((await globalPaths()).sessionFile, 'utf-8');
     const snapshot = sessionSnapshotSchema.parse(JSON.parse(raw));
     expect(snapshot.status).toBe('completed');
     expect(snapshot.issue.number).toBe(42);
     expect(snapshot.endedAt).not.toBeNull();
     expect(snapshot.phases.length).toBeGreaterThan(0);
     expect(snapshot.phases.every((p) => p.status === 'completed')).toBe(true);
+    // Nada foi escrito na árvore de trabalho: o artefato de runtime saiu do repo.
+    expect(existsSync(join(tmp, 'issues'))).toBe(false);
   });
 
   it('matar o servidor durante a execução não afeta o pipeline', async () => {
-    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
     setWebCliOverrides({ enabled: true, port: await getFreePort() });
 
     vi.mocked(runExecute).mockImplementationOnce(async () => {
@@ -317,7 +324,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(code).toBe(0);
 
     // O publisher é independente do servidor: o estado final ainda é gravado.
-    const raw = await readFile(join(tmp, 'issues', '42', 'session.json'), 'utf-8');
+    const raw = await readFile((await globalPaths()).sessionFile, 'utf-8');
     const snapshot = sessionSnapshotSchema.parse(JSON.parse(raw));
     expect(snapshot.status).toBe('completed');
   });
@@ -396,13 +403,12 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     vi.mocked(resolveIssue).mockResolvedValue(
       makeResolved({ id: 'auth-refactor', number: null }, 'local'),
     );
-    await mkdir(join(tmp, 'issues', 'auth-refactor'), { recursive: true });
     setWebCliOverrides({ enabled: true, port: await getFreePort() });
 
     const code = await runPipeline('auth-refactor', 'auto');
     expect(code).toBe(0);
 
-    const raw = await readFile(join(tmp, 'issues', 'auth-refactor', 'session.json'), 'utf-8');
+    const raw = await readFile((await globalPaths('auth-refactor')).sessionFile, 'utf-8');
     const snapshot = sessionSnapshotSchema.parse(JSON.parse(raw));
     expect(snapshot.issue.number).toBeNull();
   });
@@ -456,15 +462,14 @@ describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
   let close: ReturnType<typeof vi.fn>;
   const savedEnv = new Map<string, string | undefined>();
 
-  const tasksPath = (): string => join(tmp, 'issues', '42', 'tasks.json');
-
   const writePlan = async (plan: TaskPlan): Promise<void> => {
-    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
-    await writeFile(tasksPath(), JSON.stringify(plan, null, 2), 'utf-8');
+    const paths = await globalPaths();
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(paths.tasksFile, JSON.stringify(plan, null, 2), 'utf-8');
   };
 
   const readPlan = async (): Promise<TaskPlan> =>
-    JSON.parse(await readFile(tasksPath(), 'utf-8')) as TaskPlan;
+    JSON.parse(await readFile((await globalPaths()).tasksFile, 'utf-8')) as TaskPlan;
 
   /** Phases the renderer was actually asked to run (most recent invocation). */
   const renderedPhases = (): string[] => {
@@ -603,7 +608,11 @@ describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
   });
 
   it('a opção é persistida em tasks.json logo após a fase plan', async () => {
-    vi.mocked(runPlan).mockImplementation(async () => {
+    // `Once`, not a persistent implementation: `vi.clearAllMocks()` clears
+    // calls but keeps implementations, so a lasting one would still be
+    // installed in the next describe block — and now that every block writes
+    // to the same resolved global path, it would overwrite that block's plan.
+    vi.mocked(runPlan).mockImplementationOnce(async () => {
       await writePlan(makePlan());
       return 0;
     });
@@ -641,12 +650,10 @@ describe('runPipeline — URL do PR no resumo final (issue 25, US-010)', () => {
   const savedEnv = new Map<string, string | undefined>();
 
   const writePlan = async (plan: TaskPlan): Promise<void> => {
-    await mkdir(join(tmp, 'issues', '42'), { recursive: true });
-    await writeFile(
-      join(tmp, 'issues', '42', 'tasks.json'),
-      JSON.stringify(plan, null, 2),
-      'utf-8',
-    );
+    const paths = await globalPaths();
+
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(paths.tasksFile, JSON.stringify(plan, null, 2), 'utf-8');
   };
 
   /** The `PR:` line of the final summary, without the label. */
@@ -747,11 +754,10 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
   let originalCwd: string;
   const savedEnv = new Map<string, string | undefined>();
 
-  const issueDir = (): string => join(tmp, 'issues', '42');
-
   const writePlan = async (plan: TaskPlan): Promise<void> => {
-    await mkdir(issueDir(), { recursive: true });
-    await writeFile(join(issueDir(), 'tasks.json'), JSON.stringify(plan, null, 2), 'utf-8');
+    const paths = await globalPaths();
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(paths.tasksFile, JSON.stringify(plan, null, 2), 'utf-8');
   };
 
   const runCapturingLines = async (
@@ -772,7 +778,7 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
   /** Session snapshot the web UI reads, after the run finished. */
   const readSnapshot = async () =>
     sessionSnapshotSchema.parse(
-      JSON.parse(await readFile(join(issueDir(), 'session.json'), 'utf-8')),
+      JSON.parse(await readFile((await globalPaths()).sessionFile, 'utf-8')),
     );
 
   beforeEach(async () => {
@@ -809,7 +815,6 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
   });
 
   it('sem a flag, session.json continua listando apenas as fases padrão', async () => {
-    await mkdir(issueDir(), { recursive: true });
     setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
 
     const { code } = await runCapturingLines();
@@ -828,7 +833,6 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
   });
 
   it('com a flag, pr-review aparece em phases[] e entra no total de progresso', async () => {
-    await mkdir(issueDir(), { recursive: true });
     setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
 
     const { code } = await runCapturingLines(true);
@@ -862,9 +866,7 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
         },
       }),
     );
-    // The report directory already lives under the global storage, while the
-    // rest of `run` is still anchored to <repoRoot>/issues/ (US-006).
-    const reviewDir = (await resolveIssuePaths('42')).prReviewDir;
+    const reviewDir = (await globalPaths()).prReviewDir;
     await mkdir(reviewDir, { recursive: true });
     await writeFile(
       join(reviewDir, 'index.json'),
