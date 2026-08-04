@@ -110,6 +110,53 @@ a:hover {
   text-decoration: underline;
 }
 
+/* ---- Abas ---- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+}
+
+.tab:hover {
+  color: var(--fg);
+  background: var(--card);
+}
+
+.tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* O painel repete o grid de main: as seções dentro dele são os cards que antes
+   eram filhos diretos de main e dependem desse espaçamento. */
+.tab-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
+.tab-panel > * {
+  min-width: 0;
+}
+
 /* ---- Cabeçalho ---- */
 
 .header {

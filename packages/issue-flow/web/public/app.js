@@ -56,6 +56,7 @@
     logFilter: document.getElementById('log-filter'),
     logs: document.getElementById('logs'),
     sessionMeta: document.getElementById('session-meta'),
+    tabs: Array.prototype.slice.call(document.querySelectorAll('[role="tab"]')),
   };
 
   const state = {
@@ -66,6 +67,7 @@
     timer: null,
     polling: false,
     logFilter: 'all',
+    activeTab: 'tab-execution',
   };
 
   // ---- Utilitários ----------------------------------------------------------
@@ -187,6 +189,21 @@
     if (!url) return null;
     const match = url.match(/^(https?:\/\/\S+?)\/issues\/\d+\/?$/);
     return match ? match[1] : null;
+  }
+
+  // ---- Abas -----------------------------------------------------------------
+  // Troca apenas visibilidade e estado ARIA. Não toca no polling: render()
+  // segue atualizando os dois painéis, então a aba inativa nunca fica defasada.
+
+  function setActiveTab(tabId) {
+    state.activeTab = tabId;
+    for (const tab of els.tabs) {
+      const active = tab.id === tabId;
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      tab.classList.toggle('is-active', active);
+      const panel = document.getElementById(tab.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !active;
+    }
   }
 
   // ---- Polling: intervalo configurável, aba oculta e backoff ----------------
@@ -634,6 +651,11 @@
   // ---- Inicialização --------------------------------------------------------
 
   async function init() {
+    for (const tab of els.tabs) {
+      tab.addEventListener('click', () => setActiveTab(tab.id));
+    }
+    setActiveTab(state.activeTab);
+
     els.refreshSelect.addEventListener('change', () => {
       state.refreshSeconds = Number(els.refreshSelect.value);
       storeRefresh(state.refreshSeconds);
