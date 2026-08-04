@@ -82,11 +82,15 @@ export async function getBaseBranch(): Promise<string> {
  * git binary that cannot even be spawned all resolve to `null` — the same
  * discipline as {@link getBaseBranch}, so callers can treat "no remote" as an
  * ordinary state instead of an error path.
+ *
+ * `cwd` selects which repository is queried; omitting it falls back to
+ * `process.cwd()`, which is almost never what a caller resolving a specific
+ * `projectRoot` wants — pass it explicitly whenever one is available.
  */
-export async function getRemoteUrl(): Promise<string | null> {
+export async function getRemoteUrl(cwd?: string): Promise<string | null> {
   let result: ExecResult;
   try {
-    result = await run('git', ['remote', 'get-url', 'origin']);
+    result = await run('git', ['remote', 'get-url', 'origin'], { cwd });
   } catch {
     return null;
   }

@@ -77,6 +77,13 @@ export interface TaskPlan {
   lastError: LastError | null;
   correctionCycle: number;
   maxCorrectionCycles: number;
+  /**
+   * Findings from the most recent failed review, verbatim; `null` once
+   * addressed or when no review has failed yet. Non-null means the issue has
+   * a pending correction even if every userStories[].passes is already
+   * true — see the early-return guards in core/engine.ts.
+   */
+  lastReviewFindings: string | null;
   pipeline: PipelineState;
   /** Written by the `pr` phase; absent in every plan created before it. */
   pullRequest?: PullRequestRef;

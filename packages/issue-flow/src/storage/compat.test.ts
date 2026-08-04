@@ -224,6 +224,11 @@ describe('migrateLegacyStorage', () => {
     });
   });
 
+  it('reads the remote of projectRoot, not of process.cwd()', async () => {
+    await migrateLegacyStorage(projectRoot, { env });
+    expect(mockGetRemoteUrl).toHaveBeenCalledWith(projectRoot);
+  });
+
   it('stores a null remoteUrl when the project has no origin remote', async () => {
     mockGetRemoteUrl.mockResolvedValue(null);
 

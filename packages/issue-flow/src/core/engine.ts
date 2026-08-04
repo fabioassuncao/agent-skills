@@ -13,6 +13,7 @@ import { getSessionPublisher } from './session-publisher.js';
 import {
   allStoriesPass,
   clearLastError,
+  hasPendingCorrection,
   initializeState,
   isoNow,
   loadTaskPlan,
@@ -130,8 +131,12 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   plan = initializeState(plan);
   await saveTaskPlan(paths.prdFile, plan);
 
-  // Check if already completed
-  if (plan.issueStatus === 'completed' && allStoriesPass(plan)) {
+  // Check if already completed. A pending correction (a failed review whose
+  // findings haven't been addressed yet) always overrides this, even though
+  // every userStories[].passes is already true — otherwise a correction
+  // cycle's re-run of execute would exit here without ever looking at what
+  // the review found.
+  if (plan.issueStatus === 'completed' && allStoriesPass(plan) && !hasPendingCorrection(plan)) {
     emitLog(`Issue already marked complete in ${paths.prdFile}`);
     return 0;
   }
@@ -151,7 +156,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   }
 
   // Check if all stories already pass
-  if (allStoriesPass(plan)) {
+  if (allStoriesPass(plan) && !hasPendingCorrection(plan)) {
     emitLog('All user stories already pass. Marking issue as completed.');
     plan = markIssueCompleted(plan);
     await saveTaskPlan(paths.prdFile, plan);
@@ -299,7 +304,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     // Check for completion signal
     if (result.output.includes('<promise>COMPLETE</promise>')) {
       plan = await loadTaskPlan(paths.prdFile);
-      if (allStoriesPass(plan)) {
+      if (allStoriesPass(plan) && !hasPendingCorrection(plan)) {
         plan = markIssueCompleted(plan);
         await saveTaskPlan(paths.prdFile, plan);
 
@@ -311,13 +316,17 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       plan = setLastError(
         plan,
         'invalid_completion_signal',
-        'Claude returned <promise>COMPLETE</promise> before every story had passes=true.',
+        hasPendingCorrection(plan)
+          ? 'Claude returned <promise>COMPLETE</promise> while lastReviewFindings was still set.'
+          : 'Claude returned <promise>COMPLETE</promise> before every story had passes=true.',
       );
       await saveTaskPlan(paths.prdFile, plan);
 
       emitLog('');
       printWarning(
-        'Claude returned a completion signal, but tasks.json still has pending stories. Ignoring completion and continuing.',
+        hasPendingCorrection(plan)
+          ? 'Claude returned a completion signal, but lastReviewFindings is still set. Ignoring completion and continuing.'
+          : 'Claude returned a completion signal, but tasks.json still has pending stories. Ignoring completion and continuing.',
       );
     }
 

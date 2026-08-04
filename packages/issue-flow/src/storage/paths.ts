@@ -104,7 +104,7 @@ function slugify(name: string): string {
  * old one. Configuring a remote before adopting the global storage avoids it.
  */
 export async function getProjectId(projectRoot: string): Promise<string> {
-  const remote = normalizeRemoteUrl(await getRemoteUrl());
+  const remote = normalizeRemoteUrl(await getRemoteUrl(projectRoot));
 
   let seed: string;
   let name: string;

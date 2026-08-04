@@ -95,6 +95,12 @@ describe('getProjectId', () => {
     expect(await getProjectId('/any/where')).toMatch(/^issue-flow-[0-9a-f]{12}$/);
   });
 
+  it('reads the remote of projectRoot, not of process.cwd()', async () => {
+    mockGetRemoteUrl.mockResolvedValue('https://github.com/fabioassuncao/issue-flow.git');
+    await getProjectId('/some/other/project/root');
+    expect(mockGetRemoteUrl).toHaveBeenCalledWith('/some/other/project/root');
+  });
+
   it('produces the same id for the HTTPS and the SSH remote of one repository', async () => {
     mockGetRemoteUrl.mockResolvedValue('https://github.com/org/repo.git');
     const https = await getProjectId('/tmp/a');

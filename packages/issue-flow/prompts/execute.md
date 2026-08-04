@@ -7,14 +7,26 @@ You are an autonomous coding agent working on a software project.
 1. Read the PRD at `__PRD_FILE__`
 2. Read the progress log at `__PROGRESS_FILE__` (check Codebase Patterns section first)
 3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
-4. Treat the issue as unresolved unless **every** `userStories[].passes` value is `true`
-5. Pick the **highest priority** user story where `passes: false`
+4. Treat the issue as unresolved if **any** `userStories[].passes` is `false`, **or** if the PRD's top-level `lastReviewFindings` is non-null — that second condition holds even when every story already passes (see "Correction Findings from a Failed Review" below).
+5. If `lastReviewFindings` is non-null, address it first (see below); otherwise pick the **highest priority** user story where `passes: false`
 6. Implement that single user story
 7. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 8. Update CLAUDE.md files if you discover reusable patterns (see below)
 9. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
 10. Update the PRD to set `passes: true` for the completed story
 11. Append your progress to `__PROGRESS_FILE__`
+
+## Correction Findings from a Failed Review
+
+A prior automated review may have already run against this same code and found it wanting — its findings are persisted verbatim in the PRD's top-level `lastReviewFindings` field. When that field is non-null:
+
+- Treat it as **the** priority for this iteration, ahead of any story whose `passes` is still `false`.
+- The findings describe concrete defects in code that was already implemented and marked `passes: true` — they are not a new story. Do **not** re-implement stories from scratch; make the smallest correct change that addresses every finding.
+- Run the project's quality checks (typecheck, lint, test) to confirm the fix, exactly as for a normal story.
+- Commit the fix with message `fix: address review findings` (or a more specific message naming what was fixed).
+- Once every finding has been addressed, set `lastReviewFindings` back to `null` in the PRD before finishing this iteration. Leaving it non-null means the orchestrator will treat the issue as still uncorrected and loop again.
+- If a finding turns out to be a false positive or already fixed, still clear `lastReviewFindings` to `null`, but say so explicitly in the progress log entry so a human can double-check.
+- If you cannot fully resolve the findings in this iteration, leave `lastReviewFindings` as-is (do not clear it) and record what you did and what remains in the progress log — the orchestrator will invoke another iteration.
 
 ## Progress Report Format
 
@@ -101,9 +113,9 @@ If these fields don't exist in the task plan (older format), ignore them — the
 
 ## Stop Condition
 
-After completing a user story, check if ALL stories have `passes: true`.
+After completing a user story or addressing `lastReviewFindings`, check if ALL stories have `passes: true` **and** `lastReviewFindings` is `null`.
 
-If ALL stories are complete and passing, first update the task plan metadata:
+If ALL stories are complete and passing and there are no pending review findings, first update the task plan metadata:
 - Set `issueStatus` to `completed`
 - Set `completedAt` to the current ISO timestamp
 - Set `lastAttemptAt` to the current ISO timestamp
@@ -113,7 +125,7 @@ If ALL stories are complete and passing, first update the task plan metadata:
 Then reply with:
 <promise>COMPLETE</promise>
 
-If there are still stories with `passes: false`, end your response normally (another iteration will pick up the next story).
+If there are still stories with `passes: false`, or `lastReviewFindings` is still non-null, end your response normally (another iteration will pick up the next story, or continue addressing the findings).
 If you need to stop for user guidance or another non-transient blocker, record it in top-level `lastError` and do not clear it.
 
 ## Important

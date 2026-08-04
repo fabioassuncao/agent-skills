@@ -31,6 +31,7 @@ Create a tasks.json file at __TASKS_PATH__ with this exact structure:
   "lastError": null,
   "correctionCycle": 0,
   "maxCorrectionCycles": 3,
+  "lastReviewFindings": null,
   "pipeline": {
     "analyzeCompleted": true,
     "prdCompleted": true,

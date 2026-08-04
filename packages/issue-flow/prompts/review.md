@@ -37,3 +37,5 @@ FINDINGS:
 </review-result>
 
 IMPORTANT: You MUST include the <review-result> block in your output.
+
+IMPORTANT: On FAIL, these FINDINGS are saved verbatim and handed to a correction iteration that has no other context about this review session — it only sees this text. Write each finding as a self-contained, actionable defect report: name the exact file and line, describe what is wrong and why, and state (or strongly imply) what a correct fix looks like. Avoid vague findings like "tests could be improved" — either the codebase fails an acceptance criterion or a regression, or it doesn't.

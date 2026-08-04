@@ -266,7 +266,7 @@ export async function migrateLegacyStorage(
     schemaVersion: STORAGE_SCHEMA_VERSION,
     projectId: status.projectId,
     root: resolve(projectRoot),
-    remoteUrl: normalizeRemoteUrl(await getRemoteUrl()),
+    remoteUrl: normalizeRemoteUrl(await getRemoteUrl(projectRoot)),
     // The project was first seen whenever it was first written, not now.
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

@@ -87,7 +87,7 @@ npx issue-flow run 42 --mode manual
 npx issue-flow run 42 --web
 ```
 
-Executes all phases in order: **init** → **analyze** → **prd** → **plan** → **execute** → **review** → **pr**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, runs correction cycles (re-execute + re-review) up to `maxCorrectionCycles`.
+Executes all phases in order: **init** → **analyze** → **prd** → **plan** → **execute** → **review** → **pr**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, its findings are saved verbatim to `lastReviewFindings` in `tasks.json`, and a correction cycle (re-execute + re-review) runs up to `maxCorrectionCycles`. The re-execute step reads `lastReviewFindings` and treats the issue as unresolved even if every user story already has `passes: true`, until the findings are addressed and the field is cleared back to `null`.
 
 ### `init` -- Check prerequisites
 
@@ -215,6 +215,8 @@ The `pipeline` field tracks which phases have completed, enabling resume from an
   }
 }
 ```
+
+The top-level `lastReviewFindings` field (`string | null`) holds the verbatim findings of the most recent failed `review` phase. Non-null overrides the "issue already complete" check even when every user story has `passes: true`, so a correction cycle's re-execute step is guaranteed to run instead of exiting immediately — see `core/engine.ts`.
 
 ## Architecture
 

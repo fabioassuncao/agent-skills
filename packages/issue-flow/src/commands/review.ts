@@ -81,6 +81,7 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     try {
       const plan = await loadTaskPlan(tasksPath);
       plan.pipeline.reviewCompleted = true;
+      plan.lastReviewFindings = null;
       await saveTaskPlan(tasksPath, plan);
     } catch {
       // tasks.json may not exist
@@ -94,5 +95,19 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
   if (review.findings) {
     console.log(review.findings);
   }
+
+  // Persist the findings so a correction cycle can act on them: without this,
+  // a re-run of execute sees every userStories[].passes already true and
+  // exits immediately without attempting any fix (see engine.ts's
+  // "already complete" guards).
+  try {
+    const plan = await loadTaskPlan(tasksPath);
+    plan.pipeline.reviewCompleted = false;
+    plan.lastReviewFindings = review.findings ?? 'Unknown findings';
+    await saveTaskPlan(tasksPath, plan);
+  } catch {
+    // tasks.json may not exist
+  }
+
   return 1;
 }

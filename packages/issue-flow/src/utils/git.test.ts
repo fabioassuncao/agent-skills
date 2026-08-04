@@ -86,7 +86,17 @@ describe('getRemoteUrl', () => {
   it('returns the trimmed url of origin', async () => {
     mockRun.mockResolvedValueOnce(result({ stdout: 'git@github.com:org/repo.git\n' }));
     await expect(getRemoteUrl()).resolves.toBe('git@github.com:org/repo.git');
-    expect(mockRun).toHaveBeenCalledWith('git', ['remote', 'get-url', 'origin']);
+    expect(mockRun).toHaveBeenCalledWith('git', ['remote', 'get-url', 'origin'], {
+      cwd: undefined,
+    });
+  });
+
+  it('queries the given cwd instead of process.cwd()', async () => {
+    mockRun.mockResolvedValueOnce(result({ stdout: 'git@github.com:org/repo.git\n' }));
+    await expect(getRemoteUrl('/some/project/root')).resolves.toBe('git@github.com:org/repo.git');
+    expect(mockRun).toHaveBeenCalledWith('git', ['remote', 'get-url', 'origin'], {
+      cwd: '/some/project/root',
+    });
   });
 
   it('returns null when origin is not configured (non-zero exit)', async () => {
