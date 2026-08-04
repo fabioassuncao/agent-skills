@@ -3,16 +3,28 @@ import { loadTaskPlan, saveTaskPlan } from './state-manager.js';
 
 /**
  * Ordered pipeline phases. Each phase must complete before the next can start.
+ *
+ * `pr-review` is deliberately NOT here: it is opt-in via `--pr-review`. Adding
+ * it to the default set would make every existing `tasks.json` (which has no
+ * `prReviewCompleted`) look unfinished, so `getNextPhase()` would resume into a
+ * phase the user never asked for.
  */
 export const PIPELINE_PHASES = ['init', 'prd', 'plan', 'execute', 'review', 'pr'] as const;
 
-export type PipelinePhase = (typeof PIPELINE_PHASES)[number];
+/**
+ * The default set plus the opt-in `pr-review` phase, used when the user passes
+ * `--pr-review` (or the flag was persisted in `plan.prReview.enabled`).
+ */
+export const PIPELINE_PHASES_WITH_PR_REVIEW = [...PIPELINE_PHASES, 'pr-review'] as const;
+
+export type PipelinePhase = (typeof PIPELINE_PHASES_WITH_PR_REVIEW)[number];
 
 /**
  * Pipeline phases excluding the 'pr' phase, for --no-branch mode.
+ * `pr-review` is excluded too: without a branch there is no PR to review.
  */
 export const PIPELINE_PHASES_NO_BRANCH = PIPELINE_PHASES.filter(
-  (p): p is Exclude<PipelinePhase, 'pr'> => p !== 'pr',
+  (p): p is Exclude<PipelinePhase, 'pr' | 'pr-review'> => p !== 'pr',
 );
 
 /**
@@ -26,6 +38,7 @@ const PHASE_TO_FIELD: Record<PipelinePhase, keyof PipelineState | null> = {
   execute: 'executionCompleted',
   review: 'reviewCompleted',
   pr: 'prCreated',
+  'pr-review': 'prReviewCompleted',
 };
 
 export class PipelineManager {

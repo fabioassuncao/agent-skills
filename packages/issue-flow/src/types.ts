@@ -26,6 +26,11 @@ export interface PipelineState {
   executionCompleted: boolean;
   reviewCompleted: boolean;
   prCreated: boolean;
+  /**
+   * Optional like `analyzeCompleted`: the `pr-review` phase is opt-in, so every
+   * `tasks.json` written before it existed stays valid without the field.
+   */
+  prReviewCompleted?: boolean;
 }
 
 export interface TaskPlan {

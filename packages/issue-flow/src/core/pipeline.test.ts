@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaskPlan } from '../types.js';
-import { PIPELINE_PHASES, PipelineManager } from './pipeline.js';
+import {
+  PIPELINE_PHASES,
+  PIPELINE_PHASES_NO_BRANCH,
+  PIPELINE_PHASES_WITH_PR_REVIEW,
+  PipelineManager,
+} from './pipeline.js';
 
 // Mock state-manager
 vi.mock('./state-manager.js', () => ({
@@ -144,5 +149,74 @@ describe('PipelineManager', () => {
 
   it('defines 6 pipeline phases in order', () => {
     expect(PIPELINE_PHASES).toEqual(['init', 'prd', 'plan', 'execute', 'review', 'pr']);
+  });
+
+  describe('pr-review phase', () => {
+    const allDefaultPhasesComplete = {
+      prdCompleted: true,
+      jsonCompleted: true,
+      executionCompleted: true,
+      reviewCompleted: true,
+      prCreated: true,
+    };
+
+    it('appends pr-review to the default set without mutating it', () => {
+      expect(PIPELINE_PHASES_WITH_PR_REVIEW).toEqual([...PIPELINE_PHASES, 'pr-review']);
+      expect(PIPELINE_PHASES).not.toContain('pr-review');
+    });
+
+    it('is excluded from the --no-branch set', () => {
+      expect(PIPELINE_PHASES_NO_BRANCH).toEqual(['init', 'prd', 'plan', 'execute', 'review']);
+    });
+
+    it('does not reopen the pipeline when prReviewCompleted is absent', () => {
+      const mgr = new PipelineManager(makePlan(allDefaultPhasesComplete), '/tmp/tasks.json');
+      expect(mgr.getNextPhase()).toBeNull();
+    });
+
+    it('does not reopen the pipeline when prReviewCompleted is false', () => {
+      const mgr = new PipelineManager(
+        makePlan({ ...allDefaultPhasesComplete, prReviewCompleted: false }),
+        '/tmp/tasks.json',
+      );
+      expect(mgr.getNextPhase()).toBeNull();
+    });
+
+    it('is the next phase when the opt-in set is active', () => {
+      const mgr = new PipelineManager(
+        makePlan({ ...allDefaultPhasesComplete, prReviewCompleted: false }),
+        '/tmp/tasks.json',
+        PIPELINE_PHASES_WITH_PR_REVIEW,
+      );
+      expect(mgr.getNextPhase()).toBe('pr-review');
+      expect(mgr.canResume('pr-review')).toBe(true);
+    });
+
+    it('cannot resume from pr-review while pr is incomplete', () => {
+      const mgr = new PipelineManager(
+        makePlan({ ...allDefaultPhasesComplete, prCreated: false }),
+        '/tmp/tasks.json',
+        PIPELINE_PHASES_WITH_PR_REVIEW,
+      );
+      expect(mgr.canResume('pr-review')).toBe(false);
+    });
+
+    it('persists prReviewCompleted through markPhaseComplete', async () => {
+      const { saveTaskPlan } = await import('./state-manager.js');
+      const mgr = new PipelineManager(
+        makePlan(allDefaultPhasesComplete),
+        '/tmp/tasks.json',
+        PIPELINE_PHASES_WITH_PR_REVIEW,
+      );
+
+      await mgr.markPhaseComplete('pr-review');
+
+      expect(saveTaskPlan).toHaveBeenCalledWith(
+        '/tmp/tasks.json',
+        expect.objectContaining({
+          pipeline: expect.objectContaining({ prReviewCompleted: true }),
+        }),
+      );
+    });
   });
 });
