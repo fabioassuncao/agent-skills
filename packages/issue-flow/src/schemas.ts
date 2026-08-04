@@ -22,9 +22,15 @@ export const claudeUsageSchema = z.object({
   costUsd: z.number().optional(),
 }) satisfies z.ZodType<ClaudeUsage>;
 
+export const userStoryStatusSchema = z.enum(['backlog', 'in_progress', 'in_review', 'done']);
+
 /**
  * The metrics fields are additive and optional: plans written before they
  * existed keep parsing, and nothing is filled in with artificial zeros.
+ *
+ * `status` and `dependencies` follow the same rule and are `.optional()` rather
+ * than `.default()` on purpose: a legacy plan must not gain a `'backlog'` and an
+ * empty array it never declared just because `saveTaskPlan` rewrote it.
  */
 export const userStorySchema = z.object({
   id: z.string(),
@@ -36,6 +42,8 @@ export const userStorySchema = z.object({
   notes: z.string(),
   ...claudeUsageSchema.shape,
   durationSeconds: z.number().optional(),
+  status: userStoryStatusSchema.optional(),
+  dependencies: z.array(z.string()).optional(),
 });
 
 export const pipelineStateSchema = z.object({

@@ -6,6 +6,15 @@
 import type { ClaudeUsage } from './core/metrics.js';
 
 /**
+ * Granular lifecycle state of a story, for consumers that need more than the
+ * binary `passes` (a Kanban board, for instance).
+ *
+ * `in_review` has no automatic derivation: nothing in the pipeline produces it,
+ * so it only ever comes from an explicit value in `tasks.json`.
+ */
+export type UserStoryStatus = 'backlog' | 'in_progress' | 'in_review' | 'done';
+
+/**
  * A single story of the plan.
  *
  * The metrics inherited from {@link ClaudeUsage} plus `durationSeconds` are all
@@ -23,6 +32,17 @@ export interface UserStory extends ClaudeUsage {
   passes: boolean;
   notes: string;
   durationSeconds?: number;
+  /**
+   * Observational only: the pipeline keeps deciding what to execute from
+   * `passes`. Absent means "not informed" — never assume `'backlog'` here.
+   */
+  status?: UserStoryStatus;
+  /**
+   * IDs of other stories in the same plan this one depends on. Validated by
+   * shape only (`string[]`): neither existence nor cycles are checked, and
+   * nothing in the pipeline orders execution by it.
+   */
+  dependencies?: string[];
 }
 
 export interface LastError {
