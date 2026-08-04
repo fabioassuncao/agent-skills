@@ -96,3 +96,9 @@ only advances on success: persisting metrics is observational and must never
 change an iteration's outcome. `UserStory`'s metric fields are optional and
 accumulate by summing — an absent field means "not reported", so a plan from a
 run that predates them never gains artificial zeros.
+
+Both artifacts are user-facing contracts: any new field on `SessionSnapshot` or
+`UserStory` also belongs in the root `README.md` (`Web Monitoring →
+session.json` for the snapshot, `Pipeline State & File Structure` for
+`tasks.json`), which documents each field's meaning and states that `null` /
+absent means "not reported", never zero.
