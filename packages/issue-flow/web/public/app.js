@@ -67,6 +67,11 @@
     sessionMeta: document.getElementById('session-meta'),
     tabs: Array.prototype.slice.call(document.querySelectorAll('[role="tab"]')),
     kanban: document.getElementById('kanban'),
+    drawer: document.getElementById('drawer'),
+    drawerOverlay: document.getElementById('drawer-overlay'),
+    drawerClose: document.getElementById('drawer-close'),
+    drawerTitle: document.getElementById('drawer-title'),
+    drawerBody: document.getElementById('drawer-body'),
   };
 
   const state = {
@@ -78,6 +83,9 @@
     polling: false,
     logFilter: 'all',
     activeTab: 'tab-execution',
+    // Só o id: o card que abriu o drawer é destruído no próximo render, então
+    // guardar o nó levaria a uma referência morta.
+    selectedStoryId: null,
   };
 
   // ---- Utilitários ----------------------------------------------------------
@@ -351,6 +359,7 @@
     renderStories(snapshot);
     // Incondicional: a aba inativa não pode ficar defasada até ser aberta.
     renderKanban(snapshot);
+    renderDrawer(snapshot);
     renderGit(snapshot);
     renderLogs(snapshot);
     renderMeta(snapshot);
@@ -615,22 +624,27 @@
 
   // As stories chegam já normalizadas por getStories(), então aqui nenhum campo
   // precisa de checagem de ausência.
+  // <button> em vez de <div role="button">: acionamento por Enter/Espaço e foco
+  // saem de graça. Por isso todo o conteúdo é <span> — <p>/<div> não são
+  // conteúdo válido dentro de um botão.
   function storyCard(story) {
-    const card = el('article', 'kanban-card');
+    const card = el('button', 'kanban-card');
+    card.type = 'button';
     card.dataset.storyId = story.id;
 
-    const head = el('div', 'kanban-card-head');
+    const head = el('span', 'kanban-card-head');
     head.appendChild(
       el('span', 'item-icon icon-' + (story.passes ? 'completed' : 'pending'), story.passes ? '✓' : '○'),
     );
     head.appendChild(el('span', 'story-id', story.id));
     card.appendChild(head);
 
-    card.appendChild(el('div', 'kanban-card-title', story.title));
-    if (story.description) card.appendChild(el('p', 'kanban-card-desc', story.description));
+    card.appendChild(el('span', 'kanban-card-title', story.title));
+    if (story.description) card.appendChild(el('span', 'kanban-card-desc', story.description));
     card.appendChild(
       el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
     );
+    card.addEventListener('click', () => openDrawer(story.id));
     return card;
   }
 
@@ -653,6 +667,47 @@
       }
       els.kanban.appendChild(node);
     }
+  }
+
+  // ---- Drawer de detalhes da story ------------------------------------------
+
+  function onDrawerKeydown(event) {
+    if (event.key === 'Escape') closeDrawer();
+  }
+
+  // Reidrata a partir do id a cada render: o drawer aberto sobrevive ao poll.
+  function renderDrawer(snapshot) {
+    if (state.selectedStoryId === null) return;
+    const story = getStoryById(snapshot, state.selectedStoryId);
+    // A story saiu do plano: manter o drawer aberto exibiria dados obsoletos.
+    if (story === null) {
+      closeDrawer();
+      return;
+    }
+    els.drawerTitle.textContent = story.id + ' · ' + story.title;
+    clear(els.drawerBody);
+  }
+
+  function openDrawer(id) {
+    state.selectedStoryId = id;
+    els.drawer.hidden = false;
+    els.drawerOverlay.hidden = false;
+    document.addEventListener('keydown', onDrawerKeydown);
+    renderDrawer(state.snapshot);
+    els.drawer.focus();
+  }
+
+  function closeDrawer() {
+    const id = state.selectedStoryId;
+    state.selectedStoryId = null;
+    els.drawer.hidden = true;
+    els.drawerOverlay.hidden = true;
+    document.removeEventListener('keydown', onDrawerKeydown);
+    clear(els.drawerBody);
+    // O card é recriado a cada render, então o foco volta pelo id, não por uma
+    // referência guardada na abertura.
+    const card = id ? els.kanban.querySelector('[data-story-id="' + id + '"]') : null;
+    if (card) card.focus();
   }
 
   function renderGit(snapshot) {
@@ -749,6 +804,9 @@
       tab.addEventListener('click', () => setActiveTab(tab.id));
     }
     setActiveTab(state.activeTab);
+
+    els.drawerClose.addEventListener('click', closeDrawer);
+    els.drawerOverlay.addEventListener('click', closeDrawer);
 
     els.refreshSelect.addEventListener('change', () => {
       state.refreshSeconds = Number(els.refreshSelect.value);

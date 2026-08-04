@@ -627,6 +627,7 @@ progress {
 }
 
 .kanban-card {
+  appearance: none;
   display: grid;
   gap: 6px;
   justify-items: start;
@@ -638,7 +639,12 @@ progress {
   padding: 10px;
   font: inherit;
   color: inherit;
+  cursor: pointer;
   box-shadow: var(--shadow);
+}
+
+.kanban-card:hover {
+  border-color: var(--accent);
 }
 
 .kanban-card-head {
@@ -650,6 +656,7 @@ progress {
 }
 
 .kanban-card-title {
+  display: block;
   font-weight: 600;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -678,6 +685,76 @@ progress {
   .kanban {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ---- Drawer de detalhes ---- */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+  padding: 16px;
+  gap: 12px;
+}
+
+.drawer[hidden],
+.drawer-overlay[hidden] {
+  display: none;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drawer-head h2 {
+  margin: 0;
+  /* O título carrega o id + o título da story: fora do padrão caixa-alta das
+     demais seções, que são rótulos fixos e curtos. */
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.drawer-close {
+  appearance: none;
+  flex: none;
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.drawer-close:hover {
+  color: var(--fg);
+  background: var(--idle-bg);
+}
+
+/* A rolagem vive aqui, não na página: o drawer é fixo e ocupa a altura toda. */
+.drawer-body {
+  overflow-y: auto;
+  display: grid;
+  gap: 14px;
+  align-content: start;
 }
 
 /* ---- Diversos ---- */
