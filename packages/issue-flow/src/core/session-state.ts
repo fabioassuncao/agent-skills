@@ -620,10 +620,23 @@ function applyEvent(
               ...emptyUsage(),
             },
           ];
+      // The `execute` phase only completes (and `review` only starts) once
+      // every story already passes — a pipeline invariant — so entering
+      // `review` safely moves every passing story to 'in_review' in one go;
+      // there is never a not-yet-passing story to skip over here.
+      const stories =
+        event.phase === 'review'
+          ? snapshot.stories.map((story) =>
+              story.passes
+                ? { ...story, stage: 'in_review' as const, stageSince: event.at, stageDetail: null }
+                : story,
+            )
+          : snapshot.stories;
       return {
         ...snapshot,
         currentPhase: event.phase,
         phases,
+        stories,
         progress: known ? snapshot.progress : { ...snapshot.progress, phasesTotal: phases.length },
       };
     }
@@ -641,11 +654,34 @@ function applyEvent(
           : p,
       );
       const phasesCompleted = phases.filter((p) => p.status === 'completed').length;
+      // Success moves every passing story to 'done'; failure (the correction
+      // loop gave up after maxCorrectionCycles) moves every passing story
+      // that never reached 'done' to 'failed'. A story already 'done' cannot
+      // occur on the same event that failed, so the `stage !== 'done'` guard
+      // is defensive, not load-bearing.
+      const stories =
+        event.phase === 'review'
+          ? snapshot.stories.map((story) => {
+              if (!story.passes) return story;
+              if (event.success) {
+                return {
+                  ...story,
+                  stage: 'done' as const,
+                  stageSince: event.at,
+                  stageDetail: null,
+                };
+              }
+              return story.stage === 'done'
+                ? story
+                : { ...story, stage: 'failed' as const, stageSince: event.at, stageDetail: null };
+            })
+          : snapshot.stories;
       return {
         ...snapshot,
         currentPhase: snapshot.currentPhase === event.phase ? null : snapshot.currentPhase,
         currentActivity: null,
         phases,
+        stories,
         progress: {
           ...snapshot.progress,
           phasesCompleted,
@@ -793,7 +829,18 @@ function applyEvent(
         pullRequests: event.pullRequests ?? snapshot.pullRequests,
       };
 
-    case 'correction:cycle':
+    case 'correction:cycle': {
+      // Correction is pipeline-wide, not per-story: commands/run.ts re-runs
+      // the whole execute+review cycle on a review failure, with no notion
+      // of which story a finding belongs to — so every passing story moves
+      // to 'in_correction' together, carrying the cycle count as a readable
+      // stageDetail.
+      const stageDetail = `Cycle ${event.cycle}/${event.maxCycles}`;
+      const stories = snapshot.stories.map((story) =>
+        story.passes
+          ? { ...story, stage: 'in_correction' as const, stageSince: event.at, stageDetail }
+          : story,
+      );
       return {
         ...snapshot,
         execution: {
@@ -801,7 +848,9 @@ function applyEvent(
           correctionCycle: event.cycle,
           maxCorrectionCycles: event.maxCycles,
         },
+        stories,
       };
+    }
 
     case 'metrics:update': {
       if (event.scope === 'story') {
