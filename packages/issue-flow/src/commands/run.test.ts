@@ -662,3 +662,164 @@ describe('runPipeline — URL do PR no resumo final (issue 25, US-010)', () => {
     expect(prLine(lines)).toBe('unknown');
   });
 });
+
+describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)', () => {
+  let tmp: string;
+  let originalCwd: string;
+  const savedEnv = new Map<string, string | undefined>();
+
+  const issueDir = (): string => join(tmp, 'issues', '42');
+
+  const writePlan = async (plan: TaskPlan): Promise<void> => {
+    await mkdir(issueDir(), { recursive: true });
+    await writeFile(join(issueDir(), 'tasks.json'), JSON.stringify(plan, null, 2), 'utf-8');
+  };
+
+  const runCapturingLines = async (
+    prReview?: boolean,
+  ): Promise<{ code: number; lines: string[] }> => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    try {
+      const code = await runPipeline('42', 'auto', undefined, undefined, prReview);
+      return { code, lines };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  /** Session snapshot the web UI reads, after the run finished. */
+  const readSnapshot = async () =>
+    sessionSnapshotSchema.parse(
+      JSON.parse(await readFile(join(issueDir(), 'session.json'), 'utf-8')),
+    );
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-ui-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    for (const name of WEB_ENV_VARS) {
+      savedEnv.set(name, process.env[name]);
+      delete process.env[name];
+    }
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    serverHandles.length = 0;
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    vi.mocked(getProvider).mockReturnValue(makeProvider(vi.fn(async () => {})));
+    vi.mocked(runPrReview).mockResolvedValue(0);
+  });
+
+  afterEach(async () => {
+    await Promise.all(serverHandles.map((h) => h.close()));
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    for (const [name, value] of savedEnv) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('sem a flag, session.json continua listando apenas as fases padrão', async () => {
+    await mkdir(issueDir(), { recursive: true });
+    setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
+
+    const { code } = await runCapturingLines();
+    expect(code).toBe(0);
+
+    const snapshot = await readSnapshot();
+    expect(snapshot.phases.map((p) => p.name)).toEqual([
+      'init',
+      'prd',
+      'plan',
+      'execute',
+      'review',
+      'pr',
+    ]);
+    expect(snapshot.progress.phasesTotal).toBe(6);
+  });
+
+  it('com a flag, pr-review aparece em phases[] e entra no total de progresso', async () => {
+    await mkdir(issueDir(), { recursive: true });
+    setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
+
+    const { code } = await runCapturingLines(true);
+    expect(code).toBe(0);
+
+    const snapshot = await readSnapshot();
+    expect(snapshot.phases.map((p) => p.name)).toEqual([
+      'init',
+      'prd',
+      'plan',
+      'execute',
+      'review',
+      'pr',
+      'pr-review',
+    ]);
+    // phasesTotal vem do session:start, então o denominador da UI web já
+    // considera a fase opcional desde o começo da execução.
+    expect(snapshot.progress.phasesTotal).toBe(7);
+    expect(snapshot.phases.every((p) => p.status === 'completed')).toBe(true);
+  });
+
+  it('o resumo final exibe a recomendação e o caminho do relatório', async () => {
+    await writePlan(
+      makePlan({
+        prReview: {
+          enabled: true,
+          rounds: 1,
+          pullRequestNumber: 184,
+          lastRecommendation: 'APPROVE_WITH_SUGGESTIONS',
+          lastReviewedAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    );
+    await mkdir(join(issueDir(), 'pr-review'), { recursive: true });
+    await writeFile(
+      join(issueDir(), 'pr-review', 'index.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        pullRequest: { number: 184, url: null, title: null, headBranch: null },
+        rounds: [
+          {
+            round: 1,
+            at: '2026-01-01T00:00:00Z',
+            recommendation: 'APPROVE_WITH_SUGGESTIONS',
+            headSha: null,
+            reportPath: 'pr-184-round-1.md',
+            findings: [],
+          },
+        ],
+      }),
+      'utf-8',
+    );
+
+    const { code, lines } = await runCapturingLines(true);
+
+    expect(code).toBe(0);
+    const summaryLine = (label: string): string | undefined =>
+      lines
+        .find((l) => l.trimStart().startsWith(label))
+        ?.replace(new RegExp(`^\\s*${label}\\s*`), '')
+        .trim();
+    expect(summaryLine('Review:')).toBe('APPROVE_WITH_SUGGESTIONS');
+    expect(summaryLine('Report:')).toBe(join(issueDir(), 'pr-review', 'pr-184-round-1.md'));
+  });
+
+  it('sem a flag, o resumo final não ganha nenhuma linha nova', async () => {
+    const { code, lines } = await runCapturingLines();
+
+    expect(code).toBe(0);
+    expect(lines.some((l) => l.trimStart().startsWith('Review:'))).toBe(false);
+    expect(lines.some((l) => l.trimStart().startsWith('Report:'))).toBe(false);
+  });
+});

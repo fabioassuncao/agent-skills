@@ -1,6 +1,13 @@
 import chalk from 'chalk';
-import type { EngineConfig, TaskPlan } from '../types.js';
-import { formatDuration, getIcons, getTermWidth, useColor, useUnicode } from './logger.js';
+import type { EngineConfig, PrReviewRecommendation, TaskPlan } from '../types.js';
+import {
+  formatDuration,
+  getIcons,
+  getTermWidth,
+  printSuccess,
+  useColor,
+  useUnicode,
+} from './logger.js';
 
 /**
  * Truncate or pad a string to fit within a given width.
@@ -155,4 +162,77 @@ export function printSummaryBox(
 
   console.log('');
   printBox(boxLines);
+}
+
+/**
+ * What the optional `pr-review` phase produced, as far as the summary cares.
+ * `null` in `recommendation` means the verdict could not be recovered from
+ * disk — the exit code still told us whether changes were requested.
+ */
+export interface RunSummaryPrReview {
+  requestedChanges: boolean;
+  recommendation: PrReviewRecommendation | null;
+  reportPath: string | null;
+}
+
+/**
+ * Everything the final `run` summary prints, already resolved by the caller.
+ */
+export interface RunSummaryInfo {
+  issueNumber: string;
+  /** 'unknown' when the branch could not be detected. */
+  branchName: string;
+  /** Pipelines run with --no-branch open no Pull Request. */
+  noBranch: boolean;
+  storyCount: number;
+  elapsedSeconds: number;
+  /** 'unknown' when no Pull Request could be resolved. */
+  prUrl: string;
+  /** Only set when the pr-review phase actually ran. */
+  prReview?: RunSummaryPrReview | null;
+}
+
+/**
+ * Detail lines of the final `run` summary (everything below the headline).
+ *
+ * Kept separate from the printing so the shape is testable without capturing
+ * stdout. Without `prReview` the lines are exactly the ones the pipeline has
+ * always printed.
+ */
+export function buildRunSummaryLines(info: RunSummaryInfo): string[] {
+  const lines = [
+    `  Branch:   ${info.branchName}${info.noBranch ? ' (current)' : ''}`,
+    `  Stories:  ${info.storyCount}`,
+    `  Duration: ${formatDuration(info.elapsedSeconds)}`,
+  ];
+
+  if (!info.noBranch) {
+    lines.push(`  PR:       ${info.prUrl}`);
+  }
+
+  const review = info.prReview;
+  if (review) {
+    // The exit code is the source of truth for the verdict, so a report whose
+    // recommendation could not be read still reports REQUEST_CHANGES.
+    const verdict =
+      review.recommendation ?? (review.requestedChanges ? 'REQUEST_CHANGES' : 'unknown');
+    lines.push(`  Review:   ${verdict}`);
+    if (review.reportPath !== null) {
+      lines.push(`  Report:   ${review.reportPath}`);
+    }
+  }
+
+  return lines;
+}
+
+/**
+ * Print the final summary of a `run` (the flat listing, not the box used by
+ * the execute engine).
+ */
+export function printRunSummary(info: RunSummaryInfo): void {
+  console.log('');
+  printSuccess(`Pipeline complete for issue #${info.issueNumber}!`);
+  for (const line of buildRunSummaryLines(info)) {
+    console.log(line);
+  }
 }

@@ -22,9 +22,9 @@ import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
-import type { PrReviewRecommendation } from '../types.js';
-import { formatDuration, printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
+import { printError, printInfo, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
+import { printRunSummary, type RunSummaryPrReview } from '../ui/summary.js';
 import { getIssueDir } from '../utils/git.js';
 import { startWebServer, type WebServerHandle } from '../web/server.js';
 import { runExecute } from './execute.js';
@@ -53,13 +53,11 @@ const RUNNABLE_PHASES_WITH_PR_REVIEW: PipelinePhase[] = [...RUNNABLE_PHASES, 'pr
 /**
  * What the `pr-review` phase left behind, for the steps that run after it: the
  * automatic issue close, the highlighted warning and the final summary.
+ *
+ * Same shape the summary consumes: `requestedChanges` drives the close
+ * suppression and is true on exit code 2 even when the plan is gone.
  */
-interface PrReviewOutcome {
-  /** Drives the close suppression; true on exit code 2 even if the plan is gone. */
-  requestedChanges: boolean;
-  recommendation: PrReviewRecommendation | null;
-  reportPath: string | null;
-}
+type PrReviewOutcome = RunSummaryPrReview;
 
 /**
  * Recover the verdict and the report path the `pr-review` phase produced.
@@ -540,24 +538,15 @@ async function runPipelinePhases(
     }
   }
 
-  const totalDuration = formatDuration(result.overallElapsedSeconds);
-
-  console.log('');
-  printSuccess(`Pipeline complete for issue #${issueNumber}!`);
-  console.log(`  Branch:   ${branchName}${effectiveNoBranch ? ' (current)' : ''}`);
-  console.log(`  Stories:  ${storyCount}`);
-  console.log(`  Duration: ${totalDuration}`);
-  if (!effectiveNoBranch) {
-    console.log(`  PR:       ${prUrl}`);
-  }
-  if (review !== null) {
-    console.log(
-      `  Review:   ${review.recommendation ?? (review.requestedChanges ? 'REQUEST_CHANGES' : 'unknown')}`,
-    );
-    if (review.reportPath !== null) {
-      console.log(`  Report:   ${review.reportPath}`);
-    }
-  }
+  printRunSummary({
+    issueNumber,
+    branchName,
+    noBranch: effectiveNoBranch,
+    storyCount,
+    elapsedSeconds: result.overallElapsedSeconds,
+    prUrl,
+    prReview: review,
+  });
 
   return 0;
 }

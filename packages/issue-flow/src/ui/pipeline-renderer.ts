@@ -38,6 +38,11 @@ export interface PipelineRendererOptions {
 
 /**
  * Phase labels for display.
+ *
+ * Typed as `Record<string, string>` on purpose (phases arrive as plain strings
+ * here), which also means adding a phase to `PipelinePhase` does *not* break
+ * the build when its label is missing — it silently falls back to the
+ * capitalized phase name. Hence `phaseLabel()` below being covered by a test.
  */
 const PHASE_LABELS: Record<string, string> = {
   prd: 'PRD',
@@ -45,7 +50,16 @@ const PHASE_LABELS: Record<string, string> = {
   execute: 'Execute',
   review: 'Review',
   pr: 'PR',
+  'pr-review': 'PR Review',
 };
+
+/**
+ * Display label for a pipeline phase, falling back to the capitalized phase
+ * name for anything not in the table.
+ */
+export function phaseLabel(phase: string): string {
+  return PHASE_LABELS[phase] ?? phase.charAt(0).toUpperCase() + phase.slice(1);
+}
 
 /**
  * Select the appropriate listr2 renderer based on environment.
@@ -202,7 +216,7 @@ export async function runPipelineWithRenderer(
 
   const tasks = new Listr(
     phases.map((phase, index) => {
-      const label = PHASE_LABELS[phase] ?? phase.charAt(0).toUpperCase() + phase.slice(1);
+      const label = phaseLabel(phase);
       const isExecutePhase = phase === 'execute' && tasksPath;
 
       return {

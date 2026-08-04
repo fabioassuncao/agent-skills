@@ -2,8 +2,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { PIPELINE_PHASES } from '../core/pipeline.js';
 import type { TaskPlan } from '../types.js';
-import { runPipelineWithRenderer } from './pipeline-renderer.js';
+import { phaseLabel, runPipelineWithRenderer } from './pipeline-renderer.js';
 
 /**
  * Regression coverage for the pipeline renderer itself.
@@ -52,6 +53,28 @@ function minimalPlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
     ...overrides,
   };
 }
+
+describe('phaseLabel (issue 25, US-011)', () => {
+  it('rotula a fase pr-review como "PR Review"', () => {
+    // A tabela é Record<string, string>: ampliar PipelinePhase não quebra a
+    // compilação quando o label falta, então o rótulo precisa de teste.
+    expect(phaseLabel('pr-review')).toBe('PR Review');
+  });
+
+  it('mantém os rótulos das fases existentes', () => {
+    expect(PIPELINE_PHASES.filter((p) => p !== 'init').map(phaseLabel)).toEqual([
+      'PRD',
+      'Plan',
+      'Execute',
+      'Review',
+      'PR',
+    ]);
+  });
+
+  it('capitaliza uma fase desconhecida em vez de exibir vazio', () => {
+    expect(phaseLabel('deploy')).toBe('Deploy');
+  });
+});
 
 describe('runPipelineWithRenderer — stops the pipeline on a failed phase', () => {
   it('does not run a phase after an earlier one throws (no tasksPath)', async () => {
