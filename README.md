@@ -579,13 +579,21 @@ If the global storage tree itself is unavailable (e.g. no resolvable home direct
 
 Because the server is decoupled from any one run, it cannot rely on that run's in-memory state -- instead it polls `~/.issue-flow/projects/*/issues/*/session.json` on disk (the same file each run already writes) and keeps every well-formed, recently-updated one as an **active session**. A session stops being reported shortly after its process stops updating that file.
 
-`GET /api/sessions` lists every active session:
+The web UI follows the same rule. With **exactly one** active session, the monitor opens the detail view as before (issue summary, repository, progress, Kanban, logs) -- no extra click. With **two or more**, the home page becomes a **multi-project dashboard**: one card per execution (repository name, issue number and title, short description, current phase, progress, elapsed time, status, and a live indicator when `status` is `running`). Clicking a card opens that session's existing detail view; a "Todas as execuções" control returns to the dashboard. The UI re-checks `GET /api/sessions` on every poll, so a second run that starts while the monitor is already open switches to the dashboard without a manual reload.
+
+`GET /api/sessions` lists every active session, with summary fields for the dashboard cards (so the client does not need N× `/api/status` fetches just to paint the list). `issueDescription` is a short whitespace-collapsed preview (not the full issue body):
 
 ```json
 [
   {
     "sessionId": "3f9e2b7a-…",
     "issueNumber": 42,
+    "issueTitle": "Add multi-project dashboard",
+    "issueDescription": "Short preview of the issue body…",
+    "repositoryName": "acme/app",
+    "currentPhase": "execute",
+    "progressPercent": 40,
+    "elapsedSeconds": 320,
     "status": "running",
     "startedAt": "2026-08-04T16:00:00Z",
     "updatedAt": "2026-08-04T16:05:00Z",

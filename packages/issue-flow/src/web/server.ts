@@ -28,12 +28,27 @@ import type { SessionDirectoryHandle } from './session-directory.js';
 
 const require = createRequire(import.meta.url);
 
+/** Max length of `issueDescription` on GET /api/sessions (dashboard preview). */
+export const SESSION_LIST_DESCRIPTION_MAX = 280;
+
 function readPackageVersion(): string {
   try {
     return (require('../../package.json') as { version: string }).version;
   } catch {
     return '0.0.0';
   }
+}
+
+/** Collapse whitespace and truncate for the sessions list payload. */
+export function truncateSessionDescription(
+  text: string | null | undefined,
+  max = SESSION_LIST_DESCRIPTION_MAX,
+): string | null {
+  if (text === null || text === undefined) return null;
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized.length === 0) return normalized;
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max - 1).trimEnd()}…`;
 }
 
 export interface WebServerOptions {
@@ -265,12 +280,22 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     }
 
     if (path === '/api/sessions') {
+      // Summary fields for the multi-session dashboard (issue #35): the full
+      // SessionSnapshot is already in memory, so the client can render cards
+      // from this single list without N× /api/status fetches per poll.
+      // issueDescription is truncated — cards only need a short preview.
       respondJson(
         res,
         200,
         source.list().map((snapshot) => ({
           sessionId: snapshot.sessionId,
           issueNumber: snapshot.issue.number,
+          issueTitle: snapshot.issue.title,
+          issueDescription: truncateSessionDescription(snapshot.issue.description),
+          repositoryName: snapshot.repository.name,
+          currentPhase: snapshot.currentPhase,
+          progressPercent: snapshot.progress.percent,
+          elapsedSeconds: snapshot.elapsedSeconds,
           status: snapshot.status,
           startedAt: snapshot.startedAt,
           updatedAt: snapshot.updatedAt,

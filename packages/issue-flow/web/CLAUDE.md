@@ -8,14 +8,28 @@ vitest. Toda verificação de mudança aqui é manual, no navegador.
 
 ## Contrato de dados
 
-O painel consome só `GET api/status` (o `SessionSnapshot` serializado) e
-`GET api/health`. Ele precisa renderizar **session.json de execuções
-antigas**, então todo campo pode chegar como `undefined` (não existia na
-versão que gravou o arquivo) além do `null` (existe, não informado). Os dois
-significam "não informado" e nunca podem virar `0`, `NaN` ou `undefined` na
-tela — daí o helper `metric()`, que normaliza qualquer coisa que não seja
-número finito para `null`. Prefira `x !== null && x !== undefined` a `!x`:
-zero é um valor legítimo.
+O painel consome `GET api/sessions` (lista enriquecida para o dashboard),
+`GET api/status` (o `SessionSnapshot` serializado, opcionalmente com
+`?session=<id>`) e `GET api/health`. Ele precisa renderizar **session.json de
+execuções antigas**, então todo campo pode chegar como `undefined` (não
+existia na versão que gravou o arquivo) além do `null` (existe, não
+informado). Os dois significam "não informado" e nunca podem virar `0`,
+`NaN` ou `undefined` na tela — daí o helper `metric()`, que normaliza
+qualquer coisa que não seja número finito para `null`. Prefira
+`x !== null && x !== undefined` a `!x`: zero é um valor legítimo.
+
+Com **uma** sessão ativa o painel abre direto no detalhe (comportamento
+histórico). Com **duas ou mais**, `renderDashboard()` lista um card por
+execução; o clique define `state.selectedSessionId` e o poll passa a usar o
+`statusUrl` daquela sessão. `selectedSessionId === null` é o modo automático.
+Trocas de sessão (e o modo dashboard) zeram `snapshot`/`etag` via
+`detailSessionId` para não pintar dados da execução anterior. Clique durante
+um poll em andamento marca `pollAgain` em vez de ser descartado.
+
+Os cards do dashboard são `<button>` como os do Kanban: só *phrasing content*
+(`<span>`), nunca `<div>`/`<p>` dentro do botão. `issueDescription` em
+`/api/sessions` já vem truncada no servidor (preview); o client ainda aplica
+`truncateText` na renderização.
 
 Texto dinâmico sempre via `textContent`/`el()`; nunca `innerHTML` com dados
 do snapshot.
