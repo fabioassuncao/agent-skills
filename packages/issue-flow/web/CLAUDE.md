@@ -22,6 +22,14 @@ Com **uma** sessão ativa o painel abre direto no detalhe (comportamento
 histórico). Com **duas ou mais**, `renderDashboard()` lista um card por
 execução; o clique define `state.selectedSessionId` e o poll passa a usar o
 `statusUrl` daquela sessão. `selectedSessionId === null` é o modo automático.
+Trocas de sessão (e o modo dashboard) zeram `snapshot`/`etag` via
+`detailSessionId` para não pintar dados da execução anterior. Clique durante
+um poll em andamento marca `pollAgain` em vez de ser descartado.
+
+Os cards do dashboard são `<button>` como os do Kanban: só *phrasing content*
+(`<span>`), nunca `<div>`/`<p>` dentro do botão. `issueDescription` em
+`/api/sessions` já vem truncada no servidor (preview); o client ainda aplica
+`truncateText` na renderização.
 
 Texto dinâmico sempre via `textContent`/`el()`; nunca `innerHTML` com dados
 do snapshot.

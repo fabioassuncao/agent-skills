@@ -9,10 +9,31 @@ import {
   type SessionSnapshot,
 } from '../core/session-state.js';
 import { sessionSnapshotSchema } from '../schemas.js';
-import { startWebServer, type WebServerHandle } from './server.js';
+import {
+  SESSION_LIST_DESCRIPTION_MAX,
+  startWebServer,
+  truncateSessionDescription,
+  type WebServerHandle,
+} from './server.js';
 import type { ActiveSession, SessionDirectoryHandle } from './session-directory.js';
 
 const noop = (): void => {};
+
+describe('truncateSessionDescription', () => {
+  it('returns null for nullish input and preserves short text', () => {
+    expect(truncateSessionDescription(null)).toBeNull();
+    expect(truncateSessionDescription(undefined)).toBeNull();
+    expect(truncateSessionDescription('  hello   world  ')).toBe('hello world');
+  });
+
+  it('collapses whitespace and truncates long bodies with an ellipsis', () => {
+    const body = `${'x'.repeat(SESSION_LIST_DESCRIPTION_MAX + 40)}`;
+    const out = truncateSessionDescription(body);
+    expect(out).not.toBeNull();
+    expect(out!.length).toBeLessThanOrEqual(SESSION_LIST_DESCRIPTION_MAX);
+    expect(out!.endsWith('…')).toBe(true);
+  });
+});
 
 function makePublisher(): MemoryPublisher {
   const publisher = new MemoryPublisher({ onWarn: noop });
@@ -219,6 +240,27 @@ describe('startWebServer', () => {
     });
   });
 
+  it('truncates long issueDescription on /api/sessions for dashboard preview', async () => {
+    const longBody = `${'palavra '.repeat(80)}fim`;
+    const publisher = makePublisher();
+    publisher.publish({
+      type: 'issue:update',
+      at: '2026-08-03T12:00:01Z',
+      number: 22,
+      url: 'https://github.com/acme/repo/issues/22',
+      title: 'Issue longa',
+      description: longBody,
+      labels: [],
+      state: 'open',
+    });
+    const handle = await start({ publisher });
+
+    const sessions = await (await fetch(`${handle.url}/api/sessions`)).json();
+    expect(sessions[0].issueDescription.length).toBeLessThanOrEqual(SESSION_LIST_DESCRIPTION_MAX);
+    expect(sessions[0].issueDescription.endsWith('…')).toBe(true);
+    expect(sessions[0].issueDescription.length).toBeLessThan(longBody.length);
+  });
+
   it('reports ok, uptime and version on /api/health', async () => {
     const handle = await start({ version: '9.9.9', refreshSeconds: 10 });
     const health = await fetch(`${handle.url}/api/health`).then((r) => r.json());
@@ -270,6 +312,9 @@ describe('startWebServer', () => {
     expect(jsText).toContain('api/status');
     expect(jsText).toContain('api/sessions');
     expect(jsText).toContain('renderDashboard');
+    expect(jsText).toContain('pollAgain');
+    expect(jsText).toContain("el('span', 'dashboard-card-head'");
+    expect(jsText).not.toContain("el('div', 'dashboard-card-head'");
   });
 
   it('answers 404 JSON for unknown routes, missing assets and non-GET methods', async () => {

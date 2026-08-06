@@ -953,10 +953,12 @@ progress {
 .dashboard-summary {
   margin: 0;
   font-size: 0.9rem;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
   overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-meta-row {
@@ -969,6 +971,7 @@ progress {
 }
 
 .dashboard-progress {
+  display: block;
   height: 6px;
   background: var(--idle-bg);
   border-radius: 999px;
@@ -976,6 +979,7 @@ progress {
 }
 
 .dashboard-progress-bar {
+  display: block;
   height: 100%;
   background: var(--run);
   border-radius: 999px;

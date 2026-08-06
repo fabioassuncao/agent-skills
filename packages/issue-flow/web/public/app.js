@@ -112,8 +112,12 @@
     // selectedSessionId null = modo automático (1 sessão → detalhe; 2+ → dashboard).
     sessions: [],
     selectedSessionId: null,
+    // sessionId cujo snapshot/detalhe está na tela (evita flash ao trocar).
+    detailSessionId: null,
     viewMode: 'detail', // 'detail' | 'dashboard'
     statusUrl: 'api/status',
+    // Se selectSession/clearSessionSelection chega durante um poll, reexecuta.
+    pollAgain: false,
   };
 
   // ---- Utilitários ----------------------------------------------------------
@@ -368,6 +372,9 @@
       if (!stillThere) {
         state.selectedSessionId = null;
         state.etag = null;
+      } else if (sessions.length === 1) {
+        // Seleção explícita deixa de fazer sentido com uma única sessão.
+        state.selectedSessionId = null;
       }
     }
 
@@ -391,8 +398,9 @@
     state.viewMode = mode;
     els.viewDashboard.hidden = mode !== 'dashboard';
     els.viewDetail.hidden = mode !== 'detail';
+    // Back só quando o usuário escolheu um card e ainda há dashboard para voltar.
     const showBack =
-      mode === 'detail' && (state.selectedSessionId !== null || state.sessions.length >= 2);
+      mode === 'detail' && state.selectedSessionId !== null && state.sessions.length >= 2;
     els.backToDashboard.hidden = !showBack;
     if (mode === 'dashboard' && state.selectedStoryId !== null) {
       closeDrawer();
@@ -406,27 +414,42 @@
     return session.statusUrl.replace(/^\//, '');
   }
 
+  function clearDetailState() {
+    state.etag = null;
+    state.snapshot = null;
+    state.detailSessionId = null;
+  }
+
+  function requestPoll() {
+    clearTimer();
+    if (state.polling) {
+      state.pollAgain = true;
+      return;
+    }
+    poll();
+  }
+
   function selectSession(sessionId) {
     if (state.selectedSessionId !== sessionId) {
-      state.etag = null;
-      state.snapshot = null;
+      clearDetailState();
     }
     state.selectedSessionId = sessionId;
-    clearTimer();
-    poll();
+    requestPoll();
   }
 
   function clearSessionSelection() {
     state.selectedSessionId = null;
-    state.etag = null;
-    state.snapshot = null;
-    clearTimer();
-    poll();
+    clearDetailState();
+    requestPoll();
   }
 
   async function poll() {
-    if (state.polling) return;
+    if (state.polling) {
+      state.pollAgain = true;
+      return;
+    }
     state.polling = true;
+    state.pollAgain = false;
     try {
       const sessionsRes = await fetch('api/sessions', { cache: 'no-store' });
       if (!sessionsRes.ok) throw new Error('HTTP ' + sessionsRes.status);
@@ -434,10 +457,30 @@
       if (!Array.isArray(sessions)) throw new Error('sessions payload invalid');
 
       const resolved = resolveView(sessions);
-      setViewMode(resolved.mode);
 
       if (resolved.mode === 'dashboard') {
+        clearDetailState();
+        setViewMode('dashboard');
         renderDashboard(sessions);
+        state.failures = 0;
+        els.banner.hidden = true;
+        return;
+      }
+
+      const nextId =
+        resolved.session && resolved.session.sessionId != null
+          ? resolved.session.sessionId
+          : null;
+      const sessionChanged = state.detailSessionId !== nextId;
+      if (sessionChanged) {
+        clearDetailState();
+        state.detailSessionId = nextId;
+      }
+
+      if (!resolved.session) {
+        setViewMode('detail');
+        // Zero sessões: mantém a última tela de detalhe se houver, sem explodir.
+        renderEmptyDetail();
         state.failures = 0;
         els.banner.hidden = true;
         return;
@@ -449,23 +492,31 @@
         state.etag = null;
       }
 
-      if (!resolved.session) {
-        // Zero sessões: mantém a última tela de detalhe se houver, sem explodir.
-        renderEmptyDetail();
-        state.failures = 0;
-        els.banner.hidden = true;
-        return;
+      // Evita flash da sessão anterior enquanto o status novo carrega.
+      if (sessionChanged || !state.snapshot) {
+        els.viewDashboard.hidden = true;
+        els.viewDetail.hidden = true;
+      } else {
+        setViewMode('detail');
       }
 
       const headers = {};
       if (state.etag) headers['If-None-Match'] = state.etag;
       const res = await fetch(state.statusUrl, { headers, cache: 'no-store' });
+      // Se selectSession/clear pediu outro poll no meio do fetch, descarta este
+      // status — o ciclo seguinte aplica a seleção atual.
+      if (state.pollAgain) {
+        state.failures = 0;
+        els.banner.hidden = true;
+        return;
+      }
       if (res.status !== 304) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         state.etag = res.headers.get('ETag');
         state.snapshot = await res.json();
         render();
       }
+      setViewMode('detail');
       state.failures = 0;
       els.banner.hidden = true;
     } catch (err) {
@@ -473,7 +524,12 @@
       els.banner.hidden = false;
     } finally {
       state.polling = false;
-      schedule();
+      if (state.pollAgain) {
+        state.pollAgain = false;
+        poll();
+      } else {
+        schedule();
+      }
     }
   }
 
@@ -495,6 +551,15 @@
   }
 
   function renderDashboard(sessions) {
+    const active = document.activeElement;
+    const focusedId =
+      active &&
+      active.dataset &&
+      els.dashboard.contains(active) &&
+      active.dataset.sessionId
+        ? active.dataset.sessionId
+        : null;
+
     clear(els.dashboard);
 
     if (sessions.length === 0) {
@@ -505,12 +570,13 @@
     }
 
     for (const session of sessions) {
+      // <button> só aceita phrasing content — mesmos spans do Kanban.
       const card = el('button', 'dashboard-card');
       card.type = 'button';
       if (session.sessionId) card.dataset.sessionId = session.sessionId;
       if (session.status === 'running') card.classList.add('is-live');
 
-      const head = el('div', 'dashboard-card-head');
+      const head = el('span', 'dashboard-card-head');
       const project = el(
         'span',
         'dashboard-project',
@@ -522,7 +588,7 @@
       head.appendChild(badge);
       card.appendChild(head);
 
-      const titleRow = el('div', 'dashboard-title-row');
+      const titleRow = el('span', 'dashboard-title-row');
       if (session.issueNumber !== null && session.issueNumber !== undefined) {
         titleRow.appendChild(el('span', 'dashboard-issue', '#' + session.issueNumber));
       }
@@ -532,9 +598,9 @@
       card.appendChild(titleRow);
 
       const summary = truncateText(session.issueDescription, DESCRIPTION_PREVIEW);
-      card.appendChild(el('p', 'dashboard-summary muted', summary || 'Sem descrição'));
+      card.appendChild(el('span', 'dashboard-summary muted', summary || 'Sem descrição'));
 
-      const meta = el('div', 'dashboard-meta-row');
+      const meta = el('span', 'dashboard-meta-row');
       meta.appendChild(
         el('span', null, 'Fase: ' + (session.currentPhase || '—')),
       );
@@ -550,8 +616,8 @@
       meta.appendChild(el('span', null, elapsed));
       card.appendChild(meta);
 
-      const progress = el('div', 'dashboard-progress');
-      const bar = el('div', 'dashboard-progress-bar');
+      const progress = el('span', 'dashboard-progress');
+      const bar = el('span', 'dashboard-progress-bar');
       bar.style.width = Math.max(0, Math.min(100, percent)) + '%';
       progress.appendChild(bar);
       card.appendChild(progress);
@@ -570,6 +636,13 @@
     els.dashboardMeta.textContent =
       sessions.length + (sessions.length === 1 ? ' execução' : ' execuções');
     document.title = sessions.length + ' execuções · issue-flow';
+
+    if (focusedId) {
+      const card = els.dashboard.querySelector(
+        '[data-session-id="' + focusedId.replace(/"/g, '') + '"]',
+      );
+      if (card) card.focus();
+    }
   }
 
   // ---- Renderização ---------------------------------------------------------
