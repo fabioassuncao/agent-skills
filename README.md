@@ -336,6 +336,32 @@ The issue content is fetched **in the CLI** and injected into every prompt (`ana
 
 With `conflictPolicy: "ask"` **and** an interactive terminal, the versions are listed and you choose: `[1] Local  [2] GitHub  [3] Cancel` (cancelling exits non-zero). In CI or any non-TTY environment the prompt is never shown -- the preferred provider is used and a warning is printed, so an automated run can never hang. `prefer-local` and `prefer-github` never prompt.
 
+### Hierarchy and dependency discovery
+
+A provider may also answer *how an issue relates to the others*. The GitHub provider reconciles three mechanisms that only partially overlap, so a repository is covered whichever one it adopted:
+
+| Source | Reads | Produces |
+|--------|-------|----------|
+| [Sub-issues](https://docs.github.com/rest/issues/sub-issues) | `GET /repos/{owner}/{repo}/issues/{n}/sub_issues` and the `parent` field of the issue payload | `children`, `parent` |
+| [Issue Dependencies](https://docs.github.com/rest/issues/dependencies) | `GET …/issues/{n}/dependencies/blocked_by` and `…/blocking` | `blockedBy`, `blocking` |
+| Issue body (heuristic) | `Depends on #N`, `Depends-on: #N`, `Blocked by #N`, `Requires #N`, `Blocks #N`, task list items `- [ ] #N` | `blockedBy`, `blocking`, `children` |
+| Timeline cross-references | `GET …/issues/{n}/timeline` | `referencedBy` (Pull Requests excluded) |
+
+Every source is queried through `gh api` and is allowed to fail on its own: an organization without Issue Dependencies enabled simply gets those two fields empty -- a 404 costs a field, never the discovery.
+
+The textual fallback is **heuristic**, and its limits are deliberate:
+
+- fenced code blocks and inline code spans are stripped first, so `#42` inside a snippet is never a dependency;
+- a keyword only creates a relation when it is **immediately** followed by the id -- "blocked by the redesign discussed in #12" is a mention, not a dependency;
+- `#N, #M and #O` after a single keyword are all read;
+- only the **first** citation of a task list item is treated as the sub-issue;
+- everything else becomes a plain `reference`, which **never** orders execution;
+- an id that only the heuristic found is flagged as such, and [`run`](#run----full-pipeline-end-to-end) marks it with `~` in the confirmation summary.
+
+From these relations the CLI builds a **dependency graph**, walking hierarchy and dependencies breadth-first from the issues you asked for. Plain mentions are recorded but never expanded -- a "see also #12" must not drag an unrelated issue into a plan you are about to confirm. Traversal is bounded by **25 nodes and depth 3** by default; hitting either limit is reported rather than silently truncating. A dependency cycle does not break discovery: the graph is returned with the cycle recorded, and it is the ordering step that refuses to run (see [`run`](#run----full-pipeline-end-to-end)).
+
+The `local` provider does not implement discovery: a local issue simply has no relations, and everything below behaves as it did for a single issue.
+
 ### Flags
 
 Available on `run`, `init`, `analyze`, `prd`, `plan`, `review` and `pr`:
