@@ -9,10 +9,25 @@ import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { taskPlanSchema } from '../schemas.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
-import { printError, printSuccess } from '../ui/logger.js';
+import {
+  determineUserStoryNumbering,
+  formatUserStoryId,
+  parseUserStoryNumber,
+} from '../storage/user-story-numbering.js';
+import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { isTransientFailure } from '../utils/retry.js';
 
-export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
+/** `--continue` / `--start-us <n>` override of the numbering cascade (issue #36). */
+export interface PlanUserStoryNumberingOptions {
+  continueFlag?: boolean;
+  startUs?: number;
+}
+
+export async function runPlan(
+  issue: string,
+  resolvedIssue?: ResolvedIssue,
+  numbering?: PlanUserStoryNumberingOptions,
+): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   const paths = await resolveIssuePaths(issueNumber);
 
@@ -33,11 +48,27 @@ export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Pro
 
   const tasksPath = paths.tasksFile;
 
+  // Resolve the User Story numbering continuity (issue #36), log where the
+  // decision came from — never silently — and persist it into the project's
+  // metadata.json for audit before the prompt is even built, so the record on
+  // disk always matches what the prompt was told.
+  const {
+    message: numberingMessage,
+    nextUserStoryId,
+    decision: { nextNumber },
+  } = await determineUserStoryNumbering({
+    issueNumber,
+    continueFlag: numbering?.continueFlag,
+    startUs: numbering?.startUs,
+  });
+  printInfo(numberingMessage);
+
   const template = await loadPrompt('plan');
   const prompt = applyPlaceholders(template, {
     __ISSUE_NUMBER__: issueNumber,
     __PRD_CONTENT__: prdContent,
     __TASKS_PATH__: tasksPath,
+    __NEXT_US_NUMBER__: nextUserStoryId,
     ...issuePlaceholders(resolution.resolved),
   });
 
@@ -112,6 +143,24 @@ export async function runPlan(issue: string, resolvedIssue?: ResolvedIssue): Pro
   const plan = await loadTaskPlan(tasksPath);
   plan.pipeline.jsonCompleted = true;
   await saveTaskPlan(tasksPath, plan);
+
+  // The numbering is a prompt instruction, not a programmatic rewrite, so the
+  // generated plan can still ignore it. Say so out loud instead of leaving the
+  // log and metadata.json claiming a numbering the file on disk contradicts.
+  const generatedLowest = plan.userStories
+    .map((story) => parseUserStoryNumber(story.id))
+    .filter((value): value is number => value !== null)
+    .reduce<number | null>(
+      (lowest, value) => (lowest === null ? value : Math.min(lowest, value)),
+      null,
+    );
+  if (generatedLowest !== null && generatedLowest < nextNumber) {
+    printWarning(
+      `The generated plan starts at ${formatUserStoryId(generatedLowest)}, not the requested ` +
+        `${nextUserStoryId}. User Story ids may collide with earlier issues of this project — ` +
+        `re-run 'issue-flow plan ${issueNumber} --start-us ${nextNumber}' if that matters.`,
+    );
+  }
 
   printSuccess(`Task plan saved to ${tasksPath} (${plan.userStories.length} stories)`);
   return 0;

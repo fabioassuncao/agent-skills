@@ -26,12 +26,12 @@ The PR should:
 - Cite where the demand is described: the reference above (`__ISSUE_URL__`)
 
 Issue reference line(s):
-- Include the following verbatim in the PR body, each entry on its own line:
-```
+- Include the lines below verbatim in the PR body, each entry on its own line,
+  with no surrounding code fence or quoting — GitHub only auto-closes an issue
+  when the `Closes #N` line is plain body text:
 __ISSUE_CLOSES__
-```
-- When it is empty, the issue has no GitHub counterpart: do NOT invent a
-  "Closes #" reference, and cite `__ISSUE_URL__` in the body instead
+- When nothing follows the line above, the issue has no GitHub counterpart: do
+  NOT invent a "Closes #" reference, and cite `__ISSUE_URL__` in the body instead
 
 __MULTI_ISSUE_CONTEXT__
 

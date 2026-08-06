@@ -36,18 +36,42 @@ that were tagged but never published to the registry are marked as such.
     `Closes #N` per issue hosted on GitHub. The reference is replicated to every
     issue's `tasks.json`, so `pr-review --issue <any>` still finds it.
 
+- **User Story numbering continuity** (issue #36, PR #48) — `plan` no longer
+  restarts at `US-001` on every run. The highest `US-NNN` already used anywhere
+  in the project is recovered from the global storage and the new plan continues
+  from it, so ids no longer collide between issues of the same project.
+  - `--start-us <n>` forces a starting number, ignoring history; `--continue`
+    names the (already automatic) history-based behavior explicitly. Combining
+    both fails with a clear error before anything runs.
+  - The decision is always logged and persisted to the project's
+    `metadata.json` for audit.
+
 ### Changed
 
 - `core/session-metrics.ts` keeps a **stack** of usage scopes instead of a single
   module-level accumulator, so several issues can run in one process without
   their costs leaking into each other's summary (the caveat previously
   documented in `src/core/CLAUDE.md`).
+- **Behavior change**: `plan` runs on a project that already has plans now start
+  above the last used number instead of at `US-001`. Re-running `plan` for the
+  same issue is idempotent — the plan it is about to overwrite is excluded from
+  the scan. Pass `--start-us 1` to restore the old behavior for a single run.
+- A storage failure while scanning the numbering history now aborts with an
+  explicit error instead of silently restarting the numbering at `US-001`.
 
 ### Compatibility
 
 - A single issue with no discovered relations behaves exactly as before: no
   prompt, no queue artifact, the same commit format and the same Pull Request
   body.
+- A run asking for **one** issue never fails because of its hierarchy: a
+  dependency cycle discovered around it, or a non-interactive terminal with no
+  `--yes`/`--only`, degrades to the plain single-issue pipeline with a warning
+  instead of exiting `1`. Only an explicitly multi-issue request is refused.
+- `--start-us <n>` applies to the first issue of a queue only; the rest continue
+  from the history those plans just wrote.
+- A queue that already completed is reported and left untouched, instead of
+  being re-planned and overwriting its recorded Pull Request.
 
 ## [0.5.0] - 2026-08-03
 

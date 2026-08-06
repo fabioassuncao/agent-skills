@@ -228,7 +228,7 @@ afterEach(async () => {
 /** Silence the terminal output while still returning the exit code. */
 async function run(
   issues: string | string[],
-  options: { yes?: boolean; only?: boolean } = { yes: true },
+  options: { yes?: boolean; only?: boolean; startUs?: number } = { yes: true },
 ): Promise<number> {
   const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
@@ -377,6 +377,35 @@ describe('queue of several issues', () => {
     expect(vi.mocked(runPr)).not.toHaveBeenCalled();
   });
 
+  it('reports a completed queue and keeps its plan intact instead of re-planning it', async () => {
+    await run('50');
+    const planFile = (await resolveQueuePaths('50')).planFile;
+    const before = await loadExecutionPlan(planFile);
+    vi.mocked(runExecute).mockClear();
+    resetStorageResolutionCache();
+
+    expect(await run('50', {})).toBe(0);
+
+    expect(vi.mocked(runExecute)).not.toHaveBeenCalled();
+    // Re-planning would rebuild the file and drop the recorded Pull Request.
+    expect(await loadExecutionPlan(planFile)).toEqual(before);
+  });
+
+  it('applies --start-us to the first issue of the queue only', async () => {
+    expect(await run('50', { yes: true, startUs: 27 })).toBe(0);
+
+    const numbering = vi
+      .mocked(runPlan)
+      .mock.calls.map(([issue, , options]) => [issue, options?.startUs]);
+    // Handing 27 to every issue would give them all the same ids — the very
+    // collision issue #36 set out to remove.
+    expect(numbering).toEqual([
+      ['50', 27],
+      ['52', undefined],
+      ['51', undefined],
+    ]);
+  });
+
   it('persists the queue with every issue completed', async () => {
     await run('50');
 
@@ -476,19 +505,46 @@ describe('scope confirmation', () => {
     relations.set('51', { ...emptyRelations('51'), parent: '50' });
   });
 
-  it('fails explicitly when it cannot ask and no flag was given', async () => {
+  it('runs just the informed issue when it cannot ask (single issue, no flag)', async () => {
+    // The user asked for one issue; only the *hierarchy* around it needs
+    // consent, so a non-interactive terminal falls back to exactly what was
+    // asked for instead of failing a run that always worked.
     const code = await run('50', {});
+    expect(code).toBe(0);
+
+    const executed = vi
+      .mocked(runExecute)
+      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+    expect(executed).toEqual(['50']);
+    expect(existsSync((await resolveQueuePaths('50')).planFile)).toBe(false);
+  });
+
+  it('still fails when several issues were informed and it cannot ask', async () => {
+    const code = await run(['50', '51'], {});
     expect(code).toBe(1);
     expect(vi.mocked(runExecute)).not.toHaveBeenCalled();
   });
 });
 
 describe('dependency cycles', () => {
-  it('refuses to run and explains, instead of picking an order', async () => {
+  beforeEach(() => {
     relations.set('50', { ...emptyRelations('50'), blockedBy: ['51'] });
     relations.set('51', { ...emptyRelations('51'), blockedBy: ['50'] });
+  });
 
-    expect(await run('50')).toBe(1);
+  it('refuses to run a multi-issue request and explains, instead of picking an order', async () => {
+    expect(await run(['50', '51'])).toBe(1);
     expect(vi.mocked(runExecute)).not.toHaveBeenCalled();
+  });
+
+  it('degrades a single-issue request to the plain pipeline instead of failing', async () => {
+    // A cycle someone else introduced on GitHub must not break `run 50`, a
+    // command that never asked for the hierarchy in the first place.
+    expect(await run('50')).toBe(0);
+
+    const executed = vi
+      .mocked(runExecute)
+      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+    expect(executed).toEqual(['50']);
   });
 });

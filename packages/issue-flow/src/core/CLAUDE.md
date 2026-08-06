@@ -47,6 +47,15 @@ never had them must not gain artificial nulls on a round trip.
   and each story's `status`) are recomputed in `reduceSessionEvent` **after**
   `applyEvent`, never accumulated inside a case. A new derived field belongs
   there so it stays consistent for every event type.
+- A story's `stage` is the one exception to the rule above, and deliberately
+  so: it is **accumulated inside the cases** that cause a transition
+  (`stories:update`, `iteration:start`, `correction:cycle`, `phase:start`/
+  `phase:end` of `review`, `session:end`), never recomputed afterwards, because
+  a stage like `in_correction` has to survive an unrelated `stories:update`
+  that carries no information about it. Two invariants keep that safe: only
+  `done` and `failed` are terminal, and every ending event (`phase:end` with
+  `success: false`, `session:end`) must close all non-terminal stages — a run
+  that is over can never leave a story on `executing`.
 - A story's `status` is observational: `passes` remains the only thing the
   pipeline (engine, state-manager, review) reads to decide flow. The derivation
   is idempotent by construction — `done` (from `passes`) > a sticky `in_review`

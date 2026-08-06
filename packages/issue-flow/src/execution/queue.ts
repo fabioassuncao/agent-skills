@@ -86,7 +86,18 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
   const single = input.requested.length === 1;
 
   const resumable = await loadResumableQueue(input.planFile, input.requested);
-  if (resumable !== null && !isQueueComplete(resumable)) {
+  // A queue that already finished has nothing left to run, and re-planning it
+  // would overwrite its `execution-plan.json` — losing the Pull Request and
+  // the record of what ran. Report it and stop successfully instead.
+  if (resumable !== null && isQueueComplete(resumable)) {
+    const pr = resumable.pullRequest?.url;
+    info(
+      `The execution queue of issue #${resumable.id} is already complete ` +
+        `(${resumable.issues.length} issues)${pr === undefined ? '' : ` — ${pr}`}. Nothing to run.`,
+    );
+    return { kind: 'stop', code: 0 };
+  }
+  if (resumable !== null) {
     const done = resumable.issues.filter((entry) => entry.status === 'completed').length;
     info(
       `Resuming the execution queue of issue #${resumable.id}: ` +
@@ -118,6 +129,17 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
 
   const suggested = computeExecutionOrder(graph);
   if (!suggested.ok) {
+    // A cycle anywhere in the discovered hierarchy must not take down a run
+    // the user asked for on a single issue: they never opted into the
+    // hierarchy, so degrade to the pipeline that has always worked and say
+    // why. Only an explicitly multi-issue request is refused outright.
+    if (single) {
+      warn(
+        `Dependency cycle between issues: ${describeCycles(suggested.cycles)}. ` +
+          'Running just the issue you informed; fix the dependencies on GitHub to run the hierarchy.',
+      );
+      return { kind: 'single' };
+    }
     warn(
       `Dependency cycle between issues: ${describeCycles(suggested.cycles)}. ` +
         'Fix the dependencies on GitHub, or re-run with --only to execute just the issues you informed.',
@@ -139,7 +161,10 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
 
   let choice: 'all' | 'requested' | 'cancel';
   try {
-    choice = await confirmQueue(suggestedPlan, requestedCount, input.confirm ?? {});
+    choice = await confirmQueue(suggestedPlan, requestedCount, {
+      ...(input.confirm ?? {}),
+      singleRequest: single,
+    });
   } catch (err) {
     if (err instanceof QueueConfirmationError) {
       warn(err.message);
@@ -163,7 +188,20 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
     }
     // A single issue after trimming is not a queue at all: fall back to the
     // untouched single-issue pipeline instead of creating an artifact for it.
+    // But that fallback only makes sense when one issue was requested — with
+    // several, trimming to one means the others never made it into the graph
+    // (unreadable issue, node limit), and silently running a subset of what
+    // the user asked for is worse than stopping.
     if (requestedOrder.order.length <= 1) {
+      if (input.requested.length > 1) {
+        const missing = input.requested.filter((id) => !requestedOrder.order.includes(id));
+        warn(
+          `Only issue #${requestedOrder.order[0] ?? '—'} of the ones you informed could be read; ` +
+            `${missing.map((id) => `#${id}`).join(', ')} did not make it into the dependency graph. ` +
+            'Nothing was executed — check the identifiers and try again.',
+        );
+        return { kind: 'stop', code: 1 };
+      }
       return { kind: 'single' };
     }
     plan = buildExecutionPlan({

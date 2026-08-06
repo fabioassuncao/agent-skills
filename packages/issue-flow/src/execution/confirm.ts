@@ -38,6 +38,13 @@ export interface ConfirmQueueOptions {
    * CI, mirroring `pr-review`'s discovery confirmation.
    */
   interactive?: boolean;
+  /**
+   * Whether the user asked for a single Issue. Only the hierarchy around it is
+   * up for confirmation, so a non-interactive run falls back to that Issue
+   * alone instead of failing: running exactly what was asked for can never
+   * implement something nobody approved.
+   */
+  singleRequest?: boolean;
   stdin?: NodeJS.ReadableStream;
   stdout?: NodeJS.WritableStream;
   info?: (message: string) => void;
@@ -140,6 +147,14 @@ export async function confirmQueue(
   }
 
   const interactive = options.interactive ?? isInteractiveByDefault();
+  if (!interactive && options.singleRequest === true) {
+    warn(
+      'A larger structure was found, but the terminal is not interactive: running just ' +
+        `issue ${plan.requested.map((id) => `#${id}`).join(', ')}. ` +
+        'Re-run with --yes to execute the whole hierarchy.',
+    );
+    return 'requested';
+  }
   if (!interactive) {
     throw new QueueConfirmationError(
       'This run involves more than one issue and the terminal is not interactive. ' +

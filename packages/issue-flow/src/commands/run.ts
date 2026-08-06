@@ -180,6 +180,10 @@ export interface RunPipelineOptions {
   yes?: boolean;
   /** `--only`: run just the issues informed, skipping discovery. */
   only?: boolean;
+  /** `--continue`: name the (automatic) User Story numbering continuity. */
+  continueNumbering?: boolean;
+  /** `--start-us <n>`: force the first plan of this run to start at `n`. */
+  startUs?: number;
 }
 
 /**
@@ -257,7 +261,11 @@ export async function runPipeline(
     return first.code;
   }
 
-  return runQueue(first.queue.plan, { mode, from, noBranch, prReview }, first.queue.resolved);
+  return runQueue(
+    first.queue.plan,
+    { mode, from, noBranch, prReview, runOptions: options },
+    first.queue.resolved,
+  );
 }
 
 interface IssueSessionInput {
@@ -355,6 +363,13 @@ async function runPipelinePhases(
   input: IssueSessionInput,
 ): Promise<IssueRunResult> {
   const { from, noBranch, prReview, queue } = input;
+  // User Story numbering flags (issue #36). `--start-us` names a starting
+  // point, so the queue only ever hands it to the first issue it runs —
+  // applying it to each one would give them all the same ids, the very
+  // collision #36 set out to remove. Every later issue continues from history,
+  // which by then already includes the plans written earlier in this run.
+  const continueNumbering = input.runOptions?.continueNumbering;
+  const startUs = input.runOptions?.startUs;
   const tasksPath = paths.tasksFile;
   const sessionId = randomUUID();
 
@@ -631,7 +646,10 @@ async function runPipelinePhases(
   const runners: Record<string, () => Promise<void>> = {
     prd: makeRunner(() => runPrd(issueNumber, resolvedIssue), 'prd'),
     plan: async () => {
-      await makeRunner(() => runPlan(issueNumber, resolvedIssue), 'plan')();
+      await makeRunner(
+        () => runPlan(issueNumber, resolvedIssue, { continueFlag: continueNumbering, startUs }),
+        'plan',
+      )();
       // Persist the phase-selection modes into the newly created tasks.json
       if (effectiveNoBranch || effectivePrReview) {
         try {
@@ -960,7 +978,13 @@ async function decideQueue(input: DecideQueueInput): Promise<QueueDecision> {
  */
 async function runQueue(
   initialPlan: ExecutionPlan,
-  options: { mode: string; from?: string; noBranch?: boolean; prReview?: boolean },
+  options: {
+    mode: string;
+    from?: string;
+    noBranch?: boolean;
+    prReview?: boolean;
+    runOptions?: RunPipelineOptions;
+  },
   resolvedPrimary?: ResolvedIssue,
 ): Promise<number> {
   const planFile = (await resolveQueuePaths(initialPlan.id)).planFile;
@@ -991,6 +1015,12 @@ async function runQueue(
           // that come after it — those start from their own beginning.
           from: firstOfThisRun ? options.from : undefined,
           noBranch: options.noBranch,
+          // `--start-us` belongs to the first issue this invocation runs; the
+          // ones after it continue from the history those plans just wrote.
+          runOptions: {
+            ...options.runOptions,
+            startUs: firstOfThisRun ? options.runOptions?.startUs : undefined,
+          },
           queue: {
             plan,
             preChecked: true,
@@ -999,8 +1029,12 @@ async function runQueue(
         });
       } finally {
         firstOfThisRun = false;
+        // Ending here (not only on the happy path) keeps a thrown error from
+        // leaving an orphan accumulator on top of the scope stack, where it
+        // would silently become "the current scope" for everything after it.
+        issueUsage.end();
       }
-      const usage = issueUsage.end();
+      const usage = issueUsage.totals();
 
       if (result.code !== 0) {
         plan = markQueueIssueFailed(plan, entry.id, {
@@ -1042,7 +1076,7 @@ async function runQueue(
       planFile,
       summaries,
       startedAtMs,
-      queueUsage.totals(),
+      queueUsage,
       options,
       resolvedPrimary,
     );
@@ -1061,7 +1095,8 @@ async function finishQueue(
   planFile: string,
   summaries: QueueIssueSummary[],
   startedAtMs: number,
-  usage: ReturnType<typeof getRunUsageTotals>,
+  /** Read only after the consolidated Pull Request ran, so its cost counts. */
+  queueUsage: { totals: () => ReturnType<typeof getRunUsageTotals> },
   options: { mode: string; noBranch?: boolean; prReview?: boolean },
   resolvedPrimary?: ResolvedIssue,
 ): Promise<number> {
@@ -1114,7 +1149,10 @@ async function finishQueue(
     excluded: current.excluded.map((entry) => ({ id: entry.id, title: entry.title })),
     elapsedSeconds: Math.round((Date.now() - startedAtMs) / 1000),
     prUrl: current.pullRequest?.url ?? null,
-    usage,
+    // Read here, after the consolidated Pull Request (and the optional
+    // pr-review) already ran: reading it before would report a queue total
+    // that leaves out the phase that just spent tokens.
+    usage: queueUsage.totals(),
     prReview: review,
   });
 
@@ -1168,6 +1206,7 @@ async function buildPrQueueContext(plan: ExecutionPlan): Promise<PrQueueContext>
       number: entry.number,
       title: entry.title,
       url: entry.url,
+      source: entry.source,
     })),
     excluded: plan.excluded.map((entry) => ({
       id: entry.id,

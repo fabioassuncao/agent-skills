@@ -6,7 +6,7 @@ import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
-import type { Issue, ResolvedIssue } from '../issues/types.js';
+import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
 import { isTransientFailure } from '../utils/retry.js';
@@ -45,8 +45,10 @@ export interface PrQueueIssue {
   id: string;
   number: number | null;
   title: string;
-  /** `null` for an Issue with no remote counterpart — it gets no `Closes`. */
+  /** `null` when the Issue was never read — see {@link issueClosesLines}. */
   url: string | null;
+  /** Origin the Issue came from; `github` is what GitHub can close. */
+  source: IssueSource;
 }
 
 /**
@@ -78,14 +80,19 @@ function issueRef(entry: { id: string; number: number | null }): string {
 /**
  * Every `Closes #N` line of a consolidated Pull Request, one per line.
  *
- * Issues without a remote counterpart are skipped for the same reason a
- * single-issue Pull Request skips them — GitHub cannot close what it does not
+ * Issues that GitHub does not host are skipped for the same reason a
+ * single-issue Pull Request skips them — it cannot close what it does not
  * host — and a queue that mixes both origins still gets a valid body.
+ *
+ * The test is the origin and the number, not the URL: an Issue whose read
+ * failed during discovery reaches the queue with `url: null`, and it is still
+ * executed and still closed by the queue. Filtering on the URL would leave it
+ * out of the very body that is supposed to reference it.
  */
 export function issueClosesLines(issues: readonly PrQueueIssue[]): string {
   return issues
-    .filter((entry) => entry.url !== null)
-    .map((entry) => `Closes #${entry.number ?? entry.id}`)
+    .filter((entry) => entry.source === 'github' && entry.number !== null)
+    .map((entry) => `Closes #${entry.number}`)
     .join('\n');
 }
 

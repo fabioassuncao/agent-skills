@@ -1,7 +1,7 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import type { UserStory, UserStoryStatus } from '../types.js';
+import type { StoryStage, UserStory, UserStoryStatus } from '../types.js';
 
 /**
  * Session state publishing layer for the optional web monitoring mode.
@@ -57,7 +57,19 @@ export type SessionEvent =
     }
   | { type: 'phase:start'; at: string; phase: string }
   | { type: 'phase:end'; at: string; phase: string; success: boolean; error?: string }
-  | { type: 'iteration:start'; at: string; iteration: number }
+  | {
+      type: 'iteration:start';
+      at: string;
+      iteration: number;
+      /**
+       * Id of the story `execute` is about to work on, computed by
+       * `core/engine.ts` with the same "highest priority, `passes: false`"
+       * rule `prompts/execute.md` gives the agent. Optional so a caller that
+       * cannot determine it (or an older build) is still a valid event —
+       * `applyEvent` simply skips the `executing`/`pending` transition then.
+       */
+      storyId?: string;
+    }
   | { type: 'iteration:end'; at: string; iteration: number }
   | { type: 'retry'; at: string; attempt: number; delaySeconds?: number; reason?: string }
   | { type: 'stories:update'; at: string; stories: UserStory[] }
@@ -178,6 +190,19 @@ export interface SessionStorySnapshot extends SessionUsageSnapshot {
   description: string;
   /** The plan's acceptance criteria; empty when the plan carries none. */
   acceptanceCriteria: string[];
+  /**
+   * Fine-grained execution stage, derived only from real pipeline events —
+   * see {@link StoryStage} and the `applyEvent` cases for `iteration:start`,
+   * `stories:update`, `phase:start`/`phase:end` (phase `'review'`) and
+   * `correction:cycle`. Unlike `status`, this is not a post-hoc derivation
+   * recomputed on every reduction: it is set directly, event by event, like
+   * `completedAt`.
+   */
+  stage: StoryStage;
+  /** ISO timestamp of the event that produced the current `stage`. */
+  stageSince: string | null;
+  /** Short human detail for the current stage (e.g. a correction cycle). */
+  stageDetail: string | null;
 }
 
 export interface SessionActivity {
@@ -485,6 +510,45 @@ export function reduceSessionEvent(
   };
 }
 
+/**
+ * Stages that describe a finished story. A run that ends — successfully or
+ * not — must never leave a story on any other stage, or the panel keeps
+ * claiming it is executing long after the process is gone.
+ */
+function isTerminalStage(stage: StoryStage): boolean {
+  return stage === 'done' || stage === 'failed';
+}
+
+/**
+ * `stage`/`stageSince`/`stageDetail` for one story, on one `stories:update`.
+ *
+ * This event owns exactly one transition — `awaiting_review` the moment a
+ * story flips to `passes: true` (or is first seen already passing, since its
+ * real completion moment is unknown either way). Everything else is a
+ * carry-over: a still-`passes: false` story keeps whatever `iteration:start`
+ * last gave it (defaulting to `'pending'` the very first time it is ever
+ * seen), and a story already passing before this event is left exactly as it
+ * was — `phase:start`/`phase:end` (review) and `correction:cycle` own every
+ * transition past `awaiting_review`.
+ */
+function deriveStageOnStoriesUpdate(
+  story: UserStory,
+  before: SessionStorySnapshot | undefined,
+  at: string,
+): Pick<SessionStorySnapshot, 'stage' | 'stageSince' | 'stageDetail'> {
+  if (!story.passes) {
+    return {
+      stage: before?.stage ?? 'pending',
+      stageSince: before?.stageSince ?? at,
+      stageDetail: before?.stageDetail ?? null,
+    };
+  }
+  if (before?.passes) {
+    return { stage: before.stage, stageSince: before.stageSince, stageDetail: before.stageDetail };
+  }
+  return { stage: 'awaiting_review', stageSince: at, stageDetail: null };
+}
+
 function applyEvent(
   snapshot: SessionSnapshot,
   event: SessionEvent,
@@ -565,10 +629,23 @@ function applyEvent(
               ...emptyUsage(),
             },
           ];
+      // The `execute` phase only completes (and `review` only starts) once
+      // every story already passes — a pipeline invariant — so entering
+      // `review` safely moves every passing story to 'in_review' in one go;
+      // there is never a not-yet-passing story to skip over here.
+      const stories =
+        event.phase === 'review'
+          ? snapshot.stories.map((story) =>
+              story.passes
+                ? { ...story, stage: 'in_review' as const, stageSince: event.at, stageDetail: null }
+                : story,
+            )
+          : snapshot.stories;
       return {
         ...snapshot,
         currentPhase: event.phase,
         phases,
+        stories,
         progress: known ? snapshot.progress : { ...snapshot.progress, phasesTotal: phases.length },
       };
     }
@@ -586,11 +663,31 @@ function applyEvent(
           : p,
       );
       const phasesCompleted = phases.filter((p) => p.status === 'completed').length;
+      // Success moves every passing story to 'done'. Failure (the correction
+      // loop gave up after maxCorrectionCycles) closes every story that is not
+      // already 'done' as 'failed' — including the ones that never reached
+      // `passes`, which are precisely the stories the issue calls failed. A
+      // phase that fails outside `review` closes the same non-terminal stages,
+      // so nothing is left frozen on 'executing' after the run stops.
+      const stories = !event.success
+        ? snapshot.stories.map((story) =>
+            isTerminalStage(story.stage)
+              ? story
+              : { ...story, stage: 'failed' as const, stageSince: event.at, stageDetail: null },
+          )
+        : event.phase === 'review'
+          ? snapshot.stories.map((story) =>
+              story.passes
+                ? { ...story, stage: 'done' as const, stageSince: event.at, stageDetail: null }
+                : story,
+            )
+          : snapshot.stories;
       return {
         ...snapshot,
         currentPhase: snapshot.currentPhase === event.phase ? null : snapshot.currentPhase,
         currentActivity: null,
         phases,
+        stories,
         progress: {
           ...snapshot.progress,
           phasesCompleted,
@@ -599,11 +696,41 @@ function applyEvent(
       };
     }
 
-    case 'iteration:start':
+    case 'iteration:start': {
+      // The story matching storyId becomes 'executing'; every other
+      // not-yet-passing story becomes 'pending' (a story that was already
+      // 'executing' in a previous iteration but lost the turn reverts here).
+      // Passing stories are untouched — this event owns only the
+      // execute-loop's own pending/executing transition, never review or
+      // correction. No-op branches (`return story`) avoid needless object
+      // churn when the stage is already correct.
+      const storyId = event.storyId;
+      const stories = snapshot.stories.map((story) => {
+        if (story.passes) return story;
+        if (story.id === storyId) {
+          return story.stage === 'executing'
+            ? story
+            : { ...story, stage: 'executing' as const, stageSince: event.at, stageDetail: null };
+        }
+        return story.stage === 'pending'
+          ? story
+          : { ...story, stage: 'pending' as const, stageSince: event.at, stageDetail: null };
+      });
       return {
         ...snapshot,
         execution: { ...snapshot.execution, iteration: event.iteration },
+        stories,
+        // Finally populates the `story` field of the activity payload during
+        // execute — today this phase never publishes an `activity` event at
+        // all (no streaming), so `currentActivity` stays whatever an earlier
+        // phase left it at. Left untouched when storyId is absent (every
+        // story already passes, or the caller could not determine one).
+        currentActivity:
+          storyId !== undefined
+            ? { story: storyId, tool: null, detail: null, since: event.at }
+            : snapshot.currentActivity,
       };
+    }
 
     case 'iteration:end':
       return { ...snapshot, currentActivity: null };
@@ -650,6 +777,7 @@ function applyEvent(
           cacheReadTokens: before?.cacheReadTokens ?? null,
           cacheCreationTokens: before?.cacheCreationTokens ?? null,
           costUsd: before?.costUsd ?? null,
+          ...deriveStageOnStoriesUpdate(story, before, event.at),
         };
       });
       return {
@@ -707,7 +835,18 @@ function applyEvent(
         pullRequests: event.pullRequests ?? snapshot.pullRequests,
       };
 
-    case 'correction:cycle':
+    case 'correction:cycle': {
+      // Correction is pipeline-wide, not per-story: commands/run.ts re-runs
+      // the whole execute+review cycle on a review failure, with no notion
+      // of which story a finding belongs to — so every passing story moves
+      // to 'in_correction' together, carrying the cycle count as a readable
+      // stageDetail.
+      const stageDetail = `Cycle ${event.cycle}/${event.maxCycles}`;
+      const stories = snapshot.stories.map((story) =>
+        story.passes
+          ? { ...story, stage: 'in_correction' as const, stageSince: event.at, stageDetail }
+          : story,
+      );
       return {
         ...snapshot,
         execution: {
@@ -715,7 +854,9 @@ function applyEvent(
           correctionCycle: event.cycle,
           maxCorrectionCycles: event.maxCycles,
         },
+        stories,
       };
+    }
 
     case 'metrics:update': {
       if (event.scope === 'story') {
@@ -772,6 +913,16 @@ function applyEvent(
         endedAt: event.at,
         currentPhase: null,
         currentActivity: null,
+        // Close every non-terminal stage: the run is over, so nothing can be
+        // 'executing'/'in_review'/'in_correction' any more. A story that never
+        // reached `passes` on a run that did not complete is exactly what the
+        // 'failed' stage means; anything else settles as 'done'.
+        stories: snapshot.stories.map((story) => {
+          if (isTerminalStage(story.stage)) return story;
+          const stage =
+            event.status === 'completed' && story.passes ? ('done' as const) : ('failed' as const);
+          return { ...story, stage, stageSince: event.at, stageDetail: null };
+        }),
         lastError: event.error
           ? { message: stripVTControlCharacters(event.error), at: event.at }
           : snapshot.lastError,

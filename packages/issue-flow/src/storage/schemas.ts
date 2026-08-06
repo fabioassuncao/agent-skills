@@ -16,6 +16,33 @@ import { pullRequestRefSchema, webConfigSchema } from '../schemas.js';
 export const STORAGE_SCHEMA_VERSION = 1;
 
 /**
+ * Where a `plan` run's `US-NNN` numbering came from (issue #36):
+ *
+ * - `history`: recovered from the highest number already used anywhere in the
+ *   project's `tasks.json` files, automatically or via `--continue`.
+ * - `start-us`: forced by the user via `--start-us <n>`, ignoring history.
+ * - `none`: no history found (the project's first `plan` run) — starts at
+ *   `US-001`.
+ */
+export const userStoryNumberingSourceSchema = z.enum(['history', 'start-us', 'none']);
+
+/**
+ * A single numbering decision, persisted for audit under
+ * `metadata.json`'s `userStoryNumbering` (see below) — never used to resolve
+ * the *next* decision, which always re-scans `tasks.json` from scratch.
+ */
+export const userStoryNumberingDecisionSchema = z.object({
+  /** The `US-NNN` number the `plan` prompt was told to continue from. */
+  nextNumber: z.number().int().positive(),
+  source: userStoryNumberingSourceSchema,
+  /** Issue the decision was made for. */
+  issueNumber: z.string().min(1),
+  decidedAt: z.string().min(1),
+  /** Human-readable origin, e.g. the previous story id and issue it came from. */
+  detail: z.string().optional(),
+});
+
+/**
  * `~/.issue-flow/projects/<project-id>/metadata.json`.
  *
  * Deliberately **not** `.strict()`: a newer release may add fields (dashboard
@@ -36,6 +63,12 @@ export const projectMetadataSchema = z.object({
   updatedAt: z.string().min(1),
   /** Null until the project is used by a pipeline run. */
   lastAttemptAt: z.string().nullable(),
+  /**
+   * Most recent User Story numbering decision made by `plan` (issue #36).
+   * Absent on a project whose `plan` never ran through the numbering
+   * resolver, or on a `metadata.json` written before the feature existed.
+   */
+  userStoryNumbering: userStoryNumberingDecisionSchema.optional(),
 });
 
 /**
@@ -179,6 +212,8 @@ export const executionPlanSchema = z.object({
   pullRequest: pullRequestRefSchema.optional(),
 }) satisfies z.ZodType<ExecutionPlan>;
 
+export type UserStoryNumberingSource = z.infer<typeof userStoryNumberingSourceSchema>;
+export type UserStoryNumberingDecision = z.infer<typeof userStoryNumberingDecisionSchema>;
 export type ProjectMetadata = z.infer<typeof projectMetadataSchema>;
 export type ValidatedExecutionPlan = z.infer<typeof executionPlanSchema>;
 export type GlobalWebConfig = z.infer<typeof globalWebConfigSchema>;

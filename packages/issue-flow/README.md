@@ -85,9 +85,17 @@ npx issue-flow run 42 --mode manual
 
 # Watch the run live in the browser (see "Web Monitoring" below)
 npx issue-flow run 42 --web
+
+# Continue User Story numbering from the last used in this project
+npx issue-flow run 42 --continue
+
+# Force User Story numbering to start at a specific number
+npx issue-flow run 42 --start-us 27
 ```
 
 Executes all phases in order: **init** → **analyze** → **prd** → **plan** → **execute** → **review** → **pr**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, its findings are saved verbatim to `lastReviewFindings` in `tasks.json`, and a correction cycle (re-execute + re-review) runs up to `maxCorrectionCycles`. The re-execute step reads `lastReviewFindings` and treats the issue as unresolved even if every user story already has `passes: true`, until the findings are addressed and the field is cleared back to `null`.
+
+`--continue` and `--start-us <n>` control User Story (`US-NNN`) numbering continuity across `plan` runs of the same project — see [`plan`](#plan----convert-prd-to-task-plan) below.
 
 ### `init` -- Check prerequisites
 
@@ -117,9 +125,17 @@ Generates a Product Requirements Document from the issue analysis. Reads `analys
 
 ```bash
 npx issue-flow plan 42
+
+# Continue User Story numbering from the last used in this project
+npx issue-flow plan 42 --continue
+
+# Force numbering to start at a specific number, ignoring history
+npx issue-flow plan 42 --start-us 27
 ```
 
 Converts the PRD into a structured `~/.issue-flow/…/issues/42/tasks.json` with ordered user stories, acceptance criteria, and pipeline state. Validates the output with zod schemas.
+
+`US-NNN` numbering continues automatically across `plan` runs of the same project: the highest number already used in any of the project's `tasks.json` files is recovered and the next story continues from there, falling back to `US-001` when the project has no history yet. `--continue` names that automatic recovery explicitly; `--start-us <n>` forces a specific starting number instead, ignoring history — the two flags are mutually exclusive. The decision is always printed to the terminal and recorded in the project's `metadata.json` (`userStoryNumbering`) for audit. See the root [README](https://github.com/fabioassuncao/issue-flow#user-story-numbering-continuity) for the full cascade.
 
 ### `execute` -- Run the story execution loop
 

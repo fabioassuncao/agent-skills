@@ -88,6 +88,12 @@ npx issue-flow run 42 --pr-review
 # Several issues at once -- both forms are equivalent
 npx issue-flow run 42,43,50
 npx issue-flow run 42 43 50
+
+# Continue User Story numbering from the last used in this project
+npx issue-flow run 42 --continue
+
+# Force User Story numbering to start at a specific number
+npx issue-flow run 42 --start-us 27
 ```
 
 Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> **review** -> **pr**, plus the optional **pr-review**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, runs correction cycles (re-execute + re-review) up to `maxCorrectionCycles`.
@@ -99,7 +105,9 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--no-branch` | Run on the current branch without creating a new branch or PR |
 | `--pr-review` | Review the created Pull Request after the `pr` phase (see [`pr-review`](#pr-review----review-a-pull-request)) |
 | `-y, --yes` | Run the whole discovered hierarchy without asking (see [Multiple issues](#multiple-issues-and-hierarchies)) |
-| `--only` | Run just the issues informed, skipping hierarchy discovery |
+| `--only` | Run just the issues informed, without their hierarchy |
+| `--continue` | Continue User Story numbering from the last one used in this project (see [User Story numbering continuity](#user-story-numbering-continuity)) |
+| `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history. In a queue it applies to the first issue only; the rest continue from history |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `-v, --verbose` | Show Claude progress output in real time |
 
@@ -129,7 +137,7 @@ Answering `2` (or just pressing Enter) runs the whole thing; `1` trims it to wha
 
 **Order of execution.** The queue is ordered by, in this precedence: **dependencies and blocks** (a hard constraint -- an issue never starts before something it depends on has finished) → **hierarchy** (a parent before its children) → **priority labels** (`high` > `medium` > `low`; an issue with no priority label sorts after every labelled one) → **issue number**. A dependency **cycle** is refused with an explicit error instead of being resolved into an arbitrary order.
 
-**Non-interactive runs.** Outside a TTY (CI, a pipe) the answer must come from a flag: `--yes` runs the whole hierarchy, `--only` runs just what you informed. Passing neither **fails with exit code 1** rather than guessing -- picking silently would either implement issues nobody approved or ignore a dependency you were never told about. `--yes` and `--only` cannot be combined.
+**Non-interactive runs.** Outside a TTY (CI, a pipe) the answer must come from a flag: `--yes` runs the whole hierarchy, `--only` runs just what you informed. With **several issues informed**, passing neither **fails with exit code 1** rather than guessing -- picking silently would either implement issues nobody approved or ignore a dependency you were never told about. With a **single issue** informed, there is nothing to guess: the run falls back to that issue alone, with a warning, so a command that always worked keeps working. The same rule applies to a discovered dependency **cycle** -- refused for a multi-issue request, degraded to the single issue you asked for otherwise. `--yes` and `--only` cannot be combined.
 
 **How a queue runs.** Every issue goes through the same phases as always (`prd` → `plan` → `execute` → `review`), each with its own `tasks.json`, its own [session](#web-monitoring) and its own token/cost accounting, all inside a single process -- nothing has to be restarted between issues. What the queue owns is what is shared:
 
@@ -202,9 +210,42 @@ Generates a Product Requirements Document from the issue analysis (`analysis.md`
 
 ```bash
 npx issue-flow plan 42
+
+# Continue from the last User Story number used in this project
+npx issue-flow plan 42 --continue
+
+# Force numbering to start at a specific number, ignoring history
+npx issue-flow plan 42 --start-us 27
 ```
 
 Converts the PRD into a structured `~/.issue-flow/…/issues/42/tasks.json` with ordered user stories, acceptance criteria, and pipeline state.
+
+| Flag | Description |
+|------|-------------|
+| `--continue` | Continue User Story numbering from the last one used in this project |
+| `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history |
+
+`--continue` and `--start-us` are mutually exclusive -- passing both fails immediately with a clear error and exit code `1`. See [User Story numbering continuity](#user-story-numbering-continuity) below.
+
+#### User Story numbering continuity
+
+`US-NNN` numbering no longer restarts at `US-001` on every `plan` run. Each execution resolves the next number through a cascade, and the decision is always printed -- never silent:
+
+1. **Automatic recovery** (default, no flag needed): the highest `US-NNN` number already used anywhere in the project is recovered by scanning every `~/.issue-flow/…/issues/*/tasks.json` for the project, regardless of which issue produced it. The scan is tolerant of ids that do not follow the `US-NNN` format -- an id like `story-5` or `add-auth` is parsed leniently (or skipped, never thrown on) rather than failing the whole scan.
+2. **No history found** (the project's first `plan` run ever): numbering starts at `US-001`.
+3. **Explicit override**: `--continue` names the automatic recovery explicitly (same number as the default, only the log message differs), and `--start-us <n>` forces a specific starting number, ignoring history entirely -- useful after a manual backlog reorganization.
+
+Every decision is printed to the terminal, for example:
+
+```
+Continuing User Story numbering from US-016 — last used was US-015 (issue #32).
+Starting User Story numbering at US-001 (no previous history found for this project).
+User Story numbering forced to US-027 via --start-us.
+```
+
+The decision is also persisted in the project's `metadata.json` (`userStoryNumbering`, see [Global Storage](#global-storage)) for audit, though the *next* decision is always resolved by re-scanning `tasks.json` files from scratch -- the persisted record is never read back to decide anything.
+
+The resolved number is passed to the `plan` prompt as strong context, instructing Claude to continue numbering from there instead of restarting at `US-001`; there is no programmatic renumbering pass after generation in this release.
 
 ### `execute` -- Run the story execution loop
 
@@ -633,6 +674,7 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
     {
       "id": "US-001", "title": "…", "priority": 1, "passes": true, "completedAt": "…",
       "status": "done", "dependencies": [],
+      "stage": "in_review", "stageSince": "2026-08-03T16:12:04Z", "stageDetail": null,
       "description": "…", "acceptanceCriteria": ["…"],
       "durationSeconds": 188, "inputTokens": 203, "outputTokens": 10780,
       "cacheReadTokens": 321000, "cacheCreationTokens": 24100, "costUsd": 0.8547
@@ -705,6 +747,33 @@ Two consequences are worth stating explicitly:
 
 Each entry also carries the plan's `description` and `acceptanceCriteria`, so the panel's story drawer can show them without reading `tasks.json`. Both are copied straight from the plan on every `stories:update`. Like every other addition, they are tolerant on input: a `session.json` written before they existed parses with `""` and `[]`, never `undefined`.
 
+### Story `stage`
+
+Alongside `status`, each entry of `stories[]` also carries a finer-grained `stage`, `stageSince` (ISO timestamp of the event that produced the current stage) and `stageDetail` (a short human string, currently only used by `in_correction`). Where `status` is a four-value board summary, `stage` tracks the real pipeline cycle a story goes through — `execute` → `review` → correction (when needed) → done:
+
+| `stage` | Set by | Meaning |
+|---------|--------|---------|
+| `pending` | `iteration:start` | Not the story `execute` is currently working on. |
+| `executing` | `iteration:start` | The story `execute` is working on **right now** — the same story id published in the event's `storyId`, computed as "the highest-priority story with `passes: false`" (the exact rule `prompts/execute.md` gives the agent). |
+| `awaiting_review` | `stories:update` | `passes` just flipped to `true`, but the `review` phase has not started yet. |
+| `in_review` | `phase:start` (phase `review`) | The `review` phase is running. Every already-passing story moves here at once — `execute` only completes once every story passes, so there is never a not-yet-passing story to skip. |
+| `in_correction` | `correction:cycle` | An automatic correction cycle is in progress; `stageDetail` carries a string like `"Cycle 1/3"`. Pipeline-wide, like `in_review`: `commands/run.ts`'s correction loop re-runs the whole `execute`+`review` cycle, with no notion of which story a review finding belongs to. |
+| `done` | `phase:end` (phase `review`, success) | The `review` phase finished successfully. |
+| `failed` | `phase:end` (any phase, failure) or `session:end` (run not completed) | The run stopped before the story finished — the `review` phase exhausted `maxCorrectionCycles`, an earlier phase failed, or the session ended while the story was still mid-flight. |
+
+`done` and `failed` are the only terminal stages, and a run that ends always
+lands every story on one of them: `phase:end` with `success: false` and
+`session:end` close whatever was still `executing`, `in_review` or
+`in_correction`. Without that, a failed run would leave the panel showing a
+story as executing indefinitely, contradicting the "Agora" card on the same
+snapshot.
+
+Unlike `status`, `stage` is **not** recomputed from scratch on every reduction — it is set directly by the event that causes the transition (the same treatment `completedAt` gets), so `in_correction` correctly survives an unrelated `stories:update` in between. `iteration:start` and `correction:cycle` are the only two events extended for this: `iteration:start` gained an optional `storyId`, and `correction:cycle` already carried `cycle`/`maxCycles`.
+
+`currentActivity.story` is also populated by `iteration:start` now, using the same `storyId` — previously this field was always empty during `execute` (that phase never streams, so it never published an `activity` event), which is what made the "Agora" card's `Story:` row show nothing during the phase that matters most.
+
+Both `stage`/`stageSince`/`stageDetail` are additive and tolerant on input: a `session.json` written before this field existed parses with `stage: "pending"` and `stageSince`/`stageDetail: null`, the same values a fresh snapshot starts a story at.
+
 ### Tokens and cost
 
 Every phase reports what it spent on the `claude` CLI, and the same numbers show up in three places: the `Tokens:` line of the terminal summary, the web panel (per phase, per story, and the issue total), and `session.json`. `schemaVersion` stays `1` -- the fields below are additive, and a `session.json` written by an earlier version still loads.
@@ -766,7 +835,7 @@ The `pipeline` field tracks which phases have completed, enabling resume from an
 
 ### Story status and dependencies in `tasks.json`
 
-A user story may declare two extra fields. Both are **optional**, and absent means *not informed* -- a plan written without them keeps loading unchanged, and a round-trip through the pipeline never materialises them with an artificial value:
+A user story may declare a few extra fields. All are **optional**, and absent means *not informed* -- a plan written without them keeps loading unchanged, and a round-trip through the pipeline never materialises them with an artificial value:
 
 ```json
 {
@@ -777,7 +846,10 @@ A user story may declare two extra fields. Both are **optional**, and absent mea
       "priority": 2,
       "passes": false,
       "status": "in_review",
-      "dependencies": ["US-001"]
+      "dependencies": ["US-001"],
+      "stage": "in_correction",
+      "stageSince": "2026-08-03T16:12:04Z",
+      "stageDetail": "Cycle 1/3"
     }
   ]
 }
@@ -787,10 +859,15 @@ A user story may declare two extra fields. Both are **optional**, and absent mea
 |-------|--------|---------|
 | `status` | `backlog` \| `in_progress` \| `in_review` \| `done` | Board-style status, purely **observational** |
 | `dependencies` | `string[]` | Ids of other stories in the same plan |
+| `stage` | See [Story `stage`](#story-stage) | Execution-stage hint, purely **observational** |
+| `stageSince` | `string` (ISO) | Paired with `stage`, same observational treatment |
+| `stageDetail` | `string` | Paired with `stage`, same observational treatment |
 
-`passes` remains the source of truth for execution: no phase reads `status` to decide what to run next, and a `status` of `done` on a story with `passes: false` does not make the execute loop skip it. What `status` does is seed the [snapshot's derived status](#story-status) -- the only way to get `in_review` onto the board, since the derivation never produces it on its own.
+`passes` remains the source of truth for execution: no phase reads `status` (or `stage`) to decide what to run next, and a `status` of `done` on a story with `passes: false` does not make the execute loop skip it. What `status` does is seed the [snapshot's derived status](#story-status) -- the only way to get `in_review` onto the board, since the derivation never produces it on its own.
 
 `dependencies` is validated **by shape only** (an array of strings). Issue Flow does not check that the referenced ids exist, and does not detect cycles.
+
+`stage`/`stageSince`/`stageDetail` mirror the [session snapshot's fields of the same name](#story-stage), but nothing in the pipeline currently writes them back onto `tasks.json`, and — unlike `status`, which seeds the snapshot — a `stage` declared in a plan is **not** carried into the snapshot: the reducer derives every stage from pipeline events alone. They exist on `UserStory` so a plan that carries them still parses, not as an input knob.
 
 ### Per-story metrics in `tasks.json`
 
@@ -911,11 +988,20 @@ Issue identifiers are not necessarily numeric -- `auth-refactor` and `pr-184` ar
   "remoteUrl": "github.com/fabioassuncao/issue-flow",
   "createdAt": "2026-08-04T02:00:00Z",
   "updatedAt": "2026-08-04T02:00:00Z",
-  "lastAttemptAt": null
+  "lastAttemptAt": null,
+  "userStoryNumbering": {
+    "nextNumber": 16,
+    "source": "history",
+    "issueNumber": "42",
+    "decidedAt": "2026-08-04T02:00:00Z",
+    "detail": "US-015 (issue #32)"
+  }
 }
 ```
 
 `root` is the last known local checkout and is informative only -- identity lives in `projectId`. `remoteUrl` is `null` for a project with no `origin` remote. Unknown keys are ignored on read, so a file written by a newer release stays readable by an older one.
+
+`userStoryNumbering` records the most recent `plan` numbering decision (see [User Story numbering continuity](#user-story-numbering-continuity)), for audit only -- it is absent until the first `plan` run through the numbering resolver and is never read back to decide a *later* numbering, which always re-scans `tasks.json`. `source` is one of `history` (recovered automatically, or via `--continue`), `start-us` (forced via `--start-us <n>`), or `none` (no history found, starting at `US-001`).
 
 ### Project id
 

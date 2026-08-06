@@ -277,6 +277,54 @@ describe('runEngine — execute-phase metrics', () => {
     });
   }
 
+  it('publishes iteration:start with the highest-priority pending story, regardless of array order', async () => {
+    // US-002 (priority 1, highest) is listed second in the plan on purpose —
+    // selectActiveStory must sort by priority, not rely on array order.
+    await writePlan(pendingPlan(makeStory('US-001', 2, false), makeStory('US-002', 1, false)));
+    agentCompleting(['US-002'], '', { inputTokens: 1 });
+
+    await runEngine(baseConfig, paths);
+
+    const startEvents = publisher.events.filter(
+      (e): e is Extract<SessionEvent, { type: 'iteration:start' }> => e.type === 'iteration:start',
+    );
+    expect(startEvents).toHaveLength(1);
+    expect(startEvents[0].storyId).toBe('US-002');
+  });
+
+  it('omits storyId once every story already passes (pending-correction re-run)', async () => {
+    // Every story already passes, but a pending correction still forces the
+    // loop to run — selectActiveStory correctly finds nothing to hand off.
+    await writePlan(
+      makePlan({
+        issueStatus: 'in_progress',
+        completedAt: null,
+        lastReviewFindings: 'stale finding the mocked agent will not clear',
+        pipeline: {
+          prdCompleted: true,
+          jsonCompleted: true,
+          executionCompleted: true,
+          reviewCompleted: false,
+          prCreated: false,
+        },
+        userStories: [makeStory('US-001', 1, true)],
+      }),
+    );
+    mockExecuteClaude.mockImplementationOnce(async () => ({
+      exitCode: 0,
+      output: 'working on it',
+      cost: null,
+    }));
+
+    await runEngine(baseConfig, paths);
+
+    const startEvents = publisher.events.filter(
+      (e): e is Extract<SessionEvent, { type: 'iteration:start' }> => e.type === 'iteration:start',
+    );
+    expect(startEvents).toHaveLength(1);
+    expect(startEvents[0].storyId).toBeUndefined();
+  });
+
   it('splits the iteration metrics evenly across the stories completed in it', async () => {
     await writePlan(pendingPlan(makeStory('US-001', 1, false), makeStory('US-002', 2, false)));
     agentCompleting(['US-001', 'US-002'], '<promise>COMPLETE</promise>', {

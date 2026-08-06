@@ -41,6 +41,26 @@ export function getStoryUpdateCallback():
   return _onStoryUpdate;
 }
 
+let _onStoryStage: ((storyId: string | undefined) => void) | undefined;
+
+/**
+ * Set a global callback for the active story of the current `execute`
+ * iteration. Called by `core/engine.ts` alongside every `iteration:start`
+ * publication, with the same `storyId` (or `undefined` once every story
+ * already passes) — the terminal renderer's only source for "who is
+ * executing right now", never a second, independently computed heuristic.
+ * Pass `undefined` to clear.
+ */
+export function setStoryStageCallback(
+  callback: ((storyId: string | undefined) => void) | undefined,
+): void {
+  _onStoryStage = callback;
+}
+
+export function getStoryStageCallback(): ((storyId: string | undefined) => void) | undefined {
+  return _onStoryStage;
+}
+
 let _globalTimeout: number | undefined;
 
 export function setGlobalTimeout(ms: number): void {

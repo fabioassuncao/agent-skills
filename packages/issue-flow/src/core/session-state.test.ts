@@ -286,6 +286,156 @@ describe('reduceSessionEvent', () => {
     expect(snap.execution.retries).toBe(2);
   });
 
+  it('iteration:start marks the active story executing and the rest pending', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' }), makeStory({ id: 'US-002', priority: 2 })],
+    });
+
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:02:00Z',
+      iteration: 1,
+      storyId: 'US-001',
+    });
+    expect(snap.stories.map((s) => [s.id, s.stage])).toEqual([
+      ['US-001', 'executing'],
+      ['US-002', 'pending'],
+    ]);
+    expect(snap.stories[0].stageSince).toBe('2026-08-03T12:02:00Z');
+
+    // The turn moves to US-002 on the next iteration: US-001 reverts to
+    // pending, US-002 becomes executing.
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:03:00Z',
+      iteration: 2,
+      storyId: 'US-002',
+    });
+    expect(snap.stories.map((s) => [s.id, s.stage])).toEqual([
+      ['US-001', 'pending'],
+      ['US-002', 'executing'],
+    ]);
+  });
+
+  it('iteration:start on the same story again keeps its original stageSince', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' })],
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:02:00Z',
+      iteration: 1,
+      storyId: 'US-001',
+    });
+    const first = snap;
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:05:00Z',
+      iteration: 2,
+      storyId: 'US-001',
+    });
+    expect(snap.stories[0].stage).toBe('executing');
+    expect(snap.stories[0].stageSince).toBe('2026-08-03T12:02:00Z');
+    // No churn: the story object itself is unchanged when the stage does not.
+    expect(snap.stories[0]).toBe(first.stories[0]);
+  });
+
+  it('iteration:start never touches an already-passing story', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [
+        makeStory({ id: 'US-001', passes: true }),
+        makeStory({ id: 'US-002', priority: 2 }),
+      ],
+    });
+    expect(snap.stories[0].stage).toBe('awaiting_review');
+
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:02:00Z',
+      iteration: 1,
+      storyId: 'US-002',
+    });
+    expect(snap.stories[0].stage).toBe('awaiting_review');
+    expect(snap.stories[1].stage).toBe('executing');
+  });
+
+  it('iteration:start populates currentActivity.story, finally filled during execute', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' })],
+    });
+    expect(snap.currentActivity).toBeNull();
+
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:02:00Z',
+      iteration: 1,
+      storyId: 'US-001',
+    });
+    expect(snap.currentActivity).toEqual({
+      story: 'US-001',
+      tool: null,
+      detail: null,
+      since: '2026-08-03T12:02:00Z',
+    });
+  });
+
+  it('iteration:start without a storyId leaves stories and currentActivity untouched', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' })],
+    });
+    const before = snap;
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:02:00Z',
+      iteration: 1,
+    });
+    expect(snap.stories[0].stage).toBe('pending');
+    expect(snap.currentActivity).toBeNull();
+    expect(snap.stories[0]).toBe(before.stories[0]);
+  });
+
+  it('a story flips to awaiting_review the moment it starts passing', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory({ id: 'US-001' })],
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:02:00Z',
+      iteration: 1,
+      storyId: 'US-001',
+    });
+    expect(snap.stories[0].stage).toBe('executing');
+
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:03:00Z',
+      stories: [makeStory({ id: 'US-001', passes: true })],
+    });
+    expect(snap.stories[0].stage).toBe('awaiting_review');
+    expect(snap.stories[0].stageSince).toBe('2026-08-03T12:03:00Z');
+
+    // Already passing on a later update: the stage is left alone.
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:04:00Z',
+      stories: [makeStory({ id: 'US-001', passes: true })],
+    });
+    expect(snap.stories[0].stage).toBe('awaiting_review');
+    expect(snap.stories[0].stageSince).toBe('2026-08-03T12:03:00Z');
+  });
+
   it('stories:update projects stories and story progress counters', () => {
     const snap = reduceSessionEvent(startedSnapshot(), {
       type: 'stories:update',
@@ -312,6 +462,11 @@ describe('reduceSessionEvent', () => {
         cacheReadTokens: null,
         cacheCreationTokens: null,
         costUsd: null,
+        // First seen already passing: real completion moment unknown, so
+        // this is treated the same as "just flipped" for stage purposes.
+        stage: 'awaiting_review',
+        stageSince: '2026-08-03T12:01:00Z',
+        stageDetail: null,
       },
       {
         id: 'US-002',
@@ -329,6 +484,9 @@ describe('reduceSessionEvent', () => {
         cacheReadTokens: null,
         cacheCreationTokens: null,
         costUsd: null,
+        stage: 'pending',
+        stageSince: '2026-08-03T12:01:00Z',
+        stageDetail: null,
       },
     ]);
     expect(snap.progress.storiesCompleted).toBe(1);
@@ -717,6 +875,247 @@ describe('reduceSessionEvent', () => {
     });
     expect(snap.execution.correctionCycle).toBe(2);
     expect(snap.execution.maxCorrectionCycles).toBe(3);
+  });
+
+  describe('review/correction stage transitions', () => {
+    function completedSeed(): SessionSnapshot {
+      // Every story already passing, as the pipeline guarantees by the time
+      // `review` starts.
+      return reduceSessionEvent(startedSnapshot(), {
+        type: 'stories:update',
+        at: '2026-08-03T12:01:00Z',
+        stories: [
+          makeStory({ id: 'US-001', passes: true }),
+          makeStory({ id: 'US-002', priority: 2, passes: true }),
+        ],
+      });
+    }
+
+    it('normal completion: awaiting_review -> in_review -> done', () => {
+      let snap = completedSeed();
+      expect(snap.stories.map((s) => s.stage)).toEqual(['awaiting_review', 'awaiting_review']);
+
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'review',
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['in_review', 'in_review']);
+      expect(snap.stories[0].stageSince).toBe('2026-08-03T12:02:00Z');
+
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:03:00Z',
+        phase: 'review',
+        success: true,
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['done', 'done']);
+      expect(snap.stories[0].stageSince).toBe('2026-08-03T12:03:00Z');
+      expect(snap.stories[0].stageDetail).toBeNull();
+    });
+
+    it('one correction cycle: in_review -> in_correction (with cycle detail) -> done', () => {
+      let snap = completedSeed();
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'review',
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['in_review', 'in_review']);
+
+      snap = reduceSessionEvent(snap, {
+        type: 'correction:cycle',
+        at: '2026-08-03T12:03:00Z',
+        cycle: 1,
+        maxCycles: 3,
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['in_correction', 'in_correction']);
+      expect(snap.stories.map((s) => s.stageDetail)).toEqual(['Cycle 1/3', 'Cycle 1/3']);
+
+      // Re-execute publishes no new stories:update flip (every story already
+      // passes), and the pipeline only ever emits one phase:start/phase:end
+      // pair for the whole review+correction sequence — success arrives
+      // straight from 'in_correction'.
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:05:00Z',
+        phase: 'review',
+        success: true,
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['done', 'done']);
+      expect(snap.stories.map((s) => s.stageDetail)).toEqual([null, null]);
+    });
+
+    it('final failure after exhausting correction cycles moves every non-done story to failed', () => {
+      let snap = completedSeed();
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'review',
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'correction:cycle',
+        at: '2026-08-03T12:03:00Z',
+        cycle: 3,
+        maxCycles: 3,
+      });
+
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:06:00Z',
+        phase: 'review',
+        success: false,
+        error: 'Review failed after 3 correction cycles',
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['failed', 'failed']);
+      expect(snap.stories[0].stageSince).toBe('2026-08-03T12:06:00Z');
+    });
+
+    it('phase:start for a phase other than review never touches story stage', () => {
+      const seed = completedSeed();
+      const snap = reduceSessionEvent(seed, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'pr',
+      });
+      // Every entry keeps identity — only status re-derivation may rebuild
+      // the wrapping array, never the individual story objects.
+      expect(snap.stories[0]).toBe(seed.stories[0]);
+      expect(snap.stories[1]).toBe(seed.stories[1]);
+      expect(snap.stories.map((s) => s.stage)).toEqual(['awaiting_review', 'awaiting_review']);
+    });
+
+    it('phase:end for a phase other than review never touches story stage', () => {
+      let seed = completedSeed();
+      seed = reduceSessionEvent(seed, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'pr',
+      });
+      const snap = reduceSessionEvent(seed, {
+        type: 'phase:end',
+        at: '2026-08-03T12:03:00Z',
+        phase: 'pr',
+        success: true,
+      });
+      expect(snap.stories[0]).toBe(seed.stories[0]);
+      expect(snap.stories[1]).toBe(seed.stories[1]);
+      expect(snap.stories.map((s) => s.stage)).toEqual(['awaiting_review', 'awaiting_review']);
+    });
+
+    it('a story that never passed is the one marked failed when review gives up', () => {
+      // A resumed run can reach `review` with a story still not passing.
+      let snap = reduceSessionEvent(startedSnapshot(), {
+        type: 'stories:update',
+        at: '2026-08-03T12:01:00Z',
+        stories: [
+          makeStory({ id: 'US-001', passes: true }),
+          makeStory({ id: 'US-002', priority: 2, passes: false }),
+        ],
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'review',
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:06:00Z',
+        phase: 'review',
+        success: false,
+        error: 'Review failed after 3 correction cycles',
+      });
+
+      // Not just the passing ones: the story that never got there is failed too.
+      expect(snap.stories.map((s) => s.stage)).toEqual(['failed', 'failed']);
+    });
+
+    it('a failing phase outside review still closes the executing stage', () => {
+      let snap = reduceSessionEvent(startedSnapshot(), {
+        type: 'stories:update',
+        at: '2026-08-03T12:01:00Z',
+        stories: [makeStory({ id: 'US-001', passes: false })],
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'iteration:start',
+        at: '2026-08-03T12:02:00Z',
+        iteration: 1,
+        storyId: 'US-001',
+      });
+      expect(snap.stories[0].stage).toBe('executing');
+
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:09:00Z',
+        phase: 'execute',
+        success: false,
+        error: 'fatal claude failure',
+      });
+      expect(snap.stories[0].stage).toBe('failed');
+      expect(snap.stories[0].stageSince).toBe('2026-08-03T12:09:00Z');
+    });
+
+    it('session:end never leaves a story frozen mid-flight', () => {
+      let snap = reduceSessionEvent(startedSnapshot(), {
+        type: 'stories:update',
+        at: '2026-08-03T12:01:00Z',
+        stories: [
+          makeStory({ id: 'US-001', passes: true }),
+          makeStory({ id: 'US-002', priority: 2, passes: false }),
+        ],
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'iteration:start',
+        at: '2026-08-03T12:02:00Z',
+        iteration: 3,
+        storyId: 'US-002',
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['awaiting_review', 'executing']);
+
+      snap = reduceSessionEvent(snap, {
+        type: 'session:end',
+        at: '2026-08-03T12:20:00Z',
+        status: 'failed',
+        error: 'fatal claude failure',
+      });
+      // The panel must not keep showing "executing" for a run that is over.
+      expect(snap.stories.map((s) => s.stage)).toEqual(['failed', 'failed']);
+      expect(snap.stories[1].stageSince).toBe('2026-08-03T12:20:00Z');
+    });
+
+    it('session:end on a completed run settles passing stories as done', () => {
+      let snap = completedSeed();
+      snap = reduceSessionEvent(snap, {
+        type: 'session:end',
+        at: '2026-08-03T12:20:00Z',
+        status: 'completed',
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['done', 'done']);
+    });
+
+    it('session:end keeps a stage that already settled', () => {
+      let snap = completedSeed();
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'review',
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:03:00Z',
+        phase: 'review',
+        success: true,
+      });
+      const settled = snap.stories;
+      snap = reduceSessionEvent(snap, {
+        type: 'session:end',
+        at: '2026-08-03T12:20:00Z',
+        status: 'failed',
+        error: 'PR creation failed',
+      });
+      expect(snap.stories[0]).toBe(settled[0]);
+      expect(snap.stories.map((s) => s.stage)).toEqual(['done', 'done']);
+    });
   });
 
   it('session:end records final status, endedAt and lastError', () => {

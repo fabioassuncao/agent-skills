@@ -5,6 +5,7 @@ import {
   resolveNoBranch,
   resolveQueueScopeFlags,
   resolveRunPhaseFlags,
+  resolveUserStoryNumberingFlags,
 } from './cli-options.js';
 
 describe('resolveNoBranch', () => {
@@ -114,6 +115,74 @@ describe('resolveQueueScopeFlags', () => {
     expect(() => resolveQueueScopeFlags({ yes: true, only: true })).toThrow(CliFlagError);
     expect(() => resolveQueueScopeFlags({ yes: true, only: true })).toThrow(
       /--yes cannot be combined with --only/,
+    );
+  });
+});
+
+describe('resolveUserStoryNumberingFlags', () => {
+  it('reports neither flag as set when nothing is passed', () => {
+    expect(resolveUserStoryNumberingFlags({})).toEqual({
+      continueFlag: false,
+      startUs: undefined,
+    });
+  });
+
+  it('reports --continue on its own', () => {
+    expect(resolveUserStoryNumberingFlags({ continue: true })).toEqual({
+      continueFlag: true,
+      startUs: undefined,
+    });
+  });
+
+  it('reports --start-us on its own', () => {
+    expect(resolveUserStoryNumberingFlags({ startUs: 27 })).toEqual({
+      continueFlag: false,
+      startUs: 27,
+    });
+  });
+
+  it('rejects --continue combined with --start-us', () => {
+    expect(() => resolveUserStoryNumberingFlags({ continue: true, startUs: 27 })).toThrow(
+      CliFlagError,
+    );
+    expect(() => resolveUserStoryNumberingFlags({ continue: true, startUs: 27 })).toThrow(
+      /--continue and --start-us cannot be combined/,
+    );
+  });
+
+  it('matches what commander actually parses for --continue and --start-us', () => {
+    const parse = (argv: string[]): Record<string, unknown> => {
+      const program = new Command();
+      program.exitOverride();
+      let captured: Record<string, unknown> = {};
+      program
+        .command('plan')
+        .argument('<issue>')
+        .option('--continue', 'Continue User Story numbering')
+        .option('--start-us <n>', 'Force User Story numbering to start at n', (value: string) =>
+          Number.parseInt(value, 10),
+        )
+        .action((_issue: string, options: Record<string, unknown>) => {
+          captured = options;
+        });
+      program.parse(['node', 'cli', 'plan', '42', ...argv]);
+      return captured;
+    };
+
+    expect(parse(['--continue']).continue).toBe(true);
+    expect(resolveUserStoryNumberingFlags(parse(['--continue']))).toEqual({
+      continueFlag: true,
+      startUs: undefined,
+    });
+
+    expect(parse(['--start-us', '27']).startUs).toBe(27);
+    expect(resolveUserStoryNumberingFlags(parse(['--start-us', '27']))).toEqual({
+      continueFlag: false,
+      startUs: 27,
+    });
+
+    expect(() => resolveUserStoryNumberingFlags(parse(['--continue', '--start-us', '27']))).toThrow(
+      CliFlagError,
     );
   });
 });

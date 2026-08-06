@@ -182,8 +182,20 @@ describe('runPr — persisted Pull Request', () => {
     await runPr('42', makeResolved(), {
       queue: {
         issues: [
-          { id: '42', number: 42, title: 'First', url: 'https://github.com/acme/repo/issues/42' },
-          { id: '43', number: 43, title: 'Second', url: 'https://github.com/acme/repo/issues/43' },
+          {
+            id: '42',
+            number: 42,
+            title: 'First',
+            url: 'https://github.com/acme/repo/issues/42',
+            source: 'github',
+          },
+          {
+            id: '43',
+            number: 43,
+            title: 'Second',
+            url: 'https://github.com/acme/repo/issues/43',
+            source: 'github',
+          },
         ],
         excluded: [],
         pending: [],
@@ -210,26 +222,55 @@ describe('runPr — persisted Pull Request', () => {
 });
 
 describe('issueClosesLines', () => {
-  it('produces one line per issue with a remote counterpart', () => {
+  it('produces one line per issue hosted on GitHub', () => {
     expect(
       issueClosesLines([
-        { id: '50', number: 50, title: 'A', url: 'https://github.com/acme/repo/issues/50' },
-        { id: '51', number: 51, title: 'B', url: 'https://github.com/acme/repo/issues/51' },
+        {
+          id: '50',
+          number: 50,
+          title: 'A',
+          url: 'https://github.com/acme/repo/issues/50',
+          source: 'github',
+        },
+        {
+          id: '51',
+          number: 51,
+          title: 'B',
+          url: 'https://github.com/acme/repo/issues/51',
+          source: 'github',
+        },
       ]),
     ).toBe('Closes #50\nCloses #51');
   });
 
-  it('skips an issue with no remote, exactly like the single-issue path', () => {
+  it('skips a local issue, exactly like the single-issue path', () => {
     expect(
       issueClosesLines([
-        { id: '50', number: 50, title: 'A', url: 'https://github.com/acme/repo/issues/50' },
-        { id: 'auth-refactor', number: null, title: 'B', url: null },
+        {
+          id: '50',
+          number: 50,
+          title: 'A',
+          url: 'https://github.com/acme/repo/issues/50',
+          source: 'github',
+        },
+        { id: 'auth-refactor', number: null, title: 'B', url: null, source: 'local' },
       ]),
     ).toBe('Closes #50');
   });
 
+  it('still closes a GitHub issue whose read failed during discovery', () => {
+    // Discovery swallows a failed `fetchIssue`, leaving the entry with no
+    // title and no url — but the queue still runs and closes it, so the body
+    // has to reference it.
+    expect(
+      issueClosesLines([{ id: '52', number: 52, title: '', url: null, source: 'github' }]),
+    ).toBe('Closes #52');
+  });
+
   it('is empty when no issue of the queue is hosted on GitHub', () => {
-    expect(issueClosesLines([{ id: 'a', number: null, title: '', url: null }])).toBe('');
+    expect(
+      issueClosesLines([{ id: 'a', number: null, title: '', url: null, source: 'local' }]),
+    ).toBe('');
   });
 });
 

@@ -34,11 +34,20 @@ export function printProgressBar(passed: number, total: number): string {
  *
  * When a global output callback is set (e.g., inside a listr2 task),
  * output is routed through it instead of console.log.
+ *
+ * `activeStoryId`, when provided, identifies the story the engine is
+ * actually about to work on this iteration (the same id published on
+ * `iteration:start` \u2014 see `core/state-manager.ts`'s `selectActiveStory`),
+ * so the header agrees with the session snapshot instead of guessing.
+ * Omitted, it falls back to the previous heuristic ("first non-passing story
+ * in array order"), which existing callers that cannot supply the real id
+ * keep relying on.
  */
 export function printIterationHeader(
   iteration: number,
   maxIter: number | undefined,
   stories: UserStory[],
+  activeStoryId?: string,
 ): void {
   const icons = getIcons();
   const colored = useColor();
@@ -62,12 +71,15 @@ export function printIterationHeader(
   for (const story of stories) {
     let icon: string;
     let colorFn: (s: string) => string;
+    const isActive =
+      activeStoryId !== undefined
+        ? story.id === activeStoryId
+        : !story.passes && !foundFirstPending;
 
     if (story.passes) {
       icon = icons.success;
       colorFn = colored ? chalk.green : (s: string) => s;
-    } else if (!foundFirstPending) {
-      // First non-passing story = current in-progress
+    } else if (isActive) {
       icon = icons.pending;
       colorFn = colored ? chalk.yellow : (s: string) => s;
       foundFirstPending = true;
