@@ -67,9 +67,17 @@ function stripCode(body: string): string {
   return body.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ');
 }
 
-/** Keyword forms accepted before a list of ids, per relation kind. */
-const BLOCKED_BY = /\b(?:depends[- ]on|depends upon|blocked[- ]by|requires)\b\s*:?\s*/gi;
-const BLOCKING = /\b(?:blocks|blocking)\b\s*:?\s*/gi;
+/**
+ * Keyword forms accepted before a list of ids, per relation kind.
+ *
+ * Portuguese spellings sit next to the English ones because issues are written
+ * in the language of the team, not of the tool: a repository whose issues say
+ * "Depende de #50" would otherwise get an empty graph while an identical
+ * English-language repository gets a full one.
+ */
+const BLOCKED_BY =
+  /\b(?:depends[- ]on|depends upon|blocked[- ]by|requires|depende[ -]de|dependente[ -]de|bloquead[ao] por|requer)\b\s*:?\s*/gi;
+const BLOCKING = /\b(?:blocks|blocking|bloqueia|bloqueando)\b\s*:?\s*/gi;
 
 /** A task list item (`- [ ] #12 …`), the Markdown spelling of a sub-issue. */
 const TASK_ITEM = /^[ \t]*[-*]\s*\[[ xX]\]\s*(.*)$/gm;
@@ -95,6 +103,13 @@ function idsFrom(text: string): string[] {
     if (match === null) break;
     ids.push(match[1] as string);
     cursor = id.lastIndex;
+
+    // A parenthetical after an id is a gloss, not the end of the list:
+    // "Depends on #50 (discovery) and #51 (ordering)" names two dependencies.
+    const gloss = /^\s*\([^)]*\)/.exec(text.slice(cursor));
+    if (gloss !== null) {
+      cursor += gloss[0].length;
+    }
 
     // Consume the separator between two ids of the same list.
     const separator = /^\s*(?:,|and\b|e\b|&)\s*/i.exec(text.slice(cursor));
@@ -141,9 +156,12 @@ export function parseTextualRelations(body: string, self?: string): TextualRelat
   let item = TASK_ITEM.exec(text);
   while (item !== null) {
     const content = item[1] ?? '';
-    // Only the first citation of the item is the sub-issue; the rest of the
-    // line is prose that may cite anything.
-    const first = /(?:^|[^\w#])#(\d+)\b/.exec(` ${content}`);
+    // The citation must **open** the item, which is how GitHub's own task lists
+    // reference an issue (`- [ ] #21 Title`). A checklist entry that merely
+    // mentions an issue in its prose ("- [ ] Reuse the graph of issue #50") is
+    // a note, not a sub-issue — and treating it as one was the most common
+    // false positive this heuristic produced on real bodies.
+    const first = /^\s*\[?#(\d+)\b/.exec(content);
     if (first?.[1] !== undefined) {
       children.push(first[1]);
     }

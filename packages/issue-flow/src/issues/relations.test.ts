@@ -44,6 +44,14 @@ describe('parseTextualRelations', () => {
     });
   });
 
+  it('reads the Portuguese spellings issues are actually written in', () => {
+    const body = ['Depende de #50', 'Bloqueada por #51', 'Bloqueia #52', 'Requer #53'].join('\n');
+    expect(parseTextualRelations(body)).toMatchObject({
+      blockedBy: ['50', '51', '53'],
+      blocking: ['52'],
+    });
+  });
+
   it('accepts hyphenated and colon spellings', () => {
     expect(parseTextualRelations('Depends-on: #12\nBlocked-by: #13')).toMatchObject({
       blockedBy: ['12', '13'],
@@ -56,13 +64,32 @@ describe('parseTextualRelations', () => {
     });
   });
 
+  it('reads through a parenthetical gloss between two ids', () => {
+    expect(
+      parseTextualRelations('Depende de #50 (descoberta de dependências) e #51 (plano ordenado)'),
+    ).toMatchObject({ blockedBy: ['50', '51'] });
+  });
+
+  it('stops the list when the separator is not followed by another id', () => {
+    expect(parseTextualRelations('Depends on #50 (already merged), see also #99')).toMatchObject({
+      blockedBy: ['50'],
+      references: ['99'],
+    });
+  });
+
   it('reads task list items as sub-issues', () => {
     const body = ['- [ ] #21 first', '- [x] #22 second', '* [ ] #23 third'].join('\n');
     expect(parseTextualRelations(body).children).toEqual(['21', '22', '23']);
   });
 
-  it('keeps only the first citation of a task item', () => {
+  it('keeps only the citation that opens a task item', () => {
     expect(parseTextualRelations('- [ ] #21 depends on the work in #99').children).toEqual(['21']);
+  });
+
+  it('does not read a task item that merely mentions an issue in its prose', () => {
+    const parsed = parseTextualRelations('- [ ] Reuse the graph built for issue #50');
+    expect(parsed.children).toEqual([]);
+    expect(parsed.references).toEqual(['50']);
   });
 
   it('demotes every other citation to a plain reference', () => {

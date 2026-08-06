@@ -8,6 +8,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions refer to the `issue-flow` npm package (`packages/issue-flow`). Releases
 that were tagged but never published to the registry are marked as such.
 
+## [Unreleased]
+
+### Added
+
+- **Multiple issues and hierarchies in the pipeline** (issues #50, #51, #52, #53).
+  - Hierarchy and dependency **discovery** (#50): `IssueProvider.fetchRelations?`
+    plus a GitHub implementation reconciling the Sub-issues API, the Issue
+    Dependencies API (`blocked_by`/`blocking`), timeline cross-references and a
+    documented textual heuristic over the issue body. `buildDependencyGraph`
+    walks it breadth-first with configurable node/depth limits and records
+    cycles instead of throwing.
+  - **Ordered plan and confirmation** (#51): `issue-flow run` accepts `42,43,50`
+    and `42 43 50`; when a larger structure is found the run stops before any
+    phase, shows the suggested order and offers "only what I informed" / "the
+    whole hierarchy" / "cancel". `--yes` and `--only` answer it non-interactively
+    (outside a TTY one of them is required). The order respects dependencies →
+    hierarchy → priority labels → issue number, and a dependency cycle is an
+    explicit error.
+  - **Sequential execution on one branch** (#52): the whole queue runs in a
+    single process, sharing one branch, with commits scoped per issue
+    (`feat(issue-51): …`), per-issue token/cost accounting, and resume from the
+    issue that failed without redoing the ones already completed. Queue state
+    lives in `~/.issue-flow/projects/<id>/queues/<queue-id>/execution-plan.json`.
+  - **One consolidated Pull Request** (#53): a single PR for the whole queue,
+    with the issues implemented, the execution order, the pending items and one
+    `Closes #N` per issue hosted on GitHub. The reference is replicated to every
+    issue's `tasks.json`, so `pr-review --issue <any>` still finds it.
+
+### Changed
+
+- `core/session-metrics.ts` keeps a **stack** of usage scopes instead of a single
+  module-level accumulator, so several issues can run in one process without
+  their costs leaking into each other's summary (the caveat previously
+  documented in `src/core/CLAUDE.md`).
+
+### Compatibility
+
+- A single issue with no discovered relations behaves exactly as before: no
+  prompt, no queue artifact, the same commit format and the same Pull Request
+  body.
+
 ## [0.5.0] - 2026-08-03
 
 ### Added

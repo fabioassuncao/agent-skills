@@ -400,7 +400,7 @@ A provider may also answer *how an issue relates to the others*. The GitHub prov
 |--------|-------|----------|
 | [Sub-issues](https://docs.github.com/rest/issues/sub-issues) | `GET /repos/{owner}/{repo}/issues/{n}/sub_issues` and the `parent` field of the issue payload | `children`, `parent` |
 | [Issue Dependencies](https://docs.github.com/rest/issues/dependencies) | `GET …/issues/{n}/dependencies/blocked_by` and `…/blocking` | `blockedBy`, `blocking` |
-| Issue body (heuristic) | `Depends on #N`, `Depends-on: #N`, `Blocked by #N`, `Requires #N`, `Blocks #N`, task list items `- [ ] #N` | `blockedBy`, `blocking`, `children` |
+| Issue body (heuristic) | `Depends on #N`, `Depends-on: #N`, `Blocked by #N`, `Requires #N`, `Blocks #N` and their Portuguese spellings (`Depende de`, `Bloqueada por`, `Requer`, `Bloqueia`), plus task list items `- [ ] #N` | `blockedBy`, `blocking`, `children` |
 | Timeline cross-references | `GET …/issues/{n}/timeline` | `referencedBy` (Pull Requests excluded) |
 
 Every source is queried through `gh api` and is allowed to fail on its own: an organization without Issue Dependencies enabled simply gets those two fields empty -- a 404 costs a field, never the discovery.
@@ -409,8 +409,8 @@ The textual fallback is **heuristic**, and its limits are deliberate:
 
 - fenced code blocks and inline code spans are stripped first, so `#42` inside a snippet is never a dependency;
 - a keyword only creates a relation when it is **immediately** followed by the id -- "blocked by the redesign discussed in #12" is a mention, not a dependency;
-- `#N, #M and #O` after a single keyword are all read;
-- only the **first** citation of a task list item is treated as the sub-issue;
+- `#N, #M and #O` after a single keyword are all read, and a parenthetical gloss between them does not end the list (`Depends on #50 (discovery) and #51 (ordering)` names two dependencies);
+- a task list item counts as a sub-issue only when the citation **opens** it (`- [ ] #21 Title`); an item that merely mentions an issue in its prose (`- [ ] Reuse the graph of issue #50`) is a note, not a sub-issue;
 - everything else becomes a plain `reference`, which **never** orders execution;
 - an id that only the heuristic found is flagged as such, and [`run`](#run----full-pipeline-end-to-end) marks it with `~` in the confirmation summary.
 
