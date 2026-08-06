@@ -168,6 +168,54 @@ describe('startWebServer', () => {
       issueNumber: 22,
       status: 'running',
       statusUrl: '/api/status?session=session-1',
+      // Enriched card fields (issue #35): null until the matching events land.
+      issueTitle: null,
+      issueDescription: null,
+      repositoryName: null,
+      currentPhase: null,
+      progressPercent: 0,
+      elapsedSeconds: expect.any(Number),
+    });
+  });
+
+  it('enriches /api/sessions with issue, repository and progress fields for dashboard cards', async () => {
+    const publisher = makePublisher();
+    publisher.publish({
+      type: 'issue:update',
+      at: '2026-08-03T12:00:01Z',
+      number: 22,
+      url: 'https://github.com/acme/repo/issues/22',
+      title: 'Dashboard multi-projeto',
+      description: 'Listar sessões ativas como cards.',
+      labels: ['frontend'],
+      state: 'open',
+    });
+    publisher.publish({
+      type: 'git:update',
+      at: '2026-08-03T12:00:02Z',
+      branch: 'issue/35-dashboard',
+      baseBranch: 'main',
+      commits: [],
+      repositoryName: 'acme/issue-flow',
+      remoteUrl: 'https://github.com/acme/issue-flow.git',
+      headCommit: 'abc1234',
+      repositoryRoot: '/tmp/issue-flow',
+    });
+    publisher.publish({ type: 'phase:start', at: '2026-08-03T12:00:03Z', phase: 'prd' });
+    const handle = await start({ publisher });
+
+    const sessions = await (await fetch(`${handle.url}/api/sessions`)).json();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      sessionId: 'session-1',
+      issueNumber: 22,
+      issueTitle: 'Dashboard multi-projeto',
+      issueDescription: 'Listar sessões ativas como cards.',
+      repositoryName: 'acme/issue-flow',
+      currentPhase: 'prd',
+      progressPercent: expect.any(Number),
+      status: 'running',
+      statusUrl: '/api/status?session=session-1',
     });
   });
 

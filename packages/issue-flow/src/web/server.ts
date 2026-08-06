@@ -265,12 +265,21 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     }
 
     if (path === '/api/sessions') {
+      // Summary fields for the multi-session dashboard (issue #35): the full
+      // SessionSnapshot is already in memory, so the client can render cards
+      // from this single list without N× /api/status fetches per poll.
       respondJson(
         res,
         200,
         source.list().map((snapshot) => ({
           sessionId: snapshot.sessionId,
           issueNumber: snapshot.issue.number,
+          issueTitle: snapshot.issue.title,
+          issueDescription: snapshot.issue.description,
+          repositoryName: snapshot.repository.name,
+          currentPhase: snapshot.currentPhase,
+          progressPercent: snapshot.progress.percent,
+          elapsedSeconds: snapshot.elapsedSeconds,
           status: snapshot.status,
           startedAt: snapshot.startedAt,
           updatedAt: snapshot.updatedAt,
