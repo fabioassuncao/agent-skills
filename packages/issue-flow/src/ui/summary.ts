@@ -276,6 +276,8 @@ export interface QueueSummaryInfo {
   prUrl: string | null;
   /** Tokens and cost of the whole queue. */
   usage?: ClaudeUsage | null;
+  /** Verdict of the pr-review phase, when the queue ran it. */
+  prReview?: RunSummaryPrReview | null;
 }
 
 /**
@@ -313,13 +315,27 @@ export function buildQueueSummaryLines(info: QueueSummaryInfo): string[] {
     lines.push(`  Skipped:  ${info.excluded.map((entry) => `#${entry.id}`).join(', ')}`);
   }
 
+  const review = info.prReview;
+  if (review) {
+    lines.push(
+      `  Review:   ${review.recommendation ?? (review.requestedChanges ? 'REQUEST_CHANGES' : 'unknown')}`,
+    );
+    if (review.reportPath !== null) {
+      lines.push(`  Report:   ${review.reportPath}`);
+    }
+  }
+
   return lines;
 }
 
 /** Print the consolidated summary of a multi-issue queue. */
 export function printQueueSummary(info: QueueSummaryInfo): void {
   console.log('');
-  printSuccess(`Queue complete for issue #${info.queueId} (${info.issues.length} issues)!`);
+  if (info.prReview?.requestedChanges === true) {
+    printWarning(`Queue finished for issue #${info.queueId}, but the PR review requested changes.`);
+  } else {
+    printSuccess(`Queue complete for issue #${info.queueId} (${info.issues.length} issues)!`);
+  }
   for (const line of buildQueueSummaryLines(info)) {
     console.log(line);
   }

@@ -240,6 +240,14 @@ npx issue-flow pr 42
 
 Creates a well-structured PR referencing the issue, with summary and test plan. When the issue has no remote counterpart (a local issue), the `Closes #N` reference is omitted and the PR body points at the local `issue.md` instead.
 
+**Inside a queue** ([multiple issues](#multiple-issues-and-hierarchies)) the phase runs **once**, after the last issue, and produces a **single** Pull Request for the whole branch. Its body additionally carries:
+
+- an **Issues implemented** section, in execution order;
+- one `Closes #N` line per issue that has a GitHub counterpart, so merging the PR closes all of them (issues with no remote are skipped, exactly as in a single-issue PR);
+- a **Pending** section listing the issues discovered but not executed (the ones trimmed by `--only` or by your answer to the confirmation) and any issue left with unresolved review findings.
+
+The reference to the Pull Request is recorded in the queue's `execution-plan.json` and replicated into every issue's `tasks.json`, so `issue-flow pr-review --issue <any issue of the queue>` finds it. A single-issue run is unchanged: no extra section is added and the body is what it has always been.
+
 ### `pr-review` -- Review a Pull Request
 
 ```bash

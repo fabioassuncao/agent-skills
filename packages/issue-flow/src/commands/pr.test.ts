@@ -36,7 +36,7 @@ vi.mock('../core/headless.js', () => ({
 import type { Issue, ResolvedIssue } from '../issues/types.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
-import { runPr } from './pr.js';
+import { issueClosesLines, multiIssueContext, runPr } from './pr.js';
 
 function makeResolved(): ResolvedIssue {
   const issue: Issue = {
@@ -164,6 +164,38 @@ describe('runPr — persisted Pull Request', () => {
     await expect(runPr('42', makeResolved())).resolves.toBe(0);
   });
 
+  it('keeps the single-issue prompt free of any multi-issue section', async () => {
+    headlessOutput.current = 'https://github.com/acme/repo/pull/128';
+
+    await runPr('42', makeResolved());
+
+    const prompt = String(headlessOptions.last?.prompt);
+    expect(prompt).toContain('Closes #42');
+    expect(prompt).not.toContain('consolidates several issues');
+    expect(prompt).not.toContain('Issues implemented');
+    expect(prompt).not.toContain('__MULTI_ISSUE_CONTEXT__');
+  });
+
+  it('lists every issue of a queue in the consolidated prompt', async () => {
+    headlessOutput.current = 'https://github.com/acme/repo/pull/128';
+
+    await runPr('42', makeResolved(), {
+      queue: {
+        issues: [
+          { id: '42', number: 42, title: 'First', url: 'https://github.com/acme/repo/issues/42' },
+          { id: '43', number: 43, title: 'Second', url: 'https://github.com/acme/repo/issues/43' },
+        ],
+        excluded: [],
+        pending: [],
+      },
+    });
+
+    const prompt = String(headlessOptions.last?.prompt);
+    expect(prompt).toContain('Closes #42\nCloses #43');
+    expect(prompt).toContain('consolidates several issues');
+    expect(prompt).toContain('1. #42 — First');
+  });
+
   it('points the prompt and the headless session at the global issue directory', async () => {
     headlessOutput.current = 'https://github.com/acme/repo/pull/128';
 
@@ -174,5 +206,61 @@ describe('runPr — persisted Pull Request', () => {
     expect(headlessOptions.last?.addDirs).toEqual([issueDir]);
     // Nothing was written under the legacy tree.
     await expect(readFile(join(tmpDir, 'issues', '42', 'tasks.json'), 'utf-8')).rejects.toThrow();
+  });
+});
+
+describe('issueClosesLines', () => {
+  it('produces one line per issue with a remote counterpart', () => {
+    expect(
+      issueClosesLines([
+        { id: '50', number: 50, title: 'A', url: 'https://github.com/acme/repo/issues/50' },
+        { id: '51', number: 51, title: 'B', url: 'https://github.com/acme/repo/issues/51' },
+      ]),
+    ).toBe('Closes #50\nCloses #51');
+  });
+
+  it('skips an issue with no remote, exactly like the single-issue path', () => {
+    expect(
+      issueClosesLines([
+        { id: '50', number: 50, title: 'A', url: 'https://github.com/acme/repo/issues/50' },
+        { id: 'auth-refactor', number: null, title: 'B', url: null },
+      ]),
+    ).toBe('Closes #50');
+  });
+
+  it('is empty when no issue of the queue is hosted on GitHub', () => {
+    expect(issueClosesLines([{ id: 'a', number: null, title: '', url: null }])).toBe('');
+  });
+});
+
+describe('multiIssueContext', () => {
+  const queue = {
+    issues: [
+      { id: '50', number: 50, title: 'Discovery', url: 'u' },
+      { id: '51', number: 51, title: 'Ordering', url: 'u' },
+    ],
+    excluded: [{ id: '53', number: 53, title: 'Consolidated PR', reason: 'not selected' }],
+    pending: ['Issue #51 has unresolved review findings'],
+  };
+
+  it('is empty for a standalone run, so the prompt renders as before', () => {
+    expect(multiIssueContext(undefined)).toBe('');
+    expect(multiIssueContext({ ...queue, issues: [queue.issues[0]] })).toBe('');
+  });
+
+  it('lists the execution order and the pending items', () => {
+    const context = multiIssueContext(queue);
+
+    expect(context).toContain('1. #50 — Discovery');
+    expect(context).toContain('2. #51 — Ordering');
+    expect(context).toContain('Issues implemented');
+    expect(context).toContain('- #53 — Consolidated PR: not selected');
+    expect(context).toContain('- Issue #51 has unresolved review findings');
+  });
+
+  it('says so when nothing is pending', () => {
+    expect(multiIssueContext({ ...queue, excluded: [], pending: [] })).toContain(
+      '(no known pending items)',
+    );
   });
 });

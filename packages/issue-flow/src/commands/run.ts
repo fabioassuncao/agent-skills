@@ -29,6 +29,7 @@ import {
   nextQueueIssue,
   saveExecutionPlan,
   setQueueBranch,
+  setQueuePullRequest,
 } from '../execution/plan.js';
 import { planQueue, type QueueDecision } from '../execution/queue.js';
 import type { ExecutionPlan, ExecutionPlanIssue } from '../execution/types.js';
@@ -38,7 +39,7 @@ import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
-import type { UserStory } from '../types.js';
+import type { PullRequestRef, UserStory } from '../types.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import {
@@ -51,7 +52,7 @@ import { ensureWebMonitor } from '../web/lock.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
-import { runPr } from './pr.js';
+import { type PrQueueContext, runPr } from './pr.js';
 import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
@@ -114,6 +115,19 @@ export function publishIssueDetails(publisher: SessionPublisher, issue: Issue, a
 const RUNNABLE_PHASES: PipelinePhase[] = ['prd', 'plan', 'execute', 'review', 'pr'];
 const RUNNABLE_PHASES_NO_BRANCH: PipelinePhase[] = ['prd', 'plan', 'execute', 'review'];
 const RUNNABLE_PHASES_WITH_PR_REVIEW: PipelinePhase[] = [...RUNNABLE_PHASES, 'pr-review'];
+
+/**
+ * Phases of a queue's closing pass: the work is already committed by the
+ * per-issue runs, so all that is left is the single consolidated Pull Request.
+ */
+const QUEUE_PR_PHASES = ['init', 'pr'] as const satisfies readonly PipelinePhase[];
+const QUEUE_PR_PHASES_WITH_REVIEW = [
+  'init',
+  'pr',
+  'pr-review',
+] as const satisfies readonly PipelinePhase[];
+const RUNNABLE_QUEUE_PR_PHASES: PipelinePhase[] = ['pr'];
+const RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW: PipelinePhase[] = ['pr', 'pr-review'];
 
 /**
  * What the `pr-review` phase left behind, for the steps that run after it: the
@@ -184,6 +198,12 @@ interface QueueRunContext {
   preChecked: boolean;
   /** Issue already resolved by the planner, if this is the primary one. */
   resolved?: ResolvedIssue;
+  /**
+   * Set on the final pass of a queue, which runs no implementation phase at
+   * all: only `pr` (and the optional `pr-review`), for the single Pull Request
+   * that consolidates every issue.
+   */
+  finalPr?: PrQueueContext;
 }
 
 /** What one issue's run reports back to the caller. */
@@ -195,6 +215,8 @@ interface IssueRunResult {
   branchName: string | null;
   storyCount: number;
   elapsedSeconds: number;
+  /** Verdict of the `pr-review` phase, when it ran. */
+  review?: PrReviewOutcome | null;
   /** Set when the run stopped to hand control over to a queue. */
   queue?: { plan: ExecutionPlan; resumed: boolean; resolved: ResolvedIssue };
 }
@@ -488,20 +510,31 @@ async function runPipelinePhases(
   // the same one `--no-branch` uses, but the branch is still created: what
   // changes is who opens the Pull Request, not whether there is a branch.
   const inQueue = queue !== undefined;
-  const activePhases = inQueue
-    ? PIPELINE_PHASES_NO_BRANCH
-    : effectiveNoBranch
+  // The queue's last pass implements nothing: it only opens the single Pull
+  // Request that covers every issue already committed to the shared branch.
+  const finalPr = queue?.finalPr;
+  const activePhases = finalPr
+    ? effectivePrReview
+      ? QUEUE_PR_PHASES_WITH_REVIEW
+      : QUEUE_PR_PHASES
+    : inQueue
       ? PIPELINE_PHASES_NO_BRANCH
-      : effectivePrReview
-        ? PIPELINE_PHASES_WITH_PR_REVIEW
-        : PIPELINE_PHASES;
-  const phaseOrder = inQueue
-    ? RUNNABLE_PHASES_NO_BRANCH
-    : effectiveNoBranch
+      : effectiveNoBranch
+        ? PIPELINE_PHASES_NO_BRANCH
+        : effectivePrReview
+          ? PIPELINE_PHASES_WITH_PR_REVIEW
+          : PIPELINE_PHASES;
+  const phaseOrder = finalPr
+    ? effectivePrReview
+      ? RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW
+      : RUNNABLE_QUEUE_PR_PHASES
+    : inQueue
       ? RUNNABLE_PHASES_NO_BRANCH
-      : effectivePrReview
-        ? RUNNABLE_PHASES_WITH_PR_REVIEW
-        : RUNNABLE_PHASES;
+      : effectiveNoBranch
+        ? RUNNABLE_PHASES_NO_BRANCH
+        : effectivePrReview
+          ? RUNNABLE_PHASES_WITH_PR_REVIEW
+          : RUNNABLE_PHASES;
 
   // The phase list is only known after resolving --no-branch, so the init
   // phase (which already ran) is published retroactively with real timestamps.
@@ -566,7 +599,9 @@ async function runPipelinePhases(
     }
   }
 
-  const startIdx = phaseOrder.indexOf(startPhase);
+  // A phase that is not part of this run's list (the closing pass of a queue
+  // runs only `pr`) starts the renderer at the beginning rather than at -1.
+  const startIdx = Math.max(phaseOrder.indexOf(startPhase), 0);
 
   // Commit scope for this issue's stories: only a queue needs one, because
   // only there do several issues share a branch (and therefore a `git log`).
@@ -660,7 +695,15 @@ async function runPipelinePhases(
         throw new Error(`Review failed after ${maxCycles} correction cycles`);
       }
     },
-    pr: makeRunner(() => runPr(issueNumber, resolvedIssue), 'pr'),
+    pr: makeRunner(
+      // The options argument is omitted outside a queue so a standalone run
+      // calls `runPr` exactly as it always did.
+      () =>
+        finalPr === undefined
+          ? runPr(issueNumber, resolvedIssue)
+          : runPr(issueNumber, resolvedIssue, { queue: finalPr }),
+      'pr',
+    ),
   };
 
   // Filled by the pr-review runner; read after the pipeline finishes. Held in a
@@ -784,13 +827,16 @@ async function runPipelinePhases(
   // Inside a queue the run is not over: the summary, the Pull Request and the
   // totals belong to the queue, which prints them once at the end.
   if (inQueue) {
-    printSuccess(`Issue #${issueNumber} completed (${storyCount} stories).`);
+    if (finalPr === undefined) {
+      printSuccess(`Issue #${issueNumber} completed (${storyCount} stories).`);
+    }
     return {
       code: 0,
       failedPhase: null,
       branchName: producedBranch ?? (branchName === 'unknown' ? null : branchName),
       storyCount,
       elapsedSeconds: result.overallElapsedSeconds,
+      review,
     };
   }
 
@@ -983,16 +1029,24 @@ async function runQueue(
       });
     }
 
-    await finishQueue(plan, planFile, summaries, startedAtMs, queueUsage.totals());
-    return 0;
+    return await finishQueue(
+      plan,
+      planFile,
+      summaries,
+      startedAtMs,
+      queueUsage.totals(),
+      options,
+      resolvedPrimary,
+    );
   } finally {
     queueUsage.end();
   }
 }
 
 /**
- * Everything that happens once every issue of the queue is done: close them and
- * report. Split out so the loop above stays about scheduling.
+ * Everything that happens once every issue of the queue is done: the single
+ * consolidated Pull Request, closing the issues and reporting. Split out so the
+ * loop above stays about scheduling.
  */
 async function finishQueue(
   plan: ExecutionPlan,
@@ -1000,22 +1054,141 @@ async function finishQueue(
   summaries: QueueIssueSummary[],
   startedAtMs: number,
   usage: ReturnType<typeof getRunUsageTotals>,
-): Promise<void> {
-  await saveExecutionPlan(planFile, plan);
+  options: { mode: string; noBranch?: boolean; prReview?: boolean },
+  resolvedPrimary?: ResolvedIssue,
+): Promise<number> {
+  let current = plan;
+  let review: PrReviewOutcome | null = null;
 
-  for (const entry of plan.issues) {
-    await closeIssue(entry.id, entry.source);
+  // One Pull Request for the whole queue, and only when there is a branch to
+  // propose and no Pull Request has been opened for this queue yet.
+  if (!current.noBranch && options.noBranch !== true && current.pullRequest === undefined) {
+    const outcome = await runIssueSession(current.id, options.mode, {
+      prReview: options.prReview ?? current.prReview,
+      queue: {
+        plan: current,
+        planFile,
+        entry: current.issues[0] as ExecutionPlanIssue,
+        preChecked: true,
+        resolved: resolvedPrimary,
+        finalPr: await buildPrQueueContext(current),
+      },
+    });
+    review = outcome.review ?? null;
+
+    if (outcome.code !== 0) {
+      printError('The consolidated Pull Request could not be created.');
+      await saveExecutionPlan(planFile, current);
+      return outcome.code;
+    }
+
+    const pullRequest = await propagatePullRequest(current);
+    if (pullRequest !== null) {
+      current = setQueuePullRequest(current, pullRequest);
+    }
+  }
+
+  await saveExecutionPlan(planFile, current);
+
+  // A review asking for changes leaves every issue open, exactly as it does for
+  // a single-issue run: the work is proposed, not accepted.
+  if (review?.requestedChanges === true) {
+    printInfo('Issues left open until the review blockers are addressed.');
+  } else {
+    for (const entry of current.issues) {
+      await closeIssue(entry.id, entry.source);
+    }
   }
 
   printQueueSummary({
-    queueId: plan.id,
-    branchName: plan.branchName,
+    queueId: current.id,
+    branchName: current.branchName,
     issues: summaries,
-    excluded: plan.excluded.map((entry) => ({ id: entry.id, title: entry.title })),
+    excluded: current.excluded.map((entry) => ({ id: entry.id, title: entry.title })),
     elapsedSeconds: Math.round((Date.now() - startedAtMs) / 1000),
-    prUrl: plan.pullRequest?.url ?? null,
+    prUrl: current.pullRequest?.url ?? null,
     usage,
+    prReview: review,
   });
+
+  return 0;
+}
+
+/**
+ * The context the consolidated Pull Request needs: what was implemented, in
+ * which order, and what is knowingly left pending.
+ *
+ * "Pending" is the honest half of the report — the issues the user chose not to
+ * run, and any review findings still recorded on an issue's plan. Both would
+ * otherwise be invisible to whoever reviews the Pull Request.
+ */
+async function buildPrQueueContext(plan: ExecutionPlan): Promise<PrQueueContext> {
+  const pending: string[] = [];
+
+  for (const entry of plan.issues) {
+    try {
+      const paths = await resolveIssuePaths(entry.id);
+      const taskPlan = await loadTaskPlan(paths.tasksFile);
+      if (taskPlan.lastReviewFindings !== null && taskPlan.lastReviewFindings !== '') {
+        pending.push(`Issue #${entry.id} has unresolved review findings`);
+      }
+    } catch {
+      // No plan on disk for this issue: nothing to report about it.
+    }
+  }
+
+  return {
+    issues: plan.issues.map((entry) => ({
+      id: entry.id,
+      number: entry.number,
+      title: entry.title,
+      url: entry.url,
+    })),
+    excluded: plan.excluded.map((entry) => ({
+      id: entry.id,
+      number: entry.number,
+      title: entry.title,
+      reason: entry.reason,
+    })),
+    pending,
+  };
+}
+
+/**
+ * Copy the Pull Request the `pr` phase recorded on the primary issue's plan
+ * onto every other issue of the queue.
+ *
+ * The queue's `execution-plan.json` is the source of truth, but `pr-review`
+ * discovers a Pull Request from `plan.pullRequest` in `tasks.json`
+ * (`core/pr-review/discovery.ts`), so replicating it is what keeps
+ * `pr-review --issue <any issue of the queue>` working without a special case.
+ * A write that fails is reported and skipped: the Pull Request exists either
+ * way, and the queue file already records it.
+ */
+async function propagatePullRequest(plan: ExecutionPlan): Promise<PullRequestRef | null> {
+  let pullRequest: PullRequestRef | null = null;
+  try {
+    const primaryPaths = await resolveIssuePaths(plan.id);
+    pullRequest = (await loadTaskPlan(primaryPaths.tasksFile)).pullRequest ?? null;
+  } catch {
+    return null;
+  }
+  if (pullRequest === null) return null;
+
+  for (const entry of plan.issues) {
+    if (entry.id === plan.id) continue;
+    try {
+      const paths = await resolveIssuePaths(entry.id);
+      const taskPlan = await loadTaskPlan(paths.tasksFile);
+      taskPlan.pullRequest = pullRequest;
+      taskPlan.pipeline.prCreated = true;
+      await saveTaskPlan(paths.tasksFile, taskPlan);
+    } catch {
+      printWarning(`Could not record the Pull Request on issue #${entry.id}'s task plan.`);
+    }
+  }
+
+  return pullRequest;
 }
 
 /** An {@link IssueRunResult} carrying nothing but an exit code. */

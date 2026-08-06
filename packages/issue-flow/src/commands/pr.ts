@@ -40,7 +40,107 @@ function issueClosesLine(issue: Issue, fallbackId: string): string {
   return `Closes #${issue.number ?? fallbackId}`;
 }
 
-export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
+/** One Issue of a queue, as the consolidated Pull Request has to describe it. */
+export interface PrQueueIssue {
+  id: string;
+  number: number | null;
+  title: string;
+  /** `null` for an Issue with no remote counterpart — it gets no `Closes`. */
+  url: string | null;
+}
+
+/**
+ * What a multi-issue queue hands to the `pr` phase.
+ *
+ * Absent for every standalone run, and that absence is what guarantees the
+ * single-issue Pull Request is byte-for-byte the one this command has always
+ * produced: the extra placeholders resolve to empty strings.
+ */
+export interface PrQueueContext {
+  /** Issues of the queue, in the order they were executed. */
+  issues: PrQueueIssue[];
+  /** Issues discovered but not executed, with the reason. */
+  excluded: { id: string; number: number | null; title: string; reason: string }[];
+  /** Anything else worth reporting as pending (unresolved review findings). */
+  pending: string[];
+}
+
+export interface RunPrOptions {
+  /** Set only when the Pull Request consolidates a queue. */
+  queue?: PrQueueContext;
+}
+
+/** `#51` when the Issue has a number, its raw identifier otherwise. */
+function issueRef(entry: { id: string; number: number | null }): string {
+  return entry.number === null ? entry.id : `#${entry.number}`;
+}
+
+/**
+ * Every `Closes #N` line of a consolidated Pull Request, one per line.
+ *
+ * Issues without a remote counterpart are skipped for the same reason a
+ * single-issue Pull Request skips them — GitHub cannot close what it does not
+ * host — and a queue that mixes both origins still gets a valid body.
+ */
+export function issueClosesLines(issues: readonly PrQueueIssue[]): string {
+  return issues
+    .filter((entry) => entry.url !== null)
+    .map((entry) => `Closes #${entry.number ?? entry.id}`)
+    .join('\n');
+}
+
+/**
+ * The extra instructions the prompt receives when the Pull Request covers a
+ * whole queue.
+ *
+ * Returns `''` for a standalone run, which is what keeps `pr.md` rendering
+ * exactly as before for the single-issue path — no empty "Issues implemented"
+ * section, no redundant ordering of a list of one.
+ */
+export function multiIssueContext(queue: PrQueueContext | undefined): string {
+  if (queue === undefined || queue.issues.length <= 1) {
+    return '';
+  }
+
+  const order = queue.issues
+    .map(
+      (entry, index) => `${index + 1}. ${issueRef(entry)}${entry.title ? ` — ${entry.title}` : ''}`,
+    )
+    .join('\n');
+
+  const pending = [
+    ...queue.excluded.map(
+      (entry) => `- ${issueRef(entry)}${entry.title ? ` — ${entry.title}` : ''}: ${entry.reason}`,
+    ),
+    ...queue.pending.map((note) => `- ${note}`),
+  ].join('\n');
+
+  return [
+    '',
+    'This Pull Request consolidates several issues implemented on this same branch,',
+    'in this execution order:',
+    '',
+    order,
+    '',
+    'The PR body MUST additionally contain:',
+    '- an "Issues implemented" section listing every issue above, in that order,',
+    '  with one line per issue describing what it delivered;',
+    '- a "Pending" section with the items below, verbatim, plus anything you find',
+    '  unfinished while reviewing the diff. Write "None" when the list below is',
+    '  empty and you find nothing else;',
+    '',
+    pending === '' ? '(no known pending items)' : pending,
+    '',
+    'The commits of this branch are scoped per issue (`feat(issue-N): …`), which is',
+    'how you tell which change belongs to which issue in `git log`.',
+  ].join('\n');
+}
+
+export async function runPr(
+  issue: string,
+  resolvedIssue?: ResolvedIssue,
+  options: RunPrOptions = {},
+): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   const paths = await resolveIssuePaths(issueNumber);
   const tasksPath = paths.tasksFile;
@@ -64,12 +164,18 @@ export async function runPr(issue: string, resolvedIssue?: ResolvedIssue): Promi
     return 1;
   }
 
+  const queue = options.queue;
+  const consolidating = queue !== undefined && queue.issues.length > 1;
+
   const template = await loadPrompt('pr');
   const prompt = applyPlaceholders(template, {
     __ISSUE_NUMBER__: issueNumber,
     __BRANCH_NAME__: branchName,
     __TASKS_PATH__: tasksPath,
-    __ISSUE_CLOSES__: issueClosesLine(resolution.resolved.issue, issueNumber),
+    __ISSUE_CLOSES__: consolidating
+      ? issueClosesLines(queue.issues)
+      : issueClosesLine(resolution.resolved.issue, issueNumber),
+    __MULTI_ISSUE_CONTEXT__: multiIssueContext(queue),
     ...issuePlaceholders(resolution.resolved),
   });
 

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -304,8 +304,59 @@ describe('queue of several issues', () => {
     expect(scopes).toEqual(['issue-50', 'issue-52', 'issue-51']);
   });
 
-  it('does not open a Pull Request per issue', async () => {
+  it('opens exactly one Pull Request, covering every issue of the queue', async () => {
     await run('50');
+
+    expect(vi.mocked(runPr)).toHaveBeenCalledTimes(1);
+    const [issue, , options] = vi.mocked(runPr).mock.calls[0] as [
+      string,
+      unknown,
+      { queue?: { issues: { id: string }[] } },
+    ];
+    // Opened for the primary issue, listing the queue in execution order.
+    expect(issue).toBe('50');
+    expect(options.queue?.issues.map((entry) => entry.id)).toEqual(['50', '52', '51']);
+  });
+
+  it('records the consolidated Pull Request on the queue and on every task plan', async () => {
+    const pullRequest = {
+      number: 7,
+      url: 'https://github.com/acme/repo/pull/7',
+      headBranch: 'issue/50-work',
+      createdAt: '2026-08-05T10:00:00Z',
+    };
+    // The real `pr` phase writes the reference on the primary issue's plan.
+    vi.mocked(runPr).mockImplementation(async (issue: string) => {
+      const paths = await resolveIssuePaths(issue);
+      const plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8'));
+      plan.pullRequest = pullRequest;
+      plan.pipeline.prCreated = true;
+      await writeFile(paths.tasksFile, JSON.stringify(plan, null, 2), 'utf-8');
+      return 0;
+    });
+
+    await run('50');
+
+    const queue = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
+    expect(queue.pullRequest).toEqual(pullRequest);
+
+    // pr-review discovers the PR from tasks.json, so every issue of the queue
+    // has to carry the same reference.
+    for (const id of ['51', '52']) {
+      const paths = await resolveIssuePaths(id);
+      const plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8'));
+      expect(plan.pullRequest).toEqual(pullRequest);
+      expect(plan.pipeline.prCreated).toBe(true);
+    }
+  });
+
+  it('does not reopen a Pull Request when the queue already has one', async () => {
+    await run('50');
+    vi.mocked(runPr).mockClear();
+    resetStorageResolutionCache();
+
+    // Nothing left to do: every issue is completed and the PR was recorded.
+    await run('50', {});
     expect(vi.mocked(runPr)).not.toHaveBeenCalled();
   });
 

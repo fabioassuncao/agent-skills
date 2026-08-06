@@ -25,10 +25,15 @@ The PR should:
 - Include a test plan
 - Cite where the demand is described: the reference above (`__ISSUE_URL__`)
 
-Issue reference line:
-- Include this line verbatim in the PR body, on its own line: `__ISSUE_CLOSES__`
-- When that line is empty, the issue has no GitHub counterpart: do NOT invent a
+Issue reference line(s):
+- Include the following verbatim in the PR body, each entry on its own line:
+```
+__ISSUE_CLOSES__
+```
+- When it is empty, the issue has no GitHub counterpart: do NOT invent a
   "Closes #" reference, and cite `__ISSUE_URL__` in the body instead
+
+__MULTI_ISSUE_CONTEXT__
 
 Use this command format:
 gh pr create --title "..." --body "..." --base main
