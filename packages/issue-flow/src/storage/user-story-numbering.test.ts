@@ -137,6 +137,27 @@ describe('findHighestUserStoryNumber', () => {
     const result = await findHighestUserStoryNumber({ projectRoot, env });
     expect(result).toEqual({ number: 3, issueId: '16', storyId: 'US-003' });
   });
+
+  it('skips the excluded issue, so its own plan never counts as history', async () => {
+    await writeTasksJson('12', [{ id: 'US-005' }]);
+    await writeTasksJson('42', [{ id: 'US-006' }, { id: 'US-010' }]);
+
+    const result = await findHighestUserStoryNumber({ projectRoot, env, excludeIssueId: '42' });
+    expect(result).toEqual({ number: 5, issueId: '12', storyId: 'US-005' });
+  });
+
+  it('throws instead of reporting an empty history when the scan fails', async () => {
+    const { resolveProjectPaths } = await import('./resolve.js');
+    const { issuesDir } = await resolveProjectPaths({ projectRoot, env });
+    // A file where the issues directory is expected: readdir fails with
+    // ENOTDIR, which must not be mistaken for "no history yet".
+    await mkdir(join(issuesDir, '..'), { recursive: true });
+    await writeFile(issuesDir, 'not a directory', 'utf-8');
+
+    await expect(findHighestUserStoryNumber({ projectRoot, env })).rejects.toThrow(
+      /Could not scan the project's User Story history/,
+    );
+  });
 });
 
 describe('resolveUserStoryNumbering', () => {
@@ -179,6 +200,18 @@ describe('resolveUserStoryNumbering', () => {
 
     expect(decision).toMatchObject({ nextNumber: 16, source: 'history' });
     expect(message).toContain('--continue');
+  });
+
+  it('re-planning the same issue is idempotent: its own stories are not history', async () => {
+    await writeTasksJson('12', [{ id: 'US-015' }]);
+    // The plan a previous `plan` run of issue #42 already wrote — it is about
+    // to be overwritten, so it must not push the numbering forward.
+    await writeTasksJson('42', [{ id: 'US-016' }, { id: 'US-018' }]);
+
+    const { decision } = await resolveUserStoryNumbering({ issueNumber: '42', projectRoot, env });
+
+    expect(decision).toMatchObject({ nextNumber: 16, source: 'history' });
+    expect(decision.detail).toContain('US-015');
   });
 
   it('--start-us wins outright and ignores history entirely', async () => {

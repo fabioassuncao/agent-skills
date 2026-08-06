@@ -1,8 +1,8 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { isoNow } from '../core/state-manager.js';
 import { getProjectRoot } from '../utils/git.js';
 import { recordUserStoryNumbering } from './compat.js';
+import { getIssuePaths } from './paths.js';
 import { type ResolveIssuePathsOptions, resolveProjectPaths } from './resolve.js';
 import type { UserStoryNumberingDecision } from './schemas.js';
 
@@ -84,32 +84,61 @@ async function readUserStoryIds(tasksPath: string): Promise<string[] | null> {
   }
 }
 
+export interface FindHighestUserStoryNumberOptions extends ResolveIssuePathsOptions {
+  /**
+   * Issue directory to leave out of the scan — the issue the numbering is
+   * being resolved for. Re-planning an issue overwrites its own `tasks.json`,
+   * so counting the plan about to be replaced would push the numbering forward
+   * on every `plan` re-run of the same issue.
+   */
+  excludeIssueId?: string;
+}
+
 /**
  * Highest User Story number already used anywhere in the project, scanning
  * every `<issuesDir>/<id>/tasks.json` regardless of which issue produced it —
  * that project-wide scope is what makes `US-NNN` unambiguous across issues.
+ * The issue named by `excludeIssueId` is skipped, so re-planning is idempotent.
  *
  * `null` means no readable `tasks.json` was found (the project's first `plan`
- * run ever, or a brand-new project directory).
+ * run ever, or a brand-new project directory). A storage directory that exists
+ * but cannot be read throws instead: silently restarting at `US-001` because
+ * `~/.issue-flow` was momentarily unreadable is the worst outcome this feature
+ * can produce.
  */
 export async function findHighestUserStoryNumber(
-  options: ResolveIssuePathsOptions = {},
+  options: FindHighestUserStoryNumberOptions = {},
 ): Promise<HighestUserStoryNumberResult | null> {
-  const { issuesDir } = await resolveProjectPaths(options);
+  const { excludeIssueId, ...rootOptions } = options;
+  const { projectId, issuesDir } = await resolveProjectPaths(rootOptions);
 
   let entries: string[];
   try {
     entries = (await readdir(issuesDir, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
-  } catch {
-    return null;
+  } catch (error) {
+    // ENOENT is the legitimate "no history yet" case. Any other failure
+    // (EACCES, EIO, an unavailable mount) must not be reported as an empty
+    // history, or the numbering would restart silently.
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+    throw new Error(
+      `Could not scan the project's User Story history at ${issuesDir}: ` +
+        `${(error as Error).message}. Fix the storage directory, or pass --start-us <n> ` +
+        'to set the numbering explicitly.',
+      { cause: error },
+    );
   }
 
   let best: HighestUserStoryNumberResult | null = null;
 
   for (const issueId of entries) {
-    const ids = await readUserStoryIds(join(issuesDir, issueId, 'tasks.json'));
+    if (excludeIssueId !== undefined && issueId === excludeIssueId) continue;
+    // Never hand-build an artifact path (see src/storage/CLAUDE.md): asking
+    // getIssuePaths() keeps a rename of `tasks.json` a one-file change instead
+    // of silently making this scan find nothing.
+    const { tasksFile } = getIssuePaths(projectId, issueId, { env: options.env });
+    const ids = await readUserStoryIds(tasksFile);
     if (!ids) continue;
 
     for (const id of ids) {
@@ -177,7 +206,10 @@ export async function resolveUserStoryNumbering(
     };
   }
 
-  const highest = await findHighestUserStoryNumber(rootOptions);
+  // The issue being planned is excluded from the scan: `plan` overwrites its
+  // own `tasks.json`, so counting the plan it is about to replace would push
+  // the numbering forward on every re-run of `plan` for the same issue.
+  const highest = await findHighestUserStoryNumber({ ...rootOptions, excludeIssueId: issueNumber });
 
   if (highest === null) {
     const decision: UserStoryNumberingDecision = {

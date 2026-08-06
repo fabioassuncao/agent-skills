@@ -71,16 +71,23 @@ vi.mock('../core/headless.js', () => ({
 // The numbering decision is logged, never silent — capture instead of printing.
 vi.mock('../ui/logger.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/logger.js')>();
-  return { ...actual, printInfo: vi.fn(), printSuccess: vi.fn(), printError: vi.fn() };
+  return {
+    ...actual,
+    printInfo: vi.fn(),
+    printSuccess: vi.fn(),
+    printError: vi.fn(),
+    printWarning: vi.fn(),
+  };
 });
 
 import type { Issue, ResolvedIssue } from '../issues/types.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
-import { printInfo } from '../ui/logger.js';
+import { printInfo, printWarning } from '../ui/logger.js';
 import { runPlan } from './plan.js';
 
 const mockPrintInfo = vi.mocked(printInfo);
+const mockPrintWarning = vi.mocked(printWarning);
 
 function makeResolved(): ResolvedIssue {
   const issue: Issue = {
@@ -121,6 +128,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     headlessOptions.last = null;
     nextPlanUserStoryId.current = 'US-001';
     mockPrintInfo.mockClear();
+    mockPrintWarning.mockClear();
 
     const paths = await resolveIssuePaths('42');
     issueDir = paths.issueDir;
@@ -224,6 +232,46 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     expect(code).toBe(0);
     const messages = mockPrintInfo.mock.calls.map(([line]) => String(line));
     expect(messages.some((m) => m.includes('--continue') && m.includes('US-016'))).toBe(true);
+  });
+
+  it('re-running plan on the same issue does not push its own numbering forward', async () => {
+    const { resolveProjectPaths } = await import('../storage/resolve.js');
+    const { issuesDir } = await resolveProjectPaths({});
+    const priorDir = join(issuesDir, '12');
+    await mkdir(priorDir, { recursive: true });
+    await writeFile(
+      join(priorDir, 'tasks.json'),
+      JSON.stringify({ userStories: [{ id: 'US-015' }] }),
+      'utf-8',
+    );
+    nextPlanUserStoryId.current = 'US-016';
+
+    expect(await runPlan('42', makeResolved())).toBe(0);
+    // Second run over the tasks.json the first one just wrote (US-016).
+    expect(await runPlan('42', makeResolved())).toBe(0);
+
+    expect(String(headlessOptions.last?.prompt)).toContain('US-016');
+    const metadata = await readMetadata();
+    expect(metadata.userStoryNumbering).toMatchObject({ nextNumber: 16, source: 'history' });
+  });
+
+  it('warns when the generated plan ignores the requested numbering', async () => {
+    const { resolveProjectPaths } = await import('../storage/resolve.js');
+    const { issuesDir } = await resolveProjectPaths({});
+    const priorDir = join(issuesDir, '12');
+    await mkdir(priorDir, { recursive: true });
+    await writeFile(
+      join(priorDir, 'tasks.json'),
+      JSON.stringify({ userStories: [{ id: 'US-015' }] }),
+      'utf-8',
+    );
+    // Claude ignores __NEXT_US_NUMBER__ and restarts at US-001.
+    nextPlanUserStoryId.current = 'US-001';
+
+    expect(await runPlan('42', makeResolved())).toBe(0);
+
+    const warnings = mockPrintWarning.mock.calls.map(([line]) => String(line));
+    expect(warnings.some((m) => m.includes('US-001') && m.includes('US-016'))).toBe(true);
   });
 
   it('is unaffected when tasksPath and prdPath differ from earlier fixtures', async () => {

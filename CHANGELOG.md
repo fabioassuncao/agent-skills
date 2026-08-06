@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions refer to the `issue-flow` npm package (`packages/issue-flow`). Releases
 that were tagged but never published to the registry are marked as such.
 
+## [Unreleased]
+
+### Added
+
+- **User Story numbering continuity** (issue #36, PR #48) — `plan` no longer
+  restarts at `US-001` on every run. The highest `US-NNN` already used anywhere
+  in the project is recovered from the global storage and the new plan continues
+  from it, so ids no longer collide between issues of the same project.
+  - `--start-us <n>` forces a starting number, ignoring history; `--continue`
+    names the (already automatic) history-based behavior explicitly. Combining
+    both fails with a clear error before anything runs.
+  - The decision is always logged and persisted to the project's
+    `metadata.json` for audit.
+
+### Changed
+
+- **Behavior change**: `plan` runs on a project that already has plans now start
+  above the last used number instead of at `US-001`. Re-running `plan` for the
+  same issue is idempotent — the plan it is about to overwrite is excluded from
+  the scan. Pass `--start-us 1` to restore the old behavior for a single run.
+- A storage failure while scanning the numbering history now aborts with an
+  explicit error instead of silently restarting the numbering at `US-001`.
+
 ## [0.5.0] - 2026-08-03
 
 ### Added
