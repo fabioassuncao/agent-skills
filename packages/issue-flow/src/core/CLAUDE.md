@@ -114,11 +114,16 @@ They are module state, so any test that publishes metrics must call
 `resetRunUsageTotals()` in `afterEach`, or later tests in the same file inherit
 the counters.
 
-This is safe only under the current one-issue-per-process model. If Issue Flow
-ever grows a mode that processes multiple issues in the same Node process (a
-batch runner or daemon), these counters must be scoped per run (e.g. threaded
-through a context object) instead of living at module scope, or usage from one
-issue would leak into another's terminal summary.
+Multiple issues **do** run in the same process now (the multi-issue queue of
+`commands/run.ts`), so the counters are a **stack of scopes** rather than a
+single accumulator. `beginUsageScope()` pushes one and returns a handle;
+every publication feeds *all* open scopes, and `getRunUsageTotals()` /
+`getPhaseUsageTotals()` always read the innermost one. That is what makes a
+queue report a per-issue cost and a consolidated total from the same stream of
+events, without issue A's tokens ever showing up in issue B's summary. A scope
+must be `end()`ed by whoever opened it (`end()` is idempotent and tolerates
+being called out of order); the bottom of the stack is the process total and is
+never popped.
 
 ## Story-level metrics are an approximation
 

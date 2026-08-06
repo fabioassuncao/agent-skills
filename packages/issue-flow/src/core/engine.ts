@@ -72,6 +72,23 @@ function newlyCompletedStoryIds(before: UserStory[], after: UserStory[]): string
 }
 
 /**
+ * Commit message formats handed to the execute prompt.
+ *
+ * Without a scope they are byte-for-byte what the prompt has always spelled
+ * out, so a single-issue run produces the same history it always did. With one
+ * — the only case being several issues sharing a branch — the issue becomes a
+ * conventional-commit scope, which is what makes `git log` on the shared branch
+ * readable per issue.
+ */
+export function commitPlaceholders(scope?: string): Record<string, string> {
+  const suffix = scope === undefined || scope === '' ? '' : `(${scope})`;
+  return {
+    __COMMIT_MESSAGE__: `feat${suffix}: [Story ID] - [Story Title]`,
+    __FIX_COMMIT_MESSAGE__: `fix${suffix}: address review findings`,
+  };
+}
+
+/**
  * Initialize the progress file if it doesn't exist.
  */
 async function ensureProgressFile(progressFile: string): Promise<void> {
@@ -249,6 +266,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     const prompt = applyPlaceholders(promptTemplate, {
       __PRD_FILE__: paths.prdFile,
       __PROGRESS_FILE__: paths.progressFile,
+      ...commitPlaceholders(config.commitScope),
     });
 
     const iterationStartedAt = isoNow();

@@ -24,6 +24,11 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   only `paths.ts` and `compat.ts` are exempt. There is no `getIssueDir()` any more — it was removed
   rather than deprecated, precisely so no second way to resolve an issue directory can exist. If a
   new file legitimately needs the segment, it belongs in this directory, not in the allow-list.
+- **A multi-issue queue resolves through `resolveQueuePaths(queueId)`**, same module and same
+  cache. It resolves `<projectDir>/queues/<queueId>/execution-plan.json`, where `queueId` is the
+  identifier of the primary issue — that is what lets `run 50` find the queue it started. There is
+  no legacy tree for queues, so no migration is attempted, and nothing is created until a queue
+  with more than one issue is actually persisted.
 - **A question about the project rather than about one issue uses
   `resolveProjectPaths()`** (same module, same cache): "is this writable?" and "which identifiers
   are taken?" have no issue number to hand to `resolveIssuePaths()`. It returns `projectId`,

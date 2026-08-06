@@ -413,7 +413,9 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
   });
 
   it('propaga --continue e --start-us (issue #36) para a fase plan', async () => {
-    const code = await runPipeline('42', 'auto', undefined, undefined, undefined, true);
+    const code = await runPipeline('42', 'auto', undefined, undefined, undefined, {
+      continueNumbering: true,
+    });
     expect(code).toBe(0);
     expect(vi.mocked(runPlan)).toHaveBeenCalledWith('42', expect.anything(), {
       continueFlag: true,
@@ -421,15 +423,9 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     });
 
     vi.mocked(runPlan).mockClear();
-    const codeWithStartUs = await runPipeline(
-      '42',
-      'auto',
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      27,
-    );
+    const codeWithStartUs = await runPipeline('42', 'auto', undefined, undefined, undefined, {
+      startUs: 27,
+    });
     expect(codeWithStartUs).toBe(0);
     expect(vi.mocked(runPlan)).toHaveBeenCalledWith('42', expect.anything(), {
       continueFlag: undefined,

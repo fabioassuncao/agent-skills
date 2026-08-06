@@ -17,25 +17,42 @@ import {
   readPrReviewIndex,
 } from '../core/pr-review/report.js';
 import { listPullRequests, publishGitState } from '../core/session-git.js';
-import { getRunUsageTotals } from '../core/session-metrics.js';
+import { beginUsageScope, getRunUsageTotals } from '../core/session-metrics.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
+import {
+  markQueueIssueCompleted,
+  markQueueIssueFailed,
+  markQueueIssueInProgress,
+  nextQueueIssue,
+  saveExecutionPlan,
+  setQueueBranch,
+  setQueuePullRequest,
+} from '../execution/plan.js';
+import { planQueue, type QueueDecision } from '../execution/queue.js';
+import type { ExecutionPlan } from '../execution/types.js';
+import { parseIssueArguments } from '../issues/args.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
-import type { Issue } from '../issues/types.js';
+import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
 import type { IssuePaths } from '../storage/paths.js';
-import { resolveIssuePaths } from '../storage/resolve.js';
-import type { UserStory } from '../types.js';
-import { printError, printInfo, printWarning } from '../ui/logger.js';
+import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
+import type { PullRequestRef, UserStory } from '../types.js';
+import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
-import { printRunSummary, type RunSummaryPrReview } from '../ui/summary.js';
+import {
+  printQueueSummary,
+  printRunSummary,
+  type QueueIssueSummary,
+  type RunSummaryPrReview,
+} from '../ui/summary.js';
 import { ensureWebMonitor } from '../web/lock.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
-import { runPr } from './pr.js';
+import { type PrQueueContext, runPr } from './pr.js';
 import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
@@ -100,6 +117,19 @@ const RUNNABLE_PHASES_NO_BRANCH: PipelinePhase[] = ['prd', 'plan', 'execute', 'r
 const RUNNABLE_PHASES_WITH_PR_REVIEW: PipelinePhase[] = [...RUNNABLE_PHASES, 'pr-review'];
 
 /**
+ * Phases of a queue's closing pass: the work is already committed by the
+ * per-issue runs, so all that is left is the single consolidated Pull Request.
+ */
+const QUEUE_PR_PHASES = ['init', 'pr'] as const satisfies readonly PipelinePhase[];
+const QUEUE_PR_PHASES_WITH_REVIEW = [
+  'init',
+  'pr',
+  'pr-review',
+] as const satisfies readonly PipelinePhase[];
+const RUNNABLE_QUEUE_PR_PHASES: PipelinePhase[] = ['pr'];
+const RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW: PipelinePhase[] = ['pr', 'pr-review'];
+
+/**
  * What the `pr-review` phase left behind, for the steps that run after it: the
  * automatic issue close, the highlighted warning and the final summary.
  *
@@ -144,21 +174,130 @@ async function readPrReviewOutcome(
   return outcome;
 }
 
+/** Options `run` accepts on top of the phase selection ones. */
+export interface RunPipelineOptions {
+  /** `--yes`: accept the discovered hierarchy without confirmation. */
+  yes?: boolean;
+  /** `--only`: run just the issues informed, skipping discovery. */
+  only?: boolean;
+  /** `--continue`: name the (automatic) User Story numbering continuity. */
+  continueNumbering?: boolean;
+  /** `--start-us <n>`: force the first plan of this run to start at `n`. */
+  startUs?: number;
+}
+
+/**
+ * Everything a queue hands to the run of one of its issues.
+ *
+ * Its presence is what tells `runPipelinePhases` it is a member of a queue
+ * rather than a standalone pipeline: the Pull Request moves to the end of the
+ * queue, the branch is shared, commits carry the issue scope, and the terminal
+ * summary is the queue's, not the issue's.
+ */
+interface QueueRunContext {
+  /** State of the queue, for the branch every issue of it shares. */
+  plan: ExecutionPlan;
+  /** True when `init` already ran in this process for the queue. */
+  preChecked: boolean;
+  /** Issue already resolved by the planner, if this is the primary one. */
+  resolved?: ResolvedIssue;
+  /**
+   * Set on the final pass of a queue, which runs no implementation phase at
+   * all: only `pr` (and the optional `pr-review`), for the single Pull Request
+   * that consolidates every issue.
+   */
+  finalPr?: PrQueueContext;
+}
+
+/** What one issue's run reports back to the caller. */
+interface IssueRunResult {
+  code: number;
+  /** Phase that failed, `null` on success. */
+  failedPhase: string | null;
+  /** `branchName` of the issue's plan once the `plan` phase produced one. */
+  branchName: string | null;
+  storyCount: number;
+  elapsedSeconds: number;
+  /** Verdict of the `pr-review` phase, when it ran. */
+  review?: PrReviewOutcome | null;
+  /** Set when the run stopped to hand control over to a queue. */
+  queue?: { plan: ExecutionPlan; resumed: boolean; resolved: ResolvedIssue };
+}
+
+/**
+ * Entry point of `issue-flow run`.
+ *
+ * Accepts one issue (the historical form, untouched) or several. The first
+ * attempt runs as a plain single-issue pipeline; only if the planner decides
+ * this invocation is really a queue does it hand control over to
+ * {@link runQueue} — and that decision is taken before any session is
+ * published, so nothing was written on the way.
+ */
 export async function runPipeline(
-  issue: string,
+  issue: string | readonly string[],
   mode: string,
   from?: string,
   noBranch?: boolean,
   prReview?: boolean,
-  continueNumbering?: boolean,
-  startUs?: number,
+  options: RunPipelineOptions = {},
 ): Promise<number> {
-  const issueNumber = issue.replace(/^#/, '');
+  let requested: string[];
+  try {
+    requested = parseIssueArguments(typeof issue === 'string' ? [issue] : issue);
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+
+  const first = await runIssueSession(requested[0] as string, mode, {
+    from,
+    noBranch,
+    prReview,
+    requested,
+    runOptions: options,
+  });
+
+  if (first.queue === undefined) {
+    return first.code;
+  }
+
+  return runQueue(
+    first.queue.plan,
+    { mode, from, noBranch, prReview, runOptions: options },
+    first.queue.resolved,
+  );
+}
+
+interface IssueSessionInput {
+  from?: string;
+  noBranch?: boolean;
+  prReview?: boolean;
+  /** Identifiers the user asked for; only the standalone attempt needs them. */
+  requested?: string[];
+  runOptions?: RunPipelineOptions;
+  queue?: QueueRunContext;
+}
+
+/**
+ * Run one issue with its own session publisher and web monitor registration.
+ *
+ * This is the body `runPipeline` always had; a queue calls it once per issue,
+ * which is what gives each of them its own `session.json` (and therefore its
+ * own card in the monitor) inside a single process.
+ */
+async function runIssueSession(
+  issueNumber: string,
+  mode: string,
+  input: IssueSessionInput,
+): Promise<IssueRunResult> {
   // Resolved once, at the top: every phase that runs below shares the process
   // cache, so the git call and the legacy migration happen a single time for
   // the whole run instead of once per phase.
   const paths = await resolveIssuePaths(issueNumber);
 
+  // Read per issue rather than cached for the process: the configuration is
+  // per project and cheap to read, and a cached value would leak a `--web`
+  // decision from one invocation into the next inside the same process.
   const webConfig = await loadWebConfig();
   let publisher: SessionPublisher = new NullPublisher();
   if (webConfig.enabled) {
@@ -188,26 +327,26 @@ export async function runPipeline(
     });
   }
 
-  let exitCode = 1;
+  let result: IssueRunResult = {
+    code: 1,
+    failedPhase: null,
+    branchName: null,
+    storyCount: 0,
+    elapsedSeconds: 0,
+  };
   try {
-    exitCode = await runPipelinePhases(
-      issueNumber,
-      paths,
-      mode,
-      publisher,
-      from,
-      noBranch,
-      prReview,
-      continueNumbering,
-      startUs,
-    );
-    return exitCode;
+    result = await runPipelinePhases(issueNumber, paths, mode, publisher, input);
+    return result;
   } finally {
-    publisher.publish({
-      type: 'session:end',
-      at: isoNow(),
-      status: exitCode === 0 ? 'completed' : 'failed',
-    });
+    // A run that only decided to become a queue published nothing: closing the
+    // session here would write a `session.json` for a pipeline that never ran.
+    if (result.queue === undefined) {
+      publisher.publish({
+        type: 'session:end',
+        at: isoNow(),
+        status: result.code === 0 ? 'completed' : 'failed',
+      });
+    }
     // The web monitor is no longer this process's to close (US-002): it is a
     // detached, single machine-wide instance meant to outlive the pipeline
     // and serve other invocations. Only this run's own publication ends here.
@@ -221,12 +360,16 @@ async function runPipelinePhases(
   paths: IssuePaths,
   mode: string,
   publisher: SessionPublisher,
-  from?: string,
-  noBranch?: boolean,
-  prReview?: boolean,
-  continueNumbering?: boolean,
-  startUs?: number,
-): Promise<number> {
+  input: IssueSessionInput,
+): Promise<IssueRunResult> {
+  const { from, noBranch, prReview, queue } = input;
+  // User Story numbering flags (issue #36). `--start-us` names a starting
+  // point, so the queue only ever hands it to the first issue it runs —
+  // applying it to each one would give them all the same ids, the very
+  // collision #36 set out to remove. Every later issue continues from history,
+  // which by then already includes the plans written earlier in this run.
+  const continueNumbering = input.runOptions?.continueNumbering;
+  const startUs = input.runOptions?.startUs;
   const tasksPath = paths.tasksFile;
   const sessionId = randomUUID();
 
@@ -256,33 +399,61 @@ async function runPipelinePhases(
   // for: with a local one, a missing gh must not fail the environment.
   const issuesConfig = await loadIssuesConfig();
 
-  // Phase 1: Init check
-  printInfo('Running prerequisite checks...');
+  // Phase 1: Init check. Inside a queue it already ran for the whole run, so
+  // the environment is not probed once per issue — the phase is still
+  // published, keeping every issue's session shape identical.
   const sessionStartedAt = isoNow();
-  const initCode = await runInit(issuesConfig.preferredProvider);
-  if (initCode !== 0) {
-    publishSessionStart(PIPELINE_PHASES, sessionStartedAt);
-    publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
-    publisher.publish({
-      type: 'phase:end',
-      at: isoNow(),
-      phase: 'init',
-      success: false,
-      error: 'Prerequisites not met',
-    });
-    printError('Prerequisites not met. Fix the issues above and try again.');
-    return 1;
+  if (queue?.preChecked !== true) {
+    printInfo('Running prerequisite checks...');
+    const initCode = await runInit(issuesConfig.preferredProvider);
+    if (initCode !== 0) {
+      publishSessionStart(PIPELINE_PHASES, sessionStartedAt);
+      publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
+      publisher.publish({
+        type: 'phase:end',
+        at: isoNow(),
+        phase: 'init',
+        success: false,
+        error: 'Prerequisites not met',
+      });
+      printError('Prerequisites not met. Fix the issues above and try again.');
+      return failure(1);
+    }
   }
 
   // The origin is settled once, here, and the decision travels to every phase.
   // Resolving per phase would query the providers five times and could ask the
   // user about the same divergence five times.
-  const resolution = await resolveCommandIssue(issueNumber, undefined, { config: issuesConfig });
+  const resolution = await resolveCommandIssue(issueNumber, queue?.resolved, {
+    config: issuesConfig,
+  });
   if (!resolution.ok) {
-    return resolution.code;
+    return failure(resolution.code);
   }
   const resolvedIssue = resolution.resolved;
   publishedIssueNumber = resolvedIssue.issue.number;
+
+  // Everything above is what a queue needs to exist: prerequisites checked and
+  // the primary Issue resolved, but not a single phase run and not a single
+  // event published. This is where a run learns it is really a queue.
+  if (queue === undefined) {
+    const decision = await decideQueue({
+      requested: input.requested ?? [issueNumber],
+      resolved: resolvedIssue,
+      noBranch: noBranch ?? false,
+      prReview: prReview ?? false,
+      runOptions: input.runOptions ?? {},
+    });
+    if (decision.kind === 'stop') {
+      return failure(decision.code);
+    }
+    if (decision.kind === 'queue') {
+      return {
+        ...failure(0),
+        queue: { plan: decision.plan, resumed: decision.resumed, resolved: resolvedIssue },
+      };
+    }
+  }
 
   // Resolve noBranch mode: persisted value takes precedence on resume
   let effectiveNoBranch = noBranch ?? false;
@@ -348,16 +519,54 @@ async function runPipelinePhases(
     }
   }
 
-  const activePhases = effectiveNoBranch
-    ? PIPELINE_PHASES_NO_BRANCH
-    : effectivePrReview
-      ? PIPELINE_PHASES_WITH_PR_REVIEW
-      : PIPELINE_PHASES;
-  const phaseOrder = effectiveNoBranch
-    ? RUNNABLE_PHASES_NO_BRANCH
-    : effectivePrReview
-      ? RUNNABLE_PHASES_WITH_PR_REVIEW
-      : RUNNABLE_PHASES;
+  // Inside a queue the Pull Request is opened once, after the last issue, so
+  // `pr` (and with it `pr-review`) leaves the per-issue phase list. The list is
+  // the same one `--no-branch` uses, but the branch is still created: what
+  // changes is who opens the Pull Request, not whether there is a branch.
+  const inQueue = queue !== undefined;
+  // The queue's last pass implements nothing: it only opens the single Pull
+  // Request that covers every issue already committed to the shared branch.
+  const finalPr = queue?.finalPr;
+  const activePhases = finalPr
+    ? effectivePrReview
+      ? QUEUE_PR_PHASES_WITH_REVIEW
+      : QUEUE_PR_PHASES
+    : inQueue
+      ? PIPELINE_PHASES_NO_BRANCH
+      : effectiveNoBranch
+        ? PIPELINE_PHASES_NO_BRANCH
+        : effectivePrReview
+          ? PIPELINE_PHASES_WITH_PR_REVIEW
+          : PIPELINE_PHASES;
+  const phaseOrder = finalPr
+    ? effectivePrReview
+      ? RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW
+      : RUNNABLE_QUEUE_PR_PHASES
+    : inQueue
+      ? RUNNABLE_PHASES_NO_BRANCH
+      : effectiveNoBranch
+        ? RUNNABLE_PHASES_NO_BRANCH
+        : effectivePrReview
+          ? RUNNABLE_PHASES_WITH_PR_REVIEW
+          : RUNNABLE_PHASES;
+
+  // Commit scope for this issue's stories: only a queue needs one, because
+  // only there do several issues share a branch (and therefore a `git log`).
+  const queueCommitScope = queue === undefined ? undefined : `issue-${issueNumber}`;
+  // Branch this issue will work on, reported back so the queue can adopt the
+  // first issue's choice for every later one.
+  let producedBranch: string | null = null;
+
+  // Adopted **before** the phases run, not only after `plan`: an issue whose
+  // plan phase is already complete (it was run standalone before joining the
+  // queue, or the queue is being resumed) never re-enters the plan runner, and
+  // would otherwise send `execute` at a branch of its own.
+  if (queue !== undefined && finalPr === undefined && !effectiveNoBranch) {
+    producedBranch = await adoptQueueBranch(tasksPath, queue.plan.branchName);
+    if (producedBranch !== null) {
+      planBranch = producedBranch;
+    }
+  }
 
   // The phase list is only known after resolving --no-branch, so the init
   // phase (which already ran) is published retroactively with real timestamps.
@@ -387,7 +596,7 @@ async function runPipelinePhases(
       } else {
         printError(`Invalid phase: ${from}. Valid phases: ${validPhases}`);
       }
-      return 1;
+      return failure(1);
     }
     startPhase = from as PipelinePhase;
   } else {
@@ -412,17 +621,19 @@ async function runPipelinePhases(
       const mgr = new PipelineManager(plan, tasksPath, activePhases);
       if (!mgr.canResume(startPhase)) {
         printError(`Cannot resume from ${startPhase}: prerequisite phases not complete`);
-        return 1;
+        return failure(1);
       }
     } catch {
       if (startPhase !== 'prd') {
         printError(`Cannot resume from ${startPhase}: no pipeline state found`);
-        return 1;
+        return failure(1);
       }
     }
   }
 
-  const startIdx = phaseOrder.indexOf(startPhase);
+  // A phase that is not part of this run's list (the closing pass of a queue
+  // runs only `pr`) starts the renderer at the beginning rather than at -1.
+  const startIdx = Math.max(phaseOrder.indexOf(startPhase), 0);
 
   // Build phase runner functions that throw on failure
   const makeRunner = (fn: () => Promise<number>, phase: string) => async () => {
@@ -454,8 +665,19 @@ async function runPipelinePhases(
           /* non-critical: tasks.json may not exist yet if plan phase didn't create it */
         }
       }
+      // A queue shares one branch: the first issue's plan decides it, every
+      // later issue has it written over whatever slug the agent derived from
+      // its own title. The `execute` prompt then finds the branch already
+      // checked out instead of creating a second one — the creation logic
+      // itself is untouched.
+      if (queue !== undefined && !effectiveNoBranch) {
+        producedBranch = await adoptQueueBranch(tasksPath, queue.plan.branchName);
+      }
     },
-    execute: makeRunner(() => runExecute(undefined, { issue: issueNumber }), 'execute'),
+    execute: makeRunner(
+      () => runExecute(undefined, { issue: issueNumber, commitScope: queueCommitScope }),
+      'execute',
+    ),
     review: async () => {
       // Read maxCorrectionCycles
       let maxCycles = 3;
@@ -485,7 +707,10 @@ async function runPipelinePhases(
         }
 
         // Re-execute
-        const execCode = await runExecute(undefined, { issue: issueNumber });
+        const execCode = await runExecute(undefined, {
+          issue: issueNumber,
+          commitScope: queueCommitScope,
+        });
         if (execCode !== 0) {
           throw new Error('Correction execution failed');
         }
@@ -498,7 +723,15 @@ async function runPipelinePhases(
         throw new Error(`Review failed after ${maxCycles} correction cycles`);
       }
     },
-    pr: makeRunner(() => runPr(issueNumber, resolvedIssue), 'pr'),
+    pr: makeRunner(
+      // The options argument is omitted outside a queue so a standalone run
+      // calls `runPr` exactly as it always did.
+      () =>
+        finalPr === undefined
+          ? runPr(issueNumber, resolvedIssue)
+          : runPr(issueNumber, resolvedIssue, { queue: finalPr }),
+      'pr',
+    ),
   };
 
   // Filled by the pr-review runner; read after the pipeline finishes. Held in a
@@ -558,7 +791,12 @@ async function runPipelinePhases(
 
   if (!result.success) {
     printError(`Phase ${result.failedPhase} failed`);
-    return 1;
+    return {
+      ...failure(1),
+      failedPhase: result.failedPhase ?? null,
+      branchName: producedBranch,
+      elapsedSeconds: result.overallElapsedSeconds,
+    };
   }
 
   // A PR review asking for changes is not a pipeline failure, but the work is
@@ -577,18 +815,13 @@ async function runPipelinePhases(
   // REQUEST_CHANGES also leaves the local plan unfinished: marking
   // `issueStatus: completed` while `prReviewCompleted` is false would lie to
   // every tool that keys off the local status.
+  // Inside a queue the issues are closed once, after the consolidated Pull
+  // Request: closing one here would announce it as done while the branch that
+  // carries its work has not even been proposed yet.
   if (review?.requestedChanges) {
     printInfo('Issue left open until the review blockers are addressed.');
-  } else {
-    try {
-      const provider = getProvider(resolvedIssue.source);
-      if (provider.close !== undefined) {
-        printInfo('Closing issue...');
-        await provider.close(issueNumber);
-      }
-    } catch {
-      printWarning('Failed to close issue automatically');
-    }
+  } else if (!inQueue) {
+    await closeIssue(issueNumber, resolvedIssue.source);
   }
 
   // Get branch and story count
@@ -617,6 +850,22 @@ async function runPipelinePhases(
     await saveTaskPlan(tasksPath, plan);
   } catch {
     /* non-critical */
+  }
+
+  // Inside a queue the run is not over: the summary, the Pull Request and the
+  // totals belong to the queue, which prints them once at the end.
+  if (inQueue) {
+    if (finalPr === undefined) {
+      printSuccess(`Issue #${issueNumber} completed (${storyCount} stories).`);
+    }
+    return {
+      code: 0,
+      failedPhase: null,
+      branchName: producedBranch ?? (branchName === 'unknown' ? null : branchName),
+      storyCount,
+      elapsedSeconds: result.overallElapsedSeconds,
+      review,
+    };
   }
 
   // Get PR URL for summary. Only GitHub-hosted Issues have a pull request to
@@ -652,5 +901,409 @@ async function runPipelinePhases(
     usage: getRunUsageTotals(),
   });
 
+  return {
+    code: 0,
+    failedPhase: null,
+    branchName: branchName === 'unknown' ? null : branchName,
+    storyCount,
+    elapsedSeconds: result.overallElapsedSeconds,
+  };
+}
+
+interface DecideQueueInput {
+  requested: string[];
+  resolved: ResolvedIssue;
+  noBranch: boolean;
+  prReview: boolean;
+  runOptions: RunPipelineOptions;
+}
+
+/**
+ * Ask the planner whether this invocation is a queue, resolving the storage
+ * paths it needs.
+ *
+ * A failure here degrades to a single-issue run when only one issue was asked
+ * for — discovery is an enrichment, and losing it must never cost the user the
+ * pipeline. With several issues informed there is nothing to degrade to: the
+ * user asked for a queue, so the error is reported and the run stops.
+ */
+async function decideQueue(input: DecideQueueInput): Promise<QueueDecision> {
+  const primary = input.requested[0] as string;
+  const single = input.requested.length === 1;
+
+  if (single && input.runOptions.only === true) {
+    return { kind: 'single' };
+  }
+
+  try {
+    const [project, queuePaths] = await Promise.all([
+      resolveProjectPaths(),
+      resolveQueuePaths(primary),
+    ]);
+
+    return await planQueue({
+      requested: input.requested,
+      source: input.resolved.source,
+      known: [input.resolved.issue],
+      projectId: project.projectId,
+      planFile: queuePaths.planFile,
+      noBranch: input.noBranch,
+      prReview: input.prReview,
+      confirm: { yes: input.runOptions.yes, only: input.runOptions.only },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (single) {
+      printWarning(
+        `Could not inspect related issues (${message}). Running issue #${primary} alone.`,
+      );
+      return { kind: 'single' };
+    }
+    printError(`Could not plan the execution of ${input.requested.length} issues: ${message}`);
+    return { kind: 'stop', code: 1 };
+  }
+}
+
+/**
+ * Run a queue of issues: one shared branch, one process, one issue at a time.
+ *
+ * Each issue goes through the very same phases a single-issue run does
+ * (`prd` → `plan` → `execute` → `review`), with its own `tasks.json`, its own
+ * session and its own usage scope. The queue owns only what is shared: the
+ * order, the branch, the Pull Request and the consolidated totals.
+ *
+ * A failure stops the queue where it happened, records the issue and the phase,
+ * and leaves every commit and the branch exactly as they are — the next
+ * invocation resumes from the failed issue without redoing the ones before it.
+ */
+async function runQueue(
+  initialPlan: ExecutionPlan,
+  options: {
+    mode: string;
+    from?: string;
+    noBranch?: boolean;
+    prReview?: boolean;
+    runOptions?: RunPipelineOptions;
+  },
+  resolvedPrimary?: ResolvedIssue,
+): Promise<number> {
+  const planFile = (await resolveQueuePaths(initialPlan.id)).planFile;
+  let plan = initialPlan;
+
+  const queueUsage = beginUsageScope();
+  const startedAtMs = Date.now();
+  const summaries: QueueIssueSummary[] = [];
+  let firstOfThisRun = true;
+
+  try {
+    while (true) {
+      const entry = nextQueueIssue(plan);
+      if (entry === null) break;
+
+      plan = markQueueIssueInProgress(plan, entry.id);
+      await saveExecutionPlan(planFile, plan);
+
+      printInfo(
+        `Queue ${entry.position}/${plan.issues.length}: issue #${entry.id}${entry.title === '' ? '' : ` — ${entry.title}`}`,
+      );
+
+      const issueUsage = beginUsageScope();
+      let result: IssueRunResult;
+      try {
+        result = await runIssueSession(entry.id, options.mode, {
+          // `--from` addresses the issue the queue is resuming, never the ones
+          // that come after it — those start from their own beginning.
+          from: firstOfThisRun ? options.from : undefined,
+          noBranch: options.noBranch,
+          // `--start-us` belongs to the first issue this invocation runs; the
+          // ones after it continue from the history those plans just wrote.
+          runOptions: {
+            ...options.runOptions,
+            startUs: firstOfThisRun ? options.runOptions?.startUs : undefined,
+          },
+          queue: {
+            plan,
+            preChecked: true,
+            resolved: entry.id === initialPlan.id ? resolvedPrimary : undefined,
+          },
+        });
+      } finally {
+        firstOfThisRun = false;
+        // Ending here (not only on the happy path) keeps a thrown error from
+        // leaving an orphan accumulator on top of the scope stack, where it
+        // would silently become "the current scope" for everything after it.
+        issueUsage.end();
+      }
+      const usage = issueUsage.totals();
+
+      if (result.code !== 0) {
+        plan = markQueueIssueFailed(plan, entry.id, {
+          phase: result.failedPhase,
+          error: {
+            category: 'queue_issue_failed',
+            message: `Issue #${entry.id} failed${result.failedPhase === null ? '' : ` in phase ${result.failedPhase}`}`,
+            at: isoNow(),
+          },
+        });
+        await saveExecutionPlan(planFile, plan);
+
+        printError(
+          `Queue stopped at issue #${entry.id}${result.failedPhase === null ? '' : ` (phase ${result.failedPhase})`}. ` +
+            'The branch and every commit made so far were kept.',
+        );
+        printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
+        return result.code;
+      }
+
+      // The first issue names the branch; every later one is made to adopt it.
+      if (plan.branchName === null && result.branchName !== null) {
+        plan = setQueueBranch(plan, result.branchName);
+      }
+      plan = markQueueIssueCompleted(plan, entry.id);
+      await saveExecutionPlan(planFile, plan);
+
+      summaries.push({
+        id: entry.id,
+        title: entry.title,
+        storyCount: result.storyCount,
+        elapsedSeconds: result.elapsedSeconds,
+        usage,
+      });
+    }
+
+    return await finishQueue(
+      plan,
+      planFile,
+      summaries,
+      startedAtMs,
+      queueUsage,
+      options,
+      resolvedPrimary,
+    );
+  } finally {
+    queueUsage.end();
+  }
+}
+
+/**
+ * Everything that happens once every issue of the queue is done: the single
+ * consolidated Pull Request, closing the issues and reporting. Split out so the
+ * loop above stays about scheduling.
+ */
+async function finishQueue(
+  plan: ExecutionPlan,
+  planFile: string,
+  summaries: QueueIssueSummary[],
+  startedAtMs: number,
+  /** Read only after the consolidated Pull Request ran, so its cost counts. */
+  queueUsage: { totals: () => ReturnType<typeof getRunUsageTotals> },
+  options: { mode: string; noBranch?: boolean; prReview?: boolean },
+  resolvedPrimary?: ResolvedIssue,
+): Promise<number> {
+  let current = plan;
+  let review: PrReviewOutcome | null = null;
+
+  // One Pull Request for the whole queue, and only when there is a branch to
+  // propose and no Pull Request has been opened for this queue yet.
+  const alreadyOpened = current.pullRequest !== undefined || (await primaryPrCreated(current));
+  if (!current.noBranch && options.noBranch !== true && !alreadyOpened) {
+    const outcome = await runIssueSession(current.id, options.mode, {
+      prReview: options.prReview ?? current.prReview,
+      queue: {
+        plan: current,
+        preChecked: true,
+        resolved: resolvedPrimary,
+        finalPr: await buildPrQueueContext(current),
+      },
+    });
+    review = outcome.review ?? null;
+
+    if (outcome.code !== 0) {
+      printError('The consolidated Pull Request could not be created.');
+      await saveExecutionPlan(planFile, current);
+      return outcome.code;
+    }
+
+    const pullRequest = await propagatePullRequest(current);
+    if (pullRequest !== null) {
+      current = setQueuePullRequest(current, pullRequest);
+    }
+  }
+
+  await saveExecutionPlan(planFile, current);
+
+  // A review asking for changes leaves every issue open, exactly as it does for
+  // a single-issue run: the work is proposed, not accepted.
+  if (review?.requestedChanges === true) {
+    printInfo('Issues left open until the review blockers are addressed.');
+  } else {
+    for (const entry of current.issues) {
+      await closeIssue(entry.id, entry.source);
+    }
+  }
+
+  printQueueSummary({
+    queueId: current.id,
+    branchName: current.branchName,
+    issues: summaries,
+    excluded: current.excluded.map((entry) => ({ id: entry.id, title: entry.title })),
+    elapsedSeconds: Math.round((Date.now() - startedAtMs) / 1000),
+    prUrl: current.pullRequest?.url ?? null,
+    // Read here, after the consolidated Pull Request (and the optional
+    // pr-review) already ran: reading it before would report a queue total
+    // that leaves out the phase that just spent tokens.
+    usage: queueUsage.totals(),
+    prReview: review,
+  });
+
   return 0;
+}
+
+/**
+ * Whether the `pr` phase already ran for this queue, even if it could not
+ * report a URL.
+ *
+ * `plan.pullRequest` on the queue is the happy path; this is the safety net for
+ * the case where the phase succeeded but no URL could be parsed from its output
+ * — re-running it on a resume would open a second Pull Request for the same
+ * branch, which is exactly what the whole feature exists to avoid.
+ */
+async function primaryPrCreated(plan: ExecutionPlan): Promise<boolean> {
+  try {
+    const paths = await resolveIssuePaths(plan.id);
+    return (await loadTaskPlan(paths.tasksFile)).pipeline.prCreated;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The context the consolidated Pull Request needs: what was implemented, in
+ * which order, and what is knowingly left pending.
+ *
+ * "Pending" is the honest half of the report — the issues the user chose not to
+ * run, and any review findings still recorded on an issue's plan. Both would
+ * otherwise be invisible to whoever reviews the Pull Request.
+ */
+async function buildPrQueueContext(plan: ExecutionPlan): Promise<PrQueueContext> {
+  const pending: string[] = [];
+
+  for (const entry of plan.issues) {
+    try {
+      const paths = await resolveIssuePaths(entry.id);
+      const taskPlan = await loadTaskPlan(paths.tasksFile);
+      if (taskPlan.lastReviewFindings !== null && taskPlan.lastReviewFindings !== '') {
+        pending.push(`Issue #${entry.id} has unresolved review findings`);
+      }
+    } catch {
+      // No plan on disk for this issue: nothing to report about it.
+    }
+  }
+
+  return {
+    issues: plan.issues.map((entry) => ({
+      id: entry.id,
+      number: entry.number,
+      title: entry.title,
+      url: entry.url,
+      source: entry.source,
+    })),
+    excluded: plan.excluded.map((entry) => ({
+      id: entry.id,
+      number: entry.number,
+      title: entry.title,
+      reason: entry.reason,
+    })),
+    pending,
+  };
+}
+
+/**
+ * Copy the Pull Request the `pr` phase recorded on the primary issue's plan
+ * onto every other issue of the queue.
+ *
+ * The queue's `execution-plan.json` is the source of truth, but `pr-review`
+ * discovers a Pull Request from `plan.pullRequest` in `tasks.json`
+ * (`core/pr-review/discovery.ts`), so replicating it is what keeps
+ * `pr-review --issue <any issue of the queue>` working without a special case.
+ * A write that fails is reported and skipped: the Pull Request exists either
+ * way, and the queue file already records it.
+ */
+async function propagatePullRequest(plan: ExecutionPlan): Promise<PullRequestRef | null> {
+  let pullRequest: PullRequestRef | null = null;
+  try {
+    const primaryPaths = await resolveIssuePaths(plan.id);
+    pullRequest = (await loadTaskPlan(primaryPaths.tasksFile)).pullRequest ?? null;
+  } catch {
+    return null;
+  }
+  if (pullRequest === null) return null;
+
+  for (const entry of plan.issues) {
+    if (entry.id === plan.id) continue;
+    try {
+      const paths = await resolveIssuePaths(entry.id);
+      const taskPlan = await loadTaskPlan(paths.tasksFile);
+      taskPlan.pullRequest = pullRequest;
+      taskPlan.pipeline.prCreated = true;
+      await saveTaskPlan(paths.tasksFile, taskPlan);
+    } catch {
+      printWarning(`Could not record the Pull Request on issue #${entry.id}'s task plan.`);
+    }
+  }
+
+  return pullRequest;
+}
+
+/** An {@link IssueRunResult} carrying nothing but an exit code. */
+function failure(code: number): IssueRunResult {
+  return { code, failedPhase: null, branchName: null, storyCount: 0, elapsedSeconds: 0 };
+}
+
+/**
+ * Close an Issue through whoever owns it.
+ *
+ * A provider without `close()` (a read-only origin) has nothing to do here, so
+ * the step is simply skipped, and a failure is a warning: the work is done
+ * either way, and an Issue left open is a nuisance, not a broken pipeline.
+ */
+async function closeIssue(issueNumber: string, source: IssueSource): Promise<void> {
+  try {
+    const provider = getProvider(source);
+    if (provider.close !== undefined) {
+      printInfo('Closing issue...');
+      await provider.close(issueNumber);
+    }
+  } catch {
+    printWarning('Failed to close issue automatically');
+  }
+}
+
+/**
+ * Make an issue's task plan use the queue's branch.
+ *
+ * With no branch decided yet, whatever the `plan` phase produced becomes the
+ * queue's branch (the first issue names it, from its own title). From then on
+ * the value is written over every later issue's plan, so `execute.md`'s
+ * "check it out or create from main" finds the branch already there.
+ */
+async function adoptQueueBranch(
+  tasksPath: string,
+  queueBranch: string | null,
+): Promise<string | null> {
+  try {
+    const plan = await loadTaskPlan(tasksPath);
+    if (queueBranch === null || queueBranch === '') {
+      return plan.branchName === '' ? null : plan.branchName;
+    }
+    if (plan.branchName !== queueBranch) {
+      plan.branchName = queueBranch;
+      await saveTaskPlan(tasksPath, plan);
+    }
+    return queueBranch;
+  } catch {
+    // No tasks.json (the plan phase failed to write one): the queue keeps the
+    // branch it already had, and the phase failure is reported on its own.
+    return queueBranch;
+  }
 }

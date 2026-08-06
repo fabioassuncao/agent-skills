@@ -31,30 +31,93 @@ export function elapsedSecondsSince(startedAtMs: number): number {
  * rateio of an iteration already counted here — adding them would double the
  * totals, the same rule the reducer follows.
  */
-const runTotals = {
-  all: {} as ClaudeUsage,
-  byPhase: new Map<string, ClaudeUsage>(),
-};
-
-function recordRunUsage(phase: string, usage: ClaudeUsage): void {
-  runTotals.all = sumUsage(runTotals.all, usage);
-  runTotals.byPhase.set(phase, sumUsage(runTotals.byPhase.get(phase), usage));
+interface UsageAccumulator {
+  all: ClaudeUsage;
+  byPhase: Map<string, ClaudeUsage>;
 }
 
-/** Everything this process has spent so far, across all phases. */
+function createAccumulator(): UsageAccumulator {
+  return { all: {}, byPhase: new Map() };
+}
+
+/**
+ * Stack of active accumulators, innermost last.
+ *
+ * The bottom entry is the process total and always exists. A multi-issue run
+ * pushes one accumulator per issue (and one for the whole queue) so the terminal
+ * summary of issue B never inherits what issue A spent — the leak `core/CLAUDE.md`
+ * warned about when it stated that the module-level counters were safe "only
+ * under the current one-issue-per-process model".
+ *
+ * Every publication feeds **all** active accumulators, so a scope is a view of
+ * the same events rather than a redirection of them.
+ */
+const scopes: UsageAccumulator[] = [createAccumulator()];
+
+/** Innermost active scope: what `run` and the engine report right now. */
+function current(): UsageAccumulator {
+  return scopes[scopes.length - 1] as UsageAccumulator;
+}
+
+function recordRunUsage(phase: string, usage: ClaudeUsage): void {
+  for (const scope of scopes) {
+    scope.all = sumUsage(scope.all, usage);
+    scope.byPhase.set(phase, sumUsage(scope.byPhase.get(phase), usage));
+  }
+}
+
+/** Everything the innermost active scope has spent, across all phases. */
 export function getRunUsageTotals(): ClaudeUsage {
-  return { ...runTotals.all };
+  return { ...current().all };
 }
 
 /** What a single phase has spent so far. Empty when the phase reported nothing. */
 export function getPhaseUsageTotals(phase: string): ClaudeUsage {
-  return { ...(runTotals.byPhase.get(phase) ?? {}) };
+  return { ...(current().byPhase.get(phase) ?? {}) };
+}
+
+/** A usage scope opened by {@link beginUsageScope}. */
+export interface UsageScope {
+  /** Everything published while this scope was open. */
+  totals(): ClaudeUsage;
+  /** What one phase published while this scope was open. */
+  phaseTotals(phase: string): ClaudeUsage;
+  /** Close the scope. Idempotent, and safe to call out of order. */
+  end(): ClaudeUsage;
+}
+
+/**
+ * Open a nested usage scope, for a run that processes several issues in one
+ * process.
+ *
+ * The scope accumulates only what is published while it is open, which is what
+ * lets a queue report a per-issue cost and a consolidated total from the same
+ * stream of events. Closing it never discards anything: the outer scopes were
+ * fed in parallel.
+ */
+export function beginUsageScope(): UsageScope {
+  const accumulator = createAccumulator();
+  scopes.push(accumulator);
+  let open = true;
+
+  return {
+    totals: () => ({ ...accumulator.all }),
+    phaseTotals: (phase: string) => ({ ...(accumulator.byPhase.get(phase) ?? {}) }),
+    end: () => {
+      if (open) {
+        const index = scopes.indexOf(accumulator);
+        // Never pop the process total, even if a caller double-ends a scope.
+        if (index > 0) scopes.splice(index, 1);
+        open = false;
+      }
+      return { ...accumulator.all };
+    },
+  };
 }
 
 /** Test seam: the counters are module state and must be cleared between runs. */
 export function resetRunUsageTotals(): void {
-  runTotals.all = {};
-  runTotals.byPhase.clear();
+  scopes.splice(0, scopes.length, createAccumulator());
 }
 
 /**

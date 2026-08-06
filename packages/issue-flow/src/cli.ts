@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
 import {
   CliFlagError,
+  resolveQueueScopeFlags,
   resolveRunPhaseFlags,
   resolveUserStoryNumberingFlags,
 } from './cli-options.js';
@@ -206,33 +207,39 @@ withUserStoryNumberingOptions(
           .description(
             'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
           )
-          .argument('<issue>', 'Issue number')
+          .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
           .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
           .option('--from <phase>', 'Resume from a specific phase')
           .option(
             '--no-branch',
             'Run pipeline on current branch without creating a new branch or PR',
           )
-          .option('--pr-review', 'Review the created Pull Request after the pr phase'),
+          .option('--pr-review', 'Review the created Pull Request after the pr phase')
+          .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
+          .option('--only', 'Run just the issues informed, without their hierarchy'),
       ),
     ),
   ),
 ).action(
   async (
-    issue: string,
+    issues: string[],
     options: {
       mode: string;
       from?: string;
       branch?: boolean;
       prReview?: boolean;
+      yes?: boolean;
+      only?: boolean;
       continue?: boolean;
       startUs?: number;
     },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
+    let scope: ReturnType<typeof resolveQueueScopeFlags>;
     let numbering: ReturnType<typeof resolveUserStoryNumberingFlags>;
     try {
       phases = resolveRunPhaseFlags(options);
+      scope = resolveQueueScopeFlags(options);
       numbering = resolveUserStoryNumberingFlags(options);
     } catch (error) {
       if (error instanceof CliFlagError) {
@@ -244,13 +251,17 @@ withUserStoryNumberingOptions(
 
     const { runPipeline } = await import('./commands/run.js');
     const code = await runPipeline(
-      issue,
+      issues,
       options.mode,
       options.from,
       phases.noBranch,
       phases.prReview,
-      numbering.continueFlag,
-      numbering.startUs,
+      {
+        yes: scope.yes,
+        only: scope.only,
+        continueNumbering: numbering.continueFlag,
+        startUs: numbering.startUs,
+      },
     );
     process.exit(code);
   },

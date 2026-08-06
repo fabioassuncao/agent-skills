@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CliFlagError,
   resolveNoBranch,
+  resolveQueueScopeFlags,
   resolveRunPhaseFlags,
   resolveUserStoryNumberingFlags,
 } from './cli-options.js';
@@ -97,6 +98,24 @@ describe('resolveRunPhaseFlags', () => {
     });
     expect(resolveRunPhaseFlags(parse([]))).toEqual({ noBranch: undefined, prReview: undefined });
     expect(() => resolveRunPhaseFlags(parse(['--pr-review', '--no-branch']))).toThrow(CliFlagError);
+  });
+});
+
+describe('resolveQueueScopeFlags', () => {
+  it('leaves both undefined when neither flag is passed', () => {
+    expect(resolveQueueScopeFlags({})).toEqual({ yes: undefined, only: undefined });
+  });
+
+  it('reports each flag on its own', () => {
+    expect(resolveQueueScopeFlags({ yes: true })).toEqual({ yes: true, only: undefined });
+    expect(resolveQueueScopeFlags({ only: true })).toEqual({ yes: undefined, only: true });
+  });
+
+  it('rejects the combination that answers the same question twice', () => {
+    expect(() => resolveQueueScopeFlags({ yes: true, only: true })).toThrow(CliFlagError);
+    expect(() => resolveQueueScopeFlags({ yes: true, only: true })).toThrow(
+      /--yes cannot be combined with --only/,
+    );
   });
 });
 

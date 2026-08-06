@@ -85,6 +85,10 @@ npx issue-flow run 42 --web
 # Review the created Pull Request as a final phase
 npx issue-flow run 42 --pr-review
 
+# Several issues at once -- both forms are equivalent
+npx issue-flow run 42,43,50
+npx issue-flow run 42 43 50
+
 # Continue User Story numbering from the last used in this project
 npx issue-flow run 42 --continue
 
@@ -100,14 +104,58 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--from <phase>` | Resume from a specific phase |
 | `--no-branch` | Run on the current branch without creating a new branch or PR |
 | `--pr-review` | Review the created Pull Request after the `pr` phase (see [`pr-review`](#pr-review----review-a-pull-request)) |
+| `-y, --yes` | Run the whole discovered hierarchy without asking (see [Multiple issues](#multiple-issues-and-hierarchies)) |
+| `--only` | Run just the issues informed, without their hierarchy |
 | `--continue` | Continue User Story numbering from the last one used in this project (see [User Story numbering continuity](#user-story-numbering-continuity)) |
-| `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history |
+| `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history. In a queue it applies to the first issue only; the rest continue from history |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `-v, --verbose` | Show Claude progress output in real time |
 
 `--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists `prReview.enabled` as soon as a `tasks.json` exists (including mid-pipeline resumes such as `--from pr --pr-review`), so a later run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open** (locally and on the remote), does **not** mark `issueStatus: completed`, and still exits `0`.
 
 It also accepts the [issue source flags](#flags) (`--local`, `--github`, `--prefer-local`, `--prefer-github`, `--ask`). The origin is resolved **once**, at the start, and the same issue content is handed to every phase.
+
+#### Multiple issues and hierarchies
+
+`run` accepts one issue or several, and before starting anything it asks the provider [what the issue is related to](#hierarchy-and-dependency-discovery). When the answer is "nothing", the run is exactly the single-issue pipeline it has always been: no prompt, no extra output, no artifact.
+
+When a larger structure *is* found, the pipeline **stops before the first phase** and shows what it discovered:
+
+```
+Issue #50 is part of a larger structure:
+  Main issue:   #50 Discover dependencies between issues
+  Total issues: 4
+  Suggested order:
+    1. #50 Discover dependencies between issues (requested)
+    2. #51 Multiple issues as input (after #50)
+    3. #52 Sequential multi-issue execution (after #51, high)
+    4. #53 One consolidated Pull Request (after #52)
+Which scope should run? [1] Only the issues informed (1)  [2] The whole hierarchy (4)  [3] Cancel:
+```
+
+Answering `2` (or just pressing Enter) runs the whole thing; `1` trims it to what you typed; `3` cancels without executing anything.
+
+**Order of execution.** The queue is ordered by, in this precedence: **dependencies and blocks** (a hard constraint -- an issue never starts before something it depends on has finished) → **hierarchy** (a parent before its children) → **priority labels** (`high` > `medium` > `low`; an issue with no priority label sorts after every labelled one) → **issue number**. A dependency **cycle** is refused with an explicit error instead of being resolved into an arbitrary order.
+
+**Non-interactive runs.** Outside a TTY (CI, a pipe) the answer must come from a flag: `--yes` runs the whole hierarchy, `--only` runs just what you informed. With **several issues informed**, passing neither **fails with exit code 1** rather than guessing -- picking silently would either implement issues nobody approved or ignore a dependency you were never told about. With a **single issue** informed, there is nothing to guess: the run falls back to that issue alone, with a warning, so a command that always worked keeps working. The same rule applies to a discovered dependency **cycle** -- refused for a multi-issue request, degraded to the single issue you asked for otherwise. `--yes` and `--only` cannot be combined.
+
+**How a queue runs.** Every issue goes through the same phases as always (`prd` → `plan` → `execute` → `review`), each with its own `tasks.json`, its own [session](#web-monitoring) and its own token/cost accounting, all inside a single process -- nothing has to be restarted between issues. What the queue owns is what is shared:
+
+- **one branch** for the whole queue: the first issue's `plan` phase names it, and every later issue's plan is made to use it, so no issue creates a second branch;
+- **commits scoped per issue**: inside a queue the execute prompt commits as `feat(issue-51): [Story ID] - [Story Title]` (and `fix(issue-51): …` for review corrections), so `git log` on the shared branch stays readable. A single-issue run keeps the historical `feat: [Story ID] - [Story Title]`;
+- **one Pull Request** at the end, covering every issue (see [`pr`](#pr----create-a-pull-request));
+- **one consolidated summary**, with a per-issue breakdown of stories, duration and cost.
+
+**Failure and resume.** A failure stops the queue where it happened: the branch and every commit already made are kept untouched, and the queue records which issue failed and in which phase. Re-running the same command resumes from that issue -- the ones already completed are never redone, and the confirmation is not asked again:
+
+```bash
+npx issue-flow run 50        # stops at #52, in the execute phase
+npx issue-flow run 50        # resumes at #52; #50 and #51 are left alone
+```
+
+`--from <phase>` addresses the issue the queue is resuming, not the ones after it.
+
+The coordination state lives in `~/.issue-flow/projects/<project-id>/queues/<queue-id>/execution-plan.json` (see [Global Storage](#global-storage)); each issue's own artifacts stay exactly where they were.
 
 ### `init` -- Check prerequisites
 
@@ -232,6 +280,14 @@ npx issue-flow pr 42
 ```
 
 Creates a well-structured PR referencing the issue, with summary and test plan. When the issue has no remote counterpart (a local issue), the `Closes #N` reference is omitted and the PR body points at the local `issue.md` instead.
+
+**Inside a queue** ([multiple issues](#multiple-issues-and-hierarchies)) the phase runs **once**, after the last issue, and produces a **single** Pull Request for the whole branch. Its body additionally carries:
+
+- an **Issues implemented** section, in execution order;
+- one `Closes #N` line per issue that has a GitHub counterpart, so merging the PR closes all of them (issues with no remote are skipped, exactly as in a single-issue PR);
+- a **Pending** section listing the issues discovered but not executed (the ones trimmed by `--only` or by your answer to the confirmation) and any issue left with unresolved review findings.
+
+The reference to the Pull Request is recorded in the queue's `execution-plan.json` and replicated into every issue's `tasks.json`, so `issue-flow pr-review --issue <any issue of the queue>` finds it. A single-issue run is unchanged: no extra section is added and the body is what it has always been.
 
 ### `pr-review` -- Review a Pull Request
 
@@ -376,6 +432,32 @@ The issue content is fetched **in the CLI** and injected into every prompt (`ana
 | Neither | fails with exit code 1, listing what each origin answered |
 
 With `conflictPolicy: "ask"` **and** an interactive terminal, the versions are listed and you choose: `[1] Local  [2] GitHub  [3] Cancel` (cancelling exits non-zero). In CI or any non-TTY environment the prompt is never shown -- the preferred provider is used and a warning is printed, so an automated run can never hang. `prefer-local` and `prefer-github` never prompt.
+
+### Hierarchy and dependency discovery
+
+A provider may also answer *how an issue relates to the others*. The GitHub provider reconciles three mechanisms that only partially overlap, so a repository is covered whichever one it adopted:
+
+| Source | Reads | Produces |
+|--------|-------|----------|
+| [Sub-issues](https://docs.github.com/rest/issues/sub-issues) | `GET /repos/{owner}/{repo}/issues/{n}/sub_issues` and the `parent` field of the issue payload | `children`, `parent` |
+| [Issue Dependencies](https://docs.github.com/rest/issues/dependencies) | `GET …/issues/{n}/dependencies/blocked_by` and `…/blocking` | `blockedBy`, `blocking` |
+| Issue body (heuristic) | `Depends on #N`, `Depends-on: #N`, `Blocked by #N`, `Requires #N`, `Blocks #N` and their Portuguese spellings (`Depende de`, `Bloqueada por`, `Requer`, `Bloqueia`), plus task list items `- [ ] #N` | `blockedBy`, `blocking`, `children` |
+| Timeline cross-references | `GET …/issues/{n}/timeline` | `referencedBy` (Pull Requests excluded) |
+
+Every source is queried through `gh api` and is allowed to fail on its own: an organization without Issue Dependencies enabled simply gets those two fields empty -- a 404 costs a field, never the discovery.
+
+The textual fallback is **heuristic**, and its limits are deliberate:
+
+- fenced code blocks and inline code spans are stripped first, so `#42` inside a snippet is never a dependency;
+- a keyword only creates a relation when it is **immediately** followed by the id -- "blocked by the redesign discussed in #12" is a mention, not a dependency;
+- `#N, #M and #O` after a single keyword are all read, and a parenthetical gloss between them does not end the list (`Depends on #50 (discovery) and #51 (ordering)` names two dependencies);
+- a task list item counts as a sub-issue only when the citation **opens** it (`- [ ] #21 Title`); an item that merely mentions an issue in its prose (`- [ ] Reuse the graph of issue #50`) is a note, not a sub-issue;
+- everything else becomes a plain `reference`, which **never** orders execution;
+- an id that only the heuristic found is flagged as such, and [`run`](#run----full-pipeline-end-to-end) marks it with `~` in the confirmation summary.
+
+From these relations the CLI builds a **dependency graph**, walking hierarchy and dependencies breadth-first from the issues you asked for. Plain mentions are recorded but never expanded -- a "see also #12" must not drag an unrelated issue into a plan you are about to confirm. Traversal is bounded by **25 nodes and depth 3** by default; hitting either limit is reported rather than silently truncating. A dependency cycle does not break discovery: the graph is returned with the cycle recorded, and it is the ordering step that refuses to run (see [`run`](#run----full-pipeline-end-to-end)).
+
+The `local` provider does not implement discovery: a local issue simply has no relations, and everything below behaves as it did for a single issue.
 
 ### Flags
 
@@ -887,7 +969,12 @@ Every phase (`analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review`, `
           .last-branch                 # Last branch used for this issue
           archive/                     # Superseded artifacts
           pr-review/                   # PR review reports and index
+      queues/
+        50/                            # One directory per multi-issue queue
+          execution-plan.json          # Order, per-issue status, shared branch, PR
 ```
+
+`queues/` only exists once a run really coordinates more than one issue -- a single-issue pipeline never creates it. The queue id is the identifier of the **primary issue** (the first one informed), which is what lets `issue-flow run 50` find and resume the queue it started. See [Multiple issues and hierarchies](#multiple-issues-and-hierarchies).
 
 Issue identifiers are not necessarily numeric -- `auth-refactor` and `pr-184` are valid directory names, exactly as in the local provider. Everything is resolved by `getIssuePaths(projectId, issueNumber)`; no call site joins these names by hand.
 

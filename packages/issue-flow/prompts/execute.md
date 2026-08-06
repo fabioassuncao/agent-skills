@@ -12,7 +12,7 @@ You are an autonomous coding agent working on a software project.
 6. Implement that single user story
 7. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 8. Update CLAUDE.md files if you discover reusable patterns (see below)
-9. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
+9. If checks pass, commit ALL changes with message: `__COMMIT_MESSAGE__`
 10. Update the PRD to set `passes: true` for the completed story
 11. Append your progress to `__PROGRESS_FILE__`
 
@@ -23,7 +23,7 @@ A prior automated review may have already run against this same code and found i
 - Treat it as **the** priority for this iteration, ahead of any story whose `passes` is still `false`.
 - The findings describe concrete defects in code that was already implemented and marked `passes: true` — they are not a new story. Do **not** re-implement stories from scratch; make the smallest correct change that addresses every finding.
 - Run the project's quality checks (typecheck, lint, test) to confirm the fix, exactly as for a normal story.
-- Commit the fix with message `fix: address review findings` (or a more specific message naming what was fixed).
+- Commit the fix with message `__FIX_COMMIT_MESSAGE__` (or a more specific message naming what was fixed, keeping the same prefix).
 - Once every finding has been addressed, set `lastReviewFindings` back to `null` in the PRD before finishing this iteration. Leaving it non-null means the orchestrator will treat the issue as still uncorrected and loop again.
 - If a finding turns out to be a false positive or already fixed, still clear `lastReviewFindings` to `null`, but say so explicitly in the progress log entry so a human can double-check.
 - If you cannot fully resolve the findings in this iteration, leave `lastReviewFindings` as-is (do not clear it) and record what you did and what remains in the progress log — the orchestrator will invoke another iteration.

@@ -252,6 +252,95 @@ export function buildRunSummaryLines(info: RunSummaryInfo): string[] {
   return lines;
 }
 
+/** One issue of a multi-issue queue, as the consolidated summary reports it. */
+export interface QueueIssueSummary {
+  id: string;
+  title: string;
+  storyCount: number;
+  elapsedSeconds: number;
+  /** Tokens and cost of this issue alone — never of the whole queue. */
+  usage?: ClaudeUsage | null;
+}
+
+/** Everything the consolidated summary of a queue prints. */
+export interface QueueSummaryInfo {
+  /** Identifier of the queue, i.e. of its primary issue. */
+  queueId: string;
+  /** Branch every issue shared, `null` when the queue ran with --no-branch. */
+  branchName: string | null;
+  issues: QueueIssueSummary[];
+  /** Issues discovered but left out of the run. */
+  excluded: { id: string; title: string }[];
+  elapsedSeconds: number;
+  /** The single consolidated Pull Request, `null` when none was opened. */
+  prUrl: string | null;
+  /** Tokens and cost of the whole queue. */
+  usage?: ClaudeUsage | null;
+  /** Verdict of the pr-review phase, when the queue ran it. */
+  prReview?: RunSummaryPrReview | null;
+}
+
+/**
+ * Detail lines of a queue's final summary.
+ *
+ * Per-issue lines carry their own duration and cost, which is the visible half
+ * of the per-issue metric scoping: what one issue spent is never folded into
+ * another's line.
+ */
+export function buildQueueSummaryLines(info: QueueSummaryInfo): string[] {
+  const lines: string[] = [];
+
+  lines.push(`  Branch:   ${info.branchName ?? 'current'}`);
+  lines.push(`  Issues:   ${info.issues.length}`);
+
+  for (const issue of info.issues) {
+    const tokens = formatTokens(issue.usage);
+    const title = issue.title === '' ? '' : ` ${issue.title}`;
+    lines.push(
+      `    #${issue.id}${title} — ${issue.storyCount} stories, ${formatDuration(issue.elapsedSeconds)}` +
+        (tokens === '' ? '' : `, ${tokens}`),
+    );
+  }
+
+  lines.push(`  Duration: ${formatDuration(info.elapsedSeconds)}`);
+
+  const tokens = formatTokens(info.usage);
+  if (tokens !== '') {
+    lines.push(`  Tokens:   ${tokens}`);
+  }
+  if (info.prUrl !== null) {
+    lines.push(`  PR:       ${info.prUrl}`);
+  }
+  if (info.excluded.length > 0) {
+    lines.push(`  Skipped:  ${info.excluded.map((entry) => `#${entry.id}`).join(', ')}`);
+  }
+
+  const review = info.prReview;
+  if (review) {
+    lines.push(
+      `  Review:   ${review.recommendation ?? (review.requestedChanges ? 'REQUEST_CHANGES' : 'unknown')}`,
+    );
+    if (review.reportPath !== null) {
+      lines.push(`  Report:   ${review.reportPath}`);
+    }
+  }
+
+  return lines;
+}
+
+/** Print the consolidated summary of a multi-issue queue. */
+export function printQueueSummary(info: QueueSummaryInfo): void {
+  console.log('');
+  if (info.prReview?.requestedChanges === true) {
+    printWarning(`Queue finished for issue #${info.queueId}, but the PR review requested changes.`);
+  } else {
+    printSuccess(`Queue complete for issue #${info.queueId} (${info.issues.length} issues)!`);
+  }
+  for (const line of buildQueueSummaryLines(info)) {
+    console.log(line);
+  }
+}
+
 /**
  * Print the final summary of a `run` (the flat listing, not the box used by
  * the execute engine).

@@ -43,6 +43,44 @@ export interface Issue {
 }
 
 /**
+ * How one Issue relates to the others of the same origin.
+ *
+ * Every entry is a provider-scoped identifier in the exact format of
+ * `Issue.id` — never a number invented by the discovery layer, so a caller can
+ * always hand an id straight back to `provider.get()`.
+ *
+ * The fields are deliberately split by *mechanism* rather than by meaning:
+ * `parent`/`children` come from the hierarchy (GitHub Sub-issues), `blockedBy`/
+ * `blocking` from explicit dependencies (GitHub Issue Dependencies), and
+ * `references`/`referencedBy` from mentions, which carry no ordering semantics
+ * at all. A consumer that orders execution must only ever look at the first two
+ * groups; the third is context for a human.
+ */
+export interface IssueRelations {
+  /** The Issue these relations describe. */
+  id: string;
+  /** Parent (umbrella) Issue, `null` when this one is not a sub-issue. */
+  parent: string | null;
+  /** Sub-issues, in the order the origin lists them. */
+  children: string[];
+  /** Issues that must be resolved before this one. */
+  blockedBy: string[];
+  /** Issues waiting on this one. */
+  blocking: string[];
+  /** Issues cited by this one's body without an explicit relation. */
+  references: string[];
+  /** Issues that cite this one. */
+  referencedBy: string[];
+  /**
+   * Identifiers whose only evidence is the textual heuristic over the body
+   * (`Depends on #N`, `- [ ] #N`, …), never a structured API. They are real
+   * entries of the fields above *and* listed here, so a UI can flag them as
+   * lower-confidence instead of presenting a guess as a fact.
+   */
+  heuristic: string[];
+}
+
+/**
  * Content for an Issue that does not exist yet. Providers turn a draft into a
  * full `Issue` in `create()`, filling in ids, timestamps and the content hash.
  */

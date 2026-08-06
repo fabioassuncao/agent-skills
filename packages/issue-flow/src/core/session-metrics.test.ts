@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  beginUsageScope,
   getPhaseUsageTotals,
   getRunUsageTotals,
   publishIterationMetrics,
@@ -320,5 +321,76 @@ describe('run usage totals', () => {
     totals.inputTokens = 999;
 
     expect(getRunUsageTotals()).toEqual({ inputTokens: 3 });
+  });
+});
+
+describe('beginUsageScope', () => {
+  it('reports only what was published while it was open', () => {
+    install();
+    publishPhaseMetrics('prd', { inputTokens: 10, costUsd: 1 });
+
+    const scope = beginUsageScope();
+    publishPhaseMetrics('plan', { inputTokens: 5, costUsd: 0.5 });
+
+    expect(scope.totals()).toEqual({ inputTokens: 5, costUsd: 0.5 });
+    expect(scope.phaseTotals('plan')).toEqual({ inputTokens: 5, costUsd: 0.5 });
+    expect(scope.phaseTotals('prd')).toEqual({});
+    // The innermost scope is what the terminal summary reads.
+    expect(getRunUsageTotals()).toEqual({ inputTokens: 5, costUsd: 0.5 });
+    expect(getPhaseUsageTotals('prd')).toEqual({});
+  });
+
+  it('keeps feeding the outer scopes in parallel', () => {
+    install();
+    const scope = beginUsageScope();
+    publishPhaseMetrics('prd', { inputTokens: 7 });
+    scope.end();
+
+    expect(getRunUsageTotals()).toEqual({ inputTokens: 7 });
+    expect(getPhaseUsageTotals('prd')).toEqual({ inputTokens: 7 });
+  });
+
+  it('does not leak usage from one issue of a queue into the next', () => {
+    install();
+    const queue = beginUsageScope();
+
+    const first = beginUsageScope();
+    publishPhaseMetrics('execute', { inputTokens: 100, costUsd: 2 });
+    first.end();
+
+    const second = beginUsageScope();
+    publishPhaseMetrics('execute', { inputTokens: 30, costUsd: 1 });
+
+    expect(second.totals()).toEqual({ inputTokens: 30, costUsd: 1 });
+    expect(getPhaseUsageTotals('execute')).toEqual({ inputTokens: 30, costUsd: 1 });
+    second.end();
+
+    // The queue still adds up to both issues.
+    expect(queue.totals()).toEqual({ inputTokens: 130, costUsd: 3 });
+    queue.end();
+    expect(getRunUsageTotals()).toEqual({ inputTokens: 130, costUsd: 3 });
+  });
+
+  it('survives being closed twice and out of order', () => {
+    install();
+    const outer = beginUsageScope();
+    const inner = beginUsageScope();
+
+    outer.end();
+    publishPhaseMetrics('prd', { inputTokens: 4 });
+    expect(inner.totals()).toEqual({ inputTokens: 4 });
+
+    inner.end();
+    inner.end();
+    expect(getRunUsageTotals()).toEqual({ inputTokens: 4 });
+  });
+
+  it('is cleared by resetRunUsageTotals', () => {
+    install();
+    beginUsageScope();
+    publishPhaseMetrics('prd', { inputTokens: 4 });
+
+    resetRunUsageTotals();
+    expect(getRunUsageTotals()).toEqual({});
   });
 });

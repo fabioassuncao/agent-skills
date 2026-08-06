@@ -39,6 +39,35 @@ The Issue data published there comes from the `ResolvedIssue` the run already
 holds (`resolveCommandIssue` runs once, at the top), never from a fresh provider
 call.
 
+## The multi-issue queue
+
+`run` may coordinate several issues in one process (`src/execution/`). Three
+rules keep that from leaking into the single-issue path, which is still the
+common case and the one every older test covers:
+
+- **The decision is taken before anything is published.** `runPipelinePhases`
+  runs `init`, resolves the Issue, and only *then* asks the planner whether this
+  invocation is a queue — a window in which no `session:start` has been emitted
+  and no artifact written. A run that turns out to be a queue returns
+  `{ queue }` instead of an exit code, and `runIssueSession` deliberately skips
+  its `session:end` publication so nothing is written for the aborted attempt.
+- **A queue is only ever a queue with more than one issue.** Discovery finding
+  nothing, `--only` on a single issue, a scope trimmed back to one issue: all of
+  them fall back to `{ kind: 'single' }` and create no `execution-plan.json`.
+- **Per-issue runs differ from a standalone run in exactly four ways**: the `pr`
+  (and `pr-review`) phase leaves the per-issue phase list, the branch of the
+  queue is written over the plan's own `branchName` after the `plan` phase,
+  `runExecute` receives a `commitScope`, and neither the issue close nor the
+  final summary happens per issue — the queue owns both.
+
+Each issue of a queue gets its **own** publisher over its **own**
+`session.json`, so the publication order documented below is per issue and
+unchanged; nothing publishes into two sessions at once. The queue's closing
+pass (the consolidated Pull Request) publishes into the primary issue's
+session with a phase list of `init` + `pr` (+ `pr-review`), which is why
+`startIdx` is clamped: a resume phase that is not in that list starts the
+renderer at the beginning instead of at `-1`.
+
 Anything that window needs from `tasks.json` is read in the single `try` block
 that already loads the plan (the one resolving `--no-branch`): a run must not
 gain a second disk read per enrichment. The seed publishes nothing on an empty

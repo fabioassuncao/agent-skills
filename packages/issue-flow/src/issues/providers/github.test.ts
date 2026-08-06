@@ -237,3 +237,140 @@ describe('isAvailable', () => {
     await expect(provider.isAvailable()).resolves.toBe(false);
   });
 });
+
+describe('fetchRelations', () => {
+  /**
+   * The five endpoints run concurrently, so the doubles are keyed by path
+   * instead of by call order — `mockResolvedValueOnce` would bind an answer to
+   * whichever promise happened to be created first.
+   */
+  function mockApi(answers: Record<string, unknown>, body = ''): void {
+    mockRun.mockImplementation(async (_cmd: string, args: string[] = []) => {
+      if (args[0] === 'issue' && args[1] === 'view') {
+        return result({ stdout: JSON.stringify({ ...ghPayload, body }) });
+      }
+      const path = args[1] ?? '';
+      for (const [suffix, payload] of Object.entries(answers)) {
+        if (path.includes(suffix)) {
+          return result({ stdout: JSON.stringify(payload) });
+        }
+      }
+      return result({ exitCode: 1, stderr: 'Not Found (HTTP 404)' });
+    });
+  }
+
+  it('returns empty relations when nothing answers', async () => {
+    mockApi({});
+
+    await expect(provider.fetchRelations('50')).resolves.toEqual({
+      id: '50',
+      parent: null,
+      children: [],
+      blockedBy: [],
+      blocking: [],
+      references: [],
+      referencedBy: [],
+      heuristic: [],
+    });
+  });
+
+  it('queries the five relation endpoints of the issue', async () => {
+    mockApi({});
+    await provider.fetchRelations('#50');
+
+    const paths = mockRun.mock.calls
+      .filter(([, args]) => args?.[0] === 'api')
+      .map(([, args]) => args?.[1]);
+    expect(paths).toEqual([
+      'repos/{owner}/{repo}/issues/50',
+      'repos/{owner}/{repo}/issues/50/sub_issues?per_page=100',
+      'repos/{owner}/{repo}/issues/50/dependencies/blocked_by?per_page=100',
+      'repos/{owner}/{repo}/issues/50/dependencies/blocking?per_page=100',
+      'repos/{owner}/{repo}/issues/50/timeline?per_page=100',
+    ]);
+  });
+
+  it('maps sub-issues and the parent from the hierarchy endpoints', async () => {
+    mockApi({
+      '/sub_issues': [{ number: 51 }, { number: 52 }],
+      'issues/50': { number: 50, body: '', parent: { number: 49 } },
+    });
+
+    await expect(provider.fetchRelations('50')).resolves.toMatchObject({
+      parent: '49',
+      children: ['51', '52'],
+      heuristic: [],
+    });
+  });
+
+  it('maps blocked_by and blocking from the dependencies endpoints', async () => {
+    mockApi({
+      '/dependencies/blocked_by': [{ number: 48 }],
+      '/dependencies/blocking': [{ number: 53 }],
+    });
+
+    await expect(provider.fetchRelations('50')).resolves.toMatchObject({
+      blockedBy: ['48'],
+      blocking: ['53'],
+    });
+  });
+
+  it('falls back to the body when the structured sources are unavailable', async () => {
+    mockApi({ 'issues/50': { number: 50, body: 'Depends on #48\n- [ ] #51' } });
+
+    await expect(provider.fetchRelations('50')).resolves.toMatchObject({
+      blockedBy: ['48'],
+      children: ['51'],
+      heuristic: ['51', '48'],
+    });
+  });
+
+  it('reads the body through gh issue view when the REST payload fails', async () => {
+    mockApi({}, 'Blocked by #48');
+
+    await expect(provider.fetchRelations('50')).resolves.toMatchObject({ blockedBy: ['48'] });
+  });
+
+  it('combines structured and textual sources without duplicating', async () => {
+    mockApi({
+      '/sub_issues': [{ number: 51 }],
+      '/dependencies/blocked_by': [{ number: 48 }],
+      'issues/50': { number: 50, body: '- [ ] #51\n- [ ] #52\nDepends on #48' },
+    });
+
+    await expect(provider.fetchRelations('50')).resolves.toMatchObject({
+      children: ['51', '52'],
+      blockedBy: ['48'],
+      heuristic: ['52'],
+    });
+  });
+
+  it('reads cross-references from the timeline, skipping Pull Requests', async () => {
+    mockApi({
+      '/timeline': [
+        { event: 'labeled' },
+        { event: 'cross-referenced', source: { issue: { number: 80 } } },
+        {
+          event: 'cross-referenced',
+          source: { issue: { number: 81, pull_request: { url: 'https://…' } } },
+        },
+      ],
+    });
+
+    await expect(provider.fetchRelations('50')).resolves.toMatchObject({ referencedBy: ['80'] });
+  });
+
+  it('never throws when gh itself explodes', async () => {
+    mockRun.mockRejectedValue(new Error('spawn ENOENT'));
+
+    await expect(provider.fetchRelations('50')).resolves.toMatchObject({ id: '50', children: [] });
+  });
+
+  it('answers empty relations for a non-numeric identifier', async () => {
+    await expect(provider.fetchRelations('auth-refactor')).resolves.toMatchObject({
+      id: 'auth-refactor',
+      children: [],
+    });
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+});
