@@ -1,7 +1,8 @@
 // Interface do monitoramento web do issue-flow.
 // JS puro, sem framework e sem recursos externos — funciona offline.
-// Consome apenas GET api/status (ETag/304) e GET api/health; todo texto
-// dinâmico entra via textContent (nunca innerHTML com dados do snapshot).
+// Consome GET api/sessions, GET api/status (ETag/304) e GET api/health;
+// todo texto dinâmico entra via textContent (nunca innerHTML com dados
+// do snapshot).
 (() => {
   'use strict';
 
@@ -10,6 +11,7 @@
   const STORAGE_KEY = 'issue-flow:refresh-seconds';
   const MAX_BACKOFF_MS = 60000;
   const ALERT_PREVIEW = 3;
+  const DESCRIPTION_PREVIEW = 140;
 
   const STATUS_LABELS = {
     idle: 'aguardando',
@@ -57,12 +59,18 @@
 
   const els = {
     banner: document.getElementById('banner-disconnected'),
+    viewDashboard: document.getElementById('view-dashboard'),
+    viewDetail: document.getElementById('view-detail'),
+    dashboard: document.getElementById('dashboard'),
+    dashboardMeta: document.getElementById('dashboard-meta'),
+    backToDashboard: document.getElementById('back-to-dashboard'),
     issueLink: document.getElementById('issue-link'),
     branchLine: document.getElementById('branch-line'),
     statusBadge: document.getElementById('status-badge'),
     elapsed: document.getElementById('elapsed'),
     estimate: document.getElementById('estimate'),
     refreshSelect: document.getElementById('refresh-select'),
+    refreshSelectDashboard: document.getElementById('refresh-select-dashboard'),
     alerts: document.getElementById('alerts'),
     alertsBody: document.getElementById('alerts-body'),
     issueSummary: document.getElementById('issue-summary'),
@@ -100,6 +108,12 @@
     // Só o id: o card que abriu o drawer é destruído no próximo render, então
     // guardar o nó levaria a uma referência morta.
     selectedStoryId: null,
+    // Multi-sessão (#35): lista de /api/sessions e seleção explícita do usuário.
+    // selectedSessionId null = modo automático (1 sessão → detalhe; 2+ → dashboard).
+    sessions: [],
+    selectedSessionId: null,
+    viewMode: 'detail', // 'detail' | 'dashboard'
+    statusUrl: 'api/status',
   };
 
   // ---- Utilitários ----------------------------------------------------------
@@ -305,22 +319,28 @@
     }
   }
 
-  function buildRefreshSelect() {
+  function fillRefreshSelect(select) {
+    if (!select) return;
     const values = REFRESH_OPTIONS.slice();
     if (state.refreshSeconds !== PAUSED && values.indexOf(state.refreshSeconds) === -1) {
       values.push(state.refreshSeconds);
       values.sort((a, b) => a - b);
     }
-    clear(els.refreshSelect);
+    clear(select);
     for (const value of values) {
       const option = el('option', null, value + 's');
       option.value = String(value);
-      els.refreshSelect.appendChild(option);
+      select.appendChild(option);
     }
     const pause = el('option', null, 'pausar');
     pause.value = String(PAUSED);
-    els.refreshSelect.appendChild(pause);
-    els.refreshSelect.value = String(state.refreshSeconds);
+    select.appendChild(pause);
+    select.value = String(state.refreshSeconds);
+  }
+
+  function buildRefreshSelect() {
+    fillRefreshSelect(els.refreshSelect);
+    fillRefreshSelect(els.refreshSelectDashboard);
   }
 
   function clearTimer() {
@@ -338,13 +358,108 @@
     state.timer = window.setTimeout(poll, Math.min(backoff, MAX_BACKOFF_MS));
   }
 
+  // Decide dashboard vs detalhe a partir de /api/sessions. selectedSessionId
+  // null = automático; string = escolha explícita do usuário (card).
+  function resolveView(sessions) {
+    state.sessions = sessions;
+
+    if (state.selectedSessionId !== null) {
+      const stillThere = sessions.some((s) => s.sessionId === state.selectedSessionId);
+      if (!stillThere) {
+        state.selectedSessionId = null;
+        state.etag = null;
+      }
+    }
+
+    if (state.selectedSessionId !== null) {
+      const selected = sessions.find((s) => s.sessionId === state.selectedSessionId);
+      return { mode: 'detail', session: selected || null };
+    }
+
+    if (sessions.length === 0) {
+      return { mode: 'detail', session: null };
+    }
+
+    if (sessions.length === 1) {
+      return { mode: 'detail', session: sessions[0] };
+    }
+
+    return { mode: 'dashboard', session: null };
+  }
+
+  function setViewMode(mode) {
+    state.viewMode = mode;
+    els.viewDashboard.hidden = mode !== 'dashboard';
+    els.viewDetail.hidden = mode !== 'detail';
+    const showBack =
+      mode === 'detail' && (state.selectedSessionId !== null || state.sessions.length >= 2);
+    els.backToDashboard.hidden = !showBack;
+    if (mode === 'dashboard' && state.selectedStoryId !== null) {
+      closeDrawer();
+    }
+  }
+
+  function statusUrlFor(session) {
+    if (!session || !session.statusUrl) return 'api/status';
+    // statusUrl vem com barra inicial (/api/status?session=…); o fetch relativo
+    // ao path do painel precisa da forma sem a barra absoluta do host.
+    return session.statusUrl.replace(/^\//, '');
+  }
+
+  function selectSession(sessionId) {
+    if (state.selectedSessionId !== sessionId) {
+      state.etag = null;
+      state.snapshot = null;
+    }
+    state.selectedSessionId = sessionId;
+    clearTimer();
+    poll();
+  }
+
+  function clearSessionSelection() {
+    state.selectedSessionId = null;
+    state.etag = null;
+    state.snapshot = null;
+    clearTimer();
+    poll();
+  }
+
   async function poll() {
     if (state.polling) return;
     state.polling = true;
     try {
+      const sessionsRes = await fetch('api/sessions', { cache: 'no-store' });
+      if (!sessionsRes.ok) throw new Error('HTTP ' + sessionsRes.status);
+      const sessions = await sessionsRes.json();
+      if (!Array.isArray(sessions)) throw new Error('sessions payload invalid');
+
+      const resolved = resolveView(sessions);
+      setViewMode(resolved.mode);
+
+      if (resolved.mode === 'dashboard') {
+        renderDashboard(sessions);
+        state.failures = 0;
+        els.banner.hidden = true;
+        return;
+      }
+
+      const nextUrl = statusUrlFor(resolved.session);
+      if (nextUrl !== state.statusUrl) {
+        state.statusUrl = nextUrl;
+        state.etag = null;
+      }
+
+      if (!resolved.session) {
+        // Zero sessões: mantém a última tela de detalhe se houver, sem explodir.
+        renderEmptyDetail();
+        state.failures = 0;
+        els.banner.hidden = true;
+        return;
+      }
+
       const headers = {};
       if (state.etag) headers['If-None-Match'] = state.etag;
-      const res = await fetch('api/status', { headers, cache: 'no-store' });
+      const res = await fetch(state.statusUrl, { headers, cache: 'no-store' });
       if (res.status !== 304) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         state.etag = res.headers.get('ETag');
@@ -360,6 +475,101 @@
       state.polling = false;
       schedule();
     }
+  }
+
+  function renderEmptyDetail() {
+    if (state.snapshot) return;
+    document.title = 'issue-flow';
+    els.statusBadge.textContent = STATUS_LABELS.idle;
+    els.statusBadge.className = 'badge status-idle';
+    els.elapsed.textContent = '—';
+    els.estimate.hidden = true;
+    els.sessionMeta.textContent = 'nenhuma execução ativa';
+  }
+
+  function truncateText(text, max) {
+    if (!text) return '';
+    const normalized = String(text).replace(/\s+/g, ' ').trim();
+    if (normalized.length <= max) return normalized;
+    return normalized.slice(0, max - 1).trimEnd() + '…';
+  }
+
+  function renderDashboard(sessions) {
+    clear(els.dashboard);
+
+    if (sessions.length === 0) {
+      els.dashboard.appendChild(el('p', 'empty', 'Nenhuma execução ativa.'));
+      els.dashboardMeta.textContent = '0 execuções';
+      document.title = 'issue-flow';
+      return;
+    }
+
+    for (const session of sessions) {
+      const card = el('button', 'dashboard-card');
+      card.type = 'button';
+      if (session.sessionId) card.dataset.sessionId = session.sessionId;
+      if (session.status === 'running') card.classList.add('is-live');
+
+      const head = el('div', 'dashboard-card-head');
+      const project = el(
+        'span',
+        'dashboard-project',
+        session.repositoryName || 'Projeto desconhecido',
+      );
+      const badge = el('span', 'badge status-' + (session.status || 'idle'));
+      badge.textContent = STATUS_LABELS[session.status] || session.status || '—';
+      head.appendChild(project);
+      head.appendChild(badge);
+      card.appendChild(head);
+
+      const titleRow = el('div', 'dashboard-title-row');
+      if (session.issueNumber !== null && session.issueNumber !== undefined) {
+        titleRow.appendChild(el('span', 'dashboard-issue', '#' + session.issueNumber));
+      }
+      titleRow.appendChild(
+        el('span', 'dashboard-title', session.issueTitle || 'Sem título'),
+      );
+      card.appendChild(titleRow);
+
+      const summary = truncateText(session.issueDescription, DESCRIPTION_PREVIEW);
+      card.appendChild(el('p', 'dashboard-summary muted', summary || 'Sem descrição'));
+
+      const meta = el('div', 'dashboard-meta-row');
+      meta.appendChild(
+        el('span', null, 'Fase: ' + (session.currentPhase || '—')),
+      );
+      const percent =
+        typeof session.progressPercent === 'number' ? session.progressPercent : 0;
+      meta.appendChild(el('span', null, percent + '%'));
+      const elapsed =
+        typeof session.elapsedSeconds === 'number'
+          ? formatDuration(session.elapsedSeconds)
+          : session.startedAt
+            ? formatAgo(session.startedAt)
+            : '—';
+      meta.appendChild(el('span', null, elapsed));
+      card.appendChild(meta);
+
+      const progress = el('div', 'dashboard-progress');
+      const bar = el('div', 'dashboard-progress-bar');
+      bar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+      progress.appendChild(bar);
+      card.appendChild(progress);
+
+      if (session.status === 'running') {
+        card.appendChild(el('span', 'dashboard-live-dot', 'ao vivo'));
+      }
+
+      card.addEventListener('click', () => {
+        if (session.sessionId) selectSession(session.sessionId);
+      });
+
+      els.dashboard.appendChild(card);
+    }
+
+    els.dashboardMeta.textContent =
+      sessions.length + (sessions.length === 1 ? ' execução' : ' execuções');
+    document.title = sessions.length + ' execuções · issue-flow';
   }
 
   // ---- Renderização ---------------------------------------------------------
@@ -889,6 +1099,14 @@
 
   // ---- Inicialização --------------------------------------------------------
 
+  function onRefreshChange(select) {
+    state.refreshSeconds = Number(select.value);
+    storeRefresh(state.refreshSeconds);
+    buildRefreshSelect();
+    clearTimer();
+    if (state.refreshSeconds !== PAUSED) poll();
+  }
+
   async function init() {
     for (const tab of els.tabs) {
       tab.addEventListener('click', () => setActiveTab(tab.id));
@@ -897,13 +1115,14 @@
 
     els.drawerClose.addEventListener('click', closeDrawer);
     els.drawerOverlay.addEventListener('click', closeDrawer);
+    els.backToDashboard.addEventListener('click', clearSessionSelection);
 
-    els.refreshSelect.addEventListener('change', () => {
-      state.refreshSeconds = Number(els.refreshSelect.value);
-      storeRefresh(state.refreshSeconds);
-      clearTimer();
-      if (state.refreshSeconds !== PAUSED) poll();
-    });
+    els.refreshSelect.addEventListener('change', () => onRefreshChange(els.refreshSelect));
+    if (els.refreshSelectDashboard) {
+      els.refreshSelectDashboard.addEventListener('change', () =>
+        onRefreshChange(els.refreshSelectDashboard),
+      );
+    }
 
     els.logFilter.addEventListener('change', () => {
       state.logFilter = els.logFilter.value;

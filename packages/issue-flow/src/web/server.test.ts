@@ -266,7 +266,10 @@ describe('startWebServer', () => {
 
     const js = await fetch(`${handle.url}/app.js`);
     expect(js.status).toBe(200);
-    expect(await js.text()).toContain('api/status');
+    const jsText = await js.text();
+    expect(jsText).toContain('api/status');
+    expect(jsText).toContain('api/sessions');
+    expect(jsText).toContain('renderDashboard');
   });
 
   it('answers 404 JSON for unknown routes, missing assets and non-GET methods', async () => {

@@ -15,8 +15,31 @@
   </div>
 
   <main>
+    <div id="view-dashboard" class="view" hidden>
+      <header class="card header">
+        <div class="header-main">
+          <h1><span class="brand">issue-flow</span></h1>
+          <p class="muted">Execuções ativas</p>
+        </div>
+        <div class="header-side">
+          <label class="refresh-control">
+            Atualizar
+            <select id="refresh-select-dashboard" aria-label="Intervalo de atualização"></select>
+          </label>
+        </div>
+      </header>
+      <div id="dashboard" class="dashboard-grid" aria-live="polite"></div>
+      <footer class="muted footer">
+        <span id="dashboard-meta"></span>
+      </footer>
+    </div>
+
+    <div id="view-detail" class="view">
     <header class="card header">
       <div class="header-main">
+        <button type="button" id="back-to-dashboard" class="back-link" hidden>
+          ← Todas as execuções
+        </button>
         <h1>
           <span class="brand">issue-flow</span>
           <a id="issue-link" class="issue-link" target="_blank" rel="noopener" hidden>#—</a>
@@ -128,6 +151,7 @@
     <footer class="muted footer">
       <span id="session-meta"></span>
     </footer>
+    </div>
   </main>
 
   <div id="drawer-overlay" class="drawer-overlay" hidden></div>
