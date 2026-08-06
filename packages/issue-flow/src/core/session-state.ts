@@ -511,6 +511,15 @@ export function reduceSessionEvent(
 }
 
 /**
+ * Stages that describe a finished story. A run that ends — successfully or
+ * not — must never leave a story on any other stage, or the panel keeps
+ * claiming it is executing long after the process is gone.
+ */
+function isTerminalStage(stage: StoryStage): boolean {
+  return stage === 'done' || stage === 'failed';
+}
+
+/**
  * `stage`/`stageSince`/`stageDetail` for one story, on one `stories:update`.
  *
  * This event owns exactly one transition — `awaiting_review` the moment a
@@ -654,27 +663,24 @@ function applyEvent(
           : p,
       );
       const phasesCompleted = phases.filter((p) => p.status === 'completed').length;
-      // Success moves every passing story to 'done'; failure (the correction
-      // loop gave up after maxCorrectionCycles) moves every passing story
-      // that never reached 'done' to 'failed'. A story already 'done' cannot
-      // occur on the same event that failed, so the `stage !== 'done'` guard
-      // is defensive, not load-bearing.
-      const stories =
-        event.phase === 'review'
-          ? snapshot.stories.map((story) => {
-              if (!story.passes) return story;
-              if (event.success) {
-                return {
-                  ...story,
-                  stage: 'done' as const,
-                  stageSince: event.at,
-                  stageDetail: null,
-                };
-              }
-              return story.stage === 'done'
-                ? story
-                : { ...story, stage: 'failed' as const, stageSince: event.at, stageDetail: null };
-            })
+      // Success moves every passing story to 'done'. Failure (the correction
+      // loop gave up after maxCorrectionCycles) closes every story that is not
+      // already 'done' as 'failed' — including the ones that never reached
+      // `passes`, which are precisely the stories the issue calls failed. A
+      // phase that fails outside `review` closes the same non-terminal stages,
+      // so nothing is left frozen on 'executing' after the run stops.
+      const stories = !event.success
+        ? snapshot.stories.map((story) =>
+            isTerminalStage(story.stage)
+              ? story
+              : { ...story, stage: 'failed' as const, stageSince: event.at, stageDetail: null },
+          )
+        : event.phase === 'review'
+          ? snapshot.stories.map((story) =>
+              story.passes
+                ? { ...story, stage: 'done' as const, stageSince: event.at, stageDetail: null }
+                : story,
+            )
           : snapshot.stories;
       return {
         ...snapshot,
@@ -907,6 +913,16 @@ function applyEvent(
         endedAt: event.at,
         currentPhase: null,
         currentActivity: null,
+        // Close every non-terminal stage: the run is over, so nothing can be
+        // 'executing'/'in_review'/'in_correction' any more. A story that never
+        // reached `passes` on a run that did not complete is exactly what the
+        // 'failed' stage means; anything else settles as 'done'.
+        stories: snapshot.stories.map((story) => {
+          if (isTerminalStage(story.stage)) return story;
+          const stage =
+            event.status === 'completed' && story.passes ? ('done' as const) : ('failed' as const);
+          return { ...story, stage, stageSince: event.at, stageDetail: null };
+        }),
         lastError: event.error
           ? { message: stripVTControlCharacters(event.error), at: event.at }
           : snapshot.lastError,

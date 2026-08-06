@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PIPELINE_PHASES } from '../core/pipeline.js';
 import { getStoryStageCallback } from '../core/verbose.js';
 import type { TaskPlan } from '../types.js';
-import { phaseLabel, runPipelineWithRenderer, storySubtaskTitle } from './pipeline-renderer.js';
+import {
+  createActiveStoryTracker,
+  phaseLabel,
+  runPipelineWithRenderer,
+  storySubtaskTitle,
+} from './pipeline-renderer.js';
 
 /**
  * Regression coverage for the pipeline renderer itself.
@@ -64,6 +69,57 @@ describe('storySubtaskTitle', () => {
     expect(storySubtaskTitle({ id: 'US-003', title: 'Add X' }, true)).toBe(
       'US-003: Add X → Executando...',
     );
+  });
+});
+
+describe('createActiveStoryTracker', () => {
+  const stories = [
+    { id: 'US-001', title: 'First' },
+    { id: 'US-002', title: 'Second' },
+  ];
+
+  function makeTasks(): Map<string, { title: string }> {
+    return new Map(stories.map((s) => [s.id, { title: storySubtaskTitle(s, false) }]));
+  }
+
+  it('marks the active story and un-marks the previous one', () => {
+    const tasks = makeTasks();
+    const tracker = createActiveStoryTracker(stories, tasks);
+
+    tracker.setActive('US-001');
+    expect(tasks.get('US-001')?.title).toBe(storySubtaskTitle(stories[0], true));
+
+    tracker.setActive('US-002');
+    expect(tasks.get('US-001')?.title).toBe('US-001: First');
+    expect(tasks.get('US-002')?.title).toBe(storySubtaskTitle(stories[1], true));
+  });
+
+  it('clear() drops the suffix — the engine loop ends without a further iteration:start', () => {
+    const tasks = makeTasks();
+    const tracker = createActiveStoryTracker(stories, tasks);
+
+    tracker.setActive('US-002');
+    tracker.clear();
+
+    expect(tasks.get('US-002')?.title).toBe('US-002: Second');
+  });
+
+  it('clear() is idempotent and safe with nothing active', () => {
+    const tasks = makeTasks();
+    const tracker = createActiveStoryTracker(stories, tasks);
+
+    tracker.clear();
+    tracker.clear();
+
+    expect([...tasks.values()].map((t) => t.title)).toEqual(['US-001: First', 'US-002: Second']);
+  });
+
+  it('tolerates a story with no subtask registered yet', () => {
+    const tracker = createActiveStoryTracker(stories, new Map());
+    expect(() => {
+      tracker.setActive('US-001');
+      tracker.clear();
+    }).not.toThrow();
   });
 });
 

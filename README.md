@@ -636,7 +636,14 @@ Alongside `status`, each entry of `stories[]` also carries a finer-grained `stag
 | `in_review` | `phase:start` (phase `review`) | The `review` phase is running. Every already-passing story moves here at once — `execute` only completes once every story passes, so there is never a not-yet-passing story to skip. |
 | `in_correction` | `correction:cycle` | An automatic correction cycle is in progress; `stageDetail` carries a string like `"Cycle 1/3"`. Pipeline-wide, like `in_review`: `commands/run.ts`'s correction loop re-runs the whole `execute`+`review` cycle, with no notion of which story a review finding belongs to. |
 | `done` | `phase:end` (phase `review`, success) | The `review` phase finished successfully. |
-| `failed` | `phase:end` (phase `review`, failure) | The `review` phase finished in failure after exhausting `maxCorrectionCycles`. |
+| `failed` | `phase:end` (any phase, failure) or `session:end` (run not completed) | The run stopped before the story finished — the `review` phase exhausted `maxCorrectionCycles`, an earlier phase failed, or the session ended while the story was still mid-flight. |
+
+`done` and `failed` are the only terminal stages, and a run that ends always
+lands every story on one of them: `phase:end` with `success: false` and
+`session:end` close whatever was still `executing`, `in_review` or
+`in_correction`. Without that, a failed run would leave the panel showing a
+story as executing indefinitely, contradicting the "Agora" card on the same
+snapshot.
 
 Unlike `status`, `stage` is **not** recomputed from scratch on every reduction — it is set directly by the event that causes the transition (the same treatment `completedAt` gets), so `in_correction` correctly survives an unrelated `stories:update` in between. `iteration:start` and `correction:cycle` are the only two events extended for this: `iteration:start` gained an optional `storyId`, and `correction:cycle` already carried `cycle`/`maxCycles`.
 
@@ -737,7 +744,7 @@ A user story may declare a few extra fields. All are **optional**, and absent me
 
 `dependencies` is validated **by shape only** (an array of strings). Issue Flow does not check that the referenced ids exist, and does not detect cycles.
 
-`stage`/`stageSince`/`stageDetail` mirror the [session snapshot's fields of the same name](#story-stage), but nothing in the pipeline currently writes them back onto `tasks.json` -- they exist on `UserStory` purely so a plan can declare one explicitly if a future need for it arises, the same optional/observational treatment `status` already gets.
+`stage`/`stageSince`/`stageDetail` mirror the [session snapshot's fields of the same name](#story-stage), but nothing in the pipeline currently writes them back onto `tasks.json`, and — unlike `status`, which seeds the snapshot — a `stage` declared in a plan is **not** carried into the snapshot: the reducer derives every stage from pipeline events alone. They exist on `UserStory` so a plan that carries them still parses, not as an input knob.
 
 ### Per-story metrics in `tasks.json`
 

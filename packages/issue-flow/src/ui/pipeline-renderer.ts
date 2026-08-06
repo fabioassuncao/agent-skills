@@ -100,6 +100,58 @@ export function storySubtaskTitle(
   return executing ? `${base} → Executando...` : base;
 }
 
+/** Minimal view of a listr2 task the tracker needs: a writable title. */
+interface TitledTask {
+  title: string;
+}
+
+export interface ActiveStoryTracker {
+  /** The story `execute` is now working on, or `undefined` for none. */
+  setActive(storyId: string | undefined): void;
+  /** Nothing is executing any more — drop the suffix from whoever holds it. */
+  clear(): void;
+}
+
+/**
+ * Keeps the "executing" suffix on exactly one story subtask at a time.
+ *
+ * `clear()` matters as much as `setActive()`: the engine leaves its loop the
+ * moment the last story passes, so no further `iteration:start` ever arrives
+ * to move the suffix off the story that just finished. Without an explicit
+ * clear at the end of the phase, the terminal would keep showing a completed
+ * story as executing while the web panel already shows it awaiting review.
+ */
+export function createActiveStoryTracker(
+  stories: ReadonlyArray<Pick<UserStory, 'id' | 'title'>>,
+  storyTasks: ReadonlyMap<string, TitledTask>,
+): ActiveStoryTracker {
+  let activeStoryId: string | undefined;
+
+  const retitle = (storyId: string, executing: boolean): void => {
+    const task = storyTasks.get(storyId);
+    if (!task) return;
+    task.title = storySubtaskTitle(
+      stories.find((s) => s.id === storyId) ?? { id: storyId, title: '' },
+      executing,
+    );
+  };
+
+  return {
+    setActive(storyId: string | undefined): void {
+      if (activeStoryId !== undefined && activeStoryId !== storyId) {
+        retitle(activeStoryId, false);
+      }
+      activeStoryId = storyId;
+      if (storyId !== undefined) retitle(storyId, true);
+    },
+    clear(): void {
+      if (activeStoryId === undefined) return;
+      retitle(activeStoryId, false);
+      activeStoryId = undefined;
+    },
+  };
+}
+
 /**
  * Build the execute phase task with dynamic subtasks for each user story.
  *
@@ -150,7 +202,7 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
     // below can update a title after the subtask has already started — the
     // resolvers map alone has no reference back into the renderer.
     const storyTasks = new Map<string, TaskContext>();
-    let activeStoryId: string | undefined;
+    const tracker = createActiveStoryTracker(stories, storyTasks);
 
     // Engine calls this alongside every iteration:start, with the same
     // storyId the published event and the session snapshot carry — never a
@@ -158,25 +210,7 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
     // meaningful for a story still pending (an already-passing one has no
     // subtask left to update: it already resolved and disappeared from view).
     setStoryStageCallback((storyId: string | undefined) => {
-      if (activeStoryId !== undefined && activeStoryId !== storyId) {
-        const previous = storyTasks.get(activeStoryId);
-        if (previous) {
-          previous.title = storySubtaskTitle(
-            stories.find((s) => s.id === activeStoryId) ?? { id: activeStoryId, title: '' },
-            false,
-          );
-        }
-      }
-      activeStoryId = storyId;
-      if (storyId !== undefined) {
-        const current = storyTasks.get(storyId);
-        if (current) {
-          current.title = storySubtaskTitle(
-            stories.find((s) => s.id === storyId) ?? { id: storyId, title: '' },
-            true,
-          );
-        }
-      }
+      tracker.setActive(storyId);
     });
 
     // Build subtask definitions for each story
@@ -207,6 +241,9 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
           setOutputCallback(undefined);
           setStoryUpdateCallback(undefined);
           setStoryStageCallback(undefined);
+          // The engine is done — nothing is executing any more, whether it
+          // finished the plan or failed mid-story.
+          tracker.clear();
           // Resolve any remaining pending stories (engine finished successfully)
           for (const [, { resolve }] of resolvers) {
             resolve();

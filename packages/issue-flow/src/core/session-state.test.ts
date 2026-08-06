@@ -1002,6 +1002,120 @@ describe('reduceSessionEvent', () => {
       expect(snap.stories[1]).toBe(seed.stories[1]);
       expect(snap.stories.map((s) => s.stage)).toEqual(['awaiting_review', 'awaiting_review']);
     });
+
+    it('a story that never passed is the one marked failed when review gives up', () => {
+      // A resumed run can reach `review` with a story still not passing.
+      let snap = reduceSessionEvent(startedSnapshot(), {
+        type: 'stories:update',
+        at: '2026-08-03T12:01:00Z',
+        stories: [
+          makeStory({ id: 'US-001', passes: true }),
+          makeStory({ id: 'US-002', priority: 2, passes: false }),
+        ],
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'review',
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:06:00Z',
+        phase: 'review',
+        success: false,
+        error: 'Review failed after 3 correction cycles',
+      });
+
+      // Not just the passing ones: the story that never got there is failed too.
+      expect(snap.stories.map((s) => s.stage)).toEqual(['failed', 'failed']);
+    });
+
+    it('a failing phase outside review still closes the executing stage', () => {
+      let snap = reduceSessionEvent(startedSnapshot(), {
+        type: 'stories:update',
+        at: '2026-08-03T12:01:00Z',
+        stories: [makeStory({ id: 'US-001', passes: false })],
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'iteration:start',
+        at: '2026-08-03T12:02:00Z',
+        iteration: 1,
+        storyId: 'US-001',
+      });
+      expect(snap.stories[0].stage).toBe('executing');
+
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:09:00Z',
+        phase: 'execute',
+        success: false,
+        error: 'fatal claude failure',
+      });
+      expect(snap.stories[0].stage).toBe('failed');
+      expect(snap.stories[0].stageSince).toBe('2026-08-03T12:09:00Z');
+    });
+
+    it('session:end never leaves a story frozen mid-flight', () => {
+      let snap = reduceSessionEvent(startedSnapshot(), {
+        type: 'stories:update',
+        at: '2026-08-03T12:01:00Z',
+        stories: [
+          makeStory({ id: 'US-001', passes: true }),
+          makeStory({ id: 'US-002', priority: 2, passes: false }),
+        ],
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'iteration:start',
+        at: '2026-08-03T12:02:00Z',
+        iteration: 3,
+        storyId: 'US-002',
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['awaiting_review', 'executing']);
+
+      snap = reduceSessionEvent(snap, {
+        type: 'session:end',
+        at: '2026-08-03T12:20:00Z',
+        status: 'failed',
+        error: 'fatal claude failure',
+      });
+      // The panel must not keep showing "executing" for a run that is over.
+      expect(snap.stories.map((s) => s.stage)).toEqual(['failed', 'failed']);
+      expect(snap.stories[1].stageSince).toBe('2026-08-03T12:20:00Z');
+    });
+
+    it('session:end on a completed run settles passing stories as done', () => {
+      let snap = completedSeed();
+      snap = reduceSessionEvent(snap, {
+        type: 'session:end',
+        at: '2026-08-03T12:20:00Z',
+        status: 'completed',
+      });
+      expect(snap.stories.map((s) => s.stage)).toEqual(['done', 'done']);
+    });
+
+    it('session:end keeps a stage that already settled', () => {
+      let snap = completedSeed();
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:start',
+        at: '2026-08-03T12:02:00Z',
+        phase: 'review',
+      });
+      snap = reduceSessionEvent(snap, {
+        type: 'phase:end',
+        at: '2026-08-03T12:03:00Z',
+        phase: 'review',
+        success: true,
+      });
+      const settled = snap.stories;
+      snap = reduceSessionEvent(snap, {
+        type: 'session:end',
+        at: '2026-08-03T12:20:00Z',
+        status: 'failed',
+        error: 'PR creation failed',
+      });
+      expect(snap.stories[0]).toBe(settled[0]);
+      expect(snap.stories.map((s) => s.stage)).toEqual(['done', 'done']);
+    });
   });
 
   it('session:end records final status, endedAt and lastError', () => {
