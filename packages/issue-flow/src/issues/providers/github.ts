@@ -1,7 +1,8 @@
 import { run } from '../../utils/shell.js';
 import { hashIssueContent } from '../hash.js';
 import type { IssueProvider } from '../provider.js';
-import type { Issue, IssueDraft, IssueState } from '../types.js';
+import { emptyRelations, mergeRelations, parseTextualRelations, uniqueIds } from '../relations.js';
+import type { Issue, IssueDraft, IssueRelations, IssueState } from '../types.js';
 
 /** Fields requested from `gh issue view`, in the order the PRD specifies. */
 const VIEW_FIELDS = 'number,title,body,labels,state,url,createdAt,updatedAt';
@@ -70,6 +71,68 @@ function toIssue(payload: GhIssuePayload): Issue {
 /** Strip a leading `#` so both `23` and `#23` are accepted. */
 function normalizeId(id: string): string {
   return id.trim().replace(/^#/, '');
+}
+
+/** Page size for the relation endpoints — one page is enough in practice. */
+const API_PAGE_SIZE = 100;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * `gh api <path>`, parsed as JSON.
+ *
+ * Answers `null` for every failure — a disabled feature (404), a plan without
+ * Issue Dependencies (403), a network hiccup or unparseable output. That is the
+ * whole graceful-degradation contract of `fetchRelations`: a source that cannot
+ * answer contributes nothing instead of failing the discovery.
+ */
+async function ghApiJson(path: string): Promise<unknown> {
+  try {
+    const result = await run('gh', ['api', path]);
+    if (result.exitCode !== 0) return null;
+    return JSON.parse(result.stdout) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/** `number` of an Issue-shaped payload, as a string id. */
+function issueNumberOf(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  const number = value.number;
+  return typeof number === 'number' && Number.isInteger(number) ? String(number) : null;
+}
+
+/** Ids of an array of Issue-shaped payloads, skipping anything unusable. */
+function issueNumbersOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return uniqueIds(
+    value.map((entry) => issueNumberOf(entry) ?? '').filter((entry) => entry !== ''),
+  );
+}
+
+/**
+ * Issues that cited this one, from the timeline's `cross-referenced` events.
+ *
+ * Pull Requests are filtered out: they reference the Issue as *work on it*, not
+ * as another demand to schedule.
+ */
+function crossReferences(timeline: unknown, self: string): string[] {
+  if (!Array.isArray(timeline)) return [];
+
+  const ids: string[] = [];
+  for (const event of timeline) {
+    if (!isRecord(event) || event.event !== 'cross-referenced') continue;
+    const source = isRecord(event.source) ? event.source : null;
+    const issue = isRecord(source?.issue) ? source.issue : null;
+    if (issue === null || issue.pull_request !== undefined) continue;
+    const number = issueNumberOf(issue);
+    if (number !== null) ids.push(number);
+  }
+
+  return uniqueIds(ids, self);
 }
 
 function extractIssueNumber(output: string): string | null {
@@ -147,6 +210,68 @@ export class GitHubIssueProvider implements IssueProvider {
       throw new Error(`GitHub issue #${number} was created but could not be read back`);
     }
     return created;
+  }
+
+  /**
+   * Hierarchy and dependencies of an Issue, reconciled from three GitHub
+   * mechanisms that only partially overlap:
+   *
+   * 1. **Sub-issues** (`/sub_issues` plus the `parent` field of the Issue
+   *    payload) — the native hierarchy;
+   * 2. **Issue Dependencies** (`/dependencies/blocked_by` and `/blocking`);
+   * 3. the **textual heuristic** over the body, for repositories that adopted
+   *    neither and write `Depends on #12` or `- [ ] #13` instead.
+   *
+   * Cross-references (`referencedBy`) come from the issue timeline, which is
+   * the only place GitHub reports "who cited me" without a search query.
+   *
+   * Every source is queried independently and is allowed to fail on its own: an
+   * organization without Issue Dependencies enabled answers 404 for two of the
+   * five calls, and that has to cost the caller those two fields, never the
+   * whole discovery. Only what could be read is reported — nothing here throws.
+   */
+  async fetchRelations(id: string): Promise<IssueRelations> {
+    const issueId = normalizeId(id);
+    if (!/^\d+$/.test(issueId)) {
+      // A non-numeric identifier cannot address a GitHub REST endpoint; the
+      // Issue simply has no relations we can discover.
+      return emptyRelations(issueId);
+    }
+
+    const base = `repos/{owner}/{repo}/issues/${issueId}`;
+    const [payload, subIssues, blockedBy, blocking, timeline] = await Promise.all([
+      ghApiJson(base),
+      ghApiJson(`${base}/sub_issues?per_page=${API_PAGE_SIZE}`),
+      ghApiJson(`${base}/dependencies/blocked_by?per_page=${API_PAGE_SIZE}`),
+      ghApiJson(`${base}/dependencies/blocking?per_page=${API_PAGE_SIZE}`),
+      ghApiJson(`${base}/timeline?per_page=${API_PAGE_SIZE}`),
+    ]);
+
+    const issue = isRecord(payload) ? payload : null;
+    // Without the REST payload the body still comes from `gh issue view`, so a
+    // repository where only the REST API is blocked keeps the textual fallback.
+    const body = typeof issue?.body === 'string' ? issue.body : await this.bodyFallback(issueId);
+
+    const structured = {
+      id: issueId,
+      parent: issueNumberOf(issue?.parent),
+      children: issueNumbersOf(subIssues),
+      blockedBy: issueNumbersOf(blockedBy),
+      blocking: issueNumbersOf(blocking),
+      references: [],
+      referencedBy: crossReferences(timeline, issueId),
+    };
+
+    return mergeRelations(structured, parseTextualRelations(body, issueId));
+  }
+
+  /** Body of an Issue when the REST payload could not be read. Never throws. */
+  private async bodyFallback(issueId: string): Promise<string> {
+    try {
+      return (await this.get(issueId))?.body ?? '';
+    } catch {
+      return '';
+    }
   }
 
   async close(id: string): Promise<void> {

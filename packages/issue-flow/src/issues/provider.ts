@@ -1,4 +1,4 @@
-import type { Issue, IssueDraft, IssueSource } from './types.js';
+import type { Issue, IssueDraft, IssueRelations, IssueSource } from './types.js';
 
 /**
  * Contract every Issue origin implements.
@@ -32,4 +32,18 @@ export interface IssueProvider {
 
   /** Move an Issue to the `closed` state. Optional: read-only origins omit it. */
   close?(id: string): Promise<void>;
+
+  /**
+   * Hierarchy and dependencies of an Issue, for the multi-issue pipeline.
+   *
+   * Optional exactly like `close`: an origin with no notion of related Issues
+   * simply omits it, and callers must probe for it
+   * (`provider.fetchRelations?.(id)`) instead of assuming it exists.
+   *
+   * Implementations degrade rather than throw when one of their sources is
+   * unavailable: an origin that can answer about sub-issues but not about
+   * dependencies returns what it knows, with the other field empty. Throwing is
+   * reserved for a failure that makes the whole answer untrustworthy.
+   */
+  fetchRelations?(id: string): Promise<IssueRelations>;
 }
