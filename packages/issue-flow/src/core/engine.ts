@@ -29,10 +29,16 @@ import {
   markIssueCompleted,
   markIssueInProgress,
   saveTaskPlan,
+  selectActiveStory,
   setLastError,
   trimErrorMessage,
 } from './state-manager.js';
-import { getOutputCallback, getStoryUpdateCallback, isVerbose } from './verbose.js';
+import {
+  getOutputCallback,
+  getStoryStageCallback,
+  getStoryUpdateCallback,
+  isVerbose,
+} from './verbose.js';
 
 /**
  * Emit a message through the output callback if available, otherwise console.log.
@@ -215,7 +221,6 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     }
 
     i++;
-    getSessionPublisher().publish({ type: 'iteration:start', at: isoNow(), iteration: i });
 
     // Re-read plan to get latest state
     plan = await loadTaskPlan(paths.prdFile);
@@ -223,8 +228,21 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     // agent ran is what this iteration can claim credit for.
     const storiesBeforeIteration = plan.userStories;
 
+    // Highest-priority story with passes: false — the same rule
+    // prompts/execute.md gives the agent. Computed once, here, and shared by
+    // the published event and the verbose terminal header, so every surface
+    // agrees on who is active instead of each deriving its own heuristic.
+    const activeStoryId = selectActiveStory(plan.userStories)?.id;
+    getSessionPublisher().publish({
+      type: 'iteration:start',
+      at: isoNow(),
+      iteration: i,
+      storyId: activeStoryId,
+    });
+    getStoryStageCallback()?.(activeStoryId);
+
     if (isVerbose()) {
-      printIterationHeader(i, config.maxIterations, plan.userStories);
+      printIterationHeader(i, config.maxIterations, plan.userStories, activeStoryId);
     }
 
     // Apply placeholders to prompt
