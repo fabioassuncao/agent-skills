@@ -1,6 +1,10 @@
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
-import { CliFlagError, resolveRunPhaseFlags } from './cli-options.js';
+import {
+  CliFlagError,
+  resolveRunPhaseFlags,
+  resolveUserStoryNumberingFlags,
+} from './cli-options.js';
 import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
 import { setGlobalTimeout, setVerbose } from './core/verbose.js';
 import {
@@ -24,6 +28,32 @@ function parseInteger(value: string): number {
     throw new InvalidArgumentError('Must be a non-negative integer.');
   }
   return parsed;
+}
+
+/**
+ * Parse `--start-us <n>`: a User Story number is 1-based, so 0 is rejected
+ * along with everything `parseInteger` already rejects.
+ */
+function parseStartUs(value: string): number {
+  const parsed = parseInteger(value);
+  if (parsed < 1) {
+    throw new InvalidArgumentError('Must be a positive integer (US-001 is the first story).');
+  }
+  return parsed;
+}
+
+/**
+ * Add the User Story numbering override options to a subcommand that
+ * triggers `plan` (`run` and `plan` itself) — see issue #36.
+ */
+function withUserStoryNumberingOptions(cmd: Command): Command {
+  return cmd
+    .option('--continue', 'Continue User Story numbering from the last used in this project')
+    .option(
+      '--start-us <n>',
+      'Force User Story numbering to start at a specific number, ignoring history',
+      parseStartUs,
+    );
 }
 
 /**
@@ -167,29 +197,43 @@ withGlobalOptions(
 });
 
 // ── run ─────────────────────────────────────────────────────────────────────
-withWebOptions(
-  withIssueOptions(
-    withGlobalOptions(
-      program
-        .command('run')
-        .description(
-          'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
-        )
-        .argument('<issue>', 'Issue number')
-        .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
-        .option('--from <phase>', 'Resume from a specific phase')
-        .option('--no-branch', 'Run pipeline on current branch without creating a new branch or PR')
-        .option('--pr-review', 'Review the created Pull Request after the pr phase'),
+withUserStoryNumberingOptions(
+  withWebOptions(
+    withIssueOptions(
+      withGlobalOptions(
+        program
+          .command('run')
+          .description(
+            'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
+          )
+          .argument('<issue>', 'Issue number')
+          .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
+          .option('--from <phase>', 'Resume from a specific phase')
+          .option(
+            '--no-branch',
+            'Run pipeline on current branch without creating a new branch or PR',
+          )
+          .option('--pr-review', 'Review the created Pull Request after the pr phase'),
+      ),
     ),
   ),
 ).action(
   async (
     issue: string,
-    options: { mode: string; from?: string; branch?: boolean; prReview?: boolean },
+    options: {
+      mode: string;
+      from?: string;
+      branch?: boolean;
+      prReview?: boolean;
+      continue?: boolean;
+      startUs?: number;
+    },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
+    let numbering: ReturnType<typeof resolveUserStoryNumberingFlags>;
     try {
       phases = resolveRunPhaseFlags(options);
+      numbering = resolveUserStoryNumberingFlags(options);
     } catch (error) {
       if (error instanceof CliFlagError) {
         printError(error.message);
@@ -205,6 +249,8 @@ withWebOptions(
       options.from,
       phases.noBranch,
       phases.prReview,
+      numbering.continueFlag,
+      numbering.startUs,
     );
     process.exit(code);
   },
@@ -239,16 +285,29 @@ withIssueOptions(
 });
 
 // ── plan ────────────────────────────────────────────────────────────────────
-withIssueOptions(
-  withGlobalOptions(
-    program
-      .command('plan')
-      .description('Convert a PRD to a tasks.json task plan via Claude Code Headless')
-      .argument('<issue>', 'Issue number'),
+withUserStoryNumberingOptions(
+  withIssueOptions(
+    withGlobalOptions(
+      program
+        .command('plan')
+        .description('Convert a PRD to a tasks.json task plan via Claude Code Headless')
+        .argument('<issue>', 'Issue number'),
+    ),
   ),
-).action(async (issue: string) => {
+).action(async (issue: string, options: { continue?: boolean; startUs?: number }) => {
+  let numbering: ReturnType<typeof resolveUserStoryNumberingFlags>;
+  try {
+    numbering = resolveUserStoryNumberingFlags(options);
+  } catch (error) {
+    if (error instanceof CliFlagError) {
+      printError(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
+
   const { runPlan } = await import('./commands/plan.js');
-  const code = await runPlan(issue);
+  const code = await runPlan(issue, undefined, numbering);
   process.exit(code);
 });
 

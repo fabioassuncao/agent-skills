@@ -150,6 +150,8 @@ export async function runPipeline(
   from?: string,
   noBranch?: boolean,
   prReview?: boolean,
+  continueNumbering?: boolean,
+  startUs?: number,
 ): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
   // Resolved once, at the top: every phase that runs below shares the process
@@ -196,6 +198,8 @@ export async function runPipeline(
       from,
       noBranch,
       prReview,
+      continueNumbering,
+      startUs,
     );
     return exitCode;
   } finally {
@@ -220,6 +224,8 @@ async function runPipelinePhases(
   from?: string,
   noBranch?: boolean,
   prReview?: boolean,
+  continueNumbering?: boolean,
+  startUs?: number,
 ): Promise<number> {
   const tasksPath = paths.tasksFile;
   const sessionId = randomUUID();
@@ -429,7 +435,10 @@ async function runPipelinePhases(
   const runners: Record<string, () => Promise<void>> = {
     prd: makeRunner(() => runPrd(issueNumber, resolvedIssue), 'prd'),
     plan: async () => {
-      await makeRunner(() => runPlan(issueNumber, resolvedIssue), 'plan')();
+      await makeRunner(
+        () => runPlan(issueNumber, resolvedIssue, { continueFlag: continueNumbering, startUs }),
+        'plan',
+      )();
       // Persist the phase-selection modes into the newly created tasks.json
       if (effectiveNoBranch || effectivePrReview) {
         try {

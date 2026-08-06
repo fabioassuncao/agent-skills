@@ -72,3 +72,38 @@ export function resolveRunPhaseFlags(options: RunPhaseFlagOptions): RunPhaseFlag
 
   return { noBranch, prReview };
 }
+
+/** Options `run` and `plan` accept to override User Story numbering (issue #36). */
+export interface UserStoryNumberingFlagOptions {
+  continue?: boolean;
+  startUs?: number;
+}
+
+/** Resolved User Story numbering override, ready for `determineUserStoryNumbering()`. */
+export interface UserStoryNumberingFlags {
+  continueFlag: boolean;
+  startUs: number | undefined;
+}
+
+/**
+ * Resolve the `--continue` / `--start-us <n>` override of the User Story
+ * numbering cascade (issue #36), rejecting the one combination that cannot
+ * work: the two disagree about whether history should be consulted at all.
+ *
+ * @throws CliFlagError when both flags are passed together.
+ */
+export function resolveUserStoryNumberingFlags(
+  options: UserStoryNumberingFlagOptions,
+): UserStoryNumberingFlags {
+  const continueFlag = options.continue === true;
+  const startUs = options.startUs;
+
+  if (continueFlag && startUs !== undefined) {
+    throw new CliFlagError(
+      '--continue and --start-us cannot be combined: choose either the last known numbering ' +
+        '(--continue) or an explicit override (--start-us).',
+    );
+  }
+
+  return { continueFlag, startUs };
+}
