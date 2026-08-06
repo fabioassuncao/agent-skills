@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TaskPlan } from '../types.js';
 import {
+  buildQueueSummaryLines,
   buildRunSummaryLines,
   printRunSummary,
   printSummaryBox,
+  type QueueSummaryInfo,
   type RunSummaryInfo,
 } from './summary.js';
 
@@ -256,5 +258,76 @@ describe('printRunSummary', () => {
     expect(lines[1]).toContain('requested changes');
     expect(lines[1]).not.toContain('Pipeline complete');
     expect(lines.slice(2)).toEqual(buildRunSummaryLines(withChanges));
+  });
+});
+
+describe('buildQueueSummaryLines', () => {
+  function queueInfo(overrides: Partial<QueueSummaryInfo> = {}): QueueSummaryInfo {
+    return {
+      queueId: '50',
+      branchName: 'issue/50-multi',
+      issues: [
+        { id: '50', title: 'Discovery', storyCount: 3, elapsedSeconds: 65 },
+        { id: '51', title: 'Ordering', storyCount: 2, elapsedSeconds: 30 },
+      ],
+      excluded: [],
+      elapsedSeconds: 95,
+      prUrl: 'https://github.com/acme/repo/pull/7',
+      ...overrides,
+    };
+  }
+
+  it('breaks the queue down per issue and totals it once', () => {
+    const lines = buildQueueSummaryLines(queueInfo());
+
+    expect(lines[0]).toBe('  Branch:   issue/50-multi');
+    expect(lines[1]).toBe('  Issues:   2');
+    expect(lines[2]).toBe('    #50 Discovery — 3 stories, 1m 5s');
+    expect(lines[3]).toBe('    #51 Ordering — 2 stories, 30s');
+    expect(lines).toContain('  PR:       https://github.com/acme/repo/pull/7');
+  });
+
+  it('reports the cost of each issue separately from the total', () => {
+    const lines = buildQueueSummaryLines(
+      queueInfo({
+        issues: [
+          { id: '50', title: 'A', storyCount: 1, elapsedSeconds: 10, usage: { costUsd: 1 } },
+          { id: '51', title: 'B', storyCount: 1, elapsedSeconds: 10, usage: { costUsd: 2 } },
+        ],
+        usage: { costUsd: 3 },
+      }),
+    );
+
+    expect(lines[2]).toContain('~$1.00');
+    expect(lines[3]).toContain('~$2.00');
+    expect(lines.find((line) => line.startsWith('  Tokens:'))).toContain('~$3.00');
+  });
+
+  it('names the issues that were left out', () => {
+    const lines = buildQueueSummaryLines(
+      queueInfo({ excluded: [{ id: '52', title: 'Sequential execution' }] }),
+    );
+    expect(lines).toContain('  Skipped:  #52');
+  });
+
+  it('omits the Pull Request line when none was opened', () => {
+    const lines = buildQueueSummaryLines(queueInfo({ prUrl: null, branchName: null }));
+    expect(lines[0]).toBe('  Branch:   current');
+    expect(lines.some((line) => line.startsWith('  PR:'))).toBe(false);
+  });
+
+  it('carries the review verdict, like the single-issue summary', () => {
+    const lines = buildQueueSummaryLines(
+      queueInfo({
+        prReview: {
+          requestedChanges: true,
+          recommendation: 'REQUEST_CHANGES',
+          reportPath: '/tmp/report.md',
+        },
+      }),
+    );
+
+    expect(lines).toContain('  Review:   REQUEST_CHANGES');
+    expect(lines).toContain('  Report:   /tmp/report.md');
   });
 });
