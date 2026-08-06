@@ -131,6 +131,15 @@ export interface EngineConfig {
   retryForever: boolean;
   backoffBaseSeconds: number;
   backoffMaxSeconds: number;
+  /**
+   * Conventional-commit scope the execute prompt must use, e.g. `issue-71`
+   * producing `feat(issue-71): …`.
+   *
+   * Only set when several issues share a branch (a multi-issue queue), where the
+   * commit message is the only thing that says which issue a change belongs to.
+   * Absent means the historical format, `feat: [Story ID] - [Story Title]`.
+   */
+  commitScope?: string;
 }
 
 export interface ResolvedPaths {

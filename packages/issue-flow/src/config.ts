@@ -38,6 +38,9 @@ export function createConfig(options: Partial<EngineConfig>): EngineConfig {
     retryForever: options.retryForever ?? DEFAULTS.retryForever,
     backoffBaseSeconds: options.backoffBaseSeconds ?? DEFAULTS.backoffBaseSeconds,
     backoffMaxSeconds: options.backoffMaxSeconds ?? DEFAULTS.backoffMaxSeconds,
+    // Left absent (rather than defaulted to an empty string) so the execute
+    // prompt keeps its historical commit format unless a queue asks otherwise.
+    ...(options.commitScope === undefined ? {} : { commitScope: options.commitScope }),
   };
 }
 

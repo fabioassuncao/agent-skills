@@ -84,6 +84,10 @@ npx issue-flow run 42 --web
 
 # Review the created Pull Request as a final phase
 npx issue-flow run 42 --pr-review
+
+# Several issues at once -- both forms are equivalent
+npx issue-flow run 42,43,50
+npx issue-flow run 42 43 50
 ```
 
 Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> **review** -> **pr**, plus the optional **pr-review**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, runs correction cycles (re-execute + re-review) up to `maxCorrectionCycles`.
@@ -94,12 +98,56 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--from <phase>` | Resume from a specific phase |
 | `--no-branch` | Run on the current branch without creating a new branch or PR |
 | `--pr-review` | Review the created Pull Request after the `pr` phase (see [`pr-review`](#pr-review----review-a-pull-request)) |
+| `-y, --yes` | Run the whole discovered hierarchy without asking (see [Multiple issues](#multiple-issues-and-hierarchies)) |
+| `--only` | Run just the issues informed, skipping hierarchy discovery |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `-v, --verbose` | Show Claude progress output in real time |
 
 `--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists `prReview.enabled` as soon as a `tasks.json` exists (including mid-pipeline resumes such as `--from pr --pr-review`), so a later run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open** (locally and on the remote), does **not** mark `issueStatus: completed`, and still exits `0`.
 
 It also accepts the [issue source flags](#flags) (`--local`, `--github`, `--prefer-local`, `--prefer-github`, `--ask`). The origin is resolved **once**, at the start, and the same issue content is handed to every phase.
+
+#### Multiple issues and hierarchies
+
+`run` accepts one issue or several, and before starting anything it asks the provider [what the issue is related to](#hierarchy-and-dependency-discovery). When the answer is "nothing", the run is exactly the single-issue pipeline it has always been: no prompt, no extra output, no artifact.
+
+When a larger structure *is* found, the pipeline **stops before the first phase** and shows what it discovered:
+
+```
+Issue #50 is part of a larger structure:
+  Main issue:   #50 Discover dependencies between issues
+  Total issues: 4
+  Suggested order:
+    1. #50 Discover dependencies between issues (requested)
+    2. #51 Multiple issues as input (after #50)
+    3. #52 Sequential multi-issue execution (after #51, high)
+    4. #53 One consolidated Pull Request (after #52)
+Which scope should run? [1] Only the issues informed (1)  [2] The whole hierarchy (4)  [3] Cancel:
+```
+
+Answering `2` (or just pressing Enter) runs the whole thing; `1` trims it to what you typed; `3` cancels without executing anything.
+
+**Order of execution.** The queue is ordered by, in this precedence: **dependencies and blocks** (a hard constraint -- an issue never starts before something it depends on has finished) → **hierarchy** (a parent before its children) → **priority labels** (`high` > `medium` > `low`; an issue with no priority label sorts after every labelled one) → **issue number**. A dependency **cycle** is refused with an explicit error instead of being resolved into an arbitrary order.
+
+**Non-interactive runs.** Outside a TTY (CI, a pipe) the answer must come from a flag: `--yes` runs the whole hierarchy, `--only` runs just what you informed. Passing neither **fails with exit code 1** rather than guessing -- picking silently would either implement issues nobody approved or ignore a dependency you were never told about. `--yes` and `--only` cannot be combined.
+
+**How a queue runs.** Every issue goes through the same phases as always (`prd` → `plan` → `execute` → `review`), each with its own `tasks.json`, its own [session](#web-monitoring) and its own token/cost accounting, all inside a single process -- nothing has to be restarted between issues. What the queue owns is what is shared:
+
+- **one branch** for the whole queue: the first issue's `plan` phase names it, and every later issue's plan is made to use it, so no issue creates a second branch;
+- **commits scoped per issue**: inside a queue the execute prompt commits as `feat(issue-51): [Story ID] - [Story Title]` (and `fix(issue-51): …` for review corrections), so `git log` on the shared branch stays readable. A single-issue run keeps the historical `feat: [Story ID] - [Story Title]`;
+- **one Pull Request** at the end, covering every issue (see [`pr`](#pr----create-a-pull-request));
+- **one consolidated summary**, with a per-issue breakdown of stories, duration and cost.
+
+**Failure and resume.** A failure stops the queue where it happened: the branch and every commit already made are kept untouched, and the queue records which issue failed and in which phase. Re-running the same command resumes from that issue -- the ones already completed are never redone, and the confirmation is not asked again:
+
+```bash
+npx issue-flow run 50        # stops at #52, in the execute phase
+npx issue-flow run 50        # resumes at #52; #50 and #51 are left alone
+```
+
+`--from <phase>` addresses the issue the queue is resuming, not the ones after it.
+
+The coordination state lives in `~/.issue-flow/projects/<project-id>/queues/<queue-id>/execution-plan.json` (see [Global Storage](#global-storage)); each issue's own artifacts stay exactly where they were.
 
 ### `init` -- Check prerequisites
 
@@ -836,7 +884,12 @@ Every phase (`analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review`, `
           .last-branch                 # Last branch used for this issue
           archive/                     # Superseded artifacts
           pr-review/                   # PR review reports and index
+      queues/
+        50/                            # One directory per multi-issue queue
+          execution-plan.json          # Order, per-issue status, shared branch, PR
 ```
+
+`queues/` only exists once a run really coordinates more than one issue -- a single-issue pipeline never creates it. The queue id is the identifier of the **primary issue** (the first one informed), which is what lets `issue-flow run 50` find and resume the queue it started. See [Multiple issues and hierarchies](#multiple-issues-and-hierarchies).
 
 Issue identifiers are not necessarily numeric -- `auth-refactor` and `pr-184` are valid directory names, exactly as in the local provider. Everything is resolved by `getIssuePaths(projectId, issueNumber)`; no call site joins these names by hand.
 

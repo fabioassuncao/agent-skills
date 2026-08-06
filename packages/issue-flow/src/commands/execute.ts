@@ -8,6 +8,11 @@ export interface ExecuteOptions {
   maxIterations?: number;
   retryLimit?: number;
   retryForever?: boolean;
+  /**
+   * Conventional-commit scope for the stories of this issue (`issue-71`).
+   * Only the multi-issue queue sets it — see `EngineConfig.commitScope`.
+   */
+  commitScope?: string;
 }
 
 export async function runExecute(
@@ -30,6 +35,7 @@ export async function runExecute(
     maxIterations,
     retryLimit: options.retryLimit,
     retryForever: options.retryForever,
+    commitScope: options.commitScope,
   });
 
   const paths = await resolvePaths(config);

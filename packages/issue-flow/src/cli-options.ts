@@ -59,6 +59,41 @@ export interface RunPhaseFlags {
  *
  * @throws CliFlagError when `--pr-review` is combined with `--no-branch`.
  */
+/** Scope flags of `run`, deciding what a discovered hierarchy does. */
+export interface QueueScopeFlagOptions {
+  yes?: boolean;
+  only?: boolean;
+}
+
+/** Resolved scope answer; both absent means "ask, when the terminal allows it". */
+export interface QueueScopeFlags {
+  yes: boolean | undefined;
+  only: boolean | undefined;
+}
+
+/**
+ * Resolve `--yes` / `--only`, rejecting the combination that has no meaning.
+ *
+ * They answer the same question in opposite ways — run everything that was
+ * discovered, or run only what was asked for — so passing both is a mistake
+ * worth naming rather than silently resolving by precedence.
+ *
+ * @throws CliFlagError when both are present.
+ */
+export function resolveQueueScopeFlags(options: QueueScopeFlagOptions): QueueScopeFlags {
+  if (options.yes === true && options.only === true) {
+    throw new CliFlagError(
+      '--yes cannot be combined with --only: --yes runs the whole discovered hierarchy, ' +
+        '--only runs just the issues you informed.',
+    );
+  }
+
+  return {
+    yes: options.yes === true ? true : undefined,
+    only: options.only === true ? true : undefined,
+  };
+}
+
 export function resolveRunPhaseFlags(options: RunPhaseFlagOptions): RunPhaseFlags {
   const noBranch = resolveNoBranch(options);
   const prReview = options.prReview === true ? true : undefined;

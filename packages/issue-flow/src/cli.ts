@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
-import { CliFlagError, resolveRunPhaseFlags } from './cli-options.js';
+import { CliFlagError, resolveQueueScopeFlags, resolveRunPhaseFlags } from './cli-options.js';
 import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
 import { setGlobalTimeout, setVerbose } from './core/verbose.js';
 import {
@@ -175,21 +175,32 @@ withWebOptions(
         .description(
           'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
         )
-        .argument('<issue>', 'Issue number')
+        .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
         .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
         .option('--from <phase>', 'Resume from a specific phase')
         .option('--no-branch', 'Run pipeline on current branch without creating a new branch or PR')
-        .option('--pr-review', 'Review the created Pull Request after the pr phase'),
+        .option('--pr-review', 'Review the created Pull Request after the pr phase')
+        .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
+        .option('--only', 'Run just the issues informed, skipping hierarchy discovery'),
     ),
   ),
 ).action(
   async (
-    issue: string,
-    options: { mode: string; from?: string; branch?: boolean; prReview?: boolean },
+    issues: string[],
+    options: {
+      mode: string;
+      from?: string;
+      branch?: boolean;
+      prReview?: boolean;
+      yes?: boolean;
+      only?: boolean;
+    },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
+    let scope: ReturnType<typeof resolveQueueScopeFlags>;
     try {
       phases = resolveRunPhaseFlags(options);
+      scope = resolveQueueScopeFlags(options);
     } catch (error) {
       if (error instanceof CliFlagError) {
         printError(error.message);
@@ -200,11 +211,12 @@ withWebOptions(
 
     const { runPipeline } = await import('./commands/run.js');
     const code = await runPipeline(
-      issue,
+      issues,
       options.mode,
       options.from,
       phases.noBranch,
       phases.prReview,
+      { yes: scope.yes, only: scope.only },
     );
     process.exit(code);
   },
