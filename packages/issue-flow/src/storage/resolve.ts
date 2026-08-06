@@ -8,8 +8,10 @@ import {
   getGlobalRoot,
   getIssuePaths,
   getProjectDir,
+  getQueuePaths,
   ISSUES_DIR_NAME,
   type IssuePaths,
+  type QueuePaths,
 } from './paths.js';
 
 /**
@@ -193,6 +195,24 @@ export async function resolveProjectPaths(
     projectDir,
     issuesDir: join(projectDir, ISSUES_DIR_NAME),
   };
+}
+
+/**
+ * Resolve the paths of a multi-issue execution queue in the current project.
+ *
+ * Shares the project cache with {@link resolveIssuePaths}, so a run that
+ * resolves both still costs a single git call. There is no legacy tree for
+ * queues — the concept did not exist before — so no migration is attempted.
+ */
+export async function resolveQueuePaths(
+  queueId: string | number,
+  options: ResolveIssuePathsOptions = {},
+): Promise<QueuePaths> {
+  const { projectRoot: projectRootOption, ...rootOptions } = options;
+  const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
+
+  const project = await getProjectResolution(projectRoot, rootOptions);
+  return getQueuePaths(project.projectId, queueId, rootOptions);
 }
 
 /**

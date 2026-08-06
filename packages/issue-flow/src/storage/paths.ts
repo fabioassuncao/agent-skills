@@ -15,6 +15,9 @@ export const PROJECTS_DIR_NAME = 'projects';
 /** Directory under a project holding one folder per issue. */
 export const ISSUES_DIR_NAME = 'issues';
 
+/** Directory under a project holding one folder per multi-issue execution queue. */
+export const QUEUES_DIR_NAME = 'queues';
+
 export interface GetGlobalRootOptions {
   /** Environment source. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;
@@ -164,6 +167,43 @@ export interface IssuePaths {
   lastBranchFile: string;
   archiveDir: string;
   prReviewDir: string;
+}
+
+/**
+ * Artifacts of one multi-issue execution queue.
+ *
+ * A queue coordinates several issues that share a branch; each issue keeps its
+ * own directory under {@link ISSUES_DIR_NAME} exactly as before, and only the
+ * coordination state (order, per-issue status, shared branch, consolidated Pull
+ * Request) lives here. That is what keeps a single-issue run byte-identical: it
+ * never creates a queue at all.
+ */
+export interface QueuePaths {
+  queueDir: string;
+  planFile: string;
+}
+
+/**
+ * Resolve the paths of one execution queue under the global storage.
+ *
+ * The queue id is the identifier of the primary issue — the first one the user
+ * asked for — so re-running the same command finds the same queue and resumes
+ * it instead of starting a parallel one.
+ *
+ * Pure and synchronous like every other helper here: nothing is created.
+ */
+export function getQueuePaths(
+  projectId: string,
+  queueId: string | number,
+  options: GetGlobalRootOptions = {},
+): QueuePaths {
+  const queueDir = join(
+    getProjectDir(projectId, options),
+    QUEUES_DIR_NAME,
+    normalizeIssueNumber(queueId),
+  );
+
+  return { queueDir, planFile: join(queueDir, 'execution-plan.json') };
 }
 
 /**

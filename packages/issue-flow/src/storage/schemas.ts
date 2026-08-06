@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { webConfigSchema } from '../schemas.js';
+import type { ExecutionPlan } from '../execution/types.js';
+import { pullRequestRefSchema, webConfigSchema } from '../schemas.js';
 
 /**
  * Zod schemas for the files written under the global storage tree
@@ -115,7 +116,71 @@ export const webLockSchema = z.object({
   startedAt: z.string().min(1),
 });
 
+/**
+ * `~/.issue-flow/projects/<project-id>/queues/<queue-id>/execution-plan.json`.
+ *
+ * The coordination state of a multi-issue run: which Issues, in which order, on
+ * which shared branch, and how far the queue got. Each Issue keeps its own
+ * `tasks.json` — nothing of the task plan is duplicated here.
+ *
+ * Written only when a queue really has more than one Issue: a single-issue run
+ * creates no queue directory at all, which is what keeps the storage layout of
+ * every existing user unchanged.
+ *
+ * Not `.strict()`, like every other file schema here, and `satisfies` keeps it
+ * in lockstep with the `ExecutionPlan` interface in `src/execution/types.ts`.
+ */
+export const executionPlanIssueSchema = z.object({
+  id: z.string().min(1),
+  number: z.number().int().positive().nullable(),
+  title: z.string(),
+  url: z.string().nullable(),
+  source: z.string().min(1),
+  position: z.number().int().positive(),
+  status: z.enum(['pending', 'in_progress', 'completed', 'failed']),
+  origin: z.enum(['requested', 'discovered']),
+  dependsOn: z.array(z.string()).default([]),
+  parent: z.string().nullable().default(null),
+  priority: z.enum(['high', 'medium', 'low']).nullable().default(null),
+  heuristic: z.boolean().default(false),
+  failedPhase: z.string().nullable().default(null),
+  lastError: z
+    .object({ category: z.string(), message: z.string(), at: z.string() })
+    .nullable()
+    .default(null),
+  startedAt: z.string().nullable().default(null),
+  completedAt: z.string().nullable().default(null),
+});
+
+export const executionPlanSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().min(1),
+  project: z.string().min(1),
+  requested: z.array(z.string().min(1)),
+  branchName: z.string().nullable().default(null),
+  noBranch: z.boolean().default(false),
+  prReview: z.boolean().default(false),
+  status: z.enum(['pending', 'in_progress', 'completed', 'failed']),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  truncated: z.boolean().default(false),
+  issues: z.array(executionPlanIssueSchema),
+  excluded: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        number: z.number().int().positive().nullable(),
+        title: z.string(),
+        url: z.string().nullable(),
+        reason: z.string(),
+      }),
+    )
+    .default([]),
+  pullRequest: pullRequestRefSchema.optional(),
+}) satisfies z.ZodType<ExecutionPlan>;
+
 export type ProjectMetadata = z.infer<typeof projectMetadataSchema>;
+export type ValidatedExecutionPlan = z.infer<typeof executionPlanSchema>;
 export type GlobalWebConfig = z.infer<typeof globalWebConfigSchema>;
 export type GlobalRetryConfig = z.infer<typeof globalRetryConfigSchema>;
 export type GlobalCommitConfig = z.infer<typeof globalCommitConfigSchema>;
