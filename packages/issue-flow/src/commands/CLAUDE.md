@@ -60,6 +60,14 @@ common case and the one every older test covers:
   `runExecute` receives a `commitScope`, and neither the issue close nor the
   final summary happens per issue — the queue owns both.
 
+Each issue of a queue gets its **own** publisher over its **own**
+`session.json`, so the publication order documented below is per issue and
+unchanged; nothing publishes into two sessions at once. The queue's closing
+pass (the consolidated Pull Request) publishes into the primary issue's
+session with a phase list of `init` + `pr` (+ `pr-review`), which is why
+`startIdx` is clamped: a resume phase that is not in that list starts the
+renderer at the beginning instead of at `-1`.
+
 Anything that window needs from `tasks.json` is read in the single `try` block
 that already loads the plan (the one resolving `--no-branch`): a run must not
 gain a second disk read per enrichment. The seed publishes nothing on an empty

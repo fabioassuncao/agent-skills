@@ -304,6 +304,23 @@ describe('queue of several issues', () => {
     expect(scopes).toEqual(['issue-50', 'issue-52', 'issue-51']);
   });
 
+  it('makes an issue planned before the queue adopt the shared branch', async () => {
+    // #51 was run standalone first: its plan is complete and names its own
+    // branch, so the plan phase never runs again inside the queue.
+    const paths = await resolveIssuePaths('51');
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(
+      paths.tasksFile,
+      JSON.stringify(taskPlan('51', 'issue/51-standalone'), null, 2),
+      'utf-8',
+    );
+
+    await run('50');
+
+    const plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8'));
+    expect(plan.branchName).toBe('issue/50-work');
+  });
+
   it('opens exactly one Pull Request, covering every issue of the queue', async () => {
     await run('50');
 

@@ -40,7 +40,7 @@ vi.mock('./executor.js', () => ({
 }));
 
 const { executeClaude } = await import('./executor.js');
-const { runEngine } = await import('./engine.js');
+const { commitPlaceholders, runEngine } = await import('./engine.js');
 const { setSessionPublisher } = await import('./session-publisher.js');
 const { MemoryPublisher } = await import('./session-state.js');
 type SessionEvent = import('./session-state.js').SessionEvent;
@@ -486,5 +486,84 @@ describe('runEngine — execute-phase metrics', () => {
     expect(plan.userStories[0]).not.toHaveProperty('inputTokens');
     // The session events are unaffected: only the file write failed.
     expect(metricsEvents().filter((e) => e.scope === 'story')).toHaveLength(1);
+  });
+});
+
+describe('commit message format', () => {
+  it('keeps the historical format when no scope is given', () => {
+    expect(commitPlaceholders()).toEqual({
+      __COMMIT_MESSAGE__: 'feat: [Story ID] - [Story Title]',
+      __FIX_COMMIT_MESSAGE__: 'fix: address review findings',
+    });
+    expect(commitPlaceholders('')).toEqual(commitPlaceholders());
+  });
+
+  it('scopes both messages by issue inside a queue', () => {
+    expect(commitPlaceholders('issue-71')).toEqual({
+      __COMMIT_MESSAGE__: 'feat(issue-71): [Story ID] - [Story Title]',
+      __FIX_COMMIT_MESSAGE__: 'fix(issue-71): address review findings',
+    });
+  });
+});
+
+describe('runEngine — commit scope in the prompt', () => {
+  let tmpDir: string;
+  let paths: ResolvedPaths;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-engine-scope-'));
+    await mkdir(join(tmpDir, 'archive'), { recursive: true });
+    paths = {
+      prdFile: join(tmpDir, 'tasks.json'),
+      progressFile: join(tmpDir, 'progress.txt'),
+      archiveDir: join(tmpDir, 'archive'),
+      lastBranchFile: join(tmpDir, '.last-branch'),
+      projectRoot: tmpDir,
+    };
+    mockExecuteClaude.mockClear();
+    claudeResult.current = { exitCode: 0, output: 'working', cost: null };
+    await writeFile(
+      paths.prdFile,
+      JSON.stringify(
+        makePlan({
+          issueStatus: 'pending',
+          completedAt: null,
+          userStories: [
+            {
+              id: 'US-001',
+              title: 'First story',
+              description: 'Test story',
+              acceptanceCriteria: [],
+              priority: 1,
+              passes: false,
+              notes: '',
+            },
+          ],
+        }),
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('hands the plain commit format to a standalone run', async () => {
+    await runEngine(baseConfig, paths);
+
+    const prompt = mockExecuteClaude.mock.calls[0]?.[0] ?? '';
+    expect(prompt).toContain('feat: [Story ID] - [Story Title]');
+    expect(prompt).not.toContain('__COMMIT_MESSAGE__');
+  });
+
+  it('hands the scoped commit format to an issue of a queue', async () => {
+    await runEngine({ ...baseConfig, commitScope: 'issue-42' }, paths);
+
+    const prompt = mockExecuteClaude.mock.calls[0]?.[0] ?? '';
+    expect(prompt).toContain('feat(issue-42): [Story ID] - [Story Title]');
+    expect(prompt).toContain('fix(issue-42): address review findings');
   });
 });

@@ -32,7 +32,7 @@ import {
   setQueuePullRequest,
 } from '../execution/plan.js';
 import { planQueue, type QueueDecision } from '../execution/queue.js';
-import type { ExecutionPlan, ExecutionPlanIssue } from '../execution/types.js';
+import type { ExecutionPlan } from '../execution/types.js';
 import { parseIssueArguments } from '../issues/args.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
@@ -191,9 +191,8 @@ export interface RunPipelineOptions {
  * summary is the queue's, not the issue's.
  */
 interface QueueRunContext {
+  /** State of the queue, for the branch every issue of it shares. */
   plan: ExecutionPlan;
-  planFile: string;
-  entry: ExecutionPlanIssue;
   /** True when `init` already ran in this process for the queue. */
   preChecked: boolean;
   /** Issue already resolved by the planner, if this is the primary one. */
@@ -536,6 +535,24 @@ async function runPipelinePhases(
           ? RUNNABLE_PHASES_WITH_PR_REVIEW
           : RUNNABLE_PHASES;
 
+  // Commit scope for this issue's stories: only a queue needs one, because
+  // only there do several issues share a branch (and therefore a `git log`).
+  const queueCommitScope = queue === undefined ? undefined : `issue-${issueNumber}`;
+  // Branch this issue will work on, reported back so the queue can adopt the
+  // first issue's choice for every later one.
+  let producedBranch: string | null = null;
+
+  // Adopted **before** the phases run, not only after `plan`: an issue whose
+  // plan phase is already complete (it was run standalone before joining the
+  // queue, or the queue is being resumed) never re-enters the plan runner, and
+  // would otherwise send `execute` at a branch of its own.
+  if (queue !== undefined && finalPr === undefined && !effectiveNoBranch) {
+    producedBranch = await adoptQueueBranch(tasksPath, queue.plan.branchName);
+    if (producedBranch !== null) {
+      planBranch = producedBranch;
+    }
+  }
+
   // The phase list is only known after resolving --no-branch, so the init
   // phase (which already ran) is published retroactively with real timestamps.
   publishSessionStart(activePhases, sessionStartedAt, {
@@ -602,13 +619,6 @@ async function runPipelinePhases(
   // A phase that is not part of this run's list (the closing pass of a queue
   // runs only `pr`) starts the renderer at the beginning rather than at -1.
   const startIdx = Math.max(phaseOrder.indexOf(startPhase), 0);
-
-  // Commit scope for this issue's stories: only a queue needs one, because
-  // only there do several issues share a branch (and therefore a `git log`).
-  const queueCommitScope = queue === undefined ? undefined : `issue-${issueNumber}`;
-  // Branch the `plan` phase settled on, reported back so the queue can adopt
-  // the first issue's choice for every later one.
-  let producedBranch: string | null = null;
 
   // Build phase runner functions that throw on failure
   const makeRunner = (fn: () => Promise<number>, phase: string) => async () => {
@@ -983,8 +993,6 @@ async function runQueue(
           noBranch: options.noBranch,
           queue: {
             plan,
-            planFile,
-            entry,
             preChecked: true,
             resolved: entry.id === initialPlan.id ? resolvedPrimary : undefined,
           },
@@ -1062,13 +1070,12 @@ async function finishQueue(
 
   // One Pull Request for the whole queue, and only when there is a branch to
   // propose and no Pull Request has been opened for this queue yet.
-  if (!current.noBranch && options.noBranch !== true && current.pullRequest === undefined) {
+  const alreadyOpened = current.pullRequest !== undefined || (await primaryPrCreated(current));
+  if (!current.noBranch && options.noBranch !== true && !alreadyOpened) {
     const outcome = await runIssueSession(current.id, options.mode, {
       prReview: options.prReview ?? current.prReview,
       queue: {
         plan: current,
-        planFile,
-        entry: current.issues[0] as ExecutionPlanIssue,
         preChecked: true,
         resolved: resolvedPrimary,
         finalPr: await buildPrQueueContext(current),
@@ -1112,6 +1119,24 @@ async function finishQueue(
   });
 
   return 0;
+}
+
+/**
+ * Whether the `pr` phase already ran for this queue, even if it could not
+ * report a URL.
+ *
+ * `plan.pullRequest` on the queue is the happy path; this is the safety net for
+ * the case where the phase succeeded but no URL could be parsed from its output
+ * — re-running it on a resume would open a second Pull Request for the same
+ * branch, which is exactly what the whole feature exists to avoid.
+ */
+async function primaryPrCreated(plan: ExecutionPlan): Promise<boolean> {
+  try {
+    const paths = await resolveIssuePaths(plan.id);
+    return (await loadTaskPlan(paths.tasksFile)).pipeline.prCreated;
+  } catch {
+    return false;
+  }
 }
 
 /**
