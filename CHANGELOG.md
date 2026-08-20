@@ -10,6 +10,8 @@ that were tagged but never published to the registry are marked as such.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-20
+
 ### Added
 
 - **Multiple issues and hierarchies in the pipeline** (issues #50, #51, #52, #53).
@@ -45,6 +47,35 @@ that were tagged but never published to the registry are marked as such.
     both fails with a clear error before anything runs.
   - The decision is always logged and persisted to the project's
     `metadata.json` for audit.
+
+- **Real-time execution state of User Stories** (issue #38, PR #49) — each entry
+  of `stories[]` in the session snapshot now carries `stage`, `stageSince` (ISO
+  timestamp of the event that produced the stage) and `stageDetail` (a short
+  human string, currently only used by `in_correction`). Where `status` is the
+  four-value board summary, `stage` tracks the real pipeline cycle a story goes
+  through: `execute` → `review` → correction (when needed) → `done`/`failed`.
+  - Stages are set directly by the event that causes the transition, not
+    recomputed on every reduction, so `in_correction` survives an unrelated
+    `stories:update` in between. `iteration:start` gained an optional `storyId`
+    and `correction:cycle` already carried `cycle`/`maxCycles`.
+  - `done` and `failed` are the only terminal stages; `session:end` closes
+    whatever was still `executing`, `in_review` or `in_correction`.
+  - The terminal shows the active story's stage, and the web panel highlights
+    the story being executed.
+
+- **Multi-project dashboard in the web monitor** (issue #35, PR #55) — with two
+  or more active sessions the monitor's home page becomes a dashboard with one
+  card per execution (repository, issue number and title, short description,
+  current phase, progress, elapsed time, status, and a live indicator while
+  `status` is `running`). Clicking a card opens that session's existing detail
+  view; a "Todas as execuções" control returns to the dashboard.
+  - With exactly one active session the behavior is unchanged: the monitor opens
+    the detail view directly, with no extra click.
+  - `GET /api/sessions` was enriched with the card summary fields, so the client
+    no longer needs N× `/api/status` fetches just to paint the list.
+    `issueDescription` is a whitespace-collapsed preview, not the full body.
+  - The mode is re-evaluated on every poll, so a second run started while the
+    monitor is already open switches to the dashboard with no manual reload.
 
 ### Changed
 
@@ -239,6 +270,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.9.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.9.0
 [0.5.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.5.0
 [0.4.4]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.4.4
 [0.4.3]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.4.3
