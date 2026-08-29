@@ -367,6 +367,20 @@ export const prReviewConfigSchema = z.object({
   publisher: z.enum(['local']).default('local'),
 });
 
+/**
+ * The `policy` key of .issue-flow.json — the repository policy layer. Defined
+ * in `policy/schemas.ts` next to the module that consumes it, and re-exported
+ * here so `schemas.ts` stays the single index of the file's keys.
+ */
+export {
+  type PolicyConfig,
+  type PolicyConfigInput,
+  type PolicyDiscoveryConfig,
+  policyConfigInputSchema,
+  policyConfigSchema,
+  policyDiscoveryConfigSchema,
+} from './policy/schemas.js';
+
 export type ValidatedTaskPlan = z.infer<typeof taskPlanSchema>;
 export type ValidatedIssueMetadata = z.infer<typeof issueMetadataSchema>;
 export type ValidatedHeadlessResult = z.infer<typeof headlessResultSchema>;

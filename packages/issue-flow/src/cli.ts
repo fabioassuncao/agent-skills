@@ -421,6 +421,19 @@ webCommand
     process.exit(code);
   });
 
+// ── policy ──────────────────────────────────────────────────────────────
+withGlobalOptions(
+  program
+    .command('policy')
+    .description('Inspect the policies discovered in this repository and their provenance')
+    .option('--scope <dir>', 'Resolve the policy for a subdirectory (monorepo)')
+    .option('--json', 'Emit the resolved policy as JSON'),
+).action(async (options: { scope?: string; json?: boolean }) => {
+  const { runPolicy } = await import('./commands/policy.js');
+  const code = await runPolicy(options);
+  process.exit(code);
+});
+
 // ── pr-review ───────────────────────────────────────────────────────────────
 withGlobalOptions(
   program

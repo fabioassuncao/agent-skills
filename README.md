@@ -406,6 +406,63 @@ npx issue-flow web serve --port 3737 --host 127.0.0.1 --refresh 5
 
 `web stop` is the explicit counterpart to `--web`'s automatic start (see [Web Monitoring → Single instance](#single-instance-detached-from-the-pipeline)): it signals the detached server referenced by [`~/.issue-flow/web.lock`](#issue-flowweblock) to shut down and waits for the lock file to be removed, or reports that no monitor is running. `web serve` is what `--web` spawns behind the scenes the first time on a machine; running it by hand only matters for debugging the monitor itself, independent of any pipeline run.
 
+### `policy` -- Inspect the repository's own conventions
+
+```bash
+# What this repository declares about itself, and where each value came from
+npx issue-flow policy
+
+# Resolve the policy of a subdirectory, in a monorepo
+npx issue-flow policy --scope apps/api
+
+# The same, as versioned JSON -- this is the bridge for the Agent Skills
+npx issue-flow policy --json
+```
+
+Repositories usually already decided how issues are titled, which labels exist, what a Pull Request body looks like and what an agent may do. This command shows what Issue Flow discovered of those decisions:
+
+| Source | Where it is looked for |
+|---|---|
+| Issue Templates and Forms | `.github/ISSUE_TEMPLATE/**`, `docs/ISSUE_TEMPLATE/**`, the root, plus the single-file `ISSUE_TEMPLATE.md` variant of each |
+| Organization Issue Templates | `gh api graphql`, only when the local tree has none -- a repository with no `.github/ISSUE_TEMPLATE/` still serves the organization's on github.com |
+| Pull Request template | `.github/PULL_REQUEST_TEMPLATE.md`, the `PULL_REQUEST_TEMPLATE/` directory of several, `docs/`, the root |
+| Labels | `gh label list` -- the labels that **really exist**, never a guessed taxonomy |
+| Issue Types | `gh api orgs/{org}/issue-types`, when the plan exposes them |
+| Base branch | `origin/HEAD`, then an existing local `main`/`master` |
+| Agent instructions | `AGENTS.md` and `CLAUDE.md`, from the root down to `--scope` |
+| Governance | `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CODEOWNERS` |
+| Referenced documents | the markdown links of `AGENTS.md`, followed one level -- an index is followed, `docs/` is never scanned blindly |
+
+Everything is best-effort: a repository that declares none of this resolves to an empty policy, **with no error and no warning**, and every flow keeps the defaults it had before. A missing or unauthenticated `gh`, or no network at all, degrades the same way -- the `Sources` section then reports the source as `[unavailable]`, so "declares nothing" is never confused with "we could not find out". Every network call carries a timeout, and each kind of data costs at most one `gh` invocation, cached once per process.
+
+Nothing consumes the resolved policy yet: this is the foundation plus its inspection command. `--json` emits a `schemaVersion`-stamped document, which is how the Agent Skills read it -- they are markdown and cannot import TypeScript.
+
+#### Configuration (`.issue-flow.json`)
+
+The `policy` key both **declares** what discovery cannot infer and **turns off** what it gets wrong. Precedence is **CLI > `ISSUE_FLOW_POLICY_*` > `.issue-flow.json` > discovered > defaults**:
+
+```json
+{
+  "policy": {
+    "enabled": true,
+    "issues": { "titleConvention": "[Area] Title" },
+    "pullRequests": { "baseBranch": "develop", "titleConvention": "type(scope): subject" },
+    "git": { "branchConvention": "feat/{slug}", "commitConvention": "conventional" },
+    "discovery": { "labels": false }
+  }
+}
+```
+
+| Key | Effect |
+|---|---|
+| `enabled` | `false` runs no discovery at all -- not a single `stat()` or network call |
+| `issues.titleConvention` | Declares an issue title convention; nothing discovers one |
+| `pullRequests.baseBranch` | Overrides the branch discovered from git |
+| `pullRequests.titleConvention`, `git.branchConvention`, `git.commitConvention` | Declared only; no repository exposes these in a machine-readable form |
+| `discovery.{issueTemplates,pullRequestTemplate,docs,codeowners,labels,issueTypes}` | Turns a single discovery pass off, leaving the others running |
+
+The environment variables are `ISSUE_FLOW_POLICY` (the `enabled` toggle), `ISSUE_FLOW_POLICY_BASE_BRANCH`, `ISSUE_FLOW_POLICY_BRANCH_CONVENTION`, `ISSUE_FLOW_POLICY_COMMIT_CONVENTION`, `ISSUE_FLOW_POLICY_PR_TITLE_CONVENTION` and `ISSUE_FLOW_POLICY_ISSUE_TITLE_CONVENTION`. A declaration you do not write stays absent rather than becoming `null`, so it never erases what discovery found. A file with no `policy` key is unchanged, and an invalid one degrades to the defaults with a warning.
+
 ## Issue Sources (Providers)
 
 The demand reaches the pipeline through an **issue provider**, so every phase works the same way regardless of where the issue lives:
