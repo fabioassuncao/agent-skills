@@ -1,6 +1,6 @@
 {
   "name": "issue-flow",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Unified CLI for orchestrating the full issue-flow pipeline via Claude Code Headless",
   "type": "module",
   "bin": {
