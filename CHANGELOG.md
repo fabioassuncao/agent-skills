@@ -10,6 +10,55 @@ that were tagged but never published to the registry are marked as such.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-29
+
+### Added
+
+- **Repository policy discovery and resolution** (issue #56) — a single layer,
+  `packages/issue-flow/src/policy/`, that finds what the consumer repository
+  already declares about itself, resolves the hierarchy applying to a path, and
+  returns one typed `RepositoryPolicy` with the provenance of every value.
+  - **Discovers** Issue Templates and Forms (`.github/ISSUE_TEMPLATE/**`,
+    `docs/ISSUE_TEMPLATE/**`, the root, plus the single-file `ISSUE_TEMPLATE.md`
+    variant of each), the Pull Request template in every layout GitHub supports
+    including the directory of several, `AGENTS.md` and `CLAUDE.md` from the
+    root down to the scope, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
+    `CODEOWNERS`, the labels that really exist (`gh label list`), the
+    organization's Issue Types (`gh api orgs/{org}/issue-types`) and the base
+    branch (`origin/HEAD`, then a local `main`/`master`).
+  - **Organization defaults** come from the GraphQL `issueTemplates` connection,
+    consulted only when the local tree has none: a repository with no
+    `.github/ISSUE_TEMPLATE/` still serves the organization's on github.com, and
+    filesystem discovery cannot see them. REST has no issue-template endpoint at
+    all, and the GraphQL connection returns the bodies inline, so the whole
+    lookup costs one round-trip.
+  - **Documents are followed, not scanned**: the markdown links of `AGENTS.md`
+    are walked one level. Scanning `docs/` blindly would pull in changelogs and
+    ADR archives the repository never nominated as policy.
+  - **Silent degradation is the contract.** A repository declaring none of this
+    resolves to an empty policy, with no error and no warning — the exact input
+    every flow had before. A missing or unauthenticated `gh`, or no network,
+    degrades the same way; `sources` then records the source as `unavailable`,
+    which is what distinguishes "declares nothing" from "could not find out".
+    Every network call carries a timeout, each kind of data costs at most one
+    `gh` invocation, and the resolution is cached once per `(root, scope)`.
+  - **Precedence** reuses `mergeConfigLayers()`, which gains a `discovered`
+    layer: defaults < discovered < `.issue-flow.json` < `ISSUE_FLOW_POLICY_*` <
+    CLI. The new `policy` key declares what discovery cannot infer
+    (`issues.titleConvention`, `pullRequests.baseBranch` and
+    `titleConvention`, `git.branchConvention` and `commitConvention`) and turns
+    off what it gets wrong (`discovery.*`); `policy.enabled: false` returns
+    before a single `stat()` or network call.
+  - **New command** `issue-flow policy [--scope <dir>] [--json]` prints the
+    resolved policy and its provenance. It is the debugging surface and the
+    bridge to the Agent Skills, which are markdown and cannot import TypeScript
+    — hence the `schemaVersion` stamped on the JSON payload rather than on the
+    CLI.
+
+  Fully additive: no prompt, skill or phase consumes the layer yet, and no
+  observable behavior changes. An `.issue-flow.json` without the `policy` key
+  stays valid.
+
 ## [0.9.0] - 2026-08-20
 
 ### Added
@@ -270,6 +319,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.10.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.10.0
 [0.9.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.9.0
 [0.5.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.5.0
 [0.4.4]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.4.4
