@@ -20,10 +20,13 @@
   --surface-sunken: #e5e7eb;
 
   /* Texto. `--text-subtle` está reservado para uma terceira hierarquia
-     (legendas, metadados) que o painel ainda não usa. */
+     (legendas, metadados) que o painel ainda não usa — mas já cumpre 4,5:1
+     sobre as três superfícies, para poder ser usado sem nova auditoria.
+     Os três são medidos contra a superfície mais escura do tema claro
+     (`--surface-sunken`); ver a tabela de contraste em `web/AGENTS.md`. */
   --text: #1a1f27;
-  --text-muted: #6b7280;
-  --text-subtle: #767e8b;
+  --text-muted: #4b5563;
+  --text-subtle: #5f6773;
 
   /* Borda. `--border-strong` está reservado para separadores que precisem
      vencer o ruído de uma lista densa; hoje nenhum precisa. */
@@ -35,18 +38,22 @@
   --accent: #4f46e5;
   --accent-text: #ffffff;
 
-  /* Estado: a cor do texto/ícone e a superfície que a acompanha no badge. */
-  --state-ok: #16a34a;
+  /* Estado: a cor do texto/ícone e a superfície que a acompanha no badge.
+     No tema claro as quatro cores ficam no nível 700 da escala — é o mais
+     claro que atende 4,5:1 sobre a própria superfície do badge. O limiar é
+     4,5:1 e não 3:1 porque `.badge` é 0.78rem/600, abaixo de texto grande. */
+  --state-ok: #15803d;
   --state-ok-surface: #dcfce7;
-  --state-run: #2563eb;
+  --state-run: #1d4ed8;
   --state-run-surface: #dbeafe;
   --state-warn: #b45309;
   --state-warn-surface: #fef3c7;
-  --state-error: #dc2626;
+  --state-error: #b91c1c;
   --state-error-surface: #fee2e2;
 
-  /* Foco por teclado. Reservado: aplicado em US-006, onde o outline foi
-     suprimido. */
+  /* Foco por teclado: o anel de `:focus-visible`. Precisa de 3:1 contra o que
+     estiver adjacente (a superfície ao redor do anel), não de 4,5:1 — é um
+     componente gráfico, não texto. */
   --focus-ring: #4f46e5;
 
   --shadow: 0 1px 2px rgb(0 0 0 / 0.06);
@@ -76,9 +83,14 @@
     --surface: #171c24;
     --surface-sunken: #262d38;
     --text: #e5e9f0;
-    --text-muted: #8b93a1;
+    --text-muted: #9aa1ad;
+    --text-subtle: #8f97a5;
     --border: #262d38;
     --accent: #818cf8;
+    /* No escuro os preenchimentos sólidos (acento e estado) são claros, então
+       o texto sobre eles inverte — branco sobre `--state-error` daria 2,98:1
+       no banner de desconexão. */
+    --accent-text: #0f1218;
     --state-ok: #4ade80;
     --state-ok-surface: #14301f;
     --state-run: #60a5fa;
@@ -101,9 +113,12 @@
   --surface: #171c24;
   --surface-sunken: #262d38;
   --text: #e5e9f0;
-  --text-muted: #8b93a1;
+  --text-muted: #9aa1ad;
+  --text-subtle: #8f97a5;
   --border: #262d38;
   --accent: #818cf8;
+  /* Ver o comentário do bloco gêmeo acima. */
+  --accent-text: #0f1218;
   --state-ok: #4ade80;
   --state-ok-surface: #14301f;
   --state-run: #60a5fa;
@@ -1021,10 +1036,16 @@ progress {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.dashboard-card:hover,
-.dashboard-card:focus-visible {
+/* Hover e foco por teclado precisam ser distinguíveis: o hover só acende a
+   borda; o foco desenha um anel de `--focus-ring` destacado do cartão, que é
+   visível mesmo em cima do hover. Era aqui que o `outline` estava suprimido. */
+.dashboard-card:hover {
   border-color: var(--accent);
-  outline: none;
+}
+
+.dashboard-card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .dashboard-card.is-live {

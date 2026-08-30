@@ -132,6 +132,49 @@ contemplar esse script inline (`'unsafe-inline'` em `script-src` ou, melhor, um
 hash/nonce), senão o painel volta a piscar — e um `script-src` estrito sem essa
 provisão quebra a aplicação do tema silenciosamente.
 
+### Contraste: os pares medidos
+
+Os valores abaixo são calculados (WCAG 2.x, luminância relativa), não estimados
+no olho. **Trocar qualquer um destes tokens exige recalcular a linha
+correspondente** — a maior parte da paleta clara passa com pouca folga.
+
+| Frente          | Fundo                   | Mínimo | Claro | Escuro |
+| --------------- | ----------------------- | ------ | ----- | ------ |
+| `--text`        | `--surface-page`        | 4,5:1  | 15,17 | 15,40  |
+| `--text`        | `--surface`             | 4,5:1  | 16,55 | 14,04  |
+| `--text`        | `--surface-sunken`      | 4,5:1  | 13,36 | 11,38  |
+| `--text-muted`  | `--surface-page`        | 4,5:1  | 6,93  | 7,21   |
+| `--text-muted`  | `--surface`             | 4,5:1  | 7,56  | 6,58   |
+| `--text-muted`  | `--surface-sunken`      | 4,5:1  | 6,10  | 5,33   |
+| `--text-subtle` | `--surface-page`        | 4,5:1  | 5,24  | 6,37   |
+| `--text-subtle` | `--surface`             | 4,5:1  | 5,72  | 5,81   |
+| `--text-subtle` | `--surface-sunken`      | 4,5:1  | 4,62  | 4,71   |
+| `--state-ok`    | `--state-ok-surface`    | 4,5:1  | 4,57  | 8,19   |
+| `--state-run`   | `--state-run-surface`   | 4,5:1  | 5,49  | 5,68   |
+| `--state-warn`  | `--state-warn-surface`  | 4,5:1  | 4,51  | 8,05   |
+| `--state-error` | `--state-error-surface` | 4,5:1  | 5,30  | 5,63   |
+| `--focus-ring`  | `--surface-page`        | 3:1    | 5,76  | 6,29   |
+| `--focus-ring`  | `--surface`             | 3:1    | 6,29  | 5,73   |
+| `--focus-ring`  | `--surface-sunken`      | 3:1    | 5,08  | 4,65   |
+| `--accent-text` | `--accent`              | 4,5:1  | 6,29  | 6,29   |
+| `--accent-text` | `--state-error`         | 4,5:1  | 6,47  | 6,78   |
+
+O limiar dos badges de estado é **4,5:1 e não 3:1** porque `.badge` é
+`font-size: 0.78rem; font-weight: 600` — abaixo do que a WCAG chama de texto
+grande. Já `--focus-ring` é um componente gráfico, não texto: 3:1 basta.
+
+No tema claro as quatro cores de estado ficam no nível 700 da escala — é o tom
+mais claro que ainda atende 4,5:1 sobre a superfície do próprio badge; `--state-ok`
+(4,57) e `--state-warn` (4,51) passam por pouco. No tema escuro os
+preenchimentos sólidos são claros, então `--accent-text` inverte para
+`#0f1218`: era branco sobre `--state-error` no banner de desconexão, 2,98:1.
+
+Hover e foco por teclado precisam ser **distinguíveis um do outro**. Em
+`.dashboard-card` o hover só acende a borda (`--accent`); o foco desenha
+`outline: 2px solid var(--focus-ring)` com `outline-offset: 2px`, que continua
+visível em cima do hover. É a única regra do `app.css` que mexe em `outline` —
+antes ela o suprimia e dava a mesma aparência aos dois estados.
+
 ## Escrita: o que ainda não existe
 
 A interface é somente leitura por contrato (`snapshot.readOnly === true`,
