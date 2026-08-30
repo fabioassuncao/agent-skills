@@ -76,6 +76,8 @@
     estimate: document.getElementById('estimate'),
     refreshSelect: document.getElementById('refresh-select'),
     refreshSelectDashboard: document.getElementById('refresh-select-dashboard'),
+    themeSelect: document.getElementById('theme-select'),
+    themeSelectDashboard: document.getElementById('theme-select-dashboard'),
     alerts: document.getElementById('alerts'),
     alertsBody: document.getElementById('alerts-body'),
     issueSummary: document.getElementById('issue-summary'),
@@ -113,6 +115,9 @@
     polling: false,
     logFilter: 'all',
     activeTab: 'tab-execution',
+    // 'system' | 'light' | 'dark'. Valor inicial em initTheme(), a partir do
+    // que o <script> inline do <head> já aplicou na raiz.
+    theme: 'system',
     historyFilter: 'all',
     events: [],
     // Só o id: o card que abriu o drawer é destruído no próximo render, então
@@ -310,6 +315,40 @@
       const panel = document.getElementById(tab.getAttribute('aria-controls'));
       if (panel) panel.hidden = !active;
     }
+  }
+
+  // ---- Tema ------------------------------------------------------------------
+  // Três estados: 'system' segue o SO (o @media decide), 'light'/'dark' forçam.
+  // Quem pinta é o CSS; aqui só se define (ou remove) o data-theme da raiz.
+
+  function applyTheme(theme) {
+    // 'system' **remove** o atributo em vez de gravar 'system': é a ausência
+    // do data-theme que devolve a decisão ao @media (prefers-color-scheme).
+    if (theme === 'light' || theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', theme);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }
+
+  // Os dois headers têm o seu seletor; mudar num precisa refletir no outro.
+  // As três opções são estáticas no HTML — aqui só se sincroniza o .value.
+  function syncThemeSelects() {
+    if (els.themeSelect) els.themeSelect.value = state.theme;
+    if (els.themeSelectDashboard) els.themeSelectDashboard.value = state.theme;
+  }
+
+  function setTheme(theme) {
+    state.theme = theme === 'light' || theme === 'dark' ? theme : 'system';
+    applyTheme(state.theme);
+    syncThemeSelects();
+  }
+
+  function initTheme() {
+    // O <script> inline do <head> já leu 'issue-flow:theme' e aplicou o tema
+    // antes do primeiro paint; ler a raiz aqui reflete a preferência guardada
+    // sem duplicar a leitura do localStorage uma terceira vez.
+    setTheme(document.documentElement.getAttribute('data-theme') || 'system');
   }
 
   // ---- Polling: intervalo configurável, aba oculta e backoff ----------------
@@ -1295,6 +1334,10 @@
 
   // ---- Inicialização --------------------------------------------------------
 
+  function onThemeChange(select) {
+    setTheme(select.value);
+  }
+
   function onRefreshChange(select) {
     state.refreshSeconds = Number(select.value);
     storeRefresh(state.refreshSeconds);
@@ -1319,6 +1362,14 @@
         onRefreshChange(els.refreshSelectDashboard),
       );
     }
+
+    els.themeSelect.addEventListener('change', () => onThemeChange(els.themeSelect));
+    if (els.themeSelectDashboard) {
+      els.themeSelectDashboard.addEventListener('change', () =>
+        onThemeChange(els.themeSelectDashboard),
+      );
+    }
+    initTheme();
 
     els.logFilter.addEventListener('change', () => {
       state.logFilter = els.logFilter.value;

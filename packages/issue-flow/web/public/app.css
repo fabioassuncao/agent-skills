@@ -273,6 +273,7 @@ a:hover {
 }
 
 .refresh-control,
+.theme-control,
 .log-filter-control {
   font-size: 0.82rem;
   color: var(--text-muted);

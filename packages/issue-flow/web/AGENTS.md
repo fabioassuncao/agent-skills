@@ -102,6 +102,15 @@ exceção (`try`/`catch`) e não referencia nada do `app.js` — que só carrega
 fim do `<body>`. Por isso a leitura da chave é **duplicada** entre os dois, com
 comentário nos dois lugares; mudou o formato do valor, mude nos dois.
 
+O controle do tema é um `<select>` de três opções (Sistema/Claro/Escuro)
+**duplicado nos dois headers** (`theme-select` e `theme-select-dashboard`),
+como já acontece com o de intervalo — mudar num reflete no outro via
+`syncThemeSelects()`. As opções são estáticas no HTML (ao contrário de
+`fillRefreshSelect`, que monta as suas); o JS só sincroniza `.value`. A
+preferência vive em `state.theme`, nunca em variável solta, e `'system'`
+**remove** o `data-theme` da raiz em vez de gravar `'system'`: é a ausência do
+atributo que devolve a decisão ao `@media`.
+
 Consequência para o servidor: `baseHeaders()` em `src/web/server.ts` hoje não
 define `Content-Security-Policy`. Se um CSP for adicionado, ele precisa
 contemplar esse script inline (`'unsafe-inline'` em `script-src` ou, melhor, um
