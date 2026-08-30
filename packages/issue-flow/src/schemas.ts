@@ -598,6 +598,9 @@ export const sessionSnapshotSchema = z.object({
       platform: z.string(),
       agent: z.string().nullable().default(null),
       model: z.string().nullable().default(null),
+      // Additive, like agent/model: a session written before the version was
+      // recorded parses as "not reported" instead of failing validation.
+      cliVersion: z.string().nullable().default(null),
     })
     .nullable(),
   // Additive: a session.json written before the acceptance contract existed

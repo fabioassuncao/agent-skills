@@ -266,6 +266,19 @@ a:hover {
   font-weight: 700;
 }
 
+/* Versão do processo que serve o painel. Par medido: --text-muted sobre
+   --surface-sunken (6,10 claro / 5,33 escuro). */
+.app-version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
 .issue-link {
   font-weight: 600;
 }

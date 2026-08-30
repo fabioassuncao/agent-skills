@@ -206,6 +206,13 @@ export interface SessionEnvironment {
   agent: string | null;
   /** Winning model for the run. `null` when unset or on older snapshots. */
   model: string | null;
+  /**
+   * Version of the `issue-flow` package that produced the run. `null` on
+   * snapshots written before it was recorded. It is the version of the CLI, not
+   * of the monitor serving the dashboard — the two can differ, which is exactly
+   * what `--restart-web` exists to fix.
+   */
+  cliVersion: string | null;
 }
 
 export interface SessionLogEntry {
@@ -806,6 +813,7 @@ function applyEvent(
               platform: event.environment.platform,
               agent: event.environment.agent ?? null,
               model: event.environment.model ?? null,
+              cliVersion: event.environment.cliVersion ?? null,
             }
           : null,
       };

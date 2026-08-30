@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { parseAgentPhaseFlag } from './agents/resolve.js';
 import { type AgentCliOverrides, isAgentProviderId } from './agents/types.js';
@@ -28,9 +27,9 @@ import type { IssueGenerateTarget } from './issues/types.js';
 import { resolveResilienceOverrides } from './resilience/cli-flags.js';
 import type { RoutingConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
+import { getPackageVersion } from './version.js';
 
-const require = createRequire(import.meta.url);
-const { version } = require('../package.json') as { version: string };
+const version = getPackageVersion();
 
 /**
  * Parse a numeric string, throwing InvalidArgumentError if not a valid number.

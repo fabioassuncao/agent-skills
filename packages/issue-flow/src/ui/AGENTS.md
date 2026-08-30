@@ -8,6 +8,12 @@ second, parallel view of the run.
 the region `listr2` already owns. Anything printed with `console.log`
 during a running pipeline corrupts that region — that was issue #17.
 
+`formatIssueHeadline` names the version — `Issue Flow v0.16.0 · #42 · …` — and
+takes it from `snapshot.environment.cliVersion`, never from the manifest. This
+module reads no manifest and does no I/O, and a replayed session must keep
+naming the build that produced it. A snapshot from before the field existed
+degrades to the bare name.
+
 ## Modes
 
 | Mode | What the user sees |

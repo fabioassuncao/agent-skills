@@ -56,6 +56,17 @@ describe('web/lock', () => {
     return handle;
   }
 
+  /** Same path as `start`, but the instance reports a different release. */
+  async function startWithVersion(version: string): Promise<WebServerHandle> {
+    const handle = await ensureSingleWebServer(
+      { publisher: makePublisher(), port: 0, host: '127.0.0.1', version, info: noop, warn: noop },
+      envOptions,
+    );
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+    return handle;
+  }
+
   it('getWebLockFile resolves to <globalRoot>/web.lock', () => {
     expect(getWebLockFile(envOptions)).toBe(join(home, WEB_LOCK_FILENAME));
   });
@@ -193,6 +204,52 @@ describe('web/lock', () => {
       expect(handle?.port).toBe(existing.port);
       expect(handle?.server).toBeUndefined();
       expect(spawn).not.toHaveBeenCalled();
+    });
+
+    it('names the version of the monitor it reuses', async () => {
+      await start();
+      const lines: string[] = [];
+
+      const handle = await ensureWebMonitor(
+        {
+          publisher: makePublisher(),
+          port: 0,
+          host: '127.0.0.1',
+          info: (m) => lines.push(m),
+          warn: (m) => lines.push(m),
+        },
+        { ...envOptions, spawn: vi.fn() },
+      );
+      if (handle) handles.push(handle);
+
+      expect(lines.some((l) => /Reusing existing web monitor v\d+\.\d+\.\d+ at /.test(l))).toBe(
+        true,
+      );
+      // Same release on both sides: nothing to warn about.
+      expect(lines.some((l) => l.includes('--restart-web'))).toBe(false);
+    });
+
+    it('warns that the dashboard is older when the reused monitor is another release', async () => {
+      await startWithVersion('0.0.1-old');
+      const warnings: string[] = [];
+
+      const handle = await ensureWebMonitor(
+        {
+          publisher: makePublisher(),
+          port: 0,
+          host: '127.0.0.1',
+          info: noop,
+          warn: (m) => warnings.push(m),
+        },
+        { ...envOptions, spawn: vi.fn() },
+      );
+      if (handle) handles.push(handle);
+
+      // The pipeline still reuses it: the mismatch is reported, never enforced.
+      expect(handle).not.toBeNull();
+      expect(warnings.some((w) => w.includes('v0.0.1-old') && w.includes('--restart-web'))).toBe(
+        true,
+      );
     });
 
     it('spawns a detached, stdio-ignored child when no instance is active', async () => {

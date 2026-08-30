@@ -37,7 +37,10 @@
     <div id="view-dashboard" class="view" hidden>
       <header class="card header">
         <div class="header-main">
-          <h1><span class="brand">issue-flow</span></h1>
+          <h1>
+            <span class="brand">issue-flow</span>
+            <span id="app-version-dashboard" class="app-version" hidden></span>
+          </h1>
           <p class="muted">Execuções ativas</p>
         </div>
         <div class="header-side">
@@ -69,6 +72,7 @@
         </button>
         <h1>
           <span class="brand">issue-flow</span>
+          <span id="app-version" class="app-version" hidden></span>
           <a id="issue-link" class="issue-link" target="_blank" rel="noopener" hidden>#—</a>
         </h1>
         <p id="branch-line" class="muted mono"></p>
@@ -142,7 +146,7 @@
     <section class="card">
       <div class="section-head">
         <h2>Harnesses e configuração efetiva</h2>
-        <span class="muted">preferências futuras e overrides desta execução</span>
+        <span class="muted">versões, preferências futuras e overrides desta execução</span>
       </div>
       <div id="configuration"></div>
     </section>

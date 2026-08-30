@@ -12,6 +12,7 @@ import { isProcessAlive } from '../storage/lock.js';
 import { type GetGlobalRootOptions, getGlobalRoot } from '../storage/paths.js';
 import { type WebLock, webLockSchema } from '../storage/schemas.js';
 import { printInfo, printWarning } from '../ui/logger.js';
+import { getPackageVersion } from '../version.js';
 import { startWebServer, type WebServerHandle, type WebServerOptions } from './server.js';
 
 /**
@@ -721,7 +722,19 @@ export async function ensureWebMonitor(
           `Recovered orphaned web monitor pid ${active.lock.pid} on port ${active.lock.port} and restored web.lock.`,
         );
       }
-      info(`Reusing existing web monitor at ${reusedHandle(active.lock).url}`);
+      const running = active.health.version;
+      info(
+        `Reusing existing web monitor${running === undefined ? '' : ` v${running}`} at ${chalk.bold.cyan(reusedHandle(active.lock).url)}`,
+      );
+      // The dashboard is served from the monitor's own memory, so an older
+      // process keeps showing an older UI no matter which CLI starts the run.
+      // Saying so here is the only moment the user can act on it.
+      const current = getPackageVersion();
+      if (running !== undefined && running !== current) {
+        warn(
+          `Web monitor: it runs v${running} and this CLI is v${current}, so the dashboard is the older one. Replace it with --restart-web.`,
+        );
+      }
       return reusedHandle(active.lock);
     }
 

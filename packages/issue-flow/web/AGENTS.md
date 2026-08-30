@@ -18,6 +18,11 @@ informado). Os dois significam "não informado" e nunca podem virar `0`,
 qualquer coisa que não seja número finito para `null`. Prefira
 `x !== null && x !== undefined` a `!x`: zero é um valor legítimo.
 
+O chip de versão no header é a versão do **monitor** (`/api/health`), não a da
+CLI que executa o pipeline: os assets desta página vêm da memória daquele
+processo, então é ela que explica o que está na tela. As duas aparecem juntas no
+card de configuração, e a divergência entre elas vira um aviso ali.
+
 Toda resposta nova carrega `X-Issue-Flow-Instance`. O client guarda a primeira
 identidade observada e chama `window.location.reload()` quando ela muda: isso é
 o handoff de assets depois de `--restart-web`, não um estado de sessão.
