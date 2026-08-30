@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { getVerificationRepository, saveStoredVerification } from '../storage/db/repository.js';
 import { redactSecrets } from '../telemetry/redact.js';
 import type { ContractRun } from './types.js';
 
@@ -25,6 +26,11 @@ export function buildEvidence(run: ContractRun, executionId: string | null): Evi
 }
 
 export async function writeEvidence(path: string, bundle: EvidenceBundle): Promise<void> {
+  const repository = getVerificationRepository(path);
+  if (repository !== undefined) {
+    await saveStoredVerification(repository, bundle as unknown as Record<string, unknown>);
+  }
+  // Keep the existing evidence file as a human-readable compatibility projection.
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(bundle, null, 2)}\n`, 'utf-8');
 }

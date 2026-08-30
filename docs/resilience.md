@@ -133,7 +133,8 @@ Two properties keep it honest:
 ## Provider failover
 
 With failover enabled, provider health is learned from real invocations and
-persisted in the project's `providers.json`.
+persisted transactionally in SQLite; `providers.json` is retained as a legacy
+JSON fallback for existing installations.
 
 - `provider_down`, `provider_crash`, `rate_limit`, `timeout` and `stalled` can
   move the next attempt through the configured chain.

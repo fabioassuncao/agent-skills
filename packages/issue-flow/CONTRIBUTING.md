@@ -6,7 +6,7 @@ Complete guide for setting up the development environment, testing locally, and 
 
 | Tool | Minimum version | Check |
 |------|----------------|-------|
-| Node.js | >= 22.0.0 | `node --version` |
+| Node.js | >= 22.13.0 | `node --version` |
 | npm | >= 9 | `npm --version` |
 | git | any | `git --version` |
 | Claude Code | latest | `claude --version` |

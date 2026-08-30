@@ -6,6 +6,7 @@ working tree untouched: no artifact to ignore, no artifact to commit, no diff
 noise. The trade-off is that the artifacts are machine-local.
 
 - [Directory tree](#directory-tree)
+- [SQLite database](#sqlite-database)
 - [One issue directory](#one-issue-directory)
 - [Project id](#project-id)
 - [`ISSUE_FLOW_HOME`](#issue_flow_home)
@@ -21,6 +22,9 @@ noise. The trade-off is that the artifacts are machine-local.
 ```
 ~/.issue-flow/
   config.json                    # Machine-wide preferences (optional)
+  issue-flow.db                  # Structured-state SQLite database
+  backups/
+    issue-flow-<timestamp>.db    # Consistent snapshots made by `db backup`
   logs/
     issue-flow-2026-08-30.jsonl  # Structured, machine-wide diagnostics
   web.lock                       # PID + port of the active web monitor, if any
@@ -28,7 +32,7 @@ noise. The trade-off is that the artifacts are machine-local.
   projects/
     issue-flow-4b21c0e9f7a3/     # One directory per project: <slug>-<hash12>
       metadata.json              # Project identity and timestamps
-      providers.json             # Durable agent health, circuit and cooldown state
+      providers.json             # Legacy JSON fallback for SQLite agent health
       run.lock                   # Ownership of the run in progress
       issues/
         42/                      # One per issue identifier — see below
@@ -38,6 +42,20 @@ noise. The trade-off is that the artifacts are machine-local.
 ```
 
 `queues/` only exists once a run really coordinates more than one issue.
+
+## SQLite database
+
+`issue-flow.db` is the versioned relational foundation for structured state.
+It is opened only through the storage database driver, with foreign keys,
+five-second busy timeout and WAL enabled. On a detected network filesystem the
+driver warns and uses the safer rollback journal (`DELETE`) mode instead.
+
+Schema migrations are forward-only and transactional. Each applied version is
+recorded in `schema_migrations` and mirrored in SQLite's `user_version`; a
+database created by a newer Issue Flow fails before any write, rather than being
+downgraded or modified. The `db check`, `db backup`, `db vacuum`, `db export`,
+`db verify` and `db import` commands are documented in
+[the command reference](commands.md#database-maintenance).
 
 ## One issue directory
 
@@ -50,16 +68,16 @@ needs to write it, so a given run leaves most of these absent:
   metadata.json     # Issue metadata (local issues only)
   analysis.md       # Issue analysis (standalone `analyze` only)
   prd.md            # Product requirements
-  tasks.json        # Task plan, pipeline state, stories, telemetry
+  tasks.json        # Agent-facing projection of plan, pipeline state and stories
   progress.txt      # Execution log
-  session.json      # Live session snapshot (web monitoring)
-  events.jsonl      # Append-only event journal (opt-in)
-  events.1.jsonl    # Previous journal generation, after a rotation
-  verify.json       # Acceptance-contract evidence, redacted
+  session.json      # Compatibility projection of the live session
+  events.jsonl      # Compatibility projection of the ordered event history (opt-in)
+  events.1.jsonl    # Optional previous generation when rotation is explicitly configured
+  verify.json       # Readable projection of redacted SQLite verification evidence
   decomposition.md  # "This issue looks larger than one run" report
   run.log           # stdout/stderr of a `--background` run
   run.log.1         # Previous generation, after a rotation
-  .last-branch      # Last branch the execution loop worked on
+  .last-branch      # Legacy fallback; branch history is stored in SQLite
   archive/          # Artifacts superseded by a later iteration
   pr-review/        # PR review reports and index
 ```
@@ -299,9 +317,11 @@ All three are **absent** until the corresponding phase runs.
 ## `session.json`
 
 When web monitoring is enabled — or when a run is detached with `--background` —
-the snapshot served over HTTP is also persisted here (atomic writes, throttled to
-~1s, final state flushed at the end of the run). It is a runtime artifact,
-rewritten from scratch on every run.
+the snapshot is also persisted here (atomic writes, throttled to ~1s, final state
+flushed at the end of the run). It is a compatibility projection, rewritten from
+scratch on every run. The detached monitor reads the canonical SQLite `runs`,
+`snapshots` and `events` rows instead; those rows retain event order and a 10s
+database heartbeat without traversing project files.
 
 `schemaVersion` stays `1`: every field is additive, and a `session.json` written
 by an earlier version still parses — absent sections are filled with their
@@ -521,7 +541,8 @@ Two limitations are worth knowing:
 
 Story metrics answer "what did this story cost". They do not say **who** produced
 the number, on which attempt, or whether a failed try spent tokens too.
-`tasks.json.executions` is one row per agent invocation:
+SQLite's `executions` table is the canonical record (and `tasks.json.executions`
+is a compatibility projection) with one row per agent invocation:
 
 ```json
 {
@@ -564,8 +585,9 @@ the number, on which attempt, or whether a failed try spent tokens too.
   materialize `executions: []`.
 
 Read it with `issue-flow usage [--issue N] [--by harness]`. Disable writes with
-`telemetry.enabled: false` or `ISSUE_FLOW_TELEMETRY=0`. The list is capped at
-`telemetry.maxExecutions` (default `500`).
+`telemetry.enabled: false` or `ISSUE_FLOW_TELEMETRY=0`. SQLite history is not
+silently truncated by `telemetry.maxExecutions`; retain or archive it through an
+explicit database-maintenance policy instead.
 
 The same invocation rows are projected into `session.json.executions` while a
 session is live. `processLogs` is a bounded, redacted tail of harness output for
@@ -599,6 +621,35 @@ directory is now **legacy and read-only**.
 Migration is **automatic**: the first command that resolves a path for a project
 copies an existing `<projectRoot>/issues/` tree into the global storage before
 reading anything. There is no command to run and no flag to pass.
+
+That same first resolution imports the global project's structured JSON state
+into SQLite. The importer records a SHA-256 hash for every source artifact, so
+restarts resume without duplicating rows; it imports the project, plans and
+stories, telemetry, queues, provider health, verification evidence and
+pull-request references in one project transaction. Legacy journals are
+potentially large and are imported only by an explicit
+`issue-flow db import --with-events`. Live `session.json`
+snapshots are intentionally discarded because they are transient projections.
+JSON, JSONL,
+Markdown, locks and logs remain the diagnostic/source artifacts during this
+transition — none is renamed, rewritten or removed.
+
+Before a schema upgrade of any existing database, Issue Flow takes a consistent
+snapshot under `backups/` (five generations by default, configurable with
+`storage.backupRetention`). Set `storage.driver` to `json` to keep the
+compatibility driver active deliberately. If an import fails,
+the database is preserved as `issue-flow.db.failed-<timestamp>` and the command
+continues with the JSON storage. A failed `integrity_check` is similarly
+isolated as `issue-flow.db.corrupt-<timestamp>` before rebuilding from the
+preserved artifacts.
+
+Execution, event and snapshot history is retained indefinitely by default.
+Any cleanup must be declared explicitly through `storage.retention`; journal
+rotation is likewise opt-in, so no historical event is silently discarded.
+Positive execution, event and snapshot limits are applied in the same
+transaction as the relevant write (and during import); `0` means unlimited.
+Backup retention is applied whenever storage resolves an existing database;
+`storage.retention.backups` takes precedence over `storage.backupRetention`.
 
 It is **non-destructive by construction**: `<projectRoot>/issues/` is never
 modified, renamed or removed — there is no removal option, not even opt-in.

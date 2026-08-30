@@ -75,7 +75,7 @@ const mixed = planWith([
 
 describe('usage', () => {
   it('aggregates by each grouping key without mixing reported and estimated', () => {
-    for (const by of ['harness', 'provider', 'model', 'purpose', 'status'] as const) {
+    for (const by of ['harness', 'provider', 'model', 'purpose', 'trigger', 'status'] as const) {
       const report = buildUsageReport([{ id: '63', plan: mixed }], { by, issue: '63' });
       expect(report.total.totalCost.reported).toBe(1.25);
       expect(report.total.totalCost.estimated).toBe(0);
@@ -84,6 +84,11 @@ describe('usage', () => {
       const json = JSON.stringify(report);
       expect(json).toContain('"reported":1.25');
     }
+  });
+
+  it('groups executions by their retry trigger', () => {
+    const report = buildUsageReport([{ id: '63', plan: mixed }], { by: 'trigger' });
+    expect(report.groups.map(({ key }) => key)).toEqual(['initial', 'fallback']);
   });
 
   it('degrades with a message when nothing was recorded', () => {

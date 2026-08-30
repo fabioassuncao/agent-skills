@@ -14,6 +14,30 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Added
+
+- **SQLite as the canonical structured-state store (#91).** Versioned
+  migrations, transactional repositories, automatic non-destructive import,
+  JSON compatibility mode, indexed monitor/`ps`/`usage`, projection
+  verification, issue history and database maintenance commands replace
+  directory scans for structured state. Legacy event journals remain an
+  explicit `db import --with-events` operation because of their volume.
+
+- **An explicit experimental-project notice.** `docs/project-status.md` states
+  how the project was built (mostly with AI coding agents), the risks that come
+  with that — bugs, incomplete implementations, regressions, possibly
+  undiscovered security flaws — where it should **not** be used yet (real
+  projects, production, critical systems, repositories with sensitive
+  information), and that token consumption is not optimized yet. The notice is
+  surfaced at the top of both READMEs and printed by `issue-flow init`, the first
+  command a new user runs.
+
+### Changed
+
+- **Breaking:** Issue Flow now requires Node.js `>=22.13.0` to use its built-in
+  SQLite storage foundation. Earlier Node 22 releases do not provide the
+  supported `node:sqlite` runtime surface.
+
 ## [0.18.0] - 2026-08-30
 
 O painel de monitoramento ganha uma hierarquia visual consolidada (#98), e o

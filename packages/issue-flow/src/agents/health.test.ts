@@ -1,8 +1,10 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classify } from '../resilience/errors.js';
+import { registerStorageProjections, resetPlanRepositories } from '../storage/db/repository.js';
 import {
   acquireHalfOpenProbe,
   readProvidersHealth,
@@ -55,6 +57,33 @@ describe('provider health persistence', () => {
     expect(record.status).toBe('rate_limited');
     expect(Date.parse(record.cooldownUntil ?? '') - now).toBe(7_000);
     expect((await readProvidersHealth(file)).providers.codex).toEqual(record);
+  });
+
+  it('uses the registered SQLite repository instead of rewriting providers.json', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-health-sqlite-'));
+    const file = join(dir, 'providers.json');
+    registerStorageProjections({
+      context: {
+        tasksPath: join(dir, 'tasks.json'),
+        projectId: `health-sqlite-${Date.now()}`,
+        issueId: '42',
+        projectRoot: dir,
+      },
+      providersHealthFile: file,
+    });
+
+    try {
+      const record = await recordProviderFailure(
+        file,
+        'codex',
+        classify({ source: 'agent', stdout: 'rate limit; Retry-After: 7' }),
+      );
+      expect(record.status).toBe('rate_limited');
+      expect((await readProvidersHealth(file)).providers.codex).toEqual(record);
+      expect(existsSync(file)).toBe(false);
+    } finally {
+      resetPlanRepositories();
+    }
   });
 
   it('does not let network or task failures contaminate breaker counters', async () => {

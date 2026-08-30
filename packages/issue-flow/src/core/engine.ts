@@ -9,6 +9,14 @@ import { classify } from '../resilience/errors.js';
 import type { RetryPolicy } from '../resilience/policy.js';
 import { resolvePolicy } from '../resilience/policy.js';
 import { fixedBackoffPolicy, withRetry } from '../resilience/retry.js';
+import {
+  getLastBranchRepository,
+  getPlanRepository,
+  ingestAgentPlan,
+  loadStoredLastBranch,
+  saveStoredLastBranch,
+  setAgentProjectionWindow,
+} from '../storage/db/repository.js';
 import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
@@ -240,18 +248,17 @@ async function ensureProgressFile(progressFile: string): Promise<void> {
 async function archiveIfBranchChanged(plan: TaskPlan, paths: ResolvedPaths): Promise<void> {
   const { lastBranchFile, archiveDir, prdFile, progressFile } = paths;
 
-  if (!existsSync(lastBranchFile)) {
-    return;
-  }
-
   const currentBranch = plan.branchName ?? '';
-  let lastBranch = '';
-
-  try {
-    lastBranch = (await readFile(lastBranchFile, 'utf-8')).trim();
-  } catch {
-    return;
+  const repository = getLastBranchRepository(lastBranchFile);
+  let lastBranch = repository === undefined ? null : await loadStoredLastBranch(repository);
+  if (lastBranch === null && existsSync(lastBranchFile)) {
+    try {
+      lastBranch = (await readFile(lastBranchFile, 'utf-8')).trim() || null;
+    } catch {
+      return;
+    }
   }
+  if (lastBranch === null) return;
 
   if (currentBranch && lastBranch && currentBranch !== lastBranch) {
     const dateStr = new Date().toISOString().split('T')[0];
@@ -285,6 +292,11 @@ async function archiveIfBranchChanged(plan: TaskPlan, paths: ResolvedPaths): Pro
 async function trackBranch(plan: TaskPlan, lastBranchFile: string): Promise<void> {
   const branch = plan.branchName ?? '';
   if (branch) {
+    const repository = getLastBranchRepository(lastBranchFile);
+    if (repository !== undefined) {
+      await saveStoredLastBranch(repository, branch);
+      return;
+    }
     await writeFile(lastBranchFile, `${branch}\n`, 'utf-8');
   }
 }
@@ -466,12 +478,26 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
         // Execute Claude
         const startedAtMs = Date.now();
-        const result = await executeClaude(prompt, {
-          ...inactivityOptions(),
-          iteration: i,
-          correctionCycle: plan.correctionCycle,
-          ...(activeStoryId === undefined ? {} : { storyIds: [activeStoryId] }),
-        });
+        setAgentProjectionWindow(paths.prdFile, true);
+        let result: ClaudeResult;
+        try {
+          result = await executeClaude(prompt, {
+            ...inactivityOptions(),
+            iteration: i,
+            correctionCycle: plan.correctionCycle,
+            ...(activeStoryId === undefined ? {} : { storyIds: [activeStoryId] }),
+          });
+        } finally {
+          setAgentProjectionWindow(paths.prdFile, false);
+        }
+        // The agent receives a materialized compatibility file. Reingest its
+        // intentionally narrow mutation before any pipeline/telemetry reader
+        // observes the next state, so a concurrent execution row cannot erase
+        // `passes` or `notes`.
+        const repository = getPlanRepository(paths.prdFile);
+        if (repository !== undefined) {
+          plan = await ingestAgentPlan(repository);
+        }
         const seconds = elapsedSecondsSince(startedAtMs);
 
         if (result.exitCode !== 0) {

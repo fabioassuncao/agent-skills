@@ -2,6 +2,11 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ClassifiedFailure, FailureKind } from '../resilience/errors.js';
 import {
+  getProviderHealthRepository,
+  readStoredProvidersHealth,
+  updateStoredProviderHealth,
+} from '../storage/db/repository.js';
+import {
   type ProviderHealthRecord,
   type ProvidersHealth,
   providersHealthSchema,
@@ -51,6 +56,8 @@ function emptyRecord(): ProviderHealthRecord {
 }
 
 export async function readProvidersHealth(filePath: string): Promise<ProvidersHealth> {
+  const repository = getProviderHealthRepository(filePath);
+  if (repository !== undefined) return readStoredProvidersHealth(repository);
   try {
     return providersHealthSchema.parse(JSON.parse(await readFile(filePath, 'utf-8')));
   } catch {
@@ -70,6 +77,10 @@ async function updateRecord(
   provider: string,
   update: (record: ProviderHealthRecord) => ProviderHealthRecord,
 ): Promise<ProviderHealthRecord> {
+  const repository = getProviderHealthRepository(filePath);
+  if (repository !== undefined) {
+    return updateStoredProviderHealth(repository, provider, update);
+  }
   const health = await readProvidersHealth(filePath);
   const next = update(health.providers[provider] ?? emptyRecord());
   await writeProvidersHealth(filePath, {

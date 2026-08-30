@@ -4,9 +4,14 @@ import { parseJournal } from '../core/journal.js';
 import { PIPELINE_PHASES, PipelineManager, type PipelinePhase } from '../core/pipeline.js';
 import { loadTaskPlan } from '../core/state-manager.js';
 import { loadExecutionPlan, nextQueueIssue } from '../execution/plan.js';
+import {
+  listStoredIssueEvents,
+  listStoredIssueIds,
+  listStoredQueues,
+} from '../storage/db/queries.js';
 import { acquireRunLock, describeRunLockOwner, type RunLockHandle } from '../storage/lock.js';
 import { getIssuePaths, QUEUES_DIR_NAME } from '../storage/paths.js';
-import { resolveProjectPaths } from '../storage/resolve.js';
+import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import type { TaskPlan } from '../types.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
 import { describePreflight, preflightRepository } from '../utils/git.js';
@@ -46,6 +51,8 @@ export interface ResumeOptions {
 
 interface ResumeTarget {
   issue: string;
+  projectId: string;
+  storageDriver: 'sqlite' | 'json';
   plan: TaskPlan;
   tasksFile: string;
   eventsFile: string;
@@ -158,16 +165,23 @@ function activePhases(plan: TaskPlan): readonly PipelinePhase[] {
  * is what it did before a journal existed.
  */
 async function lastUnfinishedPhase(target: ResumeTarget): Promise<string | null> {
-  const content = `${await readIfPresent(target.rotatedEventsFile)}${await readIfPresent(target.eventsFile)}`;
-  if (content === '') return null;
+  const entries =
+    target.storageDriver === 'sqlite'
+      ? await listStoredIssueEvents({ projectId: target.projectId, issueId: target.issue })
+      : parseJournal(
+          `${await readIfPresent(target.rotatedEventsFile)}${await readIfPresent(target.eventsFile)}`,
+        );
+  if (entries.length === 0) return null;
 
   const open: string[] = [];
-  for (const entry of parseJournal(content)) {
+  for (const entry of entries) {
     const event = entry.event;
-    if (event.type === 'phase:start') {
-      open.push(event.phase);
-    } else if (event.type === 'phase:end') {
-      const index = open.lastIndexOf(event.phase);
+    const phaseValue = (event as unknown as Record<string, unknown>).phase;
+    const phase = typeof phaseValue === 'string' ? phaseValue : null;
+    if (event.type === 'phase:start' && phase !== null) {
+      open.push(phase);
+    } else if (event.type === 'phase:end' && phase !== null) {
+      const index = open.lastIndexOf(phase);
       if (index >= 0) open.splice(index, 1);
     }
   }
@@ -196,7 +210,7 @@ async function findTargets(
   all: boolean,
 ): Promise<ResumeTarget[]> {
   if (issue !== undefined) {
-    const target = await loadTarget(project.projectId, issue);
+    const target = await loadTarget(project, issue);
     return target === null ? [] : [target];
   }
 
@@ -212,6 +226,15 @@ async function findTargets(
 async function queueTarget(
   project: Awaited<ReturnType<typeof resolveProjectPaths>>,
 ): Promise<ResumeTarget | null> {
+  if (project.storageDriver === 'sqlite') {
+    for (const plan of await listStoredQueues({ projectId: project.projectId })) {
+      const next = nextQueueIssue(plan);
+      if (next === null) continue;
+      const target = await loadTarget(project, next.id);
+      if (target !== null) return target;
+    }
+    return null;
+  }
   const queuesDir = join(project.projectDir, QUEUES_DIR_NAME);
   let entries: string[];
   try {
@@ -225,7 +248,7 @@ async function queueTarget(
     if (plan === null) continue;
     const next = nextQueueIssue(plan);
     if (next === null) continue;
-    const target = await loadTarget(project.projectId, next.id);
+    const target = await loadTarget(project, next.id);
     if (target !== null) return target;
   }
   return null;
@@ -237,14 +260,17 @@ async function unfinishedTargets(
 ): Promise<ResumeTarget[]> {
   let ids: string[];
   try {
-    ids = await readdir(project.issuesDir);
+    ids =
+      project.storageDriver === 'sqlite'
+        ? await listStoredIssueIds({ projectId: project.projectId })
+        : await readdir(project.issuesDir);
   } catch {
     return [];
   }
 
   const targets: ResumeTarget[] = [];
   for (const id of ids) {
-    const target = await loadTarget(project.projectId, id);
+    const target = await loadTarget(project, id);
     if (target === null) continue;
     if (target.plan.issueStatus === 'completed') continue;
     const manager = new PipelineManager(target.plan, target.tasksFile, activePhases(target.plan));
@@ -260,10 +286,16 @@ function attemptedAt(plan: TaskPlan): number {
   return Number.isNaN(at) ? 0 : at;
 }
 
-async function loadTarget(projectId: string, issue: string): Promise<ResumeTarget | null> {
+async function loadTarget(
+  project: Awaited<ReturnType<typeof resolveProjectPaths>>,
+  issue: string,
+): Promise<ResumeTarget | null> {
   let paths: ReturnType<typeof getIssuePaths>;
   try {
-    paths = getIssuePaths(projectId, issue);
+    paths =
+      project.storageDriver === 'sqlite'
+        ? await resolveIssuePaths(issue)
+        : getIssuePaths(project.projectId, issue);
   } catch {
     // Not a usable issue identifier — a stray file in `issues/`, for instance.
     return null;
@@ -273,6 +305,8 @@ async function loadTarget(projectId: string, issue: string): Promise<ResumeTarge
     const plan = await loadTaskPlan(paths.tasksFile);
     return {
       issue,
+      projectId: project.projectId,
+      storageDriver: project.storageDriver,
       plan,
       tasksFile: paths.tasksFile,
       eventsFile: paths.eventsFile,

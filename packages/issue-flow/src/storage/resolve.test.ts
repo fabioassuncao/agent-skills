@@ -26,6 +26,7 @@ const { getProjectRoot, getRemoteUrl } = await import('../utils/git.js');
 const { GLOBAL_ROOT_ENV, getIssuePaths, projectIdFromRemote } = await import('./paths.js');
 const { LEGACY_ISSUES_DIR_NAME } = await import('./compat.js');
 const { resetStorageResolutionCache, resolveIssuePaths } = await import('./resolve.js');
+const { getPlanRepository } = await import('./db/repository.js');
 
 const mockGetRemoteUrl = vi.mocked(getRemoteUrl);
 const mockGetProjectRoot = vi.mocked(getProjectRoot);
@@ -193,6 +194,30 @@ describe('resolveIssuePaths', () => {
     const paths = await resolveIssuePaths(42, { env });
 
     await expect(stat(paths.issueDir)).rejects.toThrow();
+  });
+
+  it('keeps JSON active when the SQLite import fails', async () => {
+    const paths = expectedPaths(42);
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(paths.tasksFile, '{ invalid json', 'utf-8');
+
+    const resolved = await resolveIssuePaths(42, { env });
+
+    expect(resolved).toEqual(paths);
+    expect(getPlanRepository(paths.tasksFile)).toBeUndefined();
+    await expect(readFile(paths.tasksFile, 'utf-8')).resolves.toBe('{ invalid json');
+  });
+
+  it('honours storage.driver=json without creating a SQLite projection', async () => {
+    await writeFile(
+      join(projectRoot, '.issue-flow.json'),
+      JSON.stringify({ storage: { driver: 'json' } }),
+      'utf-8',
+    );
+
+    const paths = await resolveIssuePaths(42, { env });
+
+    expect(getPlanRepository(paths.tasksFile)).toBeUndefined();
   });
 });
 

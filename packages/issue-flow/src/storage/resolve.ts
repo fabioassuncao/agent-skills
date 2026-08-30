@@ -1,9 +1,23 @@
 import { stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import {
+  loadGlobalConfig,
+  PROJECT_CONFIG_FILENAME,
+  readProjectConfigFile,
+} from '../config/sources.js';
 import { bindTelemetry } from '../telemetry/recorder.js';
 import { printInfo } from '../ui/logger.js';
 import { getProjectRoot } from '../utils/git.js';
 import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
+import { importProjectArtifacts } from './db/import.js';
+import { getDatabasePath } from './db/index.js';
+import {
+  registerPlanRepository,
+  registerQueueRepository,
+  registerStorageProjections,
+  resetPlanRepositories,
+  type StoredRetentionPolicy,
+} from './db/repository.js';
 import {
   type GetGlobalRootOptions,
   getGlobalRoot,
@@ -16,6 +30,7 @@ import {
   type QueuePaths,
   RUN_LOCK_FILENAME,
 } from './paths.js';
+import { storageConfigInputSchema } from './schemas.js';
 
 /**
  * The single entry point every pipeline command uses to learn where an issue's
@@ -46,6 +61,41 @@ export interface ResolveIssuePathsOptions extends GetGlobalRootOptions {
 interface ProjectResolution {
   projectId: string;
   legacyDir: string;
+  /** JSON remains active after a failed import or an explicit compatibility setting. */
+  driver: 'sqlite' | 'json';
+  retention?: StoredRetentionPolicy;
+}
+
+interface StorageResolutionConfig {
+  driver: 'sqlite' | 'json';
+  backupRetention?: number;
+  retention?: StoredRetentionPolicy & { backups?: number };
+}
+
+/** Resolve only the storage knobs; invalid project input safely uses defaults. */
+async function loadStorageResolutionConfig(
+  projectRoot: string,
+  options: GetGlobalRootOptions,
+): Promise<StorageResolutionConfig> {
+  const global = await loadGlobalConfig({ env: options.env, warn: printInfo });
+  const project = await readProjectConfigFile(projectRoot, printInfo);
+  const parsedProject = storageConfigInputSchema.safeParse(project?.storage);
+  if (!parsedProject.success && project?.storage !== undefined) {
+    printInfo(
+      `Ignoring "storage" key of ${PROJECT_CONFIG_FILENAME}: ${parsedProject.error.issues[0]?.message ?? 'invalid value'}.`,
+    );
+  }
+  return {
+    driver: parsedProject.success
+      ? (parsedProject.data.driver ?? global.storage?.driver ?? 'sqlite')
+      : (global.storage?.driver ?? 'sqlite'),
+    backupRetention:
+      (parsedProject.success ? parsedProject.data.backupRetention : undefined) ??
+      global.storage?.backupRetention,
+    retention:
+      (parsedProject.success ? parsedProject.data.retention : undefined) ??
+      global.storage?.retention,
+  };
 }
 
 /**
@@ -77,6 +127,10 @@ const checkedIssues = new Set<string>();
 export function resetStorageResolutionCache(): void {
   projectCache.clear();
   checkedIssues.clear();
+  // The path-to-repository registry has the same process lifetime as this
+  // resolver cache. Clearing one without the other would leak a test's
+  // temporary database into the next resolution.
+  resetPlanRepositories();
 }
 
 async function directoryExists(path: string): Promise<boolean> {
@@ -130,14 +184,45 @@ async function resolveProject(
   // call — calling getProjectId() afterwards would shell out to
   // `git remote get-url origin` a second time for the same answer.
   const status = await resolveStorageMode(projectRoot, options);
+  const storage = await loadStorageResolutionConfig(projectRoot, options);
 
   if (status.mode === 'needs-migration') {
     announceMigration(await migrateLegacyStorage(projectRoot, options));
   }
 
+  const imported =
+    storage.driver === 'sqlite'
+      ? await importProjectArtifacts({
+          ...options,
+          projectId: status.projectId,
+          projectDir: status.globalDir,
+          projectRoot,
+          remoteUrl: status.remoteUrl,
+          ...((storage.retention?.backups ?? storage.backupRetention) === undefined
+            ? {}
+            : { backupRetention: storage.retention?.backups ?? storage.backupRetention }),
+          ...(storage.retention === undefined ? {} : { retention: storage.retention }),
+          onWarning: printInfo,
+        })
+      : null;
+  if (imported !== null && imported.imported > 0) {
+    const counts = Object.entries(imported.tableCounts)
+      .filter(([, count]) => count > 0)
+      .map(([table, count]) => `${table}: ${count}`)
+      .join(', ');
+    printInfo(
+      `Imported ${imported.imported} structured artifact${imported.imported === 1 ? '' : 's'} from ${status.globalDir} into ${getDatabasePath(options)} (${counts || 'no rows'}). No source artifacts were removed.`,
+    );
+  }
+
   return {
     projectId: status.projectId,
     legacyDir: status.legacyDir,
+    // An import failure is a successful *resolution* through the JSON
+    // compatibility path. Do not subsequently register a SQLite repository,
+    // or telemetry would create a fresh empty database and hide the fallback.
+    driver: imported?.failed === true ? 'json' : storage.driver,
+    retention: storage.retention,
   };
 }
 
@@ -166,6 +251,8 @@ function getProjectResolution(
 export interface ProjectStoragePaths {
   /** Deterministic id derived from the repository's remote (or its path). */
   projectId: string;
+  /** Active structured-state driver after migration/recovery resolution. */
+  storageDriver: 'sqlite' | 'json';
   /** `<globalRoot>/projects/<projectId>`. */
   projectDir: string;
   /** `<projectDir>/issues` — the parent of every issue directory. */
@@ -202,13 +289,27 @@ export async function resolveProjectPaths(
 
   const project = await getProjectResolution(projectRoot, rootOptions);
   const projectDir = getProjectDir(project.projectId, rootOptions);
+  const providersHealthFile = join(projectDir, PROVIDERS_HEALTH_FILENAME);
+  if (project.driver === 'sqlite') {
+    registerStorageProjections({
+      context: {
+        tasksPath: '',
+        projectId: project.projectId,
+        issueId: '',
+        projectRoot,
+        retention: project.retention,
+      },
+      providersHealthFile,
+    });
+  }
 
   return {
     projectId: project.projectId,
+    storageDriver: project.driver,
     projectDir,
     issuesDir: join(projectDir, ISSUES_DIR_NAME),
     runLockFile: join(projectDir, RUN_LOCK_FILENAME),
-    providersHealthFile: join(projectDir, PROVIDERS_HEALTH_FILENAME),
+    providersHealthFile,
   };
 }
 
@@ -227,7 +328,16 @@ export async function resolveQueuePaths(
   const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
 
   const project = await getProjectResolution(projectRoot, rootOptions);
-  return getQueuePaths(project.projectId, queueId, rootOptions);
+  const paths = getQueuePaths(project.projectId, queueId, rootOptions);
+  if (project.driver === 'sqlite') {
+    registerQueueRepository({
+      planFile: paths.planFile,
+      projectId: project.projectId,
+      projectRoot,
+      retention: project.retention,
+    });
+  }
+  return paths;
 }
 
 /**
@@ -270,6 +380,29 @@ export async function resolveIssuePaths(
     checkedIssues.add(paths.issueDir);
   }
 
-  bindTelemetry({ tasksPath: paths.tasksFile });
+  if (project.driver === 'sqlite') {
+    const context = {
+      tasksPath: paths.tasksFile,
+      projectId: project.projectId,
+      issueId: basename(paths.issueDir),
+      projectRoot,
+      retention: project.retention,
+    };
+    registerPlanRepository(context);
+    registerStorageProjections({
+      context,
+      verifyFile: paths.verifyFile,
+      lastBranchFile: paths.lastBranchFile,
+      providersHealthFile: join(
+        getProjectDir(project.projectId, rootOptions),
+        PROVIDERS_HEALTH_FILENAME,
+      ),
+    });
+    bindTelemetry({ tasksPath: paths.tasksFile });
+  } else {
+    // The legacy state manager remains authoritative in JSON mode. Leaving a
+    // telemetry binding here would lazily bootstrap a SQLite projection.
+    bindTelemetry(null);
+  }
   return paths;
 }

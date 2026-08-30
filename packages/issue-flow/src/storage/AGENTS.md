@@ -6,6 +6,17 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
 
 ## Rules
 
+- **`node:sqlite` has one boundary: `db/driver.ts`.** Consumers use its small
+  `DatabaseDriver` interface; migrations and future repositories may issue SQL
+  only under `src/storage/db/`. The driver owns connection PRAGMAs, the narrow
+  SQLite ExperimentalWarning filter, transactions and online snapshots.
+
+- **JSON-to-SQLite adoption is owned by `db/import.ts` and starts from
+  `resolve.ts`.** Read all source artifacts before opening the project
+  transaction, key `migrated_artifacts` by source path + SHA-256, and never
+  mutate the JSON/JSONL source tree. An import failure must quarantine the
+  database and let the existing JSON path continue.
+
 - **Never join `homedir()` by hand.** Every path under the global tree must derive from
   `getGlobalRoot()` in `paths.ts` — that is the single seam where `ISSUE_FLOW_HOME` takes effect,
   and it is what keeps tests, CI and sandboxes off the real `$HOME`.
@@ -67,9 +78,10 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   `resilience/policy.ts` with `satisfies`, and `ResilienceConfigIsPolicyConfig` fails to compile if
   the file format ever stops being a superset of what `resolvePolicy()` reads.
 - **`TaskPlan.executions` is additive and optional, with no `.default([])`.**
-  A plan that predates the field must not gain an empty array on rewrite.
-  `schemaVersion` does not change. Reconciliation of orphan `running` rows
-  happens in `loadTaskPlan` via `telemetry/reconcile.ts`, using `isProcessAlive`.
+  SQLite is canonical for execution rows; `db/repository.ts` joins them into
+  the materialized plan only when rows exist. `schemaVersion` does not change.
+  Reconciliation of orphan `running` rows happens in `loadTaskPlan` via
+  `telemetry/reconcile.ts`, using `isProcessAlive`.
 - **`TaskPlan.runState` and the queue's `attempts`/`blockedReason` are additive, and
   `schemaVersion` stays `1`.** `runState` is `.optional()` with **no** default at the top
   level — absent means "this plan predates the field", which is not the same statement as
@@ -97,10 +109,11 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   redaction, 10 MiB rotation (five generations) and 30-day retention. Its
   queued best-effort writes must never make the pipeline fail.
   `execution/registry.ts` is the only cross-project reader of `run.lock`.
-- **`providers.json` is project-level durable state.** Its path comes from
-  `resolveProjectPaths().providersHealthFile`; agent code never joins the name.
-  Writes are atomic, unknown provider keys stay readable, and cooldown survives
-  process restarts.
+- **Provider health is SQLite-authoritative.** `providers.json` is a legacy
+  JSON fallback whose path comes from `resolveProjectPaths().providersHealthFile`;
+  agent code never joins the name. Health transitions go through
+  `storage/db/repository.ts`, so cooldown and failure history survive restarts
+  transactionally.
 - Schemas read from disk are never `.strict()`: a file written by a newer version must stay
   readable by an older one.
 - The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other

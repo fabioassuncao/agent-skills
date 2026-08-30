@@ -1,5 +1,7 @@
+import { loadGlobalConfig } from '../config/sources.js';
 import { loadWebConfig } from '../config.js';
 import type { WebConfig } from '../schemas.js';
+import { resolveProjectPaths } from '../storage/resolve.js';
 import { ensureSingleWebServer, stopWebMonitor } from '../web/lock.js';
 import { watchSessionDirectory } from '../web/session-directory.js';
 
@@ -39,7 +41,13 @@ export async function runWebServe(options: RunWebServeOptions): Promise<number> 
   if (options.refresh !== undefined) cli.refreshSeconds = options.refresh;
   const webConfig = await loadWebConfig({ cli });
 
-  const sessions = watchSessionDirectory();
+  let storageDriver = (await loadGlobalConfig()).storage?.driver ?? 'sqlite';
+  try {
+    storageDriver = (await resolveProjectPaths()).storageDriver;
+  } catch {
+    // The global monitor remains usable outside a repository.
+  }
+  const sessions = watchSessionDirectory({ storageDriver });
 
   const noop = (): void => {};
   const handle = await ensureSingleWebServer({

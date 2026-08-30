@@ -1,8 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises';
 import { isoNow } from '../core/state-manager.js';
 import { getProjectRoot } from '../utils/git.js';
-import { recordUserStoryNumbering } from './compat.js';
-import { getIssuePaths } from './paths.js';
+import { findHighestStoredUserStoryNumber, saveStoredUserStoryNumbering } from './db/repository.js';
 import { type ResolveIssuePathsOptions, resolveProjectPaths } from './resolve.js';
 import type { UserStoryNumberingDecision } from './schemas.js';
 
@@ -46,44 +44,6 @@ export interface HighestUserStoryNumberResult {
   storyId: string;
 }
 
-/**
- * Loose read of one `tasks.json`: only cares about `userStories[].id` and
- * tolerates every failure (missing file, invalid JSON, unexpected shape) by
- * returning `null` — a sibling issue mid-migration, or with a corrupt plan,
- * must not abort the whole project scan.
- */
-async function readUserStoryIds(tasksPath: string): Promise<string[] | null> {
-  let raw: string;
-  try {
-    raw = await readFile(tasksPath, 'utf-8');
-  } catch {
-    return null;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      !Array.isArray((parsed as { userStories?: unknown }).userStories)
-    ) {
-      return null;
-    }
-
-    return (parsed as { userStories: unknown[] }).userStories
-      .map((story) =>
-        typeof story === 'object' &&
-        story !== null &&
-        typeof (story as { id?: unknown }).id === 'string'
-          ? (story as { id: string }).id
-          : null,
-      )
-      .filter((id): id is string => id !== null);
-  } catch {
-    return null;
-  }
-}
-
 export interface FindHighestUserStoryNumberOptions extends ResolveIssuePathsOptions {
   /**
    * Issue directory to leave out of the scan — the issue the numbering is
@@ -95,62 +55,39 @@ export interface FindHighestUserStoryNumberOptions extends ResolveIssuePathsOpti
 }
 
 /**
- * Highest User Story number already used anywhere in the project, scanning
- * every `<issuesDir>/<id>/tasks.json` regardless of which issue produced it —
- * that project-wide scope is what makes `US-NNN` unambiguous across issues.
- * The issue named by `excludeIssueId` is skipped, so re-planning is idempotent.
- *
- * `null` means no readable `tasks.json` was found (the project's first `plan`
- * run ever, or a brand-new project directory). A storage directory that exists
- * but cannot be read throws instead: silently restarting at `US-001` because
- * `~/.issue-flow` was momentarily unreadable is the worst outcome this feature
- * can produce.
+ * Highest User Story number already used anywhere in the project's canonical
+ * SQLite state. The issue named by `excludeIssueId` is skipped, so re-planning
+ * is idempotent. This deliberately never scans compatibility projections.
  */
 export async function findHighestUserStoryNumber(
   options: FindHighestUserStoryNumberOptions = {},
 ): Promise<HighestUserStoryNumberResult | null> {
   const { excludeIssueId, ...rootOptions } = options;
-  const { projectId, issuesDir } = await resolveProjectPaths(rootOptions);
-
-  let entries: string[];
+  let projectId: string;
   try {
-    entries = (await readdir(issuesDir, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
+    ({ projectId } = await resolveProjectPaths(rootOptions));
   } catch (error) {
-    // ENOENT is the legitimate "no history yet" case. Any other failure
-    // (EACCES, EIO, an unavailable mount) must not be reported as an empty
-    // history, or the numbering would restart silently.
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
     throw new Error(
-      `Could not scan the project's User Story history at ${issuesDir}: ` +
+      "Could not query the project's User Story history: " +
         `${(error as Error).message}. Fix the storage directory, or pass --start-us <n> ` +
         'to set the numbering explicitly.',
       { cause: error },
     );
   }
-
-  let best: HighestUserStoryNumberResult | null = null;
-
-  for (const issueId of entries) {
-    if (excludeIssueId !== undefined && issueId === excludeIssueId) continue;
-    // Never hand-build an artifact path (see src/storage/AGENTS.md): asking
-    // getIssuePaths() keeps a rename of `tasks.json` a one-file change instead
-    // of silently making this scan find nothing.
-    const { tasksFile } = getIssuePaths(projectId, issueId, { env: options.env });
-    const ids = await readUserStoryIds(tasksFile);
-    if (!ids) continue;
-
-    for (const id of ids) {
-      const value = parseUserStoryNumber(id);
-      if (value === null) continue;
-      if (best === null || value > best.number) {
-        best = { number: value, issueId, storyId: id };
-      }
-    }
+  try {
+    return await findHighestStoredUserStoryNumber({
+      projectId,
+      excludeIssueId,
+      databaseOptions: { env: options.env },
+    });
+  } catch (error) {
+    throw new Error(
+      "Could not query the project's User Story history: " +
+        `${(error as Error).message}. Fix the SQLite database, or pass --start-us <n> ` +
+        'to set the numbering explicitly.',
+      { cause: error },
+    );
   }
-
-  return best;
 }
 
 export interface ResolveUserStoryNumberingOptions extends ResolveIssuePathsOptions {
@@ -263,10 +200,23 @@ export async function determineUserStoryNumbering(
   const projectRoot = projectRootOption ?? (await getProjectRoot());
 
   const outcome = await resolveUserStoryNumbering({ ...rest, projectRoot });
-  await recordUserStoryNumbering(projectRoot, outcome.decision, {
-    env: options.env,
-    now: options.now,
-  });
+  const project = await resolveProjectPaths({ projectRoot, env: options.env });
+  if (project.storageDriver === 'sqlite') {
+    await saveStoredUserStoryNumbering(
+      {
+        projectId: project.projectId,
+        projectRoot,
+        databaseOptions: { env: options.env },
+      },
+      outcome.decision,
+    );
+  } else {
+    const { recordUserStoryNumbering } = await import('./compat.js');
+    await recordUserStoryNumbering(projectRoot, outcome.decision, {
+      env: options.env,
+      now: options.now,
+    });
+  }
 
   return { ...outcome, nextUserStoryId: formatUserStoryId(outcome.decision.nextNumber) };
 }

@@ -2,6 +2,17 @@
 
 **Turn an issue into a reviewed Pull Request, without sitting in front of it.**
 
+> ⚠️ **Experimental — under active development.** This project was built mostly
+> with the help of AI coding agents and has not been audited. Expect bugs,
+> incomplete implementations, regressions and possibly undiscovered security
+> flaws. **Not recommended for real projects, production environments, critical
+> systems or repositories with sensitive information** — today it is meant for
+> testing, evaluation and disposable repositories. Keep backups, run it on a
+> dedicated branch and review every change it produces. Token consumption is not
+> optimized yet: a run may use significantly more tokens than necessary.
+> Full notice:
+> [**Project status**](https://github.com/fabioassuncao/issue-flow/blob/main/docs/project-status.md).
+
 A CLI that orchestrates the whole path — analyse, plan, implement, verify,
 review, deliver — by driving a coding agent in headless mode:
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the default),
@@ -22,11 +33,12 @@ npx issue-flow run 42 --web   # …and watch it live at http://localhost:3737
 > [Agents](https://github.com/fabioassuncao/issue-flow/blob/main/docs/agents.md) ·
 > [Storage](https://github.com/fabioassuncao/issue-flow/blob/main/docs/storage.md) ·
 > [Web monitoring](https://github.com/fabioassuncao/issue-flow/blob/main/docs/web-monitor.md) ·
-> [Resilience](https://github.com/fabioassuncao/issue-flow/blob/main/docs/resilience.md)
+> [Resilience](https://github.com/fabioassuncao/issue-flow/blob/main/docs/resilience.md) ·
+> [Project status](https://github.com/fabioassuncao/issue-flow/blob/main/docs/project-status.md)
 
 ## Requirements
 
-- **Node.js** ≥ 22
+- **Node.js** ≥ 22.13.0
 - **Git**, available in `PATH`, inside a repository
 - **A coding agent** — `npm install -g @anthropic-ai/claude-code` for the default
 - **GitHub CLI** (`gh`), authenticated — only for GitHub issues; a run on local
@@ -63,7 +75,7 @@ npx issue-flow run 42 --web   # …and watch it live at http://localhost:3737
 | `generate` | Draft and create an issue on GitHub, locally, or both |
 | `init` | Check prerequisites and report (or create) missing conventions |
 | `analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review` | The phases, standalone |
-| `status`, `ps`, `runs`, `logs`, `usage`, `pause`, `cancel` | Operate a running pipeline |
+| `status`, `ps`, `runs`, `history`, `logs`, `usage`, `pause`, `cancel` | Operate a running pipeline |
 | `agent`, `policy`, `conventions`, `routing` | Inspect what was resolved, and why |
 | `web serve`, `web stop` | The monitoring server |
 

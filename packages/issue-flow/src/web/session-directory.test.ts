@@ -1,52 +1,62 @@
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  createInitialSnapshot,
-  FilePublisher,
-  type SessionSnapshot,
-} from '../core/session-state.js';
+import { createInitialSnapshot } from '../core/session-state.js';
+import type { PlanRepositoryContext } from '../storage/db/repository.js';
+import { touchStoredSession } from '../storage/db/repository.js';
+import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
+import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import {
   DEFAULT_STALE_AFTER_MS,
   type SessionDirectoryHandle,
   watchSessionDirectory,
 } from './session-directory.js';
 
-function makeSnapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
-  return { ...createInitialSnapshot(), sessionId: 'session-1', status: 'running', ...overrides };
-}
-
 describe('web/session-directory', () => {
   let home: string;
   const handles: SessionDirectoryHandle[] = [];
+  const publishers: SqliteSessionPublisher[] = [];
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'issue-flow-session-dir-'));
+    home = await mkdtemp(join(tmpdir(), 'issue-flow-session-directory-'));
   });
 
   afterEach(async () => {
-    for (const handle of handles.splice(0)) {
-      handle.close();
-    }
+    for (const handle of handles.splice(0)) handle.close();
+    for (const publisher of publishers.splice(0)) await publisher.close();
     await rm(home, { recursive: true, force: true });
   });
 
-  async function writeSession(
-    projectId: string,
-    issueNumber: string,
-    snapshot: SessionSnapshot,
-  ): Promise<string> {
-    const dir = join(home, 'projects', projectId, 'issues', issueNumber);
-    await mkdir(dir, { recursive: true });
-    const file = join(dir, 'session.json');
-    await writeFile(file, JSON.stringify(snapshot), 'utf-8');
-    return file;
+  function context(projectId: string, issueId: string): PlanRepositoryContext {
+    return {
+      tasksPath: join(home, 'projects', projectId, 'issues', issueId, 'tasks.json'),
+      projectId,
+      issueId,
+      projectRoot: `/projects/${projectId}`,
+      databaseOptions: { env: { [GLOBAL_ROOT_ENV]: home } },
+    };
+  }
+
+  function publishSession(projectId = 'proj-a', issueId = '42', sessionId = 'sess-a') {
+    const publisher = new SqliteSessionPublisher(context(projectId, issueId), { onWarn: () => {} });
+    publishers.push(publisher);
+    const at = new Date().toISOString();
+    publisher.publish({
+      type: 'session:start',
+      at,
+      sessionId,
+      issueNumber: Number(issueId),
+      phases: ['execute'],
+    });
+    publisher.publish({ type: 'phase:start', at, phase: 'execute' });
+    return publisher;
   }
 
   function watch(overrides: Partial<Parameters<typeof watchSessionDirectory>[0]> = {}) {
     const handle = watchSessionDirectory({
-      env: { ISSUE_FLOW_HOME: home },
+      env: { [GLOBAL_ROOT_ENV]: home },
       pollIntervalMs: 10,
       ...overrides,
     });
@@ -63,147 +73,90 @@ describe('web/session-directory', () => {
     throw new Error('waitFor: condition never became true');
   }
 
-  it('reports no sessions before anything has been written', async () => {
+  it('reports no sessions before SQLite has any snapshots', async () => {
     const handle = watch();
     await handle.refresh();
     expect(handle.sessions()).toEqual([]);
   });
 
-  it('allows three missed 10-second heartbeats plus scheduling slack by default', () => {
+  it('keeps the three-heartbeat staleness window', () => {
     expect(DEFAULT_STALE_AFTER_MS).toBe(90_000);
   });
 
-  it('discovers a valid session.json under projects/<id>/issues/<n>/', async () => {
-    await writeSession('proj-a', '42', makeSnapshot({ sessionId: 'sess-a' }));
-    const handle = watch();
-
-    await waitFor(() => handle.sessions().length === 1);
-    expect(handle.getSession('sess-a')?.snapshot.sessionId).toBe('sess-a');
-  });
-
-  it('reads the rotated and current journal for an active session in order', async () => {
-    const file = await writeSession('proj-a', '42', makeSnapshot({ sessionId: 'sess-a' }));
-    const issueDir = join(file, '..');
-    const first = {
-      seq: 1,
-      event: { type: 'retry', at: '2026-08-30T10:00:00Z', attempt: 1 },
-    };
-    const second = {
-      seq: 2,
-      event: {
-        type: 'failover',
-        at: '2026-08-30T10:01:00Z',
-        from: 'claude',
-        to: 'codex',
-        reason: 'provider_down',
-      },
-    };
-    await writeFile(join(issueDir, 'events.1.jsonl'), `${JSON.stringify(first)}\n`, 'utf-8');
-    await writeFile(join(issueDir, 'events.jsonl'), `${JSON.stringify(second)}\npartial`, 'utf-8');
-    const handle = watch();
-
-    await waitFor(() => handle.sessions().length === 1);
-    expect(await handle.events('sess-a')).toEqual([first, second]);
-    expect(await handle.events('missing')).toBeUndefined();
-  });
-
-  it('reflects multiple sessions across different projects and issues simultaneously', async () => {
-    await writeSession('proj-a', '1', makeSnapshot({ sessionId: 'sess-a' }));
-    await writeSession('proj-b', '2', makeSnapshot({ sessionId: 'sess-b' }));
+  it('discovers indexed sessions across projects without traversing projections', async () => {
+    const a = publishSession('proj-a', '1', 'sess-a');
+    const b = publishSession('proj-b', '2', 'sess-b');
+    await Promise.all([a.flush(), b.flush()]);
     const handle = watch();
 
     await waitFor(() => handle.sessions().length === 2);
-    const ids = handle
-      .sessions()
-      .map((s) => s.snapshot.sessionId)
-      .sort();
-    expect(ids).toEqual(['sess-a', 'sess-b']);
+    expect(
+      handle
+        .sessions()
+        .map((session) => session.snapshot.sessionId)
+        .sort(),
+    ).toEqual(['sess-a', 'sess-b']);
+    expect(handle.getSession('sess-a')).toMatchObject({ projectId: 'proj-a', issueId: '1' });
   });
 
-  it('ignores a corrupted session.json instead of crashing the scan', async () => {
-    const dir = join(home, 'projects', 'proj-a', 'issues', '1');
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'session.json'), 'not json', 'utf-8');
-    await writeSession('proj-b', '2', makeSnapshot({ sessionId: 'sess-b' }));
-
-    const handle = watch();
-    await waitFor(() => handle.sessions().length === 1);
-    expect(handle.sessions()[0]?.snapshot.sessionId).toBe('sess-b');
-  });
-
-  it('ignores a session.json that fails schema validation', async () => {
-    const dir = join(home, 'projects', 'proj-a', 'issues', '1');
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'session.json'), JSON.stringify({ not: 'a snapshot' }), 'utf-8');
-
-    const handle = watch();
-    await handle.refresh();
-    expect(handle.sessions()).toEqual([]);
-  });
-
-  it('stops reporting a session once its file goes stale', async () => {
-    await writeSession('proj-a', '1', makeSnapshot({ sessionId: 'sess-a' }));
-    const handle = watch({ staleAfterMs: 30 });
-
-    await waitFor(() => handle.sessions().length === 1);
-    await waitFor(() => handle.sessions().length === 0, 2000);
-  });
-
-  it('picks a session back up when its file is updated again after going stale', async () => {
-    const file = await writeSession('proj-a', '1', makeSnapshot({ sessionId: 'sess-a' }));
-    const handle = watch({ staleAfterMs: 30 });
-
-    await waitFor(() => handle.sessions().length === 1);
-    await waitFor(() => handle.sessions().length === 0);
-
-    await writeFile(file, JSON.stringify(makeSnapshot({ sessionId: 'sess-a' })), 'utf-8');
-    await waitFor(() => handle.sessions().length === 1);
-  });
-
-  it('keeps a quiet live phase visible by heartbeat, then expires it after heartbeats stop', async () => {
-    const file = join(home, 'projects', 'proj-a', 'issues', '1', 'session.json');
-    const publisher = new FilePublisher(file, {
-      throttleMs: 0,
-      heartbeatMs: 10,
-      onWarn: () => {},
-    });
-    publisher.publish({
-      type: 'session:start',
-      at: '2026-08-30T05:00:00Z',
-      sessionId: 'sess-a',
-      issueNumber: 1,
-      phases: ['execute'],
-    });
+  it('returns the ordered SQLite event stream for an active session', async () => {
+    const publisher = publishSession();
     await publisher.flush();
-
-    const handle = watch({ pollIntervalMs: 5, staleAfterMs: 40 });
-    await waitFor(() => handle.sessions().length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(handle.sessions()).toHaveLength(1);
-
-    await publisher.close();
-    await waitFor(() => handle.sessions().length === 0);
-  });
-
-  it('close() stops polling: sessions() keeps its last value instead of updating', async () => {
-    await writeSession('proj-a', '1', makeSnapshot({ sessionId: 'sess-a' }));
     const handle = watch();
+
     await waitFor(() => handle.sessions().length === 1);
-
-    handle.close();
-    await writeSession('proj-b', '2', makeSnapshot({ sessionId: 'sess-b' }));
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    expect(handle.sessions()).toHaveLength(1);
+    expect(await handle.events('sess-a')).toMatchObject([
+      { seq: 1, event: { type: 'session:start' } },
+      { seq: 2, event: { type: 'phase:start' } },
+    ]);
+    expect(await handle.events('missing')).toBeUndefined();
   });
 
-  it('tolerates a missing projects/ directory (no --web run has ever happened)', async () => {
-    const handle = watchSessionDirectory({
-      env: { ISSUE_FLOW_HOME: join(home, 'does-not-exist') },
-      pollIntervalMs: 10,
-    });
-    handles.push(handle);
+  it('expires sessions after their database heartbeat stops', async () => {
+    const publisher = publishSession();
+    await publisher.flush();
+    const handle = watch({ staleAfterMs: 30 });
+    await waitFor(() => handle.sessions().length === 1);
+    await waitFor(() => handle.sessions().length === 0);
+
+    // Keep the assertion independent from CI scheduling: the production window
+    // is 90 seconds, while this test compresses it to 30 ms.
+    await touchStoredSession(
+      context('proj-a', '42'),
+      'sess-a',
+      new Date(Date.now() + 1000).toISOString(),
+    );
+    await waitFor(() => handle.sessions().length === 1);
+  });
+
+  it('reads compatibility sessions and journals without SQLite in JSON mode', async () => {
+    const issueDir = join(home, 'projects', 'json-project', 'issues', '42');
+    await mkdir(issueDir, { recursive: true });
+    const now = new Date().toISOString();
+    await writeFile(
+      join(issueDir, 'session.json'),
+      JSON.stringify({
+        ...createInitialSnapshot(),
+        sessionId: 'json-session',
+        status: 'running',
+        updatedAt: now,
+        issue: { ...createInitialSnapshot().issue, number: 42 },
+      }),
+    );
+    await writeFile(
+      join(issueDir, 'events.jsonl'),
+      `${JSON.stringify({ seq: 1, event: { type: 'phase:start', at: now, phase: 'execute' } })}\n`,
+    );
+    const handle = watch({ storageDriver: 'json' });
+
     await handle.refresh();
-    expect(handle.sessions()).toEqual([]);
+    expect(handle.getSession('json-session')).toMatchObject({
+      projectId: 'json-project',
+      issueId: '42',
+    });
+    await expect(handle.events('json-session')).resolves.toMatchObject([
+      { seq: 1, event: { type: 'phase:start', phase: 'execute' } },
+    ]);
+    expect(existsSync(join(home, 'issue-flow.db'))).toBe(false);
   });
 });

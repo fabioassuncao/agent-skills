@@ -58,17 +58,14 @@
 The standalone `web serve` process is decoupled from any one pipeline
 invocation, so it cannot hold a `SessionPublisher` in memory for "the" run
 being monitored — there may be zero, one or several running at once, each in
-its own process. `watchSessionDirectory()` instead **polls** every
-`~/.issue-flow/projects/<project>/issues/<n>/session.json` on disk (the same
-file `FilePublisher` already writes) on a configurable interval (default
-`DEFAULT_POLL_INTERVAL_MS`), validates each one against `sessionSnapshotSchema`,
-and keeps a `sessionId → ActiveSession` map. A file that fails validation
-(corrupted, mid-write, incompatible schema) is skipped, never crashes the
-scan; a session whose file has gone `DEFAULT_STALE_AFTER_MS` without an
-update is dropped from the map on the next scan. `FilePublisher` keeps that
-mtime alive with a 10s `utimes` heartbeat which does not rewrite content or
-invalidate the content-derived ETag; the 90s stale window tolerates three
-missed beats plus scheduler and filesystem delays.
+its own process. `watchSessionDirectory()` instead **polls** the indexed
+`runs`, `snapshots` and `events` rows in `issue-flow.db` on a configurable
+interval (default `DEFAULT_POLL_INTERVAL_MS`) and keeps a `sessionId →
+ActiveSession` map. `SqliteSessionPublisher` writes the reduced snapshot and
+its ordered event in one transaction, then refreshes a quiet running session's
+database heartbeat every 10s; the 90s stale window tolerates three missed
+beats plus scheduler delays. `session.json` and JSONL remain compatibility
+projections only — the detached monitor must never traverse them.
 
 Polling rather than `fs.watch` is deliberate: `fs.watch`'s `recursive` option
 is only reliably supported on macOS and Windows, while the `~/.issue-flow`
@@ -100,10 +97,9 @@ write routes, `POST /api/config/agent` and `POST /api/config/routing`, delegate
 to the canonical preference writers and are advertised/enabled only for
 loopback bindings. Remote monitoring must never expose configuration mutation.
 
-`GET /api/events?session=<id>` reads the rotated journal first and the current
-generation second. Missing files and partial/malformed lines are empty/skipped,
-never request failures; the publisher-backed legacy source returns an empty
-history because it has no durable journal path.
+`GET /api/events?session=<id>` reads the ordered SQLite event stream. The
+publisher-backed legacy source returns an empty history because it has no
+durable database session.
 
 ETags are content-hashed (`sha1` of the serialized snapshot) rather than
 counter-based: a directory-backed session has no in-process publisher to hand

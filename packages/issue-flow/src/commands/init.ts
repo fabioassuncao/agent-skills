@@ -258,6 +258,7 @@ export async function runInit(
   const compact = options.compact === true;
 
   if (!json && !compact) {
+    printExperimentalNotice();
     printInfo('Checking prerequisites...\n');
   }
 
@@ -412,6 +413,28 @@ export async function runInit(
   }
 
   return allPassed ? 0 : 1;
+}
+
+/**
+ * `init` is the first command a new user runs, so it is where the maturity of
+ * the project is stated. The full notice lives in `docs/project-status.md`; this
+ * is the short form, printed only on the human path — `--json` is consumed by
+ * tooling and `--compact` is the preflight inside `run`.
+ */
+function printExperimentalNotice(): void {
+  printWarning(
+    'Issue Flow is experimental and under active development, built mostly with AI coding agents and not audited.',
+  );
+  for (const line of [
+    'Expect bugs, incomplete implementations, regressions and possibly undiscovered security flaws.',
+    'Not recommended for real projects, production environments, critical systems or repositories',
+    'with sensitive information. Keep backups, use a dedicated branch and review every change it makes.',
+    'Token consumption is not optimized yet: a run may use significantly more tokens than necessary.',
+    'https://github.com/fabioassuncao/issue-flow/blob/main/docs/project-status.md',
+  ]) {
+    console.log(`    ${line}`);
+  }
+  console.log('');
 }
 
 const ESCALATING_CODEX_KEYS = ['approvals_reviewer', 'sandbox_mode', 'sandbox_workspace_write'];

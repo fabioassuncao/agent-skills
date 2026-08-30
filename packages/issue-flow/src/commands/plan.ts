@@ -15,6 +15,7 @@ import type { ResolvedIssue } from '../issues/types.js';
 import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { taskPlanSchema } from '../schemas.js';
+import { getPlanRepository, ingestGeneratedPlan } from '../storage/db/repository.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import {
   determineUserStoryNumbering,
@@ -187,6 +188,13 @@ export async function runPlan(
   if (!outcome.ok) {
     printError(outcome.error ?? `Task plan generation failed for issue #${issueNumber}`);
     return 1;
+  }
+
+  // `plan` is written by the agent to the compatibility projection. Promote
+  // the validated result to SQLite before the pipeline reads it back.
+  const repository = getPlanRepository(tasksPath);
+  if (repository !== undefined) {
+    await ingestGeneratedPlan(repository);
   }
 
   // Ensure pipeline state reflects completion of this phase.

@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { createConfig, loadWebConfig, resolvePaths, validateDependencies } from '../config.js';
 import { runEngine } from '../core/engine.js';
+import { MultiPublisher } from '../core/journal.js';
 import { getSessionPublisher, setSessionPublisher } from '../core/session-publisher.js';
-import { FilePublisher, NullPublisher } from '../core/session-state.js';
+import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { allStoriesPass, isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
+import { getPlanRepository } from '../storage/db/repository.js';
+import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError } from '../ui/logger.js';
 import { getPackageVersion } from '../version.js';
@@ -49,7 +52,7 @@ export async function runExecute(
   const paths = await resolvePaths(config);
   const webConfig = await loadWebConfig();
   const inheritedPublisher = getSessionPublisher();
-  let standalonePublisher: FilePublisher | null = null;
+  let standalonePublisher: SessionPublisher | null = null;
 
   // `run` owns the publisher when it delegates to this command. A direct
   // `execute --issue N --web` has no owner, so install the same file-backed
@@ -62,13 +65,25 @@ export async function runExecute(
     const issuePaths = await resolveIssuePaths(config.issueNumber, {
       projectRoot: paths.projectRoot,
     });
-    standalonePublisher = new FilePublisher(issuePaths.sessionFile, {
+    const filePublisher = new FilePublisher(issuePaths.sessionFile, {
       logLimit: webConfig.logLimit,
       includeLogs: webConfig.includeLogs,
     });
-    setSessionPublisher(standalonePublisher);
+    const repository = getPlanRepository(issuePaths.tasksFile);
+    const publisher =
+      repository === undefined
+        ? filePublisher
+        : new MultiPublisher([
+            new SqliteSessionPublisher(repository, {
+              logLimit: webConfig.logLimit,
+              includeLogs: webConfig.includeLogs,
+            }),
+            filePublisher,
+          ]);
+    standalonePublisher = publisher;
+    setSessionPublisher(publisher);
     const numericIssue = /^\d+$/.test(config.issueNumber) ? Number(config.issueNumber) : null;
-    standalonePublisher.publish({
+    publisher.publish({
       type: 'session:start',
       at: isoNow(),
       sessionId: randomUUID(),
@@ -84,10 +99,10 @@ export async function runExecute(
         cliVersion: getPackageVersion(),
       },
     });
-    standalonePublisher.publish({ type: 'phase:start', at: isoNow(), phase: 'execute' });
+    publisher.publish({ type: 'phase:start', at: isoNow(), phase: 'execute' });
     await ensureWebMonitor(
       {
-        publisher: standalonePublisher,
+        publisher,
         port: webConfig.port,
         host: webConfig.host,
         refreshSeconds: webConfig.refreshSeconds,

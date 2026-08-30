@@ -1,11 +1,10 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Only the git seams are faked: everything below them (project id derivation,
-// the tasks.json scan, metadata.json read/write) runs for real against a
-// temporary tree.
+// Only the git seams are faked: project id derivation and SQLite-backed
+// numbering persistence run for real against a temporary tree.
 vi.mock('../utils/git.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/git.js')>();
   return {
@@ -18,7 +17,6 @@ vi.mock('../utils/git.js', async (importOriginal) => {
 const { getProjectRoot, getRemoteUrl } = await import('../utils/git.js');
 const { GLOBAL_ROOT_ENV } = await import('./paths.js');
 const { resetStorageResolutionCache } = await import('./resolve.js');
-const { projectMetadataSchema } = await import('./schemas.js');
 const {
   determineUserStoryNumbering,
   findHighestUserStoryNumber,
@@ -41,18 +39,18 @@ async function makeTemp(prefix: string): Promise<string> {
   return dir;
 }
 
-/** Write `<projectRoot>/…/issues/<issueId>/tasks.json` inside the global tree. */
+/** Seed canonical story history; numbering must never read tasks.json projections. */
 async function writeTasksJson(issueId: string, userStories: Array<{ id: string }>): Promise<void> {
-  // `issuesDir` is `<globalHome>/projects/<projectId>/issues`. The project id
-  // depends on the (mocked) remote, which is null in this file, so the id is
-  // derived from `path:<projectRoot>` — resolved indirectly through
-  // resolveProjectPaths() in the functions under test. Writing the file
-  // through that same resolver keeps this helper from hard-coding the id.
   const { resolveProjectPaths } = await import('./resolve.js');
-  const { issuesDir } = await resolveProjectPaths({ projectRoot, env });
-  const dir = join(issuesDir, issueId);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'tasks.json'), JSON.stringify({ userStories }), 'utf-8');
+  const { projectId } = await resolveProjectPaths({ projectRoot, env });
+  const { seedStoriesForNumbering } = await import('./db/test-seed.js');
+  await seedStoriesForNumbering({
+    projectId,
+    projectRoot,
+    issueId,
+    stories: userStories.map((story) => ({ id: story.id, number: parseUserStoryNumber(story.id) })),
+    env,
+  });
 }
 
 beforeEach(async () => {
@@ -119,7 +117,7 @@ describe('findHighestUserStoryNumber', () => {
     expect(result).toEqual({ number: 20, issueId: '13', storyId: 'US-020' });
   });
 
-  it('tolerates a corrupt or unreadable tasks.json in a sibling issue', async () => {
+  it('does not consult a corrupt compatibility projection in a sibling issue', async () => {
     const { resolveProjectPaths } = await import('./resolve.js');
     const { issuesDir } = await resolveProjectPaths({ projectRoot, env });
     await mkdir(join(issuesDir, '14'), { recursive: true });
@@ -146,17 +144,8 @@ describe('findHighestUserStoryNumber', () => {
     expect(result).toEqual({ number: 5, issueId: '12', storyId: 'US-005' });
   });
 
-  it('throws instead of reporting an empty history when the scan fails', async () => {
-    const { resolveProjectPaths } = await import('./resolve.js');
-    const { issuesDir } = await resolveProjectPaths({ projectRoot, env });
-    // A file where the issues directory is expected: readdir fails with
-    // ENOTDIR, which must not be mistaken for "no history yet".
-    await mkdir(join(issuesDir, '..'), { recursive: true });
-    await writeFile(issuesDir, 'not a directory', 'utf-8');
-
-    await expect(findHighestUserStoryNumber({ projectRoot, env })).rejects.toThrow(
-      /Could not scan the project's User Story history/,
-    );
+  it('does not depend on an issues directory existing', async () => {
+    await expect(findHighestUserStoryNumber({ projectRoot, env })).resolves.toBeNull();
   });
 });
 
@@ -231,7 +220,7 @@ describe('resolveUserStoryNumbering', () => {
 });
 
 describe('determineUserStoryNumbering', () => {
-  it('persists the decision into metadata.json for audit', async () => {
+  it('persists the decision only in SQLite when SQLite is canonical', async () => {
     await writeTasksJson('12', [{ id: 'US-015' }]);
 
     const result = await determineUserStoryNumbering({
@@ -242,37 +231,31 @@ describe('determineUserStoryNumbering', () => {
 
     expect(result.nextUserStoryId).toBe('US-016');
 
+    const { exportStoredState } = await import('./db/repository.js');
     const { resolveProjectPaths } = await import('./resolve.js');
-    const { projectDir } = await resolveProjectPaths({ projectRoot, env });
-    const metadataRaw = await readFile(join(projectDir, 'metadata.json'), 'utf-8');
-    const metadata = projectMetadataSchema.parse(JSON.parse(metadataRaw));
-
-    expect(metadata.userStoryNumbering).toMatchObject({
-      nextNumber: 16,
-      source: 'history',
-      issueNumber: '42',
+    const { projectId } = await resolveProjectPaths({ projectRoot, env });
+    await expect(exportStoredState({ env })).resolves.toMatchObject({
+      user_story_numbering: expect.arrayContaining([
+        expect.objectContaining({ project_id: projectId, next_number: 16, issue_id: '42' }),
+      ]),
     });
   });
 
-  it('keeps createdAt across two decisions for the same project', async () => {
+  it('replaces the SQLite audit record with the latest decision', async () => {
     const first = await determineUserStoryNumbering({ issueNumber: '42', projectRoot, env });
     expect(first.decision.source).toBe('none');
 
     await writeTasksJson('42', [{ id: 'US-001' }]);
 
-    const { resolveProjectPaths } = await import('./resolve.js');
-    const { projectDir } = await resolveProjectPaths({ projectRoot, env });
-    const firstMetadata = projectMetadataSchema.parse(
-      JSON.parse(await readFile(join(projectDir, 'metadata.json'), 'utf-8')),
-    );
-
     const second = await determineUserStoryNumbering({ issueNumber: '43', projectRoot, env });
     expect(second.decision).toMatchObject({ nextNumber: 2, source: 'history' });
-
-    const secondMetadata = projectMetadataSchema.parse(
-      JSON.parse(await readFile(join(projectDir, 'metadata.json'), 'utf-8')),
-    );
-    expect(secondMetadata.createdAt).toBe(firstMetadata.createdAt);
-    expect(secondMetadata.userStoryNumbering?.nextNumber).toBe(2);
+    const { exportStoredState } = await import('./db/repository.js');
+    const { resolveProjectPaths } = await import('./resolve.js');
+    const { projectId } = await resolveProjectPaths({ projectRoot, env });
+    await expect(exportStoredState({ env })).resolves.toMatchObject({
+      user_story_numbering: expect.arrayContaining([
+        expect.objectContaining({ project_id: projectId, next_number: 2, issue_id: '43' }),
+      ]),
+    });
   });
 });

@@ -23,7 +23,7 @@ See also [`AGENTS.md`](../AGENTS.md) (index) and
 | `routing/` | Shadow / active model-aware selection and escalation |
 | `scaffold/` | Plan-then-apply initialization that fills gaps, never overwrites |
 | `storage/` | Global tree (`~/.issue-flow`), artifact paths, legacy migration |
-| `telemetry/` | Execution history written into `tasks.json` |
+| `telemetry/` | Execution history written to canonical SQLite storage and materialized into compatibility projections |
 | `ui/` | Terminal output (clean view, icon grammar, pipeline renderer) |
 | `utils/` | Shared process / git / fs primitives with no domain rules |
 | `verify/` | Acceptance contract and independent reviewer |

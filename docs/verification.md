@@ -63,7 +63,7 @@ empty array (`"contract": []`) is an empty contract, not a request to discover.
 and is never labelled a verified success. This is the single most important
 property of the layer: silence is not a pass.
 
-The verdict is written to `verify.json` in the issue directory, published on the
+The verdict is persisted in SQLite and projected to `verify.json` in the issue directory, published on the
 session snapshot (`verification`), attached to the execution telemetry record,
 and printed on the terminal. Evidence is
 [redacted](storage.md#execution-telemetry) before it touches disk and is keyed by

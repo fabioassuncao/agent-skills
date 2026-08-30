@@ -6,7 +6,8 @@ installed.
 
 - [Global flags](#global-flags)
 - [Pipeline](#pipeline) — `run`, `resume`, and the individual phases
-- [Operating a run](#operating-a-run) — `status`, `ps`, `runs`, `logs`, `usage`, `pause`, `cancel`
+- [Operating a run](#operating-a-run) — `status`, `ps`, `runs`, `history`, `logs`, `usage`, `pause`, `cancel`
+- [Database maintenance](#database-maintenance) — `db check`, `db backup`, `db vacuum`, `db export`, `db verify`, `db import`
 - [Issues](#issues) — `generate`
 - [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`, `bench`
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
@@ -157,7 +158,7 @@ issue-flow plan 42 --start-us 27   # force a starting number, ignoring history
 is resolved through a cascade, and the decision is always printed:
 
 1. **Automatic recovery** (default): the highest `US-NNN` already used anywhere
-   in the project, recovered by scanning every `tasks.json` of the project. Ids
+   in the project, recovered from the indexed SQLite `stories` table. Ids
    that do not follow the format (`story-5`, `add-auth`) are parsed leniently or
    skipped — never thrown on.
 2. **No history** (the project's first `plan`): numbering starts at `US-001`.
@@ -173,7 +174,7 @@ User Story numbering forced to US-027 via --start-us.
 `--continue` and `--start-us` are mutually exclusive and passing both fails with
 exit code `1`. The decision is recorded in the project's `metadata.json`
 (`userStoryNumbering`) for audit, but the *next* decision always re-scans
-`tasks.json` from scratch — the record is never read back.
+the canonical database from scratch — the record is never read back.
 
 The resolved number is passed to the `plan` prompt as strong context. There is
 no programmatic renumbering pass after generation.
@@ -304,15 +305,18 @@ Where reports are published is configured by
 
 ## Operating a run
 
-These commands read state that already exists — `run.lock`, `tasks.json`,
-`session.json`, `execution-plan.json` and `events.jsonl` — and none of them
-touches the pipeline.
+These commands read state that already exists. SQLite is authoritative for
+plans, queues, sessions, events and telemetry; `run.lock` remains the process
+ownership source. With `storage.driver: "json"`, the same commands use the
+compatibility files and do not create or query SQLite. None touches the
+pipeline.
 
 ```bash
 issue-flow ps                     # every live run on this machine
 issue-flow status                 # what is running, in which phase, since when
 issue-flow status 42 --json       # the same, as JSON
 issue-flow runs                   # history: how each issue ended, and why
+issue-flow history 42             # phases, invocations and verdicts for one issue
 issue-flow logs 42 --kind retry   # the journal, filtered
 issue-flow logs --follow          # …and kept open as it grows
 issue-flow usage 42 --by harness  # cost and tokens per invocation
@@ -325,14 +329,45 @@ issue-flow cancel 42              # stop it, and mark it so `resume` reports it
 | `status [issue]` | Who owns the run (pid, host, last heartbeat), which phase and attempt each issue is on, how long since the last activity, and where a queue stands | `--json` |
 | `ps` | Every `issue-flow` run active on this machine | `--json`, `--watch` |
 | `runs` | One line per issue: status, duration and the first line of the failure | — |
+| `history <issue>` | Relational history of runs, phases, agent invocations, verification verdicts and PR-review rounds | `--json` |
 | `logs [issue]` | The append-only journal, in order and filtered. Needs the [journal](resilience.md#the-event-journal) enabled | `--issue`, `--follow`, `--tail <n>` (default 50), `--kind <a,b>` |
-| `usage [issue]` | Reader over `tasks.json.executions`. Never stores an aggregate; absence of telemetry prints a message instead of crashing | `--issue`, `--since <date>`, `--by <harness\|provider\|model\|purpose\|status>`, `--json` |
+| `usage [issue]` | Reader over indexed execution history. Never stores an aggregate; absence of telemetry prints a message instead of crashing | `--issue`, `--since <date>`, `--by <harness\|provider\|model\|purpose\|trigger\|status>`, `--json` |
 | `pause` | Sends `SIGTERM` to the owner, which writes a checkpoint, stops the agent with a grace period and closes its journal before exiting | — |
 | `cancel [issue]` | The same stop, plus marking the issue so a later `resume` reports it instead of silently continuing | — |
 
 `pause` and `cancel` deliberately do nothing beyond signalling: the owning
 process already knows how to stop well, and a second implementation of that from
 outside would be a worse one. Neither ever signals a **stale** owner.
+
+## Database maintenance
+
+```bash
+issue-flow db check
+issue-flow db backup
+issue-flow db backup --destination /safe/place/issue-flow.db
+issue-flow db vacuum
+issue-flow db export --destination /tmp/issue-flow-export.json
+issue-flow db verify
+issue-flow db import --with-events
+```
+
+The SQLite database is `~/.issue-flow/issue-flow.db` (or under
+`ISSUE_FLOW_HOME`). `check` runs SQLite's `integrity_check` and names recovery
+steps on failure. `backup` creates a consistent SQLite snapshot with `VACUUM
+INTO`; without `--destination`, it writes a timestamped file below
+`~/.issue-flow/backups/`. `vacuum` rebuilds the live database to reclaim unused
+space. `export` emits a readable JSON snapshot to stdout, or writes it to the
+requested destination. `verify` compares every materialized task and queue
+projection with canonical SQLite state, including projections that are missing.
+`import` reprocesses preserved compatibility artifacts; legacy event journals
+are deliberately excluded unless `--with-events` is passed because they can be
+large. Every command exits non-zero with an actionable error when its operation
+cannot be completed.
+
+The automatic JSON-to-SQLite import also creates a pre-upgrade backup before it
+migrates an existing schema. It retains five such snapshots by default; failed
+or corrupt imports preserve the original database with a timestamped `.failed-`
+or `.corrupt-` suffix and keep the JSON artifacts untouched for recovery.
 
 ## Issues
 
@@ -375,6 +410,11 @@ issue-flow init --json          # the plan, for tooling and for the init-reposit
 issue-flow init --scope apps/api
 issue-flow init --check-only    # prerequisites only, as earlier releases did
 ```
+
+It opens with the experimental-project notice — `init` is the first command a
+new user runs, so it is where the maturity of the tool is stated. The full text
+is in [**Project status**](project-status.md); `--json` and the compact preflight
+inside `run` skip it.
 
 Verifies `git` (inside a repo), the **selected** agent binary, and `gh`
 (authenticated). `gh` is blocking only when the issue origin is GitHub: with

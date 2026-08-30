@@ -196,8 +196,8 @@ describe('rotation', () => {
     await expect(stat(rotatedFile)).rejects.toThrow();
   });
 
-  it('defaults to 10 MB', () => {
-    expect(DEFAULT_JOURNAL_MAX_BYTES).toBe(10 * 1024 * 1024);
+  it('defaults to unbounded retention', () => {
+    expect(DEFAULT_JOURNAL_MAX_BYTES).toBe(0);
   });
 });
 
