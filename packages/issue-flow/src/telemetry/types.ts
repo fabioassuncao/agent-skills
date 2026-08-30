@@ -70,7 +70,7 @@ export interface ExecutionAgent {
   model: {
     requested: string | null;
     resolved: string | null;
-    source: 'provider' | 'config' | 'unavailable';
+    source: 'provider' | 'config' | 'routing' | 'unavailable';
   };
   providerSessionId: string | null;
 }
@@ -87,8 +87,8 @@ export interface ExecutionVerdict {
 }
 
 export interface RoutingDecision {
-  selected: string;
-  actual?: string;
+  selected: string | { harness: string; provider: string; model?: string | null; tier?: string };
+  actual?: string | { harness: string; provider: string; model?: string | null; tier?: string };
   candidates?: unknown[];
   reasonCodes?: string[];
   [key: string]: unknown;

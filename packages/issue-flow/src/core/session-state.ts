@@ -232,7 +232,7 @@ export interface SessionProcessLogEntry {
 
 export interface SessionConfigurationValue {
   value: string | null;
-  source: 'default' | 'global' | 'project' | 'env' | 'cli' | 'fallback';
+  source: 'default' | 'global' | 'project' | 'env' | 'cli' | 'fallback' | 'recommended';
 }
 
 export interface SessionPhaseConfiguration {

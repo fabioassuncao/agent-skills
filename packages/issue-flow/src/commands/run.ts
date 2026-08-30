@@ -3,11 +3,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { resetAgentInvocationState } from '../agents/invoke.js';
-import { describeRunAgents } from '../agents/resolve.js';
+import { describeRunAgents, hasExplicitAgentSelection } from '../agents/resolve.js';
 import {
   getActiveResilienceConfig,
+  getAgentCliOverrides,
   initResilienceConfig,
+  loadAgentConfig,
   loadIssuesConfig,
+  loadRoutingConfig,
   loadWebConfig,
 } from '../config.js';
 import {
@@ -59,6 +62,7 @@ import { parseIssueArguments } from '../issues/args.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import { recommendedTarget } from '../routing/policy.js';
 import {
   bindDiagnosticContext,
   flushDiagnostics,
@@ -954,6 +958,27 @@ async function runPipelinePhases(
       : ['prd', 'plan', 'execute', 'review', 'pr'],
   );
   const fallbacks = getActiveResilienceConfig().providers?.chain ?? [];
+  const routingConfig = await loadRoutingConfig();
+  const agentConfig = await loadAgentConfig();
+  const displayedPhases = Object.entries(agentSummary.byPhase).map(([phase, resolved]) => {
+    const recommended =
+      routingConfig.mode === 'active' &&
+      routingConfig.policy === 'recommended' &&
+      !hasExplicitAgentSelection(
+        agentConfig,
+        getAgentCliOverrides(),
+        phase as keyof typeof agentSummary.byPhase,
+      )
+        ? recommendedTarget(phase as keyof typeof agentSummary.byPhase)
+        : null;
+    return {
+      phase,
+      provider: recommended?.provider ?? resolved.provider,
+      model: recommended?.model ?? resolved.model,
+      providerSource: recommended ? ('recommended' as const) : resolved.origin.provider,
+      modelSource: recommended ? ('recommended' as const) : resolved.origin.model,
+    };
+  });
   const configurationSnapshot: SessionConfigurationSnapshot = {
     precedence: ['default', 'global', 'project', 'env', 'cli', 'step override'],
     defaultProvider: {
@@ -964,21 +989,21 @@ async function runPipelinePhases(
       value: agentSummary.defaultModel,
       source: agentSummary.defaultOrigin.model,
     },
-    phases: Object.entries(agentSummary.byPhase).map(([phase, resolved]) => ({
-      phase,
-      provider: { value: resolved.provider, source: resolved.origin.provider },
-      model: { value: resolved.model, source: resolved.origin.model },
+    phases: displayedPhases.map((resolved) => ({
+      phase: resolved.phase,
+      provider: { value: resolved.provider, source: resolved.providerSource },
+      model: { value: resolved.model, source: resolved.modelSource },
     })),
     fallbacks,
-    overrides: Object.entries(agentSummary.byPhase)
+    overrides: displayedPhases
       .filter(
-        ([, resolved]) =>
+        (resolved) =>
           resolved.provider !== agentSummary.defaultProvider ||
           resolved.model !== agentSummary.defaultModel,
       )
       .map(
-        ([phase, resolved]) =>
-          `${phase}: ${resolved.provider}${resolved.model ? ` · ${resolved.model}` : ''}`,
+        (resolved) =>
+          `${resolved.phase}: ${resolved.provider}${resolved.model ? ` · ${resolved.model}` : ''}`,
       ),
   };
   printInfo(

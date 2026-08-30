@@ -1,11 +1,44 @@
-import { loadRoutingConfig } from '../config.js';
+import { mkdir, readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { AGENT_PHASES } from '../agents/types.js';
+import { GLOBAL_CONFIG_FILENAME, loadRoutingConfig } from '../config.js';
 import { loadTaskPlan } from '../core/state-manager.js';
 import { decideRouting } from '../routing/decide.js';
+import { MODEL_CATALOG_VERSION } from '../routing/models.js';
+import { RECOMMENDED_POLICY_VERSION } from '../routing/policy.js';
 import { PRIORS_VERSION } from '../routing/priors.js';
+import { type RoutingConfigInput, routingConfigInputSchema } from '../schemas.js';
+import { getGlobalRoot } from '../storage/paths.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
-import { printInfo } from '../ui/logger.js';
+import { printError, printInfo, printSuccess } from '../ui/logger.js';
+import { writeFileAtomic } from '../utils/fs.js';
+import { getProjectRoot } from '../utils/git.js';
 
 export const ROUTING_COMMAND_SCHEMA_VERSION = 1;
+
+function targetLabel(
+  target:
+    | { harness: string; provider: string; model?: string | null; tier?: string }
+    | string
+    | undefined,
+): string {
+  if (target === undefined) return '—';
+  if (typeof target === 'string') return target;
+  const tier = target.tier ? `:${target.tier}` : '';
+  const model = target.model ? ` · ${target.model}` : '';
+  return `${target.provider}${tier}${model}`;
+}
+
+function targetKey(
+  target:
+    | { harness: string; provider: string; model?: string | null; tier?: string }
+    | string
+    | undefined,
+): string {
+  if (target === undefined) return '—';
+  if (typeof target === 'string') return target;
+  return `${target.harness}:${target.provider}:${target.model ?? ''}`;
+}
 
 export async function runRoutingInspect(options: { json?: boolean }): Promise<number> {
   const config = await loadRoutingConfig();
@@ -21,6 +54,8 @@ export async function runRoutingInspect(options: { json?: boolean }): Promise<nu
         {
           schemaVersion: ROUTING_COMMAND_SCHEMA_VERSION,
           priorsVersion: PRIORS_VERSION,
+          modelCatalogVersion: MODEL_CATALOG_VERSION,
+          recommendedPolicyVersion: RECOMMENDED_POLICY_VERSION,
           config,
           sample,
         },
@@ -34,7 +69,7 @@ export async function runRoutingInspect(options: { json?: boolean }): Promise<nu
   printInfo(`routing.profile: ${config.profile}`);
   if (sample) {
     printInfo(
-      `sample selected=${sample.selected} actual=${sample.actual} class=${sample.taskClass}`,
+      `sample selected=${targetLabel(sample.selected)} actual=${targetLabel(sample.actual)} class=${sample.taskClass}`,
     );
   }
   return 0;
@@ -57,7 +92,7 @@ export async function runRoutingReport(options: {
     const decision = record.routingDecision;
     if (decision === undefined || decision === null) continue;
     total += 1;
-    if (decision.selected === decision.actual) agree += 1;
+    if (targetKey(decision.selected) === targetKey(decision.actual)) agree += 1;
   }
   const rate = total === 0 ? 0 : agree / total;
   if (options.json === true) {
@@ -68,4 +103,97 @@ export async function runRoutingReport(options: {
   }
   printInfo(`shadow agreement: ${agree}/${total} (${(rate * 100).toFixed(0)}%)`);
   return 0;
+}
+
+export async function runRoutingExplain(options: { json?: boolean } = {}): Promise<number> {
+  const config = await loadRoutingConfig();
+  const phases = AGENT_PHASES.map((phase) => {
+    const decision = decideRouting({
+      phase,
+      actualHarness: 'claude-code',
+      actualProvider: 'claude',
+      mode: config.mode === 'off' ? 'shadow' : config.mode,
+      profile: config.profile,
+      policy: config.policy,
+    });
+    return {
+      phase,
+      target: decision?.selected ?? null,
+      origin: config.policy === 'recommended' ? 'recommended policy' : 'adaptive score',
+    };
+  });
+  if (options.json === true) {
+    console.log(
+      JSON.stringify({ schemaVersion: ROUTING_COMMAND_SCHEMA_VERSION, config, phases }, null, 2),
+    );
+    return 0;
+  }
+  printInfo(`routing policy: ${config.policy ?? 'adaptive'} (${config.mode})`);
+  for (const phase of phases) {
+    printInfo(
+      `${phase.phase.padEnd(12)} ${targetLabel(phase.target ?? undefined)} (${phase.origin})`,
+    );
+  }
+  return 0;
+}
+
+export async function writeRoutingPreference(input: {
+  target: 'global' | 'project';
+  values: RoutingConfigInput;
+  projectRoot?: string;
+}): Promise<string> {
+  const parsed = routingConfigInputSchema.safeParse(input.values);
+  if (!parsed.success || Object.keys(parsed.data).length === 0) {
+    throw new Error(
+      parsed.success
+        ? 'At least one routing setting is required.'
+        : `Invalid routing setting: ${parsed.error.issues[0]?.message ?? 'invalid value'}.`,
+    );
+  }
+  const path =
+    input.target === 'global'
+      ? join(getGlobalRoot(), GLOBAL_CONFIG_FILENAME)
+      : join(input.projectRoot ?? (await getProjectRoot()), '.issue-flow.json');
+  let existing: Record<string, unknown> = {};
+  try {
+    const value: unknown = JSON.parse(await readFile(path, 'utf-8'));
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      existing = value as Record<string, unknown>;
+    }
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new Error(`Could not read ${path}: ${(error as Error).message}`);
+    }
+  }
+  const current =
+    existing.routing !== null &&
+    typeof existing.routing === 'object' &&
+    !Array.isArray(existing.routing)
+      ? (existing.routing as Record<string, unknown>)
+      : {};
+  existing.routing = { ...current, ...parsed.data };
+  await mkdir(dirname(path), { recursive: true });
+  await writeFileAtomic(path, `${JSON.stringify(existing, null, 2)}\n`);
+  return path;
+}
+
+export async function runRoutingUse(
+  policy: string,
+  options: { global?: boolean; project?: boolean } = {},
+): Promise<number> {
+  if (policy !== 'recommended') {
+    printError(`Unknown routing policy '${policy}'. Valid policy: recommended.`);
+    return 1;
+  }
+  try {
+    const file = await writeRoutingPreference({
+      target: options.project === true ? 'project' : 'global',
+      values: { policy: 'recommended' },
+    });
+    printSuccess(`Wrote recommended routing policy to ${file}`);
+    return 0;
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
 }

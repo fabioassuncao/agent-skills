@@ -7,8 +7,8 @@ import {
 } from '../agents/types.js';
 import { analyzeTask } from './analyze.js';
 import { filterEligible } from './capabilities.js';
-import { modelsFor } from './models.js';
-import { recommendedFor } from './policy.js';
+import { MODEL_CATALOG_VERSION, modelsFor } from './models.js';
+import { RECOMMENDED_POLICY_VERSION, recommendedFor } from './policy.js';
 import { PRIORS_VERSION } from './priors.js';
 import { pickSelected, scoreCandidates } from './score.js';
 import type { RoutingDecision, RoutingMode, RoutingProfile, TaskSignals } from './types.js';
@@ -42,10 +42,11 @@ export function decideRouting(input: {
   if (input.mode === 'off') return null;
   const analyzed = analyzeTask(input.signals ?? {});
   const profile = input.profile ?? 'balanced';
+  const policyVersion = `${PRIORS_VERSION}:${MODEL_CATALOG_VERSION}:${input.policy === 'recommended' ? RECOMMENDED_POLICY_VERSION : 'adaptive'}`;
 
   if (input.skipScore) {
     return {
-      policyVersion: PRIORS_VERSION,
+      policyVersion,
       profile,
       taskClass: analyzed.taskClass,
       risk: analyzed.risk,
@@ -101,13 +102,12 @@ export function decideRouting(input: {
         ],
         taskClass: analyzed.taskClass,
         profile,
-        costStatus: 'reported' as const,
       }));
     }),
   );
   const selected = pickSelected(scored);
   return {
-    policyVersion: PRIORS_VERSION,
+    policyVersion,
     profile,
     taskClass: analyzed.taskClass,
     risk: analyzed.risk,

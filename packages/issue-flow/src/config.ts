@@ -30,6 +30,8 @@ import {
   policyConfigSchema,
   prReviewConfigSchema,
   type RoutingConfig,
+  type RoutingConfigInput,
+  routingConfigInputSchema,
   routingConfigSchema,
   type VerifyConfig,
   verifyConfigSchema,
@@ -1605,17 +1607,51 @@ export function setRoutingCliOverrides(overrides: Partial<RoutingConfig>): void 
 export async function loadRoutingConfig(
   options: {
     projectRoot?: string;
+    globalRoot?: string;
+    env?: NodeJS.ProcessEnv;
+    global?: RoutingConfigInput;
     warn?: (message: string) => void;
-    cli?: Partial<RoutingConfig>;
+    cli?: RoutingConfigInput;
   } = {},
 ): Promise<RoutingConfig> {
   const warn = options.warn ?? printWarning;
+  const global =
+    options.global ??
+    (
+      await loadGlobalConfig({
+        env: options.env ?? process.env,
+        ...(options.globalRoot === undefined ? {} : { globalRoot: options.globalRoot }),
+        warn,
+      })
+    ).routing;
   const file = await readProjectConfigFile(options.projectRoot, warn);
   const raw = file?.routing;
-  const parsed = raw === undefined ? {} : (routingConfigSchema.partial().safeParse(raw).data ?? {});
+  const parsedResult = routingConfigInputSchema.safeParse(raw ?? {});
+  if (!parsedResult.success) {
+    warn(
+      `Ignoring "routing" key of ${PROJECT_CONFIG_FILENAME}: ${parsedResult.error.issues[0]?.message ?? 'invalid value'}.`,
+    );
+  }
+  const project = parsedResult.success ? parsedResult.data : {};
+  const cli = options.cli ?? routingCliOverrides;
   const result = routingConfigSchema.safeParse({
-    ...parsed,
-    ...(options.cli ?? routingCliOverrides),
+    ...global,
+    ...project,
+    ...cli,
+    escalation: {
+      ...global?.escalation,
+      ...project.escalation,
+      ...cli.escalation,
+    },
+    ceilings: {
+      ...global?.ceilings,
+      ...project.ceilings,
+      ...cli.ceilings,
+    },
   });
-  return result.success ? result.data : routingConfigSchema.parse({});
+  if (result.success) return result.data;
+  warn(
+    `Invalid routing configuration (${result.error.issues[0]?.message ?? 'invalid value'}); using defaults.`,
+  );
+  return routingConfigSchema.parse({});
 }

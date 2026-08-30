@@ -34,7 +34,7 @@ describe('scoreCandidates', () => {
 
   it('does not treat unknown cost as zero', () => {
     const [first] = scoreCandidates([{ ...base, costStatus: 'unknown' }]);
-    expect(first?.score).toBeCloseTo((first?.prior ?? 0) * 0.6 + 0.1);
+    expect(first?.score).toBeCloseTo((first?.prior ?? 0) * 0.6 + 0.25 / 3 + 0.1);
   });
 
   it('breaks ties by harness name', () => {

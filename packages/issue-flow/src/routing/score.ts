@@ -28,7 +28,7 @@ export interface ScoreInput {
   learned?: number;
   samples?: number;
   profile?: RoutingProfile;
-  /** Cost status from #78. `unknown` never scores cost. */
+  /** Observed cost status from #78; catalog-relative cost is always available. */
   costStatus?: 'reported' | 'estimated' | 'unknown';
 }
 
@@ -44,7 +44,10 @@ export function scoreCandidates(inputs: readonly ScoreInput[]): Candidate[] {
     const rawLearned = samples >= MIN_SAMPLE_SIZE ? (input.learned ?? 0) : 0;
     const learned = clampLearned(rawLearned);
     const weights = PROFILE_WEIGHTS[profile];
-    const costScore = input.costStatus === 'unknown' ? 0 : 1 / input.relativeCost;
+    // This is catalog-relative ordering, not observed USD. An unknown reported
+    // cost still contributes no measured-cost signal; the declared tier order
+    // remains available to economy/balanced profiles.
+    const costScore = 1 / input.relativeCost;
     const latencyScore = 1 / input.relativeLatency;
     const score = input.eligible
       ? (prior + learned) * weights.quality +
@@ -54,9 +57,6 @@ export function scoreCandidates(inputs: readonly ScoreInput[]): Candidate[] {
     const reasonCodes = [...input.reasonCodes];
     if (input.eligible && samples === 0) reasonCodes.push('COLD_START');
     if (input.eligible && learned > 0) reasonCodes.push('HIGH_HISTORICAL_SUCCESS');
-    if (input.costStatus === 'unknown') {
-      // unknown (including subscription) is not $0 and does not score cost.
-    }
     return {
       harness: input.harness,
       provider: input.provider,

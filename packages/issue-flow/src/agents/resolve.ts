@@ -244,12 +244,25 @@ export async function describeRunAgents(
   };
 }
 
-export function hasExplicitAgentSelection(config: AgentConfig, cli?: AgentCliOverrides): boolean {
+export function hasExplicitAgentSelection(
+  config: AgentConfig,
+  cli?: AgentCliOverrides,
+  phase?: AgentPhase,
+): boolean {
   if (cli?.forceProvider !== undefined || cli?.forceModel !== undefined) return true;
-  if (cli?.phases && Object.keys(cli.phases).length > 0) return true;
+  if (
+    cli?.phases &&
+    (phase === undefined ? Object.keys(cli.phases).length > 0 : cli.phases[phase] !== undefined)
+  ) {
+    return true;
+  }
   if (config.provider !== 'claude') return true;
   if (config.model !== null) return true;
-  if (Object.keys(config.phases).length > 0) return true;
+  if (
+    phase === undefined ? Object.keys(config.phases).length > 0 : config.phases[phase] !== undefined
+  ) {
+    return true;
+  }
   if (config.claude.ignoreUserConfig !== undefined) return true;
   if (Object.keys(config.codex).length > 0) return true;
   return false;

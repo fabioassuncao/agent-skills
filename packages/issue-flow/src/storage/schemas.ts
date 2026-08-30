@@ -9,7 +9,7 @@ import type {
   RetryConfigKey,
   RetryPolicy,
 } from '../resilience/policy.js';
-import { pullRequestRefSchema, webConfigSchema } from '../schemas.js';
+import { pullRequestRefSchema, routingConfigInputSchema, webConfigSchema } from '../schemas.js';
 
 /**
  * Zod schemas for the files written under the global storage tree
@@ -354,6 +354,7 @@ export const globalConfigSchema = z
     resilience: resilienceConfigSchema,
     agent: agentConfigInputSchema,
     telemetry: telemetryConfigInputSchema,
+    routing: routingConfigInputSchema,
   })
   .partial();
 

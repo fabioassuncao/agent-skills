@@ -245,7 +245,7 @@ export const executionRecordSchema = z.object({
     model: z.object({
       requested: z.string().nullable(),
       resolved: z.string().nullable(),
-      source: z.enum(['provider', 'config', 'unavailable']),
+      source: z.enum(['provider', 'config', 'routing', 'unavailable']),
     }),
     providerSessionId: z.string().nullable(),
   }),
@@ -285,8 +285,26 @@ export const executionRecordSchema = z.object({
   owner: z.object({ pid: z.number().int(), host: z.string() }).nullable().optional(),
   routingDecision: z
     .object({
-      selected: z.string(),
-      actual: z.string().optional(),
+      selected: z.union([
+        z.string(),
+        z.object({
+          harness: z.string(),
+          provider: z.string(),
+          model: z.string().nullable().optional(),
+          tier: z.string().optional(),
+        }),
+      ]),
+      actual: z
+        .union([
+          z.string(),
+          z.object({
+            harness: z.string(),
+            provider: z.string(),
+            model: z.string().nullable().optional(),
+            tier: z.string().optional(),
+          }),
+        ])
+        .optional(),
       candidates: z.array(z.unknown()).optional(),
       reasonCodes: z.array(z.string()).optional(),
     })
@@ -424,7 +442,7 @@ const sessionStorySchema = z.object({
 
 const sessionConfigurationValueSchema = z.object({
   value: z.string().nullable(),
-  source: z.enum(['default', 'global', 'project', 'env', 'cli', 'fallback']),
+  source: z.enum(['default', 'global', 'project', 'env', 'cli', 'fallback', 'recommended']),
 });
 
 const sessionConfigurationSchema = z.object({
@@ -691,9 +709,41 @@ export const verifyConfigSchema = z.object({
 
 export type WebConfig = z.infer<typeof webConfigSchema>;
 export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
+const routingModeSchema = z.enum(['off', 'shadow', 'recommend', 'active']);
+const routingProfileSchema = z.enum(['economy', 'balanced', 'quality', 'speed']);
+const routingPolicySchema = z.literal('recommended');
+const routingEscalationInputSchema = z
+  .object({
+    enabled: z.boolean(),
+    minAttemptsBeforeEscalation: z.number().int().positive(),
+    maxEscalations: z.number().int().nonnegative(),
+    maxRungs: z.array(z.enum(['effort', 'model', 'harness', 'review', 'decompose'])),
+  })
+  .partial();
+const routingCeilingsInputSchema = z
+  .object({
+    maxCostUsdPerIssue: z.number().nonnegative().nullable(),
+    maxDurationMsPerIssue: z.number().nonnegative().nullable(),
+    maxExecutionsPerIssue: z.number().int().nonnegative().nullable(),
+    onCeiling: z.literal('block'),
+  })
+  .partial();
+
+/** Intermediate file/API layer: optional fields, with no materialized defaults. */
+export const routingConfigInputSchema = z
+  .object({
+    mode: routingModeSchema,
+    profile: routingProfileSchema,
+    policy: routingPolicySchema,
+    escalation: routingEscalationInputSchema,
+    ceilings: routingCeilingsInputSchema,
+  })
+  .partial();
+
 export const routingConfigSchema = z.object({
-  mode: z.enum(['off', 'shadow', 'recommend', 'active']).default('shadow'),
-  profile: z.enum(['economy', 'balanced', 'quality', 'speed']).default('balanced'),
+  mode: routingModeSchema.default('shadow'),
+  profile: routingProfileSchema.default('balanced'),
+  policy: routingPolicySchema.optional(),
   escalation: z
     .object({
       enabled: z.boolean().default(false),
@@ -726,3 +776,4 @@ export const routingConfigSchema = z.object({
 
 export type VerifyConfig = z.infer<typeof verifyConfigSchema>;
 export type RoutingConfig = z.infer<typeof routingConfigSchema>;
+export type RoutingConfigInput = z.infer<typeof routingConfigInputSchema>;

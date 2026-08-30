@@ -4,8 +4,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import chalk from 'chalk';
+import { type AgentAvailability, probeAgent } from '../agents/availability.js';
 import { isAgentPhase, isAgentProviderId } from '../agents/types.js';
 import { writeAgentPreference } from '../commands/agent.js';
+import { writeRoutingPreference } from '../commands/routing.js';
+import { loadRoutingConfig } from '../config.js';
 import type { JournalEntry } from '../core/journal.js';
 import { resolvePackageDir } from '../core/prompt-resolver.js';
 import {
@@ -13,6 +16,8 @@ import {
   type SessionPublisher,
   type SessionSnapshot,
 } from '../core/session-state.js';
+import { MODEL_CATALOG } from '../routing/models.js';
+import { routingConfigInputSchema } from '../schemas.js';
 import { readDiagnostics } from '../storage/diagnostics.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 import { getPackageVersion } from '../version.js';
@@ -73,6 +78,8 @@ export interface WebServerOptions {
   info?: (message: string) => void;
   /** Warning logger. Default: printWarning. */
   warn?: (message: string) => void;
+  /** Test seam for the installed-harness catalog returned by /api/config. */
+  probeAvailability?: (provider: Parameters<typeof probeAgent>[0]) => Promise<AgentAvailability>;
   /**
    * Whether to `unref()` the underlying socket so it never keeps the process
    * alive on its own. Default `true`, matching the historical contract for a
@@ -285,6 +292,28 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       return;
     }
 
+    if (req.method === 'POST' && path === '/api/config/routing') {
+      if (!isLoopbackHost(options.host)) {
+        respondJson(res, 403, {
+          error: 'Configuration writes are disabled when the monitor is not bound to loopback.',
+        });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const parsed = routingConfigInputSchema.safeParse(body);
+      if (!parsed.success || Object.keys(parsed.data).length === 0) {
+        respondJson(res, 400, {
+          error: parsed.success
+            ? 'At least one routing setting is required.'
+            : (parsed.error.issues[0]?.message ?? 'Invalid routing configuration.'),
+        });
+        return;
+      }
+      const file = await writeRoutingPreference({ target: 'global', values: parsed.data });
+      respondJson(res, 200, { ok: true, file, appliesTo: 'future executions' });
+      return;
+    }
+
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       respondJson(res, 404, { error: 'Not found' });
       return;
@@ -394,9 +423,21 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     if (path === '/api/config') {
       const sessionId = requestUrl.searchParams.get('session');
       const snapshot = sessionId === null ? undefined : source.get(sessionId);
+      const providers = ['claude', 'codex', 'cursor', 'antigravity'] as const;
+      const harnesses = ['claude-code', 'codex-cli', 'cursor-cli', 'antigravity-cli'] as const;
+      const probe = options.probeAvailability ?? probeAgent;
+      const availability = await Promise.all(providers.map((provider) => probe(provider)));
       respondJson(res, 200, {
         effective: snapshot?.configuration ?? null,
         capturedForSession: snapshot?.sessionId ?? null,
+        routing: await loadRoutingConfig(),
+        catalog: harnesses.map((harness, index) => ({
+          harness,
+          provider: providers[index],
+          installed: availability[index]?.installed ?? false,
+          authenticated: availability[index]?.authenticated ?? false,
+          models: MODEL_CATALOG[harness] ?? [],
+        })),
         writable: isLoopbackHost(options.host),
         writeScope: 'global preferences for future executions',
       });
@@ -412,7 +453,9 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         uptime: Math.round((Date.now() - startedAtMs) / 1000),
         version,
         refreshSeconds: options.refreshSeconds ?? 5,
-        capabilities: isLoopbackHost(options.host) ? ['config:agent:write'] : [],
+        capabilities: isLoopbackHost(options.host)
+          ? ['config:agent:write', 'config:routing:write']
+          : [],
       });
       return;
     }

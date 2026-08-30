@@ -280,6 +280,7 @@ describe('startWebServer', () => {
     expect(health.version).toBe('9.9.9');
     expect(health.refreshSeconds).toBe(10);
     expect(health.capabilities).toContain('config:agent:write');
+    expect(health.capabilities).toContain('config:routing:write');
     expect(response.headers.get('X-Issue-Flow-Instance')).toBe(handle.instanceId);
   });
 
@@ -309,6 +310,73 @@ describe('startWebServer', () => {
       if (previous === undefined) delete process.env.ISSUE_FLOW_HOME;
       else process.env.ISSUE_FLOW_HOME = previous;
     }
+  });
+
+  it('writes validated routing preferences globally and exposes the resolved catalog', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-web-routing-'));
+    tmpDirs.push(dir);
+    const previous = process.env.ISSUE_FLOW_HOME;
+    process.env.ISSUE_FLOW_HOME = dir;
+    try {
+      const handle = await start({
+        probeAvailability: async (id) => ({
+          id,
+          installed: id === 'claude' || id === 'codex',
+          authenticated: true,
+          version: 'test',
+          detail: 'test',
+        }),
+      });
+      const response = await fetch(`${handle.url}/api/config/routing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'active', profile: 'economy', policy: 'recommended' }),
+      });
+      expect(response.status).toBe(200);
+      expect(JSON.parse(await readFile(join(dir, 'config.json'), 'utf-8'))).toMatchObject({
+        routing: { mode: 'active', profile: 'economy', policy: 'recommended' },
+      });
+
+      const config = await fetch(`${handle.url}/api/config?session=session-1`).then((res) =>
+        res.json(),
+      );
+      expect(config.routing).toMatchObject({
+        mode: 'active',
+        profile: 'economy',
+        policy: 'recommended',
+      });
+      expect(config.catalog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            harness: 'codex-cli',
+            provider: 'codex',
+            installed: true,
+            models: expect.arrayContaining([expect.objectContaining({ tier: 'fast' })]),
+          }),
+        ]),
+      );
+    } finally {
+      if (previous === undefined) delete process.env.ISSUE_FLOW_HOME;
+      else process.env.ISSUE_FLOW_HOME = previous;
+    }
+  });
+
+  it('rejects invalid routing writes and disables them outside loopback', async () => {
+    const local = await start();
+    const invalid = await fetch(`${local.url}/api/config/routing`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'automatic' }),
+    });
+    expect(invalid.status).toBe(400);
+
+    const remote = await start({ host: '0.0.0.0' });
+    const forbidden = await fetch(`${remote.url}/api/config/routing`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'active' }),
+    });
+    expect(forbidden.status).toBe(403);
   });
 
   it('serves static assets from the public directory', async () => {

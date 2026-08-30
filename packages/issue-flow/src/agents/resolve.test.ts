@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadAgentConfig, setAgentCliOverrides } from '../config.js';
 import { resetStorageResolutionCache } from '../storage/resolve.js';
-import { parseAgentPhaseFlag, resolveAgentFor } from './resolve.js';
+import { hasExplicitAgentSelection, parseAgentPhaseFlag, resolveAgentFor } from './resolve.js';
 
 const warn = (): void => undefined;
 
@@ -203,5 +203,20 @@ describe('loadAgentConfig / resolveAgentFor', () => {
     });
     expect(resolved.provider).toBe('claude');
     expect(resolved.codex.sandbox).toBe('danger-full-access');
+  });
+
+  it('treats a phase override as explicit only for that phase', () => {
+    const config = {
+      provider: 'claude' as const,
+      model: null,
+      claude: {},
+      codex: {},
+      cursor: {},
+      antigravity: {},
+      phases: { review: { provider: 'codex' as const } },
+    };
+    expect(hasExplicitAgentSelection(config, {}, 'review')).toBe(true);
+    expect(hasExplicitAgentSelection(config, {}, 'plan')).toBe(false);
+    expect(hasExplicitAgentSelection(config, {})).toBe(true);
   });
 });

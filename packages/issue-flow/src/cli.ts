@@ -761,24 +761,40 @@ withGlobalOptions(
 });
 
 const routingCommand = withGlobalOptions(
-  program
-    .command('routing')
-    .description('Inspect the shadow router (records a recommendation, does not act)'),
+  program.command('routing').description('Inspect and configure adaptive harness/model routing'),
 );
 routingCommand
   .option('--json', 'Emit the resolved routing config as JSON')
-  .action(async (options: { json?: boolean }) => {
+  .action(async (_options: unknown, command: Command) => {
     const { runRoutingInspect } = await import('./commands/routing.js');
-    process.exit(await runRoutingInspect(options));
+    process.exit(await runRoutingInspect(command.opts()));
+  });
+routingCommand
+  .command('explain')
+  .description('Explain the resolved routing target for every phase')
+  .option('--json', 'Emit JSON')
+  .action(async (_options: unknown, command: Command) => {
+    const { runRoutingExplain } = await import('./commands/routing.js');
+    process.exit(await runRoutingExplain(command.optsWithGlobals()));
+  });
+routingCommand
+  .command('use')
+  .description('Enable an embedded routing policy')
+  .argument('<policy>', 'Policy name (recommended)')
+  .option('--global', 'Write ~/.issue-flow/config.json (default)')
+  .option('--project', 'Write .issue-flow.json instead')
+  .action(async (policy: string, _options: unknown, command: Command) => {
+    const { runRoutingUse } = await import('./commands/routing.js');
+    process.exit(await runRoutingUse(policy, command.optsWithGlobals()));
   });
 routingCommand
   .command('report')
   .description('Shadow agreement between selected and actual harness')
   .option('--issue <n>', 'Issue number')
   .option('--json', 'Emit JSON')
-  .action(async (options: { issue?: string; json?: boolean }) => {
+  .action(async (_options: unknown, command: Command) => {
     const { runRoutingReport } = await import('./commands/routing.js');
-    process.exit(await runRoutingReport(options));
+    process.exit(await runRoutingReport(command.optsWithGlobals()));
   });
 
 const conventionsCommand = withGlobalOptions(

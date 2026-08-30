@@ -14,12 +14,14 @@ import type { ProviderHealthRecord } from '../storage/schemas.js';
 import { beginExecution, endExecution } from '../telemetry/recorder.js';
 import { redactSecrets } from '../telemetry/redact.js';
 import type { ExecutionPurpose, ExecutionRecord, ExecutionTrigger } from '../telemetry/types.js';
+import { printInfo } from '../ui/logger.js';
 import { resolveAntigravityTimeoutMs } from './antigravity.js';
 import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
 import { ensureCursorStorageGrant } from './permissions.js';
 import { runnerFor } from './registry.js';
 import { hasExplicitAgentSelection, resolveAgentFor } from './resolve.js';
+import { applyRoutingDecision, routingRecommendationLine } from './routing-application.js';
 import { type AgentSelection, selectAgentForInvocation } from './select.js';
 import type { AgentInvocation, AgentProviderId, AgentRunResult } from './types.js';
 
@@ -106,10 +108,39 @@ export function resetAgentInvocationState(): void {
 /** One invocation, including provider selection, health persistence and audit events. */
 export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<SelectedAgentRun> {
   const config = getActiveResilienceConfig();
-  const selection =
+  let selection =
     invocation.forceProvider === undefined
       ? await selectAgentForInvocation(invocation.phase, { config })
       : await selectionForForced(invocation);
+  const originalIdentity = declaredAgentIdentity(selection.provider);
+  const routingCfg = await loadRoutingConfig();
+  const agentCfg = await loadAgentConfig();
+  const routingDecision = decideRouting({
+    phase: invocation.phase,
+    actualHarness: originalIdentity.harness,
+    actualProvider: selection.provider,
+    actualModel: selection.settings.model,
+    mode: routingCfg.mode,
+    profile: routingCfg.profile,
+    policy: routingCfg.policy,
+    skipScore: hasExplicitAgentSelection(agentCfg, getAgentCliOverrides(), invocation.phase),
+    requiresExtraDirectories: (invocation.addDirs?.length ?? 0) > 0,
+  });
+  const recommendation = routingRecommendationLine(routingDecision, invocation.phase);
+  if (recommendation !== null) printInfo(recommendation);
+  const routed = await applyRoutingDecision(selection, routingDecision, invocation.phase);
+  selection = routed.selection;
+  if (routed.warning !== null) {
+    writeDiagnostic({
+      level: 'warning',
+      message: routed.warning,
+      fields: {
+        phase: invocation.phase,
+        harness: originalIdentity.harness,
+        model: selection.settings.model,
+      },
+    });
+  }
   const attempt = nextAttempt(invocation.phase);
   const publisher = getSessionPublisher();
   publisher.publish({
@@ -143,16 +174,17 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
 
   const identity = declaredAgentIdentity(selection.provider);
   const requested = selection.settings.model;
-  const routingCfg = await loadRoutingConfig();
-  const agentCfg = await loadAgentConfig();
-  const routingDecision = decideRouting({
-    phase: invocation.phase,
-    actualHarness: identity.harness,
-    mode: routingCfg.mode,
-    profile: routingCfg.profile,
-    skipScore: hasExplicitAgentSelection(agentCfg, getAgentCliOverrides()),
-    requiresExtraDirectories: (invocation.addDirs?.length ?? 0) > 0,
-  });
+  const recordedRoutingDecision =
+    routingDecision !== null && routed.applied
+      ? {
+          ...routingDecision,
+          actual: {
+            harness: identity.harness,
+            provider: selection.provider,
+            model: requested,
+          },
+        }
+      : routingDecision;
   const executionId = await beginExecution({
     purpose: (invocation.purpose ?? invocation.phase) as ExecutionPurpose,
     attempt,
@@ -167,15 +199,17 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     harnessVersion: peekHarnessVersion(selection.provider) ?? null,
     modelRequested: requested,
     modelResolved: null,
-    modelSource: requested ? 'config' : 'unavailable',
+    modelSource: requested ? (routed.applied ? 'routing' : 'config') : 'unavailable',
     ...(invocation.iteration === undefined ? {} : { iteration: invocation.iteration }),
     ...(invocation.correctionCycle === undefined
       ? {}
       : { correctionCycle: invocation.correctionCycle }),
     ...(invocation.storyIds === undefined ? {} : { storyIds: invocation.storyIds }),
-    ...(routingDecision === null
+    ...(recordedRoutingDecision === null
       ? {}
-      : { routingDecision: routingDecision as unknown as ExecutionRecord['routingDecision'] }),
+      : {
+          routingDecision: recordedRoutingDecision as unknown as ExecutionRecord['routingDecision'],
+        }),
   });
   bindDiagnosticContext({
     executionId,
@@ -384,10 +418,14 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       modelResolved: run.agent.model,
       modelSource: run.agent.model
         ? requested
-          ? 'config'
+          ? routed.applied
+            ? 'routing'
+            : 'config'
           : 'provider'
         : requested
-          ? 'config'
+          ? routed.applied
+            ? 'routing'
+            : 'config'
           : 'unavailable',
       harnessVersion: run.harnessVersion ?? peekHarnessVersion(selection.provider) ?? null,
       providerSessionId: run.sessionId ?? null,
