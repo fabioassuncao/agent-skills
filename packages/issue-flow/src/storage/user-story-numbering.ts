@@ -1,6 +1,5 @@
 import { isoNow } from '../core/state-manager.js';
 import { getProjectRoot } from '../utils/git.js';
-import { recordUserStoryNumbering } from './compat.js';
 import { findHighestStoredUserStoryNumber, saveStoredUserStoryNumbering } from './db/repository.js';
 import { type ResolveIssuePathsOptions, resolveProjectPaths } from './resolve.js';
 import type { UserStoryNumberingDecision } from './schemas.js';
@@ -201,10 +200,6 @@ export async function determineUserStoryNumbering(
   const projectRoot = projectRootOption ?? (await getProjectRoot());
 
   const outcome = await resolveUserStoryNumbering({ ...rest, projectRoot });
-  await recordUserStoryNumbering(projectRoot, outcome.decision, {
-    env: options.env,
-    now: options.now,
-  });
   const project = await resolveProjectPaths({ projectRoot, env: options.env });
   if (project.storageDriver === 'sqlite') {
     await saveStoredUserStoryNumbering(
@@ -215,6 +210,12 @@ export async function determineUserStoryNumbering(
       },
       outcome.decision,
     );
+  } else {
+    const { recordUserStoryNumbering } = await import('./compat.js');
+    await recordUserStoryNumbering(projectRoot, outcome.decision, {
+      env: options.env,
+      now: options.now,
+    });
   }
 
   return { ...outcome, nextUserStoryId: formatUserStoryId(outcome.decision.nextNumber) };

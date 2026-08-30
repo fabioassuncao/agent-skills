@@ -181,6 +181,67 @@ describe('SQLite plan repository', () => {
       ]),
     });
   });
+
+  it.each([
+    'analyze',
+    'prd',
+    'plan',
+  ] as const)('records standalone %s telemetry with its project, issue, run and phase in one transaction', async (purpose) => {
+    const directory = await mkdtemp(join(tmpdir(), `issue-flow-${purpose}-standalone-`));
+    const standalone: PlanRepositoryContext = {
+      tasksPath: join(directory, 'tasks.json'),
+      projectId: `standalone-${purpose}-${Date.now()}`,
+      issueId: '42',
+      projectRoot: directory,
+    };
+    await saveExecution(standalone, {
+      id: `${purpose}-execution`,
+      purpose,
+      status: 'completed',
+      startedAt: '2026-08-30T20:00:00Z',
+      finishedAt: '2026-08-30T20:00:01Z',
+      durationMs: 1000,
+      usage: { inputTokens: 3, outputTokens: 2 },
+      cost: { status: 'unknown', reason: 'not_reported' },
+    });
+    await expect(exportStoredState()).resolves.toMatchObject({
+      issues: expect.arrayContaining([
+        expect.objectContaining({ project_id: standalone.projectId, id: '42' }),
+      ]),
+      runs: expect.arrayContaining([
+        expect.objectContaining({ project_id: standalone.projectId, issue_id: '42' }),
+      ]),
+      phases: expect.arrayContaining([
+        expect.objectContaining({ name: purpose, input_tokens: 3, output_tokens: 2 }),
+      ]),
+      executions: expect.arrayContaining([expect.objectContaining({ id: `${purpose}-execution` })]),
+    });
+  });
+
+  it('round-trips pull-request and review history from runtime plan state', async () => {
+    const updated = plan();
+    updated.pipeline.prCreated = true;
+    updated.pullRequest = {
+      number: 91,
+      url: 'https://example.test/pull/91',
+      headBranch: 'develop',
+      createdAt: '2026-08-30T20:00:00Z',
+    };
+    updated.prReview = {
+      enabled: true,
+      rounds: 1,
+      lastRecommendation: 'APPROVE',
+      lastReviewedAt: '2026-08-30T20:01:00Z',
+    };
+    await saveStoredPlan(context, updated);
+
+    await expect(exportStoredState()).resolves.toMatchObject({
+      pull_requests: expect.arrayContaining([
+        expect.objectContaining({ issue_id: context.issueId, number: 91 }),
+      ]),
+      reviews: expect.arrayContaining([expect.objectContaining({ status: 'APPROVE' })]),
+    });
+  });
 });
 
 describe('SQLite queue repository', () => {

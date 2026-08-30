@@ -532,6 +532,41 @@ export function writePlanRows(
         .run(context.projectId, context.issueId, story.id, dependency);
     }
   }
+
+  if (plan.pullRequest !== undefined) {
+    const pullRequestId = `pr:${context.projectId}:${context.issueId}:${plan.pullRequest.number}`;
+    database
+      .prepare(
+        `INSERT INTO pull_requests (id, project_id, issue_id, number, url, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET url = excluded.url, status = excluded.status`,
+      )
+      .run(
+        pullRequestId,
+        context.projectId,
+        context.issueId,
+        plan.pullRequest.number,
+        plan.pullRequest.url,
+        plan.pipeline.prCreated ? 'created' : 'pending',
+        plan.pullRequest.createdAt,
+      );
+    if (plan.prReview?.lastReviewedAt !== undefined) {
+      database
+        .prepare(
+          `INSERT INTO reviews (id, pull_request_id, status, created_at, payload_json)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET status = excluded.status, created_at = excluded.created_at,
+             payload_json = excluded.payload_json`,
+        )
+        .run(
+          `review:${pullRequestId}:${plan.prReview.rounds}`,
+          pullRequestId,
+          plan.prReview.lastRecommendation ?? 'unknown',
+          plan.prReview.lastReviewedAt,
+          JSON.stringify(plan.prReview),
+        );
+    }
+  }
 }
 
 /** Persist the canonical plan and refresh its file projection atomically. */
@@ -727,57 +762,111 @@ export async function saveExecution(
   context: PlanRepositoryContext,
   execution: { id: string } & Record<string, unknown>,
 ): Promise<void> {
-  await withDatabase((database) => {
-    const columns = executionColumns(execution);
-    database
-      .prepare(
-        `INSERT INTO executions
-         (id, project_id, issue_id, status, started_at, finished_at, duration_ms, cost_status, cost_amount, payload_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  await withDatabase(
+    (database) =>
+      database.transaction(() => {
+        const columns = executionColumns(execution);
+        const agent = execution.agent as Record<string, unknown> | undefined;
+        const model = agent?.model as Record<string, unknown> | undefined;
+        const usage = execution.usage as Record<string, unknown> | null | undefined;
+        const runId = (execution.sessionId as string | null | undefined) ?? execution.id;
+        const phaseId = `phase:${runId}:${String(execution.purpose ?? 'unknown')}`;
+        // Documentation phases can invoke telemetry before a task plan exists.
+        // Keep every relation valid in the same transaction as the execution.
+        ensureStoredProject(database, context, columns.startedAt);
+        ensureStoredIssue(database, context, columns.startedAt);
+        database
+          .prepare(
+            `INSERT INTO runs (id, project_id, issue_id, status, started_at, finished_at, session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET status = excluded.status, finished_at = excluded.finished_at`,
+          )
+          .run(
+            runId,
+            context.projectId,
+            context.issueId,
+            columns.status,
+            columns.startedAt,
+            columns.finishedAt,
+            (execution.sessionId as string | null | undefined) ?? null,
+          );
+        database
+          .prepare(
+            `INSERT INTO phases
+         (id, run_id, name, status, started_at, finished_at, duration_ms, input_tokens, output_tokens,
+          cache_read_tokens, cache_creation_tokens, cost_status, cost_amount)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET status = excluded.status, finished_at = excluded.finished_at,
+           duration_ms = excluded.duration_ms, input_tokens = excluded.input_tokens,
+           output_tokens = excluded.output_tokens, cache_read_tokens = excluded.cache_read_tokens,
+           cache_creation_tokens = excluded.cache_creation_tokens, cost_status = excluded.cost_status,
+           cost_amount = excluded.cost_amount`,
+          )
+          .run(
+            phaseId,
+            runId,
+            String(execution.purpose ?? 'unknown'),
+            columns.status,
+            columns.startedAt,
+            columns.finishedAt,
+            columns.durationMs,
+            (usage?.inputTokens as number | undefined) ?? null,
+            (usage?.outputTokens as number | undefined) ?? null,
+            (usage?.cacheReadTokens as number | undefined) ?? null,
+            (usage?.cacheCreationTokens as number | undefined) ?? null,
+            columns.costStatus,
+            columns.costAmount,
+          );
+        database
+          .prepare(
+            `INSERT INTO executions
+         (id, project_id, issue_id, run_id, phase_id, status, started_at, finished_at, duration_ms, cost_status, cost_amount, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET status = excluded.status, finished_at = excluded.finished_at,
          duration_ms = excluded.duration_ms, cost_status = excluded.cost_status, cost_amount = excluded.cost_amount,
          payload_json = excluded.payload_json`,
-      )
-      .run(
-        execution.id,
-        context.projectId,
-        context.issueId,
-        columns.status,
-        columns.startedAt,
-        columns.finishedAt,
-        columns.durationMs,
-        columns.costStatus,
-        columns.costAmount,
-        JSON.stringify(execution),
-      );
-    const agent = execution.agent as Record<string, unknown> | undefined;
-    const model = agent?.model as Record<string, unknown> | undefined;
-    const usage = execution.usage as Record<string, unknown> | null | undefined;
-    database
-      .prepare(
-        `UPDATE executions SET session_id = ?, purpose = ?, attempt = ?, trigger = ?, trigger_reason = ?,
+          )
+          .run(
+            execution.id,
+            context.projectId,
+            context.issueId,
+            runId,
+            phaseId,
+            columns.status,
+            columns.startedAt,
+            columns.finishedAt,
+            columns.durationMs,
+            columns.costStatus,
+            columns.costAmount,
+            JSON.stringify(execution),
+          );
+        database
+          .prepare(
+            `UPDATE executions SET session_id = ?, purpose = ?, attempt = ?, trigger = ?, trigger_reason = ?,
          input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, reasoning_tokens = ?,
          harness = ?, provider = ?, model_requested = ?, model_resolved = ? WHERE id = ?`,
-      )
-      .run(
-        (execution.sessionId as string | null | undefined) ?? null,
-        (execution.purpose as string | undefined) ?? null,
-        (execution.attempt as number | undefined) ?? null,
-        (execution.trigger as string | undefined) ?? null,
-        (execution.triggerReason as string | null | undefined) ?? null,
-        (usage?.inputTokens as number | undefined) ?? null,
-        (usage?.outputTokens as number | undefined) ?? null,
-        (usage?.cacheReadTokens as number | undefined) ?? null,
-        (usage?.cacheCreationTokens as number | undefined) ?? null,
-        (usage?.reasoningTokens as number | undefined) ?? null,
-        (agent?.harness as string | undefined) ?? null,
-        (agent?.provider as string | null | undefined) ?? null,
-        (model?.requested as string | null | undefined) ?? null,
-        (model?.resolved as string | null | undefined) ?? null,
-        execution.id,
-      );
-    applyStoredRetention(database, context.projectId, context.retention);
-  });
+          )
+          .run(
+            (execution.sessionId as string | null | undefined) ?? null,
+            (execution.purpose as string | undefined) ?? null,
+            (execution.attempt as number | undefined) ?? null,
+            (execution.trigger as string | undefined) ?? null,
+            (execution.triggerReason as string | null | undefined) ?? null,
+            (usage?.inputTokens as number | undefined) ?? null,
+            (usage?.outputTokens as number | undefined) ?? null,
+            (usage?.cacheReadTokens as number | undefined) ?? null,
+            (usage?.cacheCreationTokens as number | undefined) ?? null,
+            (usage?.reasoningTokens as number | undefined) ?? null,
+            (agent?.harness as string | undefined) ?? null,
+            (agent?.provider as string | null | undefined) ?? null,
+            (model?.requested as string | null | undefined) ?? null,
+            (model?.resolved as string | null | undefined) ?? null,
+            execution.id,
+          );
+        applyStoredRetention(database, context.projectId, context.retention);
+      }),
+    context.databaseOptions,
+  );
   // Direct library consumers historically read the projection themselves.
   // Keep that contract only for their synthetic context; real issue paths
   // intentionally leave projection refresh to the phase boundary so an

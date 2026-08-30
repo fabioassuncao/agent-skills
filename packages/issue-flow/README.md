@@ -26,7 +26,7 @@ npx issue-flow run 42 --web   # …and watch it live at http://localhost:3737
 
 ## Requirements
 
-- **Node.js** ≥ 22
+- **Node.js** ≥ 22.13.0
 - **Git**, available in `PATH`, inside a repository
 - **A coding agent** — `npm install -g @anthropic-ai/claude-code` for the default
 - **GitHub CLI** (`gh`), authenticated — only for GitHub issues; a run on local

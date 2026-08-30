@@ -1,11 +1,10 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Only the git seams are faked: everything below them (project id derivation,
-// the tasks.json scan, metadata.json read/write) runs for real against a
-// temporary tree.
+// Only the git seams are faked: project id derivation and SQLite-backed
+// numbering persistence run for real against a temporary tree.
 vi.mock('../utils/git.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/git.js')>();
   return {
@@ -18,7 +17,6 @@ vi.mock('../utils/git.js', async (importOriginal) => {
 const { getProjectRoot, getRemoteUrl } = await import('../utils/git.js');
 const { GLOBAL_ROOT_ENV } = await import('./paths.js');
 const { resetStorageResolutionCache } = await import('./resolve.js');
-const { projectMetadataSchema } = await import('./schemas.js');
 const {
   determineUserStoryNumbering,
   findHighestUserStoryNumber,
@@ -222,7 +220,7 @@ describe('resolveUserStoryNumbering', () => {
 });
 
 describe('determineUserStoryNumbering', () => {
-  it('persists the decision into metadata.json for audit', async () => {
+  it('persists the decision only in SQLite when SQLite is canonical', async () => {
     await writeTasksJson('12', [{ id: 'US-015' }]);
 
     const result = await determineUserStoryNumbering({
@@ -233,17 +231,8 @@ describe('determineUserStoryNumbering', () => {
 
     expect(result.nextUserStoryId).toBe('US-016');
 
-    const { resolveProjectPaths } = await import('./resolve.js');
-    const { projectDir } = await resolveProjectPaths({ projectRoot, env });
-    const metadataRaw = await readFile(join(projectDir, 'metadata.json'), 'utf-8');
-    const metadata = projectMetadataSchema.parse(JSON.parse(metadataRaw));
-
-    expect(metadata.userStoryNumbering).toMatchObject({
-      nextNumber: 16,
-      source: 'history',
-      issueNumber: '42',
-    });
     const { exportStoredState } = await import('./db/repository.js');
+    const { resolveProjectPaths } = await import('./resolve.js');
     const { projectId } = await resolveProjectPaths({ projectRoot, env });
     await expect(exportStoredState({ env })).resolves.toMatchObject({
       user_story_numbering: expect.arrayContaining([
@@ -252,25 +241,21 @@ describe('determineUserStoryNumbering', () => {
     });
   });
 
-  it('keeps createdAt across two decisions for the same project', async () => {
+  it('replaces the SQLite audit record with the latest decision', async () => {
     const first = await determineUserStoryNumbering({ issueNumber: '42', projectRoot, env });
     expect(first.decision.source).toBe('none');
 
     await writeTasksJson('42', [{ id: 'US-001' }]);
 
-    const { resolveProjectPaths } = await import('./resolve.js');
-    const { projectDir } = await resolveProjectPaths({ projectRoot, env });
-    const firstMetadata = projectMetadataSchema.parse(
-      JSON.parse(await readFile(join(projectDir, 'metadata.json'), 'utf-8')),
-    );
-
     const second = await determineUserStoryNumbering({ issueNumber: '43', projectRoot, env });
     expect(second.decision).toMatchObject({ nextNumber: 2, source: 'history' });
-
-    const secondMetadata = projectMetadataSchema.parse(
-      JSON.parse(await readFile(join(projectDir, 'metadata.json'), 'utf-8')),
-    );
-    expect(secondMetadata.createdAt).toBe(firstMetadata.createdAt);
-    expect(secondMetadata.userStoryNumbering?.nextNumber).toBe(2);
+    const { exportStoredState } = await import('./db/repository.js');
+    const { resolveProjectPaths } = await import('./resolve.js');
+    const { projectId } = await resolveProjectPaths({ projectRoot, env });
+    await expect(exportStoredState({ env })).resolves.toMatchObject({
+      user_story_numbering: expect.arrayContaining([
+        expect.objectContaining({ project_id: projectId, next_number: 2, issue_id: '43' }),
+      ]),
+    });
   });
 });

@@ -340,6 +340,26 @@ export const migrations: readonly Migration[] = [
     up: (database) =>
       database.exec('ALTER TABLE pipelines ADD COLUMN pr_review_pull_request_number INTEGER;'),
   },
+  {
+    version: 6,
+    name: 'record completed project adoption and runtime phase history',
+    up: (database) =>
+      database.exec(`
+        CREATE TABLE project_imports (
+          project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+          completed_at TEXT NOT NULL
+        );
+        ALTER TABLE phases ADD COLUMN duration_ms INTEGER;
+        ALTER TABLE phases ADD COLUMN input_tokens INTEGER;
+        ALTER TABLE phases ADD COLUMN output_tokens INTEGER;
+        ALTER TABLE phases ADD COLUMN cache_read_tokens INTEGER;
+        ALTER TABLE phases ADD COLUMN cache_creation_tokens INTEGER;
+        ALTER TABLE phases ADD COLUMN cost_status TEXT;
+        ALTER TABLE phases ADD COLUMN cost_amount REAL;
+        CREATE INDEX phases_run_status_started_idx ON phases(run_id, status, started_at);
+        CREATE INDEX reviews_pull_request_created_idx ON reviews(pull_request_id, created_at DESC);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

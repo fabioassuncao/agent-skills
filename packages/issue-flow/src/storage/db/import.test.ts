@@ -122,7 +122,7 @@ describe('legacy JSON importer', () => {
     expect(first.failed).toBe(false);
     expect(first.imported).toBe(3);
     const second = await importProjectArtifacts(options);
-    expect(second).toMatchObject({ failed: false, imported: 0, skipped: 3 });
+    expect(second).toMatchObject({ failed: false, imported: 0, skipped: 0 });
     await expect(readFile(taskFile, 'utf-8')).resolves.toBe(taskBefore);
     await expect(readFile(journalFile, 'utf-8')).resolves.toBe(journalBefore);
 
@@ -143,6 +143,41 @@ describe('legacy JSON importer', () => {
       expect(
         database.prepare('SELECT COUNT(*) AS count FROM events').get<{ count: number }>()?.count,
       ).toBe(1);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('marks a project as adopted so changed compatibility projections are never reimported', async () => {
+    const home = await temporary('issue-flow-import-marker-');
+    const projectDir = join(home, 'projects', 'marker-project');
+    const issueDir = join(projectDir, 'issues', '91');
+    await mkdir(issueDir, { recursive: true });
+    const taskFile = join(issueDir, 'tasks.json');
+    await writeFile(taskFile, JSON.stringify(plan()));
+    const options = {
+      env: { [GLOBAL_ROOT_ENV]: home },
+      projectId: 'marker-project',
+      projectDir,
+      projectRoot: '/repo',
+      remoteUrl: null,
+    };
+    await importProjectArtifacts(options);
+    const changed = plan();
+    changed.description = 'projection must not replace canonical state';
+    await writeFile(taskFile, JSON.stringify(changed));
+
+    await expect(importProjectArtifacts(options)).resolves.toMatchObject({
+      imported: 0,
+      skipped: 0,
+    });
+    const database = await openIssueFlowDatabase({ env: options.env });
+    try {
+      expect(
+        database
+          .prepare('SELECT description FROM pipelines WHERE project_id = ? AND issue_id = ?')
+          .get<{ description: string }>('marker-project', '91')?.description,
+      ).toBe('Import this state');
     } finally {
       database.close();
     }

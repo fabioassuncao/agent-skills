@@ -447,10 +447,17 @@ export async function importProjectArtifacts(
 ): Promise<ImportProjectResult> {
   const counts = { ...EMPTY_COUNTS };
   try {
-    const artifacts = await collectArtifacts(options.projectDir);
     await prepareDatabase(options);
     const database = await openIssueFlowDatabase(options);
     try {
+      const adopted = database
+        .prepare('SELECT project_id FROM project_imports WHERE project_id = ?')
+        .get<{ project_id: string }>(options.projectId);
+      // JSON becomes a compatibility projection after successful adoption;
+      // never scan it again in a later process and overwrite canonical rows.
+      if (adopted !== undefined)
+        return { imported: 0, skipped: 0, tableCounts: counts, failed: false };
+      const artifacts = await collectArtifacts(options.projectDir);
       let imported = 0;
       let skipped = 0;
       database.transaction(() => {
@@ -508,6 +515,9 @@ export async function importProjectArtifacts(
           imported++;
         }
         applyRetention(database, options.projectId, options.retention);
+        database
+          .prepare('INSERT INTO project_imports (project_id, completed_at) VALUES (?, ?)')
+          .run(options.projectId, new Date().toISOString());
       });
       return { imported, skipped, tableCounts: counts, failed: false };
     } finally {

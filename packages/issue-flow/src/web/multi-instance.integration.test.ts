@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createInitialSnapshot, type SessionSnapshot } from '../core/session-state.js';
+import { saveSessionEvent } from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { detectActiveInstance, ensureSingleWebServer, getWebLockFile } from './lock.js';
 import { startWebServer, type WebServerHandle } from './server.js';
@@ -48,9 +49,28 @@ describe('web — single instance + multi-session, end to end (US-007)', () => {
     issueNumber: string,
     snapshot: SessionSnapshot,
   ): Promise<void> {
-    const dir = join(home, 'projects', projectId, 'issues', issueNumber);
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'session.json'), JSON.stringify(snapshot), 'utf-8');
+    const at = new Date().toISOString();
+    await saveSessionEvent(
+      {
+        tasksPath: join(home, 'projects', projectId, 'issues', issueNumber, 'tasks.json'),
+        projectId,
+        issueId: issueNumber,
+        projectRoot: join(home, 'repositories', projectId),
+        databaseOptions: { env: { [GLOBAL_ROOT_ENV]: home } },
+      },
+      {
+        sessionId: snapshot.sessionId!,
+        sequence: 1,
+        event: {
+          type: 'session:start',
+          at,
+          sessionId: snapshot.sessionId!,
+          issueNumber: snapshot.issue.number,
+          phases: [],
+        },
+        snapshot: { ...snapshot, startedAt: at, updatedAt: at },
+      },
+    );
   }
 
   async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 2000): Promise<void> {
@@ -102,7 +122,7 @@ describe('web — single instance + multi-session, end to end (US-007)', () => {
     expect(lock?.port).toBe(handle?.port);
   });
 
-  it('multiple simultaneous sessions written to disk by different runs all show up in GET /api/sessions', async () => {
+  it('multiple simultaneous sessions persisted by different runs all show up in GET /api/sessions', async () => {
     await writeSession('project-a', '1', makeSnapshot('sess-a', 1));
     await writeSession('project-b', '2', makeSnapshot('sess-b', 2));
 

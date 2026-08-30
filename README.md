@@ -71,7 +71,7 @@ npx issue-flow run 42 --web   # …and watch it live in the browser
 
 ## Requirements
 
-- **Node.js** ≥ 22
+- **Node.js** ≥ 22.13.0
 - **Git**, available in `PATH`, inside a repository
 - **A coding agent.** Claude Code (`npm install -g @anthropic-ai/claude-code`) by
   default; Codex CLI (`codex`), Cursor CLI (`cursor-agent`) and Antigravity CLI
