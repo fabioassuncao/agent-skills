@@ -426,7 +426,6 @@ describe('fetchRelations', () => {
   });
 });
 
-
 describe('closing an Issue is idempotent (US-023)', () => {
   it('does not throw when gh reports the Issue was already closed', async () => {
     // What `gh issue close` actually does for an Issue that is already closed:

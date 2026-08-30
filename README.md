@@ -111,6 +111,7 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--retry-limit N` | Retry transient Claude failures in the `execute` phase up to N consecutive times (default: 10) |
 | `--retry-forever` | Retry transient Claude failures in the `execute` phase indefinitely |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
+| `--inactivity-timeout <s>` | Stop the agent after this many seconds with no output at all (`0` = off, default 600). A second, tighter instrument beside `--timeout`: it tells a long task from a stuck one |
 | `-v, --verbose` | Show Claude progress output in real time |
 
 `--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists `prReview.enabled` as soon as a `tasks.json` exists (including mid-pipeline resumes such as `--from pr --pr-review`), so a later run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open** (locally and on the remote), does **not** mark `issueStatus: completed`, and still exits `0`.

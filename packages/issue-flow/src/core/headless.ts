@@ -6,7 +6,15 @@ import { type ClaudeUsage, parseUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
 import { registerChild } from './shutdown.js';
 import { isoNow } from './state-manager.js';
-import { getOutputCallback, isVerbose } from './verbose.js';
+import { readClaudeStream } from './stream.js';
+import { getInactivityTimeout, getOutputCallback, isVerbose } from './verbose.js';
+import { createWatchdog, describeStall } from './watchdog.js';
+
+/** The watchdog budget of one invocation, from the process-wide setting. */
+function inactivityOptions(): { inactivityTimeoutMs?: number } {
+  const configured = getInactivityTimeout();
+  return configured === undefined ? {} : { inactivityTimeoutMs: configured };
+}
 
 export interface HeadlessOptions {
   prompt: string;
@@ -404,11 +412,17 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     }).start();
   }
 
+  // The stream is always what is asked for, whatever the caller requested as
+  // `outputFormat`: a single envelope arrives in one write at the very end, so
+  // an invocation that hangs is indistinguishable from one that is thinking.
+  // The rendering is what differs — here it feeds a spinner and a watchdog
+  // heartbeat instead of being printed line by line.
   const args: string[] = [
     '-p',
     prompt,
     '--output-format',
-    outputFormat,
+    'stream-json',
+    '--verbose',
     '--max-turns',
     String(maxTurns),
   ];
@@ -429,12 +443,43 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
       () => undefined,
     ),
   });
+  const watchdog = createWatchdog({
+    ...inactivityOptions(),
+    child: {
+      kill: (signal) => subprocess.kill(signal),
+      done: subprocess.then(
+        () => undefined,
+        () => undefined,
+      ),
+    },
+  });
 
   try {
+    const streamed = subprocess.stdout
+      ? await readClaudeStream(subprocess.stdout, { onLine: () => watchdog.beat() })
+      : { result: '', isError: false, usage: null, events: 0, raw: '' };
+
     const proc = await subprocess;
+    watchdog.stop();
     unregisterChild();
 
-    const stdout = proc.stdout?.toString() ?? '';
+    if (watchdog.stalled) {
+      const elapsed = timer?.stop() ?? 0;
+      const dur = useColor()
+        ? chalk.dim(` (${formatDuration(elapsed)})`)
+        : ` (${formatDuration(elapsed)})`;
+      spinner?.fail(`${statusMessage}${dur}`);
+      return {
+        success: false,
+        result: '',
+        cost: null,
+        error: describeStall(watchdog.silentMs),
+      };
+    }
+
+    // The stream is consumed by the time the process finishes, so what it
+    // printed lives here rather than in `proc.stdout`.
+    const stdout = streamed.raw === '' ? (proc.stdout?.toString() ?? '') : streamed.raw;
     const stderr = proc.stderr?.toString() ?? '';
 
     if (proc.exitCode !== 0) {
@@ -458,6 +503,14 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     spinner?.succeed(`${statusMessage}${dur}`);
 
     if (outputFormat === 'json') {
+      if (streamed.result !== '') {
+        return {
+          success: !streamed.isError,
+          result: streamed.result,
+          cost: streamed.usage,
+          error: streamed.isError ? streamed.result : null,
+        };
+      }
       try {
         const parsed = JSON.parse(stdout);
         return {

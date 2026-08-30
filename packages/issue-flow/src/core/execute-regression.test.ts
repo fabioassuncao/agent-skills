@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 
@@ -75,7 +76,7 @@ function cliResult(overrides: Partial<{ stdout: string; stderr: string; exitCode
   return { stdout: '', stderr: '', exitCode: 0, ...overrides } as unknown as ExecaResult;
 }
 
-/** Payload shape of `claude --print --output-format json` (CLI 2.1.220). */
+/** Payload shape of one `result` event of `--output-format stream-json`. */
 function jsonEnvelope(text: string, usage?: Record<string, unknown>): string {
   return JSON.stringify({
     type: 'result',
@@ -174,17 +175,33 @@ describe('execute loop — non-regression of the JSON output format', () => {
 
   /** Mocked CLI: flips the given stories to passing, then answers `stdout`. */
   function agentCompleting(ids: string[], stdout: string): void {
-    mockExeca.mockImplementationOnce(async () => {
-      const plan = await readPlan();
-      for (const story of plan.userStories) {
-        if (ids.includes(story.id)) story.passes = true;
-      }
-      await writePlan(plan);
-      return cliResult({ stdout });
+    mockExeca.mockImplementationOnce(() => {
+      // The plan write happens as the process starts, exactly as the agent's
+      // would: the stream is consumed afterwards.
+      const done = (async () => {
+        const plan = await readPlan();
+        for (const story of plan.userStories) {
+          if (ids.includes(story.id)) story.passes = true;
+        }
+        await writePlan(plan);
+      })();
+      const lines = stdout === '' ? [] : [stdout];
+      const subprocess = done.then(() => cliResult({})) as unknown as ExecaResult & {
+        stdout: Readable;
+        kill: (signal?: NodeJS.Signals) => boolean;
+      };
+      subprocess.stdout = Readable.from(
+        (async function* stream() {
+          await done;
+          for (const line of lines) yield `${line}\n`;
+        })(),
+      );
+      subprocess.kill = () => true;
+      return subprocess;
     });
   }
 
-  it('asks the CLI for the JSON envelope while keeping the prompt on stdin', async () => {
+  it('asks the CLI for the event stream while keeping the prompt on stdin', async () => {
     await writePlan(pendingPlan(makeStory('US-001', 1, false)));
     agentCompleting(['US-001'], jsonEnvelope('<promise>COMPLETE</promise>', REPORTED_USAGE));
 
@@ -193,7 +210,16 @@ describe('execute loop — non-regression of the JSON output format', () => {
     expect(mockExeca).toHaveBeenCalledTimes(1);
     const [command, args, options] = mockExeca.mock.calls[0]!;
     expect(command).toBe('claude');
-    expect(args).toEqual(['--dangerously-skip-permissions', '--print', '--output-format', 'json']);
+    // The stream replaced the single envelope (US-026): it is the only signal
+    // that can tell a long iteration from a hung one, and this loop runs with
+    // no absolute timeout at all.
+    expect(args).toEqual([
+      '--dangerously-skip-permissions',
+      '--print',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+    ]);
     expect(options).toMatchObject({ reject: false, timeout: 0, stripFinalNewline: false });
     // The prompt still travels on stdin, never as an argument.
     expect(typeof (options as { input?: unknown }).input).toBe('string');
@@ -228,7 +254,8 @@ describe('execute loop — non-regression of the JSON output format', () => {
   });
 
   it('still honours a completion signal from a CLI that prints plain text', async () => {
-    // A `claude` build that ignores --output-format must behave as it always did.
+    // A `claude` build that ignores --output-format prints plain text on a
+    // single line; it must behave as it always did.
     await writePlan(pendingPlan(makeStory('US-001', 1, false)));
     agentCompleting(['US-001'], 'All done.\n<promise>COMPLETE</promise>');
 

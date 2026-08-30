@@ -23,7 +23,7 @@ import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
-import { isVerbose } from '../core/verbose.js';
+import { getInactivityTimeout, isVerbose, setInactivityTimeout } from '../core/verbose.js';
 import {
   markQueueIssueCompleted,
   markQueueIssueFailed,
@@ -409,6 +409,13 @@ async function runIssueSession(
   // leaves the base table, so this is a no-op for a project that configured
   // nothing.
   const resilience = await initResilienceConfig();
+
+  // The watchdog budget, when the project configured one and the CLI did not
+  // override it. A flag wins because it is the higher rung of the same ladder.
+  const configuredInactivity = resilience.watchdog?.inactivityTimeoutMs;
+  if (configuredInactivity !== undefined && getInactivityTimeout() === undefined) {
+    setInactivityTimeout(configuredInactivity);
+  }
 
   // Read per issue rather than cached for the process: the configuration is
   // per project and cheap to read, and a cached value would leak a `--web`

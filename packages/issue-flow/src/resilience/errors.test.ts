@@ -168,6 +168,16 @@ const TABLE: readonly {
     retryable: true,
   },
   {
+    name: 'an agent that went silent is stalled, not merely timed out',
+    signal: {
+      source: 'agent',
+      exitCode: 143,
+      stderr: 'claude produced no output for 600s and was stopped (stalled)',
+    },
+    kind: 'stalled',
+    retryable: true,
+  },
+  {
     name: 'an expired gh credential is an authentication failure',
     signal: {
       source: 'github',

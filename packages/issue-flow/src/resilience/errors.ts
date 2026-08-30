@@ -271,6 +271,9 @@ const TEXT_RULES: readonly { kind: FailureKind; patterns: readonly TextPattern[]
       'error connecting to',
     ],
   },
+  // Before the timeout rule: a stall *is* a kind of timeout, and the specific
+  // reading is the useful one — it has its own budget and its own escalation.
+  { kind: 'stalled', patterns: ['produced no output for', '(stalled)'] },
   { kind: 'timeout', patterns: ['timed out', 'timeout', 'etimedout'] },
   {
     kind: 'provider_down',

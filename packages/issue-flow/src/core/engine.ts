@@ -40,6 +40,7 @@ import {
   trimErrorMessage,
 } from './state-manager.js';
 import {
+  getInactivityTimeout,
   getOutputCallback,
   getStoryStageCallback,
   getStoryUpdateCallback,
@@ -132,6 +133,18 @@ export function commitPlaceholders(
       : `feat${suffix}: [Story ID] - [Story Title]`,
     __FIX_COMMIT_MESSAGE__: `fix${suffix}: address review findings`,
   };
+}
+
+/**
+ * The watchdog budget of one iteration, from the process-wide setting.
+ *
+ * Absent means the default; `0` turns the watchdog off. Reading it here rather
+ * than threading it through the engine's config keeps it a single value per
+ * process, which is what it is.
+ */
+function inactivityOptions(): { inactivityTimeoutMs?: number } {
+  const configured = getInactivityTimeout();
+  return configured === undefined ? {} : { inactivityTimeoutMs: configured };
 }
 
 /**
@@ -395,7 +408,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
         // Execute Claude
         const startedAtMs = Date.now();
-        const result = await executeClaude(prompt);
+        const result = await executeClaude(prompt, inactivityOptions());
         const seconds = elapsedSecondsSince(startedAtMs);
 
         if (result.exitCode !== 0) {

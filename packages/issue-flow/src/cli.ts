@@ -8,7 +8,7 @@ import {
 } from './cli-options.js';
 import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
 import { installShutdownHandlers } from './core/shutdown.js';
-import { setGlobalTimeout, setVerbose } from './core/verbose.js';
+import { setGlobalTimeout, setInactivityTimeout, setVerbose } from './core/verbose.js';
 import {
   IssueFlagError,
   resolveGenerateTarget,
@@ -62,13 +62,22 @@ function withUserStoryNumberingOptions(cmd: Command): Command {
  * Add shared options (--verbose) to a subcommand.
  */
 function withGlobalOptions(cmd: Command): Command {
-  return cmd
-    .option('-v, --verbose', 'Show Claude progress output in real time')
-    .option(
-      '-t, --timeout <seconds>',
-      'Override headless timeout in seconds (0 = no limit)',
-      parseInteger,
-    );
+  return (
+    cmd
+      .option('-v, --verbose', 'Show Claude progress output in real time')
+      .option(
+        '-t, --timeout <seconds>',
+        'Override headless timeout in seconds (0 = no limit)',
+        parseInteger,
+      )
+      // The second, tighter instrument beside the absolute timeout: a phase that
+      // has said nothing for this long is stuck, not slow. `0` turns it off.
+      .option(
+        '--inactivity-timeout <seconds>',
+        'Stop the agent after this many seconds with no output (0 = no watchdog)',
+        parseInteger,
+      )
+  );
 }
 
 /**
@@ -151,6 +160,9 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
   }
   if (opts.timeout !== undefined) {
     setGlobalTimeout(opts.timeout * 1000);
+  }
+  if (opts.inactivityTimeout !== undefined) {
+    setInactivityTimeout(opts.inactivityTimeout * 1000);
   }
   setWebCliOverrides(resolveWebOverrides(opts));
   try {

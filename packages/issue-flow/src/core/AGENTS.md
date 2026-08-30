@@ -152,6 +152,45 @@ stdout. On any failure it falls back to raw `stdout + stderr`, because
 `isTransientFailure()` inspects the raw diagnostics. Never unwrap the envelope
 on a failing exit code.
 
+## The stream is always requested; only the rendering differs
+
+`--output-format stream-json --verbose` is what **every** invocation asks for
+now — `runHeadless` in both its paths and `executeClaude`. The single `json`
+envelope arrives in one write at the very end, which meant the non-verbose path
+(the common one, and the one that runs unattended for hours) had no signal at
+all while the agent worked: a hung invocation looked exactly like a thinking
+one. Verbose prints each event; non-verbose feeds a spinner and the watchdog.
+
+- **`core/stream.ts` is the shared reader**, so the two renderings cannot drift
+  on what a `result` event means or on how usage is extracted.
+- **The stream is consumed by the time the process exits**, so `result.stdout`
+  is empty and `StreamOutcome.raw` is the only copy of what the CLI printed.
+  That is the fallback for a build that ignores `--output-format`, and for a
+  failure whose diagnostics went to the stream.
+- **A malformed line is activity, not an error.** The CLI interleaves its own
+  output with the stream; a line that is not JSON still proves the process is
+  alive, which is the only question the watchdog asks.
+- **A test that mocks `execa` must return a subprocess with a `stdout` stream**,
+  not a plain resolved result — otherwise the reader sees nothing and every
+  assertion about the result falls back to the raw-output path.
+
+## watchdog.ts: silence, not slowness
+
+- **The absolute timeout is a ceiling; the watchdog is the tighter instrument.**
+  `DEFAULT_HEADLESS_TIMEOUT_MS` still bounds a task that keeps talking and never
+  finishes. The watchdog bounds one that stops talking — which is the only case
+  the execute loop had no instrument for at all, since it runs with `timeout: 0`
+  by design.
+- **`inactivityTimeoutMs: 0` is the off switch**, and it returns an inert
+  watchdog rather than adding a second code path anywhere else.
+- **`describeStall()`'s wording is a contract**, exactly like the timeout's:
+  `classify()` reads text as its last resort, and `stalled` has to survive the
+  trip through a plain string for the phase to keep its retries. The
+  `errors.test.ts` table pins it.
+- **The child is asked before it is killed** — `SIGTERM`, grace, `SIGKILL` —
+  the same courtesy the shutdown extends, for the same reason: an agent killed
+  mid-write leaves half a file behind.
+
 ## The headless timeout is reported, never swallowed
 
 `runHeadless` runs the CLI with `reject: false`, so **execa resolves on a
