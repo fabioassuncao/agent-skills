@@ -8,7 +8,7 @@ installed.
 - [Pipeline](#pipeline) — `run`, `resume`, and the individual phases
 - [Operating a run](#operating-a-run) — `status`, `ps`, `runs`, `logs`, `usage`, `pause`, `cancel`
 - [Issues](#issues) — `generate`
-- [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`
+- [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`, `bench`
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
 - [Exit codes](#exit-codes)
 
@@ -463,6 +463,34 @@ issue-flow routing report --issue 42 --json
 The router runs in `shadow` mode by default: it decides, records `selected` and
 `actual` on the execution record, and changes nothing. See
 [Verification and routing](verification.md#shadow-routing).
+
+### `bench` — synthetic or real corpus
+
+```bash
+issue-flow bench                              # synthetic (default, free)
+issue-flow bench --mode synthetic
+issue-flow bench --mode real --yes            # paid campaign; --yes skips the prompt
+issue-flow bench --mode real --task small --task medium --repeats 5
+issue-flow bench --arm baseline --arm strict-mcp
+issue-flow bench --mode real --campaign-max-cost 20 --out report.md --json
+```
+
+Two modes, never mixed. `synthetic` times orchestration only — the harness is a
+mocked duration — and is what CI runs (`npm test -- src/benchmark/synthetic.test.ts`).
+`real` materializes a disposable git fixture per repetition, runs the pipeline
+and the acceptance contract, and is refused under `VITEST` unless
+`ISSUE_FLOW_E2E_BENCH=1`. A real campaign spends money: without a TTY it
+requires `--yes`.
+
+`--task` is repeatable (`trivial`, `small`, `medium`, `analysis`); omitted means
+the full corpus. `--arm` is a parameter of the experiment (default `baseline`).
+`--campaign-max-cost` / `--campaign-max-duration` are campaign-wide ceilings,
+distinct from the per-issue `--max-cost` / `--max-duration`. `--out` writes the
+markdown report; `--json` also emits the campaign JSON. `--repo` is an
+investigation escape and does not produce a publishable row. A campaign that
+hits a ceiling exits `2` with a partial report.
+
+See [`src/benchmark/AGENTS.md`](../packages/issue-flow/src/benchmark/AGENTS.md).
 
 ## Web monitor
 
