@@ -9,6 +9,11 @@ import { classify } from '../resilience/errors.js';
 import type { RetryPolicy } from '../resilience/policy.js';
 import { resolvePolicy } from '../resilience/policy.js';
 import { fixedBackoffPolicy, withRetry } from '../resilience/retry.js';
+import {
+  getPlanRepository,
+  ingestAgentPlan,
+  setAgentProjectionWindow,
+} from '../storage/db/repository.js';
 import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
@@ -466,12 +471,26 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
         // Execute Claude
         const startedAtMs = Date.now();
-        const result = await executeClaude(prompt, {
-          ...inactivityOptions(),
-          iteration: i,
-          correctionCycle: plan.correctionCycle,
-          ...(activeStoryId === undefined ? {} : { storyIds: [activeStoryId] }),
-        });
+        setAgentProjectionWindow(paths.prdFile, true);
+        let result: ClaudeResult;
+        try {
+          result = await executeClaude(prompt, {
+            ...inactivityOptions(),
+            iteration: i,
+            correctionCycle: plan.correctionCycle,
+            ...(activeStoryId === undefined ? {} : { storyIds: [activeStoryId] }),
+          });
+        } finally {
+          setAgentProjectionWindow(paths.prdFile, false);
+        }
+        // The agent receives a materialized compatibility file. Reingest its
+        // intentionally narrow mutation before any pipeline/telemetry reader
+        // observes the next state, so a concurrent execution row cannot erase
+        // `passes` or `notes`.
+        const repository = getPlanRepository(paths.prdFile);
+        if (repository !== undefined && result.exitCode === 0) {
+          plan = await ingestAgentPlan(repository);
+        }
         const seconds = elapsedSecondsSince(startedAtMs);
 
         if (result.exitCode !== 0) {

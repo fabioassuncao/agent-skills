@@ -1,8 +1,11 @@
 # src/telemetry
 
-Per-invocation history written into `tasks.json`. Complements story-level
-metrics (`UserStory` token fields) and the journal (`events.jsonl`): this is
-the consultable state; the journal is the timeline. They share `executionId`.
+Per-invocation history written into SQLite. `tasks.json` is a materialized
+compatibility projection for agents; `executions` remains relational and is
+never updated through a read-modify-write of that file. This complements
+story-level metrics (`UserStory` token fields) and the journal (`events.jsonl`):
+this is the consultable state; the journal is the timeline. They share
+`executionId`.
 
 ```text
 Git            → describes what changed in the software
@@ -11,9 +14,10 @@ Task telemetry → describes how the change was produced
 
 ## Invariants
 
-- **`recorder.ts` is the only writer.** Call sites `beginExecution` /
-  `endExecution`. Every write is read-modify-write from disk, never from a
-  cached plan — the execute agent also writes `passes`.
+- **`recorder.ts` is the only execution writer.** Call sites `beginExecution` /
+  `endExecution`; it writes an `executions` row through `storage/db/repository.ts`.
+  It must never read or rewrite `tasks.json`, since an agent may own that
+  projection while an invocation closes.
 - **Two writes, outside the agent's window.** `running` + `startedAt` +
   `owner` before spawn; final status after exit. A `kill -9` leaves `running`;
   `loadTaskPlan` reconciles it to `interrupted` when the pid on this host is
@@ -34,9 +38,9 @@ Task telemetry → describes how the change was produced
   (`wall − duration_ms`), `apiDurationMs`, `ttftMs` and `numTurns` are
   additive and optional. Absent means "not reported", never zero. There is
   no second observability system beside this one.
-- **`executions` is additive and optional.** No `.default([])`, no
+- **`executions` is additive in the projection.** No `.default([])`, no
   `schemaVersion` bump. A plan that never had the field must not gain `[]`
-  on rewrite.
+  merely from materialization.
 - **`executionSummary` and `totalTokens` are derived, never persisted.**
 - **Provider, harness and model are declared by the runner**, never inferred
   from argv or logs. `model.source: 'unavailable'` when the harness does not

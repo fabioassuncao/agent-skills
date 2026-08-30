@@ -183,7 +183,12 @@ function importArtifact(
     return;
   }
   if (artifact.kind === 'tasks') {
-    const plan = taskPlanSchema.parse(value);
+    // Some pre-plan legacy trees use `tasks.json` as a tiny placeholder. It
+    // is not structured pipeline state yet, so leave it available for the
+    // legacy reader instead of failing the project-wide SQLite import.
+    const parsed = taskPlanSchema.safeParse(value);
+    if (!parsed.success) return;
+    const plan = parsed.data;
     const issueId = artifact.issueId ?? String(plan.issueNumber);
     const timestamp = plan.lastAttemptAt ?? fallback.timestamp;
     insertIssue(
@@ -202,7 +207,11 @@ function importArtifact(
          ON CONFLICT(project_id, issue_id) DO UPDATE SET state_json = excluded.state_json,
          updated_at = excluded.updated_at`,
       )
-      .run(projectId, issueId, JSON.stringify(plan.pipeline), timestamp);
+      // `state_json` is the canonical plan projection. The relational tables
+      // below are its queryable indexes; keeping the complete plan here means
+      // additive fields do not need a schema migration before they can round
+      // trip through SQLite.
+      .run(projectId, issueId, JSON.stringify({ ...plan, executions: undefined }), timestamp);
     increment(counts, 'pipelines');
     for (const story of plan.userStories) {
       database
@@ -474,7 +483,18 @@ export async function importProjectArtifacts(
           const previous = database
             .prepare('SELECT sha256 FROM migrated_artifacts WHERE source_path = ?')
             .get<{ sha256: string }>(artifact.path);
-          if (previous?.sha256 === artifact.sha256) {
+          // US-015 promoted `pipelines.state_json` from a small pipeline
+          // fragment to the canonical plan projection. Reprocess an otherwise
+          // unchanged legacy tasks file exactly once when its older import is
+          // still present, so upgrading does not require touching the source.
+          const requiresPlanProjection =
+            artifact.kind === 'tasks' &&
+            taskPlanSchema.safeParse(artifact.value).success &&
+            database
+              .prepare('SELECT state_json FROM pipelines WHERE project_id = ? AND issue_id = ?')
+              .get<{ state_json: string }>(options.projectId, artifact.issueId ?? '')
+              ?.state_json.includes('"userStories"') === false;
+          if (previous?.sha256 === artifact.sha256 && !requiresPlanProjection) {
             skipped++;
             continue;
           }

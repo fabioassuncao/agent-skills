@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { ClaudeUsage } from '../core/metrics.js';
-import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
+import { isoNow } from '../core/state-manager.js';
 import { classify } from '../resilience/errors.js';
-import type { TaskPlan } from '../types.js';
+import {
+  ensurePlanRepository,
+  getPlanRepository,
+  loadExecution,
+  saveExecution,
+} from '../storage/db/repository.js';
 import { resolveCost } from './pricing.js';
 import { redactFailureMessage } from './redact.js';
 import { getTelemetrySessionId, setTelemetrySessionId } from './session-id.js';
@@ -54,17 +59,6 @@ async function resolveConfig(ctx: TelemetryContext): Promise<TelemetryConfig> {
   } catch {
     return DEFAULT_TELEMETRY_CONFIG;
   }
-}
-
-function cap(records: ExecutionRecord[], max: number): ExecutionRecord[] {
-  if (records.length <= max) return records;
-  discardedCount += records.length - max;
-  return records.slice(records.length - max);
-}
-
-async function mutate(tasksPath: string, update: (plan: TaskPlan) => TaskPlan): Promise<void> {
-  const plan = await loadTaskPlan(tasksPath);
-  await saveTaskPlan(tasksPath, update(plan));
 }
 
 export function usageFromClaude(usage: ClaudeUsage | null | undefined): NormalizedUsage | null {
@@ -136,10 +130,10 @@ export async function beginExecution(input: BeginExecutionInput): Promise<string
   };
 
   try {
-    await mutate(ctx.tasksPath, (plan) => ({
-      ...plan,
-      executions: cap([...(plan.executions ?? []), record], cfg.maxExecutions),
-    }));
+    const repository =
+      getPlanRepository(ctx.tasksPath) ?? (await ensurePlanRepository(ctx.tasksPath));
+    if (repository === null) return null;
+    await saveExecution(repository, record as unknown as { id: string } & Record<string, unknown>);
     const { getSessionPublisher } = await import('../core/session-publisher.js');
     getSessionPublisher().publish({
       type: 'execution:update',
@@ -177,15 +171,13 @@ export async function attachVerdict(verdict: ExecutionRecord['verdict']): Promis
   const ctx = context;
   if (ctx === null || verdict == null) return;
   try {
-    await mutate(ctx.tasksPath, (plan) => {
-      const records = [...(plan.executions ?? [])];
-      if (records.length === 0) return plan;
-      const index = records.length - 1;
-      const current = records[index];
-      if (current === undefined) return plan;
-      records[index] = { ...current, verdict };
-      return { ...plan, executions: records };
-    });
+    const repository = getPlanRepository(ctx.tasksPath);
+    if (repository === undefined) return;
+    const plan = await import('../storage/db/repository.js').then(({ loadStoredPlan }) =>
+      loadStoredPlan(repository),
+    );
+    const current = plan.executions?.at(-1);
+    if (current !== undefined) await saveExecution(repository, { ...current, verdict });
   } catch {
     // Observational: a failed write must never change the invocation outcome.
   }
@@ -240,57 +232,54 @@ export async function endExecution(input: EndExecutionInput): Promise<void> {
 
   const completed: { value: ExecutionRecord | null } = { value: null };
   try {
-    await mutate(ctx.tasksPath, (plan) => {
-      const records = [...(plan.executions ?? [])];
-      const index = records.findIndex((record) => record.id === input.id);
-      if (index === -1) return plan;
-      const current = records[index];
-      if (current === undefined) return plan;
-      const started = Date.parse(current.startedAt);
-      const finishedAt = isoNow();
-      const modelResolved = input.modelResolved ?? current.agent.model.resolved;
-      const modelKey = modelResolved ?? current.agent.model.requested;
-      records[index] = {
-        ...current,
-        agent: {
-          ...current.agent,
-          harnessVersion: input.harnessVersion ?? current.agent.harnessVersion,
-          providerSessionId: input.providerSessionId ?? current.agent.providerSessionId,
-          model: {
-            ...current.agent.model,
-            resolved: modelResolved,
-            source:
-              input.modelSource ??
-              (modelResolved
-                ? current.agent.model.source === 'unavailable'
-                  ? 'provider'
-                  : current.agent.model.source
-                : current.agent.model.source),
-          },
+    const repository = getPlanRepository(ctx.tasksPath);
+    if (repository === undefined) return;
+    const current = (await loadExecution(repository, input.id)) as ExecutionRecord | null;
+    if (current === null) return;
+    const started = Date.parse(current.startedAt);
+    const finishedAt = isoNow();
+    const modelResolved = input.modelResolved ?? current.agent.model.resolved;
+    const modelKey = modelResolved ?? current.agent.model.requested;
+    const record: ExecutionRecord = {
+      ...current,
+      agent: {
+        ...current.agent,
+        harnessVersion: input.harnessVersion ?? current.agent.harnessVersion,
+        providerSessionId: input.providerSessionId ?? current.agent.providerSessionId,
+        model: {
+          ...current.agent.model,
+          resolved: modelResolved,
+          source:
+            input.modelSource ??
+            (modelResolved
+              ? current.agent.model.source === 'unavailable'
+                ? 'provider'
+                : current.agent.model.source
+              : current.agent.model.source),
         },
-        finishedAt,
-        durationMs: Number.isFinite(started) ? Math.max(0, Date.now() - started) : null,
-        ...timingFromUsage(
-          Number.isFinite(started) ? Math.max(0, Date.now() - started) : null,
-          input.usage,
-        ),
+      },
+      finishedAt,
+      durationMs: Number.isFinite(started) ? Math.max(0, Date.now() - started) : null,
+      ...timingFromUsage(
+        Number.isFinite(started) ? Math.max(0, Date.now() - started) : null,
+        input.usage,
+      ),
+      usage,
+      cost: resolveCost({
+        reportedUsd: input.reportedUsd ?? input.usage?.costUsd,
         usage,
-        cost: resolveCost({
-          reportedUsd: input.reportedUsd ?? input.usage?.costUsd,
-          usage,
-          modelKey,
-          estimate: cfg.pricing.estimate,
-          overrides: cfg.pricing.overrides,
-        }),
-        status,
-        failure,
-        owner: null,
-        ...(input.storyIds === undefined ? {} : { storyIds: input.storyIds }),
-        ...(input.stopReason === undefined ? {} : { stopReason: input.stopReason }),
-      };
-      completed.value = records[index] ?? null;
-      return { ...plan, executions: records };
-    });
+        modelKey,
+        estimate: cfg.pricing.estimate,
+        overrides: cfg.pricing.overrides,
+      }),
+      status,
+      failure,
+      owner: null,
+      ...(input.storyIds === undefined ? {} : { storyIds: input.storyIds }),
+      ...(input.stopReason === undefined ? {} : { stopReason: input.stopReason }),
+    };
+    completed.value = record;
+    await saveExecution(repository, record as unknown as { id: string } & Record<string, unknown>);
     if (completed.value !== null) {
       const { getSessionPublisher } = await import('../core/session-publisher.js');
       getSessionPublisher().publish({

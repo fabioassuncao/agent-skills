@@ -78,9 +78,10 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   `resilience/policy.ts` with `satisfies`, and `ResilienceConfigIsPolicyConfig` fails to compile if
   the file format ever stops being a superset of what `resolvePolicy()` reads.
 - **`TaskPlan.executions` is additive and optional, with no `.default([])`.**
-  A plan that predates the field must not gain an empty array on rewrite.
-  `schemaVersion` does not change. Reconciliation of orphan `running` rows
-  happens in `loadTaskPlan` via `telemetry/reconcile.ts`, using `isProcessAlive`.
+  SQLite is canonical for execution rows; `db/repository.ts` joins them into
+  the materialized plan only when rows exist. `schemaVersion` does not change.
+  Reconciliation of orphan `running` rows happens in `loadTaskPlan` via
+  `telemetry/reconcile.ts`, using `isProcessAlive`.
 - **`TaskPlan.runState` and the queue's `attempts`/`blockedReason` are additive, and
   `schemaVersion` stays `1`.** `runState` is `.optional()` with **no** default at the top
   level — absent means "this plan predates the field", which is not the same statement as

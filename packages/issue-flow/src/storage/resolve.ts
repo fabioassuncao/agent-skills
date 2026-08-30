@@ -6,6 +6,7 @@ import { getProjectRoot } from '../utils/git.js';
 import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
 import { importProjectArtifacts } from './db/import.js';
 import { getDatabasePath } from './db/index.js';
+import { registerPlanRepository, resetPlanRepositories } from './db/repository.js';
 import {
   type GetGlobalRootOptions,
   getGlobalRoot,
@@ -79,6 +80,10 @@ const checkedIssues = new Set<string>();
 export function resetStorageResolutionCache(): void {
   projectCache.clear();
   checkedIssues.clear();
+  // The path-to-repository registry has the same process lifetime as this
+  // resolver cache. Clearing one without the other would leak a test's
+  // temporary database into the next resolution.
+  resetPlanRepositories();
 }
 
 async function directoryExists(path: string): Promise<boolean> {
@@ -290,6 +295,12 @@ export async function resolveIssuePaths(
     checkedIssues.add(paths.issueDir);
   }
 
+  registerPlanRepository({
+    tasksPath: paths.tasksFile,
+    projectId: project.projectId,
+    issueId: basename(paths.issueDir),
+    projectRoot,
+  });
   bindTelemetry({ tasksPath: paths.tasksFile });
   return paths;
 }

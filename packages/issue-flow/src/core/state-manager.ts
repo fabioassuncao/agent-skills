@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { ZodError } from 'zod';
 import { taskPlanSchema } from '../schemas.js';
+import { getPlanRepository, loadStoredPlan, saveStoredPlan } from '../storage/db/repository.js';
 import { reconcileInterruptedExecutions } from '../telemetry/reconcile.js';
 import type { LastError, PipelineState, TaskPlan, UserStory } from '../types.js';
 import { writeFileAtomic } from '../utils/fs.js';
@@ -18,11 +19,15 @@ export function isoNow(): string {
  * Validates that it has the expected structure.
  */
 export async function loadTaskPlan(path: string): Promise<TaskPlan> {
-  const content = await readFile(path, 'utf-8');
-  const raw = JSON.parse(content);
+  const repository = getPlanRepository(path);
+  const content = repository === undefined ? await readFile(path, 'utf-8') : null;
+  const raw = content === null ? null : JSON.parse(content);
 
   try {
-    const parsed = taskPlanSchema.parse(raw) as TaskPlan;
+    const parsed =
+      repository === undefined
+        ? (taskPlanSchema.parse(raw) as TaskPlan)
+        : await loadStoredPlan(repository);
     const reconciled = reconcileInterruptedExecutions(parsed);
     if (reconciled !== parsed) {
       try {
@@ -47,6 +52,11 @@ export async function loadTaskPlan(path: string): Promise<TaskPlan> {
  * This prevents corruption if the process is interrupted during write.
  */
 export async function saveTaskPlan(path: string, plan: TaskPlan): Promise<void> {
+  const repository = getPlanRepository(path);
+  if (repository !== undefined) {
+    await saveStoredPlan(repository, plan);
+    return;
+  }
   await writeFileAtomic(path, `${JSON.stringify(plan, null, 2)}\n`);
 }
 

@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs';
 import { publishGitState } from '../../core/session-git.js';
 import type { SessionPublisher } from '../../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
 import type { ResolvedIssue } from '../../issues/types.js';
+import { getPlanRepository, ingestGeneratedPlan } from '../../storage/db/repository.js';
 import { printWarning } from '../../ui/logger.js';
 import { getCurrentBranch, localBranchExists } from '../../utils/git.js';
 import { runExecute } from '../execute.js';
@@ -65,6 +67,13 @@ function createPlanRunner(
         }),
       'plan',
     )();
+    // A real plan runner already promotes its output, but test doubles and
+    // alternate runners may only write the established file contract. Ingest
+    // that projection before queue logic reads the canonical state back.
+    const repository = getPlanRepository(tasksPath);
+    if (repository !== undefined) {
+      await ingestGeneratedPlan(repository);
+    }
     // Read the newly-created plan once: publish its stories immediately so
     // the first execute iteration never points at a story absent from the
     // snapshot, and persist phase-selection modes from the same object.
@@ -236,15 +245,21 @@ export function buildInstrumentedPhaseRunners(input: BuildRunnersInput): {
       'execute',
     ),
     review: createReviewRunner(input),
-    pr: makeRunner(
-      // The options argument is omitted outside a queue so a standalone run
-      // calls `runPr` exactly as it always did.
-      () =>
-        finalPr === undefined
-          ? runPr(issueNumber, resolvedIssue)
-          : runPr(issueNumber, resolvedIssue, { queue: finalPr }),
-      'pr',
-    ),
+    pr: async () => {
+      await makeRunner(
+        // The options argument is omitted outside a queue so a standalone run
+        // calls `runPr` exactly as it always did.
+        () =>
+          finalPr === undefined
+            ? runPr(issueNumber, resolvedIssue)
+            : runPr(issueNumber, resolvedIssue, { queue: finalPr }),
+        'pr',
+      )();
+      const repository = getPlanRepository(tasksPath);
+      if (repository !== undefined && existsSync(tasksPath)) {
+        await ingestGeneratedPlan(repository);
+      }
+    },
   };
 
   // Filled by the pr-review runner; read after the pipeline finishes. Held in a
