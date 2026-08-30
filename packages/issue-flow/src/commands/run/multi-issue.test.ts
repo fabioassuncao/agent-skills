@@ -3,18 +3,18 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setIssuesCliOverrides, setWebCliOverrides } from '../config.js';
-import { loadExecutionPlan } from '../execution/plan.js';
-import type { IssueProvider } from '../issues/provider.js';
-import { emptyRelations } from '../issues/relations.js';
-import type { Issue, IssueRelations, ResolvedIssue } from '../issues/types.js';
-import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
+import { setIssuesCliOverrides, setWebCliOverrides } from '../../config.js';
+import { loadExecutionPlan } from '../../execution/plan.js';
+import type { IssueProvider } from '../../issues/provider.js';
+import { emptyRelations } from '../../issues/relations.js';
+import type { Issue, IssueRelations, ResolvedIssue } from '../../issues/types.js';
+import { GLOBAL_ROOT_ENV } from '../../storage/paths.js';
 import {
   resetStorageResolutionCache,
   resolveIssuePaths,
   resolveQueuePaths,
-} from '../storage/resolve.js';
-import type { TaskPlan } from '../types.js';
+} from '../../storage/resolve.js';
+import type { TaskPlan } from '../../types.js';
 
 /**
  * The multi-issue queue, end to end: discovery decides the run is a queue, the
@@ -25,16 +25,16 @@ import type { TaskPlan } from '../types.js';
  * order, shared branch, commit scope, per-issue state and resume.
  */
 
-vi.mock('./init.js', () => ({ runInit: vi.fn(async () => 0) }));
-vi.mock('./prd.js', () => ({ runPrd: vi.fn(async () => 0) }));
-vi.mock('./execute.js', () => ({ runExecute: vi.fn(async () => 0) }));
-vi.mock('./review.js', () => ({ runReview: vi.fn(async () => 0) }));
-vi.mock('./pr.js', () => ({ runPr: vi.fn(async () => 0) }));
-vi.mock('./pr-review.js', () => ({ runPrReview: vi.fn(async () => 0) }));
+vi.mock('../init.js', () => ({ runInit: vi.fn(async () => 0) }));
+vi.mock('../prd.js', () => ({ runPrd: vi.fn(async () => 0) }));
+vi.mock('../execute.js', () => ({ runExecute: vi.fn(async () => 0) }));
+vi.mock('../review.js', () => ({ runReview: vi.fn(async () => 0) }));
+vi.mock('../pr.js', () => ({ runPr: vi.fn(async () => 0) }));
+vi.mock('../pr-review.js', () => ({ runPrReview: vi.fn(async () => 0) }));
 
 /** The `plan` phase is the one that writes tasks.json, so it is a real double. */
 const planned = vi.hoisted(() => ({ branchOf: (issue: string) => `issue/${issue}-work` }));
-vi.mock('./plan.js', () => ({ runPlan: vi.fn(async () => 0) }));
+vi.mock('../plan.js', () => ({ runPlan: vi.fn(async () => 0) }));
 
 const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
 vi.mock('execa', () => ({
@@ -54,8 +54,8 @@ vi.mock('execa', () => ({
   }),
 }));
 
-vi.mock('../core/session-git.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../core/session-git.js')>();
+vi.mock('../../core/session-git.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../core/session-git.js')>();
   return {
     ...actual,
     publishGitState: vi.fn(async () => {}),
@@ -63,17 +63,17 @@ vi.mock('../core/session-git.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../issues/resolver.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../issues/resolver.js')>();
+vi.mock('../../issues/resolver.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../issues/resolver.js')>();
   return { ...actual, resolveIssue: vi.fn() };
 });
-vi.mock('../issues/registry.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../issues/registry.js')>();
+vi.mock('../../issues/registry.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../issues/registry.js')>();
   return { ...actual, getProvider: vi.fn() };
 });
 
 /** Deterministic renderer: runs each phase runner in order, no listr2 output. */
-vi.mock('../ui/pipeline-renderer.js', () => ({
+vi.mock('../../ui/pipeline-renderer.js', () => ({
   runPipelineWithRenderer: vi.fn(
     async (options: {
       phases: string[];
@@ -93,13 +93,13 @@ vi.mock('../ui/pipeline-renderer.js', () => ({
   ),
 }));
 
-const { resolveIssue } = await import('../issues/resolver.js');
-const { getProvider } = await import('../issues/registry.js');
-const { runExecute } = await import('./execute.js');
-const { runPlan } = await import('./plan.js');
-const { runInit } = await import('./init.js');
-const { runPr } = await import('./pr.js');
-const { runPipeline } = await import('./run.js');
+const { resolveIssue } = await import('../../issues/resolver.js');
+const { getProvider } = await import('../../issues/registry.js');
+const { runExecute } = await import('../execute.js');
+const { runPlan } = await import('../plan.js');
+const { runInit } = await import('../init.js');
+const { runPr } = await import('../pr.js');
+const { runPipeline } = await import('../run.js');
 
 let globalHome = '';
 let previousGlobalHome: string | undefined;

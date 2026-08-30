@@ -1,6 +1,7 @@
 import type { PipelinePhase } from '../../core/pipeline.js';
 import type { ExecutionPlan } from '../../execution/types.js';
 import type { ResolvedIssue } from '../../issues/types.js';
+import type { RunLock } from '../../storage/schemas.js';
 import type { RunSummaryPrReview } from '../../ui/summary.js';
 import type { PrQueueContext } from '../pr.js';
 
@@ -73,4 +74,68 @@ export interface IssueRunResult {
   review?: PrReviewOutcome | null;
   /** Set when the run stopped to hand control over to a queue. */
   queue?: { plan: ExecutionPlan; resumed: boolean; resolved: ResolvedIssue };
+}
+
+/** Options `run` accepts on top of the phase selection ones. */
+export interface RunPipelineOptions {
+  /** `--yes`: accept the discovered hierarchy without confirmation. */
+  yes?: boolean;
+  /** `--only`: run just the issues informed, skipping discovery. */
+  only?: boolean;
+  /** `--cascade`: hierarchy of a container, without implementing it. */
+  cascade?: boolean;
+  /** `--background`: parent process should detach after confirmation. */
+  background?: boolean;
+  /** Hidden: this process is the child of a `--background` spawn. */
+  detachedChild?: boolean;
+  /** `--restart-web`: replace the machine-wide monitor once for this invocation. */
+  restartWeb?: boolean;
+  /** `--continue`: name the (automatic) User Story numbering continuity. */
+  continueNumbering?: boolean;
+  /** `--start-us <n>`: force the first plan of this run to start at `n`. */
+  startUs?: number;
+  /**
+   * `--retry-limit <n>`: consecutive retries the `execute` phase may spend on a
+   * transient failure. Absent means the engine default (`DEFAULTS.retryLimit`),
+   * which is what every release before this flag existed used.
+   */
+  retryLimit?: number;
+  /** `--retry-forever`: lift the retry count of the `execute` phase. */
+  retryForever?: boolean;
+  /**
+   * `--on-issue-failure <mode>`: what one failing Issue does to the rest of a
+   * queue. `stop` is the default and the behaviour of every release before the
+   * flag existed.
+   */
+  onIssueFailure?: QueueFailureMode;
+}
+
+export interface IssueSessionInput {
+  from?: string;
+  noBranch?: boolean;
+  prReview?: boolean;
+  /** Identifiers the user asked for; only the standalone attempt needs them. */
+  requested?: string[];
+  runOptions?: RunPipelineOptions;
+  /** One-shot restart request; queue members after the first never inherit it. */
+  restartWeb?: boolean;
+  queue?: QueueRunContext;
+  /**
+   * The dead owner whose lock this run took over. Recorded in the journal as
+   * an interrupted run: something was executing here and never finished, and
+   * that is the difference between a resume and a fresh start.
+   */
+  interruptedBy?: RunLock;
+}
+
+/** Runner for one issue session — injected to avoid a session ↔ multi-issue cycle. */
+export type RunIssueSession = (
+  issueNumber: string,
+  mode: string,
+  input: IssueSessionInput,
+) => Promise<IssueRunResult>;
+
+/** An {@link IssueRunResult} carrying nothing but an exit code. */
+export function failure(code: number): IssueRunResult {
+  return { code, failedPhase: null, branchName: null, storyCount: 0, elapsedSeconds: 0 };
 }
