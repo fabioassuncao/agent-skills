@@ -924,10 +924,14 @@ Each issue's state is tracked in a directory of its own inside the [global stora
   progress.txt   # Execution log
   analysis.md    # Issue analysis (optional, from standalone analyze command)
   session.json   # Live session snapshot (only with web monitoring enabled)
+  events.jsonl   # Append-only event journal (only with resilience.journal.enabled)
+  events.1.jsonl # Previous journal generation, kept when events.jsonl rotates
   .last-branch   # Last branch the execution loop worked on
   archive/       # Artifacts superseded by a later iteration
   pr-review/     # PR review reports and index (only when the pr-review phase ran)
 ```
+
+`session.json` and `events.jsonl` are two views of the same event stream: the snapshot is the *projection* the dashboard reads, and the journal is the *history* an audit reads -- one JSON line per event, in order, with a monotonic `seq`. The journal is opt-in (`resilience.journal.enabled`), rotates at `maxFileBytes` (10 MB by default) into `events.1.jsonl`, and replaying it through the reducer reproduces the snapshot.
 
 `issue.md` and `metadata.json` only exist for issues created or mirrored locally; a GitHub-only run never writes them. Every path above is resolved by a single function (`getIssuePaths`), so no command can invent a layout of its own -- a test fails the build if any file outside `src/storage/` builds an issue path by hand.
 

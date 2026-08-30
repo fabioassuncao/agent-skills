@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { initResilienceConfig, loadIssuesConfig, loadWebConfig } from '../config.js';
+import { JournalPublisher, MultiPublisher } from '../core/journal.js';
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASES_NO_BRANCH,
@@ -303,22 +304,59 @@ async function runIssueSession(
   // the whole run instead of once per phase.
   const paths = await resolveIssuePaths(issueNumber);
 
+  // The `resilience` key, installed once for the whole run. Every `gh` call
+  // below reads it synchronously (`getActiveResilienceConfig()`), so it has to
+  // be in place before the first phase resolves the Issue — and the journal
+  // decision below is the first thing that reads it. Absent configuration
+  // leaves the base table, so this is a no-op for a project that configured
+  // nothing.
+  const resilience = await initResilienceConfig();
+
   // Read per issue rather than cached for the process: the configuration is
   // per project and cheap to read, and a cached value would leak a `--web`
   // decision from one invocation into the next inside the same process.
   const webConfig = await loadWebConfig();
-  let publisher: SessionPublisher = new NullPublisher();
-  if (webConfig.enabled) {
+
+  // Two independent surfaces over one event stream: the snapshot the dashboard
+  // reads, and the append-only journal an audit reads. Neither implies the
+  // other — `--web` without a journal is the common case, and a journal
+  // without `--web` is what an unattended run wants.
+  const surfaces: SessionPublisher[] = [];
+  const journalEnabled = resilience.journal?.enabled === true;
+  if (webConfig.enabled || journalEnabled) {
     // resolveIssuePaths never creates directories, and a run may well be the
     // first thing to touch this issue's global folder — so the writer creates
-    // it. Only under --web: with monitoring off the pipeline still creates
-    // nothing at all (US-009).
+    // it. Only when a surface asked for it: with monitoring off and no journal
+    // the pipeline still creates nothing at all (issue 25, US-009).
     await mkdir(paths.issueDir, { recursive: true });
-    publisher = new FilePublisher(paths.sessionFile, {
-      logLimit: webConfig.logLimit,
-      includeLogs: webConfig.includeLogs,
-    });
   }
+  if (webConfig.enabled) {
+    surfaces.push(
+      new FilePublisher(paths.sessionFile, {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+      }),
+    );
+  }
+  if (journalEnabled) {
+    surfaces.push(
+      new JournalPublisher(paths.eventsFile, paths.rotatedEventsFile, {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+        ...(resilience.journal?.maxFileBytes === undefined
+          ? {}
+          : { maxFileBytes: resilience.journal.maxFileBytes }),
+      }),
+    );
+  }
+  // The snapshot writer stays the primary surface, so `snapshot()` and
+  // `version()` keep answering exactly what the dashboard answered before.
+  const publisher: SessionPublisher =
+    surfaces.length === 0
+      ? new NullPublisher()
+      : surfaces.length === 1
+        ? (surfaces[0] as SessionPublisher)
+        : new MultiPublisher(surfaces);
   setSessionPublisher(publisher);
 
   // A null handle (port in use, ...) means the pipeline runs without a server.
@@ -414,13 +452,6 @@ async function runPipelinePhases(
   // Loaded before the checks so init knows which origin the user is heading
   // for: with a local one, a missing gh must not fail the environment.
   const issuesConfig = await loadIssuesConfig();
-
-  // The `resilience` key, installed once for the whole run. Every `gh` call
-  // below reads it synchronously (`getActiveResilienceConfig()`), which is why
-  // it has to be in place before the first phase resolves the Issue. Absent
-  // configuration leaves the base table, so this is a no-op for a project that
-  // configured nothing.
-  await initResilienceConfig();
 
   // Phase 1: Init check. Inside a queue it already ran for the whole run, so
   // the environment is not probed once per issue — the phase is still

@@ -164,6 +164,8 @@ export interface IssuePaths {
   progressFile: string;
   analysisFile: string;
   sessionFile: string;
+  eventsFile: string;
+  rotatedEventsFile: string;
   lastBranchFile: string;
   archiveDir: string;
   prReviewDir: string;
@@ -257,6 +259,10 @@ export function getIssuePaths(
     progressFile: join(issueDir, 'progress.txt'),
     analysisFile: join(issueDir, 'analysis.md'),
     sessionFile: join(issueDir, 'session.json'),
+    // The journal, and the single generation kept when it rotates. The
+    // snapshot above is the projection; this pair is the history.
+    eventsFile: join(issueDir, 'events.jsonl'),
+    rotatedEventsFile: join(issueDir, 'events.1.jsonl'),
     lastBranchFile: join(issueDir, '.last-branch'),
     archiveDir: join(issueDir, 'archive'),
     prReviewDir: join(issueDir, 'pr-review'),

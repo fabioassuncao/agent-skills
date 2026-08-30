@@ -69,6 +69,33 @@ never had them must not gain artificial nulls on a round trip.
 - `undefined` in a metric field means "not reported", never zero: it leaves the
   accumulator at `null`. An explicitly reported `0` is a value and is kept.
 
+## journal.ts: the history beside the projection
+
+- **`session.json` is a projection; `events.jsonl` is the history.** The reducer
+  folds every event into one snapshot and discards the events, which is right
+  for a dashboard and useless for an audit — after a six-hour run, "what
+  happened at 3am" has no answer. The journal writes the events themselves, one
+  JSON line each, in order, with a monotonic `seq`.
+- **It sits *beside* `FilePublisher`, never in its place.** `MultiPublisher`
+  holds both and fans one event stream out; `snapshot()` and `version()` answer
+  from the first member, so the dashboard reads exactly what it always read.
+  Dropping either surface leaves the other untouched.
+- **Replaying the journal must reproduce the snapshot.** `replayJournal()` runs
+  the same `reduceSessionEvent` over the lines in order, and `journal.test.ts`
+  asserts the result equals the live snapshot. A file that cannot do that is a
+  log, not a journal — if you add an event type, that test is what proves the
+  two paths did not drift.
+- **The invariant of this directory is unchanged**: `publish()` is synchronous
+  and never throws, writes are serialized on a promise chain so lines never
+  interleave, and every I/O failure is swallowed after a single warning.
+  Nothing is throttled — coalescing is what the snapshot already does.
+- **Rotation keeps exactly one previous generation**, and happens *before* the
+  write that would cross `maxFileBytes`, so a line is never split across two
+  files. `maxFileBytes: 0` disables it.
+- **The journal is opt-in** (`resilience.journal.enabled`), because "monitoring
+  off means the pipeline creates nothing at all" is a documented invariant of
+  issue 25 and a journal writing by default would break it.
+
 ## executor.ts output contract
 
 On the happy path (`exitCode === 0` and parseable JSON envelope),

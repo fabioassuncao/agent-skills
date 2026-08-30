@@ -229,6 +229,8 @@ describe('getIssuePaths', () => {
       progressFile: join(issueDir, 'progress.txt'),
       analysisFile: join(issueDir, 'analysis.md'),
       sessionFile: join(issueDir, 'session.json'),
+      eventsFile: join(issueDir, 'events.jsonl'),
+      rotatedEventsFile: join(issueDir, 'events.1.jsonl'),
       lastBranchFile: join(issueDir, '.last-branch'),
       archiveDir: join(issueDir, 'archive'),
       prReviewDir: join(issueDir, 'pr-review'),
