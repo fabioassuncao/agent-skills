@@ -102,11 +102,11 @@ function wasTimedOut(proc: FinishedProcess, timeoutMs: number, elapsedMs: number
  * The error text of a failed invocation.
  *
  * A timeout gets a message of its own, and it has to keep saying "timed out":
- * `utils/retry.ts` classifies a failure as transient by matching that text, and
- * it is what earns the phase its retries in `core/phase-runner.ts`. Reporting a
- * timeout as a bare `claude exited with code 143` — which is what the CLI
- * leaves behind when it handles the SIGTERM itself — both hid the cause and
- * cost the phase every retry it had.
+ * `resilience/errors.ts` falls back to matching that text when no structured
+ * evidence survived, and it is what earns the phase its retries in
+ * `core/phase-runner.ts`. Reporting a timeout as a bare `claude exited with
+ * code 143` — which is what the CLI leaves behind when it handles the SIGTERM
+ * itself — both hid the cause and cost the phase every retry it had.
  */
 function describeFailure(
   proc: FinishedProcess,

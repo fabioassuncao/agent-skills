@@ -91,12 +91,14 @@ where there is no process to inspect at all: a rejection that arrives nowhere
 near the limit — or with no limit set — keeps its own message rather than being
 dressed up as our timeout.
 
-The wording matters as much as the detection: `utils/retry.ts` classifies a
-failure as transient by **matching the text**, and that is what earns the phase
-its retries in `phase-runner.ts`. A timeout reported as a bare `claude exited
-with code 143` — the shape this had before — both hides the cause and silently
-costs the phase every retry it had. Any new failure message that describes a
-timeout keeps the words `timed out` in it.
+The wording matters as much as the detection: once the finished process is
+behind us, the error string is all that reaches `resilience/errors.ts`, whose
+**text rules are the last resort** of the classifier — and that is what earns
+the phase its retries in `phase-runner.ts`. A timeout reported as a bare
+`claude exited with code 143` — the shape this had before — both hides the
+cause and silently costs the phase every retry it had, because `143` on its own
+deliberately classifies nothing (Ctrl+C leaves the same code). Any new failure
+message that describes a timeout keeps the words `timed out` in it.
 
 Every single-invocation phase takes its limit from `DEFAULT_HEADLESS_TIMEOUT_MS`
 (`getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS` at the call site, so
