@@ -99,12 +99,146 @@ async function withDatabase<T>(
 export async function loadStoredPlan(context: PlanRepositoryContext): Promise<TaskPlan> {
   return withDatabase((database) => {
     const row = database
-      .prepare('SELECT state_json FROM pipelines WHERE project_id = ? AND issue_id = ?')
-      .get<{ state_json: string }>(context.projectId, context.issueId);
+      .prepare('SELECT * FROM pipelines WHERE project_id = ? AND issue_id = ?')
+      .get<Record<string, unknown>>(context.projectId, context.issueId);
     if (row === undefined) {
       throw new Error(`No SQLite task plan exists for issue ${context.issueId}. Run plan first.`);
     }
-    const plan = parsePlan(row.state_json, context.tasksPath);
+    // Version 4 is fully relational. The fallback keeps a database imported by
+    // an older binary readable until its next normal plan materialization.
+    if (row.project === null || row.project === undefined) {
+      return parsePlan(String(row.state_json), context.tasksPath);
+    }
+    const dependencies = new Map<string, string[]>();
+    for (const dependency of database
+      .prepare(
+        'SELECT story_id, depends_on_story_id FROM story_dependencies WHERE project_id = ? AND issue_id = ?',
+      )
+      .all<{ story_id: string; depends_on_story_id: string }>(context.projectId, context.issueId)) {
+      dependencies.set(dependency.story_id, [
+        ...(dependencies.get(dependency.story_id) ?? []),
+        dependency.depends_on_story_id,
+      ]);
+    }
+    const stories = database
+      .prepare(
+        'SELECT * FROM stories WHERE project_id = ? AND issue_id = ? ORDER BY priority, rowid',
+      )
+      .all<Record<string, unknown>>(context.projectId, context.issueId)
+      .map((story) => ({
+        id: String(story.id),
+        title: String(story.title),
+        description: String(story.description ?? ''),
+        acceptanceCriteria: JSON.parse(String(story.acceptance_criteria_json ?? '[]')) as string[],
+        priority: Number(story.priority),
+        passes: Number(story.passes) === 1,
+        notes: String(story.notes ?? ''),
+        ...(story.duration_seconds === null
+          ? {}
+          : { durationSeconds: Number(story.duration_seconds) }),
+        ...(story.status === null
+          ? {}
+          : { status: String(story.status) as TaskPlan['userStories'][number]['status'] }),
+        ...(story.stage === null
+          ? {}
+          : { stage: String(story.stage) as TaskPlan['userStories'][number]['stage'] }),
+        ...(story.stage_since === null ? {} : { stageSince: String(story.stage_since) }),
+        ...(story.stage_detail === null ? {} : { stageDetail: String(story.stage_detail) }),
+        ...(story.input_tokens === null ? {} : { inputTokens: Number(story.input_tokens) }),
+        ...(story.output_tokens === null ? {} : { outputTokens: Number(story.output_tokens) }),
+        ...(story.cache_read_tokens === null
+          ? {}
+          : { cacheReadTokens: Number(story.cache_read_tokens) }),
+        ...(story.cache_creation_tokens === null
+          ? {}
+          : { cacheCreationTokens: Number(story.cache_creation_tokens) }),
+        ...(dependencies.has(String(story.id))
+          ? { dependencies: dependencies.get(String(story.id)) }
+          : {}),
+      }));
+    const plan: TaskPlan = {
+      project: String(row.project),
+      issueNumber: String(row.issue_number),
+      issueUrl: String(row.issue_url ?? ''),
+      branchName: String(row.branch_name ?? ''),
+      ...(Number(row.no_branch) === 1 ? { noBranch: true } : {}),
+      description: String(row.description ?? ''),
+      issueStatus: String(row.issue_status) as TaskPlan['issueStatus'],
+      completedAt: (row.completed_at as string | null) ?? null,
+      lastAttemptAt: (row.last_attempt_at as string | null) ?? null,
+      lastError:
+        row.last_error_category === null
+          ? null
+          : {
+              category: String(row.last_error_category),
+              message: String(row.last_error_message),
+              at: String(row.last_error_at),
+            },
+      correctionCycle: Number(row.correction_cycle),
+      maxCorrectionCycles: Number(row.max_correction_cycles),
+      lastReviewFindings: (row.last_review_findings as string | null) ?? null,
+      pipeline: {
+        ...(Number(row.analyze_completed) === 1 ? { analyzeCompleted: true } : {}),
+        prdCompleted: Number(row.prd_completed) === 1,
+        jsonCompleted: Number(row.json_completed) === 1,
+        executionCompleted: Number(row.execution_completed) === 1,
+        reviewCompleted: Number(row.review_completed) === 1,
+        prCreated: Number(row.pr_created) === 1,
+        ...(Number(row.pr_review_completed) === 1 ? { prReviewCompleted: true } : {}),
+      },
+      ...(row.run_status === null
+        ? {}
+        : {
+            runState: {
+              status: row.run_status as TaskPlan['runState'] extends infer R
+                ? R extends { status: infer S }
+                  ? S
+                  : never
+                : never,
+              currentPhase: (row.run_phase as string | null) ?? null,
+              attempt: Number(row.run_attempt ?? 0),
+              lastHeartbeatAt: (row.run_heartbeat_at as string | null) ?? null,
+              blockedReason: (row.run_blocked_reason as string | null) ?? null,
+              owner:
+                row.run_owner_pid === null
+                  ? null
+                  : {
+                      pid: Number(row.run_owner_pid),
+                      host: String(row.run_owner_host),
+                      startedAt: String(row.run_owner_started_at),
+                    },
+            },
+          }),
+      ...(row.pr_number === null
+        ? {}
+        : {
+            pullRequest: {
+              number: Number(row.pr_number),
+              url: String(row.pr_url),
+              headBranch: String(row.pr_head_branch),
+              createdAt: String(row.pr_created_at),
+            },
+          }),
+      ...(row.pr_review_enabled === null
+        ? {}
+        : {
+            prReview: {
+              enabled: Number(row.pr_review_enabled) === 1,
+              rounds: Number(row.pr_review_rounds ?? 0),
+              ...(row.pr_review_recommendation === null
+                ? {}
+                : {
+                    lastRecommendation: String(row.pr_review_recommendation) as NonNullable<
+                      TaskPlan['prReview']
+                    >['lastRecommendation'],
+                  }),
+              ...(row.pr_reviewed_at === null
+                ? {}
+                : { lastReviewedAt: String(row.pr_reviewed_at) }),
+            },
+          }),
+      userStories: stories,
+    };
     const executions = database
       .prepare(
         'SELECT payload_json FROM executions WHERE project_id = ? AND issue_id = ? ORDER BY started_at, rowid',
@@ -115,7 +249,7 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
   });
 }
 
-function writePlanRows(
+export function writePlanRows(
   database: Awaited<ReturnType<typeof openIssueFlowDatabase>>,
   context: PlanRepositoryContext,
   plan: TaskPlan,
@@ -143,14 +277,69 @@ function writePlanRows(
       timestamp,
       timestamp,
     );
-  const { executions: _executions, ...storedPlan } = plan;
+  // `state_json` is kept as an empty compatibility column for pre-v4 database
+  // files. Relational columns below are the source of truth.
   database
     .prepare(
       `INSERT INTO pipelines (project_id, issue_id, state_json, updated_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(project_id, issue_id) DO UPDATE SET state_json = excluded.state_json,
        updated_at = excluded.updated_at`,
     )
-    .run(context.projectId, context.issueId, JSON.stringify(storedPlan), timestamp);
+    .run(context.projectId, context.issueId, '{}', timestamp);
+  database
+    .prepare(
+      `UPDATE pipelines SET project = ?, issue_number = ?, issue_url = ?, branch_name = ?, no_branch = ?,
+       description = ?, issue_status = ?, completed_at = ?, last_attempt_at = ?, last_error_category = ?,
+       last_error_message = ?, last_error_at = ?, correction_cycle = ?, max_correction_cycles = ?,
+       last_review_findings = ?, analyze_completed = ?, prd_completed = ?, json_completed = ?,
+       execution_completed = ?, review_completed = ?, pr_created = ?, pr_review_completed = ?, run_status = ?,
+       run_phase = ?, run_attempt = ?, run_heartbeat_at = ?, run_blocked_reason = ?, run_owner_pid = ?,
+       run_owner_host = ?, run_owner_started_at = ?, pr_number = ?, pr_url = ?, pr_head_branch = ?,
+       pr_created_at = ?, pr_review_enabled = ?, pr_review_rounds = ?, pr_review_recommendation = ?,
+       pr_reviewed_at = ? WHERE project_id = ? AND issue_id = ?`,
+    )
+    .run(
+      plan.project,
+      String(plan.issueNumber),
+      plan.issueUrl,
+      plan.branchName,
+      plan.noBranch === true ? 1 : 0,
+      plan.description,
+      plan.issueStatus,
+      plan.completedAt,
+      plan.lastAttemptAt,
+      plan.lastError?.category ?? null,
+      plan.lastError?.message ?? null,
+      plan.lastError?.at ?? null,
+      plan.correctionCycle,
+      plan.maxCorrectionCycles,
+      plan.lastReviewFindings,
+      plan.pipeline.analyzeCompleted === true ? 1 : 0,
+      plan.pipeline.prdCompleted ? 1 : 0,
+      plan.pipeline.jsonCompleted ? 1 : 0,
+      plan.pipeline.executionCompleted ? 1 : 0,
+      plan.pipeline.reviewCompleted ? 1 : 0,
+      plan.pipeline.prCreated ? 1 : 0,
+      plan.pipeline.prReviewCompleted === true ? 1 : 0,
+      plan.runState?.status ?? null,
+      plan.runState?.currentPhase ?? null,
+      plan.runState?.attempt ?? null,
+      plan.runState?.lastHeartbeatAt ?? null,
+      plan.runState?.blockedReason ?? null,
+      plan.runState?.owner?.pid ?? null,
+      plan.runState?.owner?.host ?? null,
+      plan.runState?.owner?.startedAt ?? null,
+      plan.pullRequest?.number ?? null,
+      plan.pullRequest?.url ?? null,
+      plan.pullRequest?.headBranch ?? null,
+      plan.pullRequest?.createdAt ?? null,
+      plan.prReview?.enabled === true ? 1 : 0,
+      plan.prReview?.rounds ?? null,
+      plan.prReview?.lastRecommendation ?? null,
+      plan.prReview?.lastReviewedAt ?? null,
+      context.projectId,
+      context.issueId,
+    );
 
   database
     .prepare('DELETE FROM story_dependencies WHERE project_id = ? AND issue_id = ?')
@@ -173,6 +362,28 @@ function writePlanRows(
         story.passes ? 1 : 0,
         story.notes,
         storyNumber(story.id),
+      );
+    database
+      .prepare(
+        `UPDATE stories SET description = ?, acceptance_criteria_json = ?, duration_seconds = ?, status = ?,
+         stage = ?, stage_since = ?, stage_detail = ?, input_tokens = ?, output_tokens = ?,
+         cache_read_tokens = ?, cache_creation_tokens = ? WHERE project_id = ? AND issue_id = ? AND id = ?`,
+      )
+      .run(
+        story.description,
+        JSON.stringify(story.acceptanceCriteria),
+        story.durationSeconds ?? null,
+        story.status ?? null,
+        story.stage ?? null,
+        story.stageSince ?? null,
+        story.stageDetail ?? null,
+        story.inputTokens ?? null,
+        story.outputTokens ?? null,
+        story.cacheReadTokens ?? null,
+        story.cacheCreationTokens ?? null,
+        context.projectId,
+        context.issueId,
+        story.id,
       );
   }
   for (const story of plan.userStories) {
@@ -283,6 +494,32 @@ export async function saveExecution(
         columns.costStatus,
         columns.costAmount,
         JSON.stringify(execution),
+      );
+    const agent = execution.agent as Record<string, unknown> | undefined;
+    const model = agent?.model as Record<string, unknown> | undefined;
+    const usage = execution.usage as Record<string, unknown> | null | undefined;
+    database
+      .prepare(
+        `UPDATE executions SET session_id = ?, purpose = ?, attempt = ?, trigger = ?, trigger_reason = ?,
+         input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, reasoning_tokens = ?,
+         harness = ?, provider = ?, model_requested = ?, model_resolved = ? WHERE id = ?`,
+      )
+      .run(
+        (execution.sessionId as string | null | undefined) ?? null,
+        (execution.purpose as string | undefined) ?? null,
+        (execution.attempt as number | undefined) ?? null,
+        (execution.trigger as string | undefined) ?? null,
+        (execution.triggerReason as string | null | undefined) ?? null,
+        (usage?.inputTokens as number | undefined) ?? null,
+        (usage?.outputTokens as number | undefined) ?? null,
+        (usage?.cacheReadTokens as number | undefined) ?? null,
+        (usage?.cacheCreationTokens as number | undefined) ?? null,
+        (usage?.reasoningTokens as number | undefined) ?? null,
+        (agent?.harness as string | undefined) ?? null,
+        (agent?.provider as string | null | undefined) ?? null,
+        (model?.requested as string | null | undefined) ?? null,
+        (model?.resolved as string | null | undefined) ?? null,
+        execution.id,
       );
   });
   // Direct library consumers historically read the projection themselves.

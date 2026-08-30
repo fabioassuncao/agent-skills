@@ -53,7 +53,7 @@ export async function runDbVacuum(): Promise<number> {
   try {
     const database = await openIssueFlowDatabase();
     try {
-      database.exec('VACUUM');
+      database.vacuum();
       printInfo(`Database vacuum completed: ${getDatabasePath()}`);
       return 0;
     } finally {

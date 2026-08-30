@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from './driver.js';
-import { CURRENT_SCHEMA_VERSION, migrateDatabase } from './migrations.js';
+import { CURRENT_SCHEMA_VERSION, migrateDatabase, migrations } from './migrations.js';
 
 const directories: string[] = [];
 
@@ -29,7 +29,7 @@ describe('SQLite migrations', () => {
       );
       expect(
         db.prepare('SELECT version FROM schema_migrations').all<{ version: number }>(),
-      ).toEqual([{ version: 1 }, { version: 2 }, { version: CURRENT_SCHEMA_VERSION }]);
+      ).toEqual(migrations.map((migration) => ({ version: migration.version })));
     } finally {
       db.close();
     }

@@ -38,13 +38,16 @@ export interface JournalEntry {
   event: SessionEvent;
 }
 
-/** Default ceiling before the journal rotates. */
-export const DEFAULT_JOURNAL_MAX_BYTES = 10 * 1024 * 1024;
+/**
+ * Event history is durable by default. Rotation is opt-in because retaining a
+ * single previous file silently discarded older audit events.
+ */
+export const DEFAULT_JOURNAL_MAX_BYTES = 0;
 
 export interface JournalPublisherOptions extends MemoryPublisherOptions {
   /**
-   * Rotate once the file would grow past this. Default 10 MB. `0` disables
-   * rotation, which is what a caller that manages its own retention wants.
+   * Rotate once the file would grow past this. `0` (the default) disables
+   * rotation; an explicit retention policy must own any deletion.
    */
   maxFileBytes?: number;
 }
@@ -112,12 +115,9 @@ export class JournalPublisher extends MemoryPublisher {
   }
 
   /**
-   * Keep exactly one previous generation.
-   *
-   * Deliberately not a numbered cascade: two files bound the disk cost at
-   * `2 * maxFileBytes`, and a run long enough to fill 10 MB twice has already
-   * put everything a human would look for in the current file. A caller that
-   * needs full retention sets `maxFileBytes: 0` and rotates on its own terms.
+   * Keep exactly one previous generation only when a caller explicitly asks
+   * for rotation. The default never enters this path, so history is never
+   * discarded without an explicit policy.
    */
   private async rotate(): Promise<void> {
     try {

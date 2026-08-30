@@ -45,30 +45,14 @@ async function makeTemp(prefix: string): Promise<string> {
 async function writeTasksJson(issueId: string, userStories: Array<{ id: string }>): Promise<void> {
   const { resolveProjectPaths } = await import('./resolve.js');
   const { projectId } = await resolveProjectPaths({ projectRoot, env });
-  const { openIssueFlowDatabase } = await import('./db/index.js');
-  const database = await openIssueFlowDatabase({ env });
-  try {
-    const now = '2026-08-30T00:00:00.000Z';
-    database
-      .prepare(
-        'INSERT OR IGNORE INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(projectId, projectRoot, now, now);
-    database
-      .prepare(
-        'INSERT OR IGNORE INTO issues (project_id, id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-      )
-      .run(projectId, issueId, 'in_progress', now, now);
-    for (const story of userStories) {
-      database
-        .prepare(
-          'INSERT INTO stories (project_id, issue_id, id, title, priority, passes, story_number) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        )
-        .run(projectId, issueId, story.id, story.id, 1, 0, parseUserStoryNumber(story.id));
-    }
-  } finally {
-    database.close();
-  }
+  const { seedStoriesForNumbering } = await import('./db/test-seed.js');
+  await seedStoriesForNumbering({
+    projectId,
+    projectRoot,
+    issueId,
+    stories: userStories.map((story) => ({ id: story.id, number: parseUserStoryNumber(story.id) })),
+    env,
+  });
 }
 
 beforeEach(async () => {

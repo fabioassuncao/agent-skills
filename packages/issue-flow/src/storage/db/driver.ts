@@ -22,6 +22,7 @@ export interface DatabaseDriver {
   transaction<T>(work: () => T): T;
   integrityCheck(): string;
   backup(destination: string): void;
+  vacuum(): void;
   close(): void;
 }
 
@@ -125,6 +126,10 @@ class NodeSqliteDriver implements DatabaseDriver {
     // VACUUM INTO creates a consistent SQLite snapshot without copying a live
     // WAL file by hand. Binding keeps a user supplied destination out of SQL.
     this.prepare('VACUUM INTO ?').run(destination);
+  }
+
+  vacuum(): void {
+    this.exec('VACUUM');
   }
 
   close(): void {

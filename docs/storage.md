@@ -71,7 +71,7 @@ needs to write it, so a given run leaves most of these absent:
   progress.txt      # Execution log
   session.json      # Live session snapshot (web monitoring)
   events.jsonl      # Append-only event journal (opt-in)
-  events.1.jsonl    # Previous journal generation, after a rotation
+  events.1.jsonl    # Optional previous generation when rotation is explicitly configured
   verify.json       # Acceptance-contract evidence, redacted
   decomposition.md  # "This issue looks larger than one run" report
   run.log           # stdout/stderr of a `--background` run
@@ -637,6 +637,10 @@ the database is preserved as `issue-flow.db.failed-<timestamp>` and the command
 continues with the JSON storage. A failed `integrity_check` is similarly
 isolated as `issue-flow.db.corrupt-<timestamp>` before rebuilding from the
 preserved artifacts.
+
+Execution, event and snapshot history is retained indefinitely by default.
+Any cleanup must be declared explicitly through `storage.retention`; journal
+rotation is likewise opt-in, so no historical event is silently discarded.
 
 It is **non-destructive by construction**: `<projectRoot>/issues/` is never
 modified, renamed or removed — there is no removal option, not even opt-in.

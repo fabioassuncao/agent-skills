@@ -20,13 +20,7 @@ import {
   openIssueFlowDatabase,
 } from './index.js';
 import { CURRENT_SCHEMA_VERSION } from './migrations.js';
-
-function storyNumber(id: string): number | null {
-  const matches = id.match(/\d+/g);
-  if (matches === null || matches.length === 0) return null;
-  const value = Number.parseInt(matches.at(-1) ?? '', 10);
-  return Number.isNaN(value) ? null : value;
-}
+import { writePlanRows } from './repository.js';
 
 /** A source file that was imported into one or more relational tables. */
 interface Artifact {
@@ -197,62 +191,19 @@ function importArtifact(
     if (!parsed.success) return;
     const plan = parsed.data;
     const issueId = artifact.issueId ?? String(plan.issueNumber);
-    const timestamp = plan.lastAttemptAt ?? fallback.timestamp;
-    insertIssue(
+    writePlanRows(
       database,
-      projectId,
-      issueId,
-      plan.issueStatus,
-      plan.description || null,
-      plan.branchName || null,
-      timestamp,
-      counts,
+      {
+        tasksPath: artifact.path,
+        projectId,
+        issueId,
+        projectRoot: fallback.root,
+      },
+      plan,
     );
-    database
-      .prepare(
-        `INSERT INTO pipelines (project_id, issue_id, state_json, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(project_id, issue_id) DO UPDATE SET state_json = excluded.state_json,
-         updated_at = excluded.updated_at`,
-      )
-      // `state_json` is the canonical plan projection. The relational tables
-      // below are its queryable indexes; keeping the complete plan here means
-      // additive fields do not need a schema migration before they can round
-      // trip through SQLite.
-      .run(projectId, issueId, JSON.stringify({ ...plan, executions: undefined }), timestamp);
+    increment(counts, 'issues');
     increment(counts, 'pipelines');
-    for (const story of plan.userStories) {
-      database
-        .prepare(
-          `INSERT INTO stories (project_id, issue_id, id, title, priority, passes, notes, story_number)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(project_id, issue_id, id) DO UPDATE SET title = excluded.title,
-           priority = excluded.priority, passes = excluded.passes, notes = excluded.notes,
-           story_number = excluded.story_number`,
-        )
-        .run(
-          projectId,
-          issueId,
-          story.id,
-          story.title,
-          story.priority,
-          story.passes ? 1 : 0,
-          story.notes,
-          storyNumber(story.id),
-        );
-      increment(counts, 'stories');
-    }
-    // Insert all stories before their edges: a dependency may point forward in
-    // the task plan, and both ends are protected by foreign keys.
-    for (const story of plan.userStories) {
-      for (const dependency of story.dependencies ?? []) {
-        database
-          .prepare(
-            `INSERT OR IGNORE INTO story_dependencies
-             (project_id, issue_id, story_id, depends_on_story_id) VALUES (?, ?, ?, ?)`,
-          )
-          .run(projectId, issueId, story.id, dependency);
-      }
-    }
+    counts.stories += plan.userStories.length;
     for (const execution of plan.executions ?? []) {
       const cost = execution.cost.status === 'unknown' ? null : execution.cost.amount;
       database
@@ -494,17 +445,16 @@ export async function importProjectArtifacts(
           const previous = database
             .prepare('SELECT sha256 FROM migrated_artifacts WHERE source_path = ?')
             .get<{ sha256: string }>(artifact.path);
-          // US-015 promoted `pipelines.state_json` from a small pipeline
-          // fragment to the canonical plan projection. Reprocess an otherwise
-          // unchanged legacy tasks file exactly once when its older import is
-          // still present, so upgrading does not require touching the source.
+          // Reprocess an otherwise unchanged legacy tasks file exactly once
+          // when it predates the relational plan columns, so upgrading does
+          // not require touching the source artifact.
           const requiresPlanProjection =
             artifact.kind === 'tasks' &&
             taskPlanSchema.safeParse(artifact.value).success &&
             database
-              .prepare('SELECT state_json FROM pipelines WHERE project_id = ? AND issue_id = ?')
-              .get<{ state_json: string }>(options.projectId, artifact.issueId ?? '')
-              ?.state_json.includes('"userStories"') === false;
+              .prepare('SELECT project FROM pipelines WHERE project_id = ? AND issue_id = ?')
+              .get<{ project: string | null }>(options.projectId, artifact.issueId ?? '')
+              ?.project === null;
           if (previous?.sha256 === artifact.sha256 && !requiresPlanProjection) {
             skipped++;
             continue;

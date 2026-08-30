@@ -343,6 +343,15 @@ export const storageConfigInputSchema = z
     driver: z.enum(['sqlite', 'json']),
     /** Number of pre-migration database snapshots to retain. */
     backupRetention: z.number().int().nonnegative(),
+    /** Explicit row-retention policy. Omitted values mean retain history. */
+    retention: z
+      .object({
+        executions: z.number().int().nonnegative(),
+        events: z.number().int().nonnegative(),
+        snapshots: z.number().int().nonnegative(),
+        backups: z.number().int().nonnegative(),
+      })
+      .partial(),
   })
   .partial();
 

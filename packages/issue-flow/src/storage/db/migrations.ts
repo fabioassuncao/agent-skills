@@ -192,6 +192,148 @@ export const migrations: readonly Migration[] = [
         CREATE INDEX stories_project_number_idx ON stories(project_id, story_number DESC);
       `),
   },
+  {
+    version: 4,
+    name: 'complete relational state and history indexes',
+    up: (database) =>
+      database.exec(`
+        ALTER TABLE pipelines ADD COLUMN project TEXT;
+        ALTER TABLE pipelines ADD COLUMN issue_number TEXT;
+        ALTER TABLE pipelines ADD COLUMN issue_url TEXT;
+        ALTER TABLE pipelines ADD COLUMN branch_name TEXT;
+        ALTER TABLE pipelines ADD COLUMN no_branch INTEGER NOT NULL DEFAULT 0 CHECK (no_branch IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN description TEXT;
+        ALTER TABLE pipelines ADD COLUMN issue_status TEXT;
+        ALTER TABLE pipelines ADD COLUMN completed_at TEXT;
+        ALTER TABLE pipelines ADD COLUMN last_attempt_at TEXT;
+        ALTER TABLE pipelines ADD COLUMN last_error_category TEXT;
+        ALTER TABLE pipelines ADD COLUMN last_error_message TEXT;
+        ALTER TABLE pipelines ADD COLUMN last_error_at TEXT;
+        ALTER TABLE pipelines ADD COLUMN correction_cycle INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE pipelines ADD COLUMN max_correction_cycles INTEGER NOT NULL DEFAULT 3;
+        ALTER TABLE pipelines ADD COLUMN last_review_findings TEXT;
+        ALTER TABLE pipelines ADD COLUMN analyze_completed INTEGER CHECK (analyze_completed IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN prd_completed INTEGER CHECK (prd_completed IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN json_completed INTEGER CHECK (json_completed IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN execution_completed INTEGER CHECK (execution_completed IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN review_completed INTEGER CHECK (review_completed IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN pr_created INTEGER CHECK (pr_created IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN pr_review_completed INTEGER CHECK (pr_review_completed IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN run_status TEXT;
+        ALTER TABLE pipelines ADD COLUMN run_phase TEXT;
+        ALTER TABLE pipelines ADD COLUMN run_attempt INTEGER;
+        ALTER TABLE pipelines ADD COLUMN run_heartbeat_at TEXT;
+        ALTER TABLE pipelines ADD COLUMN run_blocked_reason TEXT;
+        ALTER TABLE pipelines ADD COLUMN run_owner_pid INTEGER;
+        ALTER TABLE pipelines ADD COLUMN run_owner_host TEXT;
+        ALTER TABLE pipelines ADD COLUMN run_owner_started_at TEXT;
+        ALTER TABLE pipelines ADD COLUMN pr_number INTEGER;
+        ALTER TABLE pipelines ADD COLUMN pr_url TEXT;
+        ALTER TABLE pipelines ADD COLUMN pr_head_branch TEXT;
+        ALTER TABLE pipelines ADD COLUMN pr_created_at TEXT;
+        ALTER TABLE pipelines ADD COLUMN pr_review_enabled INTEGER CHECK (pr_review_enabled IN (0, 1));
+        ALTER TABLE pipelines ADD COLUMN pr_review_rounds INTEGER;
+        ALTER TABLE pipelines ADD COLUMN pr_review_recommendation TEXT;
+        ALTER TABLE pipelines ADD COLUMN pr_reviewed_at TEXT;
+
+        ALTER TABLE stories ADD COLUMN description TEXT;
+        ALTER TABLE stories ADD COLUMN acceptance_criteria_json TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE stories ADD COLUMN duration_seconds REAL;
+        ALTER TABLE stories ADD COLUMN status TEXT;
+        ALTER TABLE stories ADD COLUMN stage TEXT;
+        ALTER TABLE stories ADD COLUMN stage_since TEXT;
+        ALTER TABLE stories ADD COLUMN stage_detail TEXT;
+        ALTER TABLE stories ADD COLUMN input_tokens INTEGER;
+        ALTER TABLE stories ADD COLUMN output_tokens INTEGER;
+        ALTER TABLE stories ADD COLUMN cache_read_tokens INTEGER;
+        ALTER TABLE stories ADD COLUMN cache_creation_tokens INTEGER;
+
+        ALTER TABLE runs ADD COLUMN session_id TEXT;
+        ALTER TABLE runs ADD COLUMN heartbeat_at TEXT;
+        ALTER TABLE runs ADD COLUMN pid INTEGER;
+        ALTER TABLE runs ADD COLUMN host TEXT;
+        ALTER TABLE events ADD COLUMN session_id TEXT;
+        ALTER TABLE events ADD COLUMN sequence INTEGER;
+        ALTER TABLE snapshots ADD COLUMN issue_id TEXT;
+        ALTER TABLE snapshots ADD COLUMN session_id TEXT;
+        ALTER TABLE snapshots ADD COLUMN updated_at TEXT;
+        ALTER TABLE executions ADD COLUMN session_id TEXT;
+        ALTER TABLE executions ADD COLUMN purpose TEXT;
+        ALTER TABLE executions ADD COLUMN attempt INTEGER;
+        ALTER TABLE executions ADD COLUMN trigger TEXT;
+        ALTER TABLE executions ADD COLUMN trigger_reason TEXT;
+        ALTER TABLE executions ADD COLUMN input_tokens INTEGER;
+        ALTER TABLE executions ADD COLUMN output_tokens INTEGER;
+        ALTER TABLE executions ADD COLUMN cache_read_tokens INTEGER;
+        ALTER TABLE executions ADD COLUMN cache_creation_tokens INTEGER;
+        ALTER TABLE executions ADD COLUMN reasoning_tokens INTEGER;
+        ALTER TABLE executions ADD COLUMN harness TEXT;
+        ALTER TABLE executions ADD COLUMN provider TEXT;
+        ALTER TABLE executions ADD COLUMN model_requested TEXT;
+        ALTER TABLE executions ADD COLUMN model_resolved TEXT;
+
+        ALTER TABLE provider_health ADD COLUMN status TEXT;
+        ALTER TABLE provider_health ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE provider_health ADD COLUMN cooldown_level INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE provider_health ADD COLUMN cooldown_until TEXT;
+        ALTER TABLE provider_health ADD COLUMN last_failure_kind TEXT;
+        ALTER TABLE provider_health ADD COLUMN last_failure_at TEXT;
+        ALTER TABLE provider_health ADD COLUMN last_success_at TEXT;
+        ALTER TABLE provider_health ADD COLUMN probe_in_flight INTEGER NOT NULL DEFAULT 0 CHECK (probe_in_flight IN (0, 1));
+        ALTER TABLE provider_health ADD COLUMN probe_started_at TEXT;
+        CREATE TABLE provider_health_failures (
+          project_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          occurred_at TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          PRIMARY KEY (project_id, provider, occurred_at, kind),
+          FOREIGN KEY (project_id, provider) REFERENCES provider_health(project_id, provider) ON DELETE CASCADE
+        );
+
+        ALTER TABLE queues ADD COLUMN requested_json TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE queues ADD COLUMN branch_name TEXT;
+        ALTER TABLE queues ADD COLUMN no_branch INTEGER NOT NULL DEFAULT 0 CHECK (no_branch IN (0, 1));
+        ALTER TABLE queues ADD COLUMN pr_review INTEGER NOT NULL DEFAULT 0 CHECK (pr_review IN (0, 1));
+        ALTER TABLE queues ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0 CHECK (truncated IN (0, 1));
+        ALTER TABLE queue_issues ADD COLUMN number INTEGER;
+        ALTER TABLE queue_issues ADD COLUMN title TEXT;
+        ALTER TABLE queue_issues ADD COLUMN url TEXT;
+        ALTER TABLE queue_issues ADD COLUMN source TEXT;
+        ALTER TABLE queue_issues ADD COLUMN origin TEXT;
+        ALTER TABLE queue_issues ADD COLUMN role TEXT;
+        ALTER TABLE queue_issues ADD COLUMN priority TEXT;
+        ALTER TABLE queue_issues ADD COLUMN heuristic INTEGER NOT NULL DEFAULT 0 CHECK (heuristic IN (0, 1));
+        ALTER TABLE queue_issues ADD COLUMN failed_phase TEXT;
+        ALTER TABLE queue_issues ADD COLUMN last_error_category TEXT;
+        ALTER TABLE queue_issues ADD COLUMN last_error_message TEXT;
+        ALTER TABLE queue_issues ADD COLUMN last_error_at TEXT;
+        ALTER TABLE queue_issues ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE queue_issues ADD COLUMN blocked_reason TEXT;
+        ALTER TABLE queue_issues ADD COLUMN started_at TEXT;
+        ALTER TABLE queue_issues ADD COLUMN completed_at TEXT;
+        CREATE TABLE queue_dependencies (
+          queue_id TEXT NOT NULL REFERENCES queues(id) ON DELETE CASCADE,
+          issue_id TEXT NOT NULL,
+          depends_on_issue_id TEXT NOT NULL,
+          PRIMARY KEY (queue_id, issue_id, depends_on_issue_id),
+          CHECK (issue_id <> depends_on_issue_id)
+        );
+        CREATE TABLE user_story_numbering (
+          project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+          next_number INTEGER NOT NULL CHECK (next_number > 0),
+          source TEXT NOT NULL,
+          issue_id TEXT NOT NULL,
+          decided_at TEXT NOT NULL,
+          detail TEXT
+        );
+        CREATE UNIQUE INDEX events_run_sequence_idx ON events(run_id, sequence) WHERE run_id IS NOT NULL AND sequence IS NOT NULL;
+        CREATE INDEX snapshots_project_session_updated_idx ON snapshots(project_id, session_id, updated_at DESC);
+        CREATE INDEX events_project_session_sequence_idx ON events(project_id, session_id, sequence);
+        CREATE INDEX executions_project_purpose_started_idx ON executions(project_id, purpose, started_at);
+        CREATE INDEX queue_issues_project_status_idx ON queue_issues(project_id, status, position);
+        CREATE INDEX provider_health_failures_lookup_idx ON provider_health_failures(project_id, provider, occurred_at DESC);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

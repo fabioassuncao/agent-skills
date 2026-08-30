@@ -158,28 +158,13 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
   async function seedPriorStory(): Promise<void> {
     const { resolveProjectPaths } = await import('../storage/resolve.js');
     const { projectId } = await resolveProjectPaths({});
-    const { openIssueFlowDatabase } = await import('../storage/db/index.js');
-    const database = await openIssueFlowDatabase();
-    try {
-      const now = '2026-08-30T00:00:00.000Z';
-      database
-        .prepare(
-          'INSERT OR IGNORE INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)',
-        )
-        .run(projectId, tmpDir, now, now);
-      database
-        .prepare(
-          'INSERT OR IGNORE INTO issues (project_id, id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-        )
-        .run(projectId, '12', 'completed', now, now);
-      database
-        .prepare(
-          'INSERT INTO stories (project_id, issue_id, id, title, priority, passes, story_number) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        )
-        .run(projectId, '12', 'US-015', 'Prior story', 1, 1, 15);
-    } finally {
-      database.close();
-    }
+    const { seedStoriesForNumbering } = await import('../storage/db/test-seed.js');
+    await seedStoriesForNumbering({
+      projectId,
+      projectRoot: tmpDir,
+      issueId: '12',
+      stories: [{ id: 'US-015', number: 15, passes: true }],
+    });
   }
 
   it('starts at US-001 with no prior history for the project', async () => {

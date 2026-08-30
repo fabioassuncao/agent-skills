@@ -228,7 +228,7 @@ project that configures nothing resolves to `{}`.
     },
     "queue": { "onIssueFailure": "skip", "maxIssueAttempts": 3 },
     "watchdog": { "inactivityTimeoutMs": 600000 },
-    "journal": { "enabled": true, "maxFileBytes": 10485760 },
+    "journal": { "enabled": true },
     "decompose": { "auto": false }
   }
 }
@@ -292,7 +292,7 @@ indistinguishable from a value you actually wrote.
 {
   "schemaVersion": 1,
   "storageDir": "/mnt/data/issue-flow",
-  "storage": { "driver": "sqlite", "backupRetention": 5 },
+  "storage": { "driver": "sqlite", "backupRetention": 5, "retention": { "executions": 0, "events": 0, "snapshots": 0, "backups": 5 } },
   "web": { "port": 3737, "host": "127.0.0.1", "refreshSeconds": 5, "logLimit": 200 },
   "retry": { "retryLimit": 10, "retryForever": false, "backoffBaseSeconds": 30, "backoffMaxSeconds": 900 },
   "commit": { "signoff": false, "conventional": true },
@@ -307,7 +307,7 @@ indistinguishable from a value you actually wrote.
 |-----|---------|
 | `schemaVersion` | Format version of the file |
 | `storageDir` | Alternative directory holding `projects/` |
-| `storage` | Structured-state driver (`sqlite` by default; `json` keeps the compatibility path active) and the number of pre-migration backups to retain (5 by default) |
+| `storage` | Structured-state driver (`sqlite` by default; `json` keeps the compatibility path active), pre-migration backup retention (5 by default), and optional explicit row retention. A `retention` value of `0` retains all rows. |
 | `web` | Machine-wide web defaults. Deliberately a subset of the project key: `enabled` and `includeLogs` stay a per-project decision |
 | `retry` | Retry and backoff preferences, mirroring the engine defaults |
 | `commit` | Commit preferences. `signoff` is consumed by `commitMessage()` |
