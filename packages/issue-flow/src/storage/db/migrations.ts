@@ -177,6 +177,12 @@ export const migrations: readonly Migration[] = [
     name: 'initial relational storage',
     up: (database) => database.exec(INITIAL_SCHEMA),
   },
+  {
+    version: 2,
+    name: 'preserve imported execution details',
+    up: (database) =>
+      database.exec("ALTER TABLE executions ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'"),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

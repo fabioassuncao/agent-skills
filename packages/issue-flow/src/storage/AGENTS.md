@@ -11,6 +11,12 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   only under `src/storage/db/`. The driver owns connection PRAGMAs, the narrow
   SQLite ExperimentalWarning filter, transactions and online snapshots.
 
+- **JSON-to-SQLite adoption is owned by `db/import.ts` and starts from
+  `resolve.ts`.** Read all source artifacts before opening the project
+  transaction, key `migrated_artifacts` by source path + SHA-256, and never
+  mutate the JSON/JSONL source tree. An import failure must quarantine the
+  database and let the existing JSON path continue.
+
 - **Never join `homedir()` by hand.** Every path under the global tree must derive from
   `getGlobalRoot()` in `paths.ts` — that is the single seam where `ISSUE_FLOW_HOME` takes effect,
   and it is what keeps tests, CI and sandboxes off the real `$HOME`.

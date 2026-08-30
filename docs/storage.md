@@ -617,6 +617,23 @@ Migration is **automatic**: the first command that resolves a path for a project
 copies an existing `<projectRoot>/issues/` tree into the global storage before
 reading anything. There is no command to run and no flag to pass.
 
+That same first resolution imports the global project's structured JSON state
+into SQLite. The importer records a SHA-256 hash for every source artifact, so
+restarts resume without duplicating rows; it imports the project, plans and
+stories, telemetry, queues, provider health, journals, verification evidence
+and pull-request references in one project transaction. Live `session.json`
+snapshots are intentionally discarded because they are transient projections.
+JSON, JSONL,
+Markdown, locks and logs remain the diagnostic/source artifacts during this
+transition — none is renamed, rewritten or removed.
+
+Before a schema upgrade of an existing database, Issue Flow takes a consistent
+snapshot under `backups/` (five generations by default). If an import fails,
+the database is preserved as `issue-flow.db.failed-<timestamp>` and the command
+continues with the JSON storage. A failed `integrity_check` is similarly
+isolated as `issue-flow.db.corrupt-<timestamp>` before rebuilding from the
+preserved artifacts.
+
 It is **non-destructive by construction**: `<projectRoot>/issues/` is never
 modified, renamed or removed — there is no removal option, not even opt-in.
 Migration is a copy that refuses to overwrite, which also makes it idempotent and

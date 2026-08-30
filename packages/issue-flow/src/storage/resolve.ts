@@ -4,6 +4,8 @@ import { bindTelemetry } from '../telemetry/recorder.js';
 import { printInfo } from '../ui/logger.js';
 import { getProjectRoot } from '../utils/git.js';
 import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
+import { importProjectArtifacts } from './db/import.js';
+import { getDatabasePath } from './db/index.js';
 import {
   type GetGlobalRootOptions,
   getGlobalRoot,
@@ -133,6 +135,24 @@ async function resolveProject(
 
   if (status.mode === 'needs-migration') {
     announceMigration(await migrateLegacyStorage(projectRoot, options));
+  }
+
+  const imported = await importProjectArtifacts({
+    ...options,
+    projectId: status.projectId,
+    projectDir: status.globalDir,
+    projectRoot,
+    remoteUrl: status.remoteUrl,
+    onWarning: printInfo,
+  });
+  if (imported.imported > 0) {
+    const counts = Object.entries(imported.tableCounts)
+      .filter(([, count]) => count > 0)
+      .map(([table, count]) => `${table}: ${count}`)
+      .join(', ');
+    printInfo(
+      `Imported ${imported.imported} structured artifact${imported.imported === 1 ? '' : 's'} from ${status.globalDir} into ${getDatabasePath(options)} (${counts || 'no rows'}). No source artifacts were removed.`,
+    );
   }
 
   return {

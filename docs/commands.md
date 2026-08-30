@@ -352,6 +352,11 @@ INTO`; without `--destination`, it writes a timestamped file below
 space. All three commands exit non-zero with an actionable error when the
 database cannot be opened or is invalid.
 
+The automatic JSON-to-SQLite import also creates a pre-upgrade backup before it
+migrates an existing schema. It retains five such snapshots by default; failed
+or corrupt imports preserve the original database with a timestamped `.failed-`
+or `.corrupt-` suffix and keep the JSON artifacts untouched for recovery.
+
 ## Issues
 
 ### `generate` — draft and create an issue
