@@ -231,6 +231,7 @@ export class CodexRunner implements AgentRunner {
     const base = { agent, harnessVersion: peekHarnessVersion(this.id) };
     const startTime = Date.now();
 
+    let cleanup: (() => void) | null = null;
     try {
       const subprocess = execa('codex', args, {
         input: invocation.prompt,
@@ -259,6 +260,12 @@ export class CodexRunner implements AgentRunner {
           ),
         },
       });
+      // The stream can reject; the watchdog timer and the shutdown registry
+      // must not outlive the call either way.
+      cleanup = () => {
+        watchdog.stop();
+        unregister();
+      };
 
       const collected: string[] = [];
       if (subprocess.stdout) {
@@ -294,10 +301,10 @@ export class CodexRunner implements AgentRunner {
         return {
           success: false,
           result: '',
-          rawOutput: describeStall(watchdog.silentMs),
+          rawOutput: describeStall(watchdog.silentMs, 'codex'),
           exitCode: exitCode === 0 ? 1 : exitCode,
           usage: null,
-          error: describeStall(watchdog.silentMs),
+          error: describeStall(watchdog.silentMs, 'codex'),
           sessionId: parsed.sessionId,
           ...base,
         };
@@ -356,6 +363,7 @@ export class CodexRunner implements AgentRunner {
         ...base,
       };
     } finally {
+      cleanup?.();
       await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
     }
   }

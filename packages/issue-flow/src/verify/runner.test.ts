@@ -51,6 +51,30 @@ describe('runContract', () => {
     expect(run.verdict).not.toMatch(/STATUS:\s*PASS/i);
   });
 
+  it('treats a declared check as fatal unless it opts out', async () => {
+    const run = await runContract(
+      { source: 'declared', checks: [{ id: 'artifacts', expectFiles: ['no-such-file-*.bin'] }] },
+      { cwd: '/tmp', run: async () => ({ stdout: '', stderr: '', exitCode: 0 }) },
+    );
+    expect(run.results[0]?.status).toBe('failed');
+    // A declared check that failed is red. Defaulting it to non-fatal turned
+    // the whole contract green and greenlit the gate.
+    expect(run.results[0]?.fatal).toBe(true);
+    expect(run.verdict).toBe('failed');
+  });
+
+  it('honours an explicit non-fatal expectFiles check', async () => {
+    const run = await runContract(
+      {
+        source: 'declared',
+        checks: [{ id: 'artifacts', expectFiles: ['no-such-file-*.bin'], fatal: false }],
+      },
+      { cwd: '/tmp', run: async () => ({ stdout: '', stderr: '', exitCode: 0 }) },
+    );
+    expect(run.results[0]?.fatal).toBe(false);
+    expect(run.verdict).toBe('passed');
+  });
+
   it('does not treat a missing binary as a failed check', async () => {
     const run = await runContract(
       { source: 'declared', checks: [{ id: 'ghost', run: 'no-such-check', fatal: true }] },

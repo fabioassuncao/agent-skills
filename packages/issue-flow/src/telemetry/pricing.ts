@@ -34,12 +34,35 @@ const TABLE: Record<string, PricingRow> = {
   'gpt-5.1': { inputPerMillion: 1.25, outputPerMillion: 10 },
 };
 
+/** Aliases a harness accepts in place of a model id. */
+const ALIASES: Record<string, string> = {
+  sonnet: 'claude-sonnet-4-5',
+  opus: 'claude-opus-4',
+};
+
+/**
+ * Map a resolved model id onto a table key.
+ *
+ * What reaches here is whatever the harness reported: a dated snapshot
+ * (`claude-sonnet-4-5-20250929`), a vendor-prefixed id
+ * (`anthropic/claude-sonnet-4-5`) or a configured alias (`sonnet`). An exact
+ * lookup misses all three, and the estimate silently degrades to `unknown`.
+ * An override is always honoured under the key the user wrote.
+ */
+export function normalizeModelKey(modelKey: string): string {
+  const lower = modelKey.trim().toLowerCase();
+  const withoutVendor = lower.slice(lower.lastIndexOf('/') + 1);
+  const withoutSnapshot = withoutVendor.replace(/-\d{8}$/, '').replace(/-latest$/, '');
+  return ALIASES[withoutSnapshot] ?? withoutSnapshot;
+}
+
 function rowFor(
   modelKey: string,
   overrides: TelemetryConfig['pricing']['overrides'],
 ): PricingRow | null {
-  const override = overrides[modelKey];
-  const base = TABLE[modelKey];
+  const normalized = normalizeModelKey(modelKey);
+  const override = overrides[modelKey] ?? overrides[normalized];
+  const base = TABLE[modelKey] ?? TABLE[normalized];
   if (override === undefined && base === undefined) return null;
   return {
     inputPerMillion: override?.inputPerMillion ?? base?.inputPerMillion ?? 0,

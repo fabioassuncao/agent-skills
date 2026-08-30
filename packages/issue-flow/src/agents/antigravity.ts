@@ -366,6 +366,7 @@ export class AntigravityRunner implements AgentRunner {
     const startTime = Date.now();
     const timeoutMs = resolveAntigravityTimeoutMs(invocation, settings) ?? invocation.timeout;
 
+    let cleanup: (() => void) | null = null;
     try {
       const subprocess = execa(command, args, {
         reject: false,
@@ -393,6 +394,12 @@ export class AntigravityRunner implements AgentRunner {
           ),
         },
       });
+      // The stream can reject; the watchdog timer and the shutdown registry
+      // must not outlive the call either way.
+      cleanup = () => {
+        watchdog.stop();
+        unregister();
+      };
 
       const chunks: string[] = [];
       if (subprocess.stdout) {
@@ -426,14 +433,17 @@ export class AntigravityRunner implements AgentRunner {
         `${stderr}\n${stdout}`,
       );
 
+      // A stall has to survive as text in `rawOutput`: that is the field the
+      // executor forwards to `classify()`, and `error` never reaches it. Same
+      // shape as claude.ts and codex.ts.
       if (stalled) {
         return {
           success: false,
-          result: parsed.result,
-          rawOutput,
+          result: '',
+          rawOutput: describeStall(watchdog.silentMs, 'agy'),
           exitCode: 1,
           usage: parsed.usage,
-          error: describeStall(invocation.inactivityTimeoutMs ?? 0),
+          error: describeStall(watchdog.silentMs, 'agy'),
           agent: { provider: this.id, model: parsed.model ?? settings.model },
           sessionId: parsed.sessionId ?? undefined,
           harnessVersion: peekHarnessVersion(this.id),
@@ -494,6 +504,8 @@ export class AntigravityRunner implements AgentRunner {
           ? 'configuration: agy is not installed. Install Antigravity CLI: https://antigravity.google/docs/cli/install/'
           : message,
       );
+    } finally {
+      cleanup?.();
     }
   }
 }

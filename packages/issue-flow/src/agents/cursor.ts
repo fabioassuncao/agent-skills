@@ -140,6 +140,7 @@ export class CursorRunner implements AgentRunner {
     const startTime = Date.now();
     const agent = { provider: this.id, model: settings.model } as const;
 
+    let cleanup: (() => void) | null = null;
     try {
       const subprocess = execa(command, args, {
         reject: false,
@@ -167,6 +168,12 @@ export class CursorRunner implements AgentRunner {
           ),
         },
       });
+      // The stream can reject; the watchdog timer and the shutdown registry
+      // must not outlive the call either way.
+      cleanup = () => {
+        watchdog.stop();
+        unregister();
+      };
 
       const chunks: string[] = [];
       if (subprocess.stdout) {
@@ -198,6 +205,23 @@ export class CursorRunner implements AgentRunner {
       const stalled = watchdog.stalled;
       const success = exitCode === 0 && parsed.result !== '' && !parsed.isError && !timedOut;
 
+      // A stall has to survive as text in `rawOutput`: that is the field the
+      // executor forwards to `classify()`, and `error` never reaches it. Same
+      // shape as claude.ts and codex.ts.
+      if (stalled) {
+        return {
+          success: false,
+          result: '',
+          rawOutput: describeStall(watchdog.silentMs, 'cursor-agent'),
+          exitCode: exitCode === 0 ? 1 : exitCode,
+          usage: null,
+          error: describeStall(watchdog.silentMs, 'cursor-agent'),
+          agent: { provider: this.id, model: parsed.model ?? settings.model },
+          sessionId: parsed.sessionId ?? undefined,
+          harnessVersion: peekHarnessVersion(this.id),
+        };
+      }
+
       return {
         success,
         result: parsed.result || parsed.text,
@@ -206,17 +230,15 @@ export class CursorRunner implements AgentRunner {
         usage: null,
         error: success
           ? null
-          : stalled
-            ? describeStall(invocation.inactivityTimeoutMs ?? 0)
-            : authFailed
-              ? stderr.trim()
-              : describeAgentFailure(
-                  proc,
-                  stderr || rawOutput,
-                  invocation.timeout,
-                  elapsedMs,
-                  command,
-                ),
+          : authFailed
+            ? stderr.trim()
+            : describeAgentFailure(
+                proc,
+                stderr || rawOutput,
+                invocation.timeout,
+                elapsedMs,
+                command,
+              ),
         agent: { provider: this.id, model: parsed.model ?? settings.model },
         sessionId: parsed.sessionId ?? undefined,
         harnessVersion: peekHarnessVersion(this.id),
@@ -233,6 +255,8 @@ export class CursorRunner implements AgentRunner {
         agent,
         harnessVersion: peekHarnessVersion(this.id),
       };
+    } finally {
+      cleanup?.();
     }
   }
 }

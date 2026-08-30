@@ -8,7 +8,7 @@ import { setSessionPublisher } from '../core/session-publisher.js';
 import { MemoryPublisher } from '../core/session-state.js';
 import { classify } from '../resilience/errors.js';
 import { resetStorageResolutionCache, resolveProjectPaths } from '../storage/resolve.js';
-import { recordProviderFailure } from './health.js';
+import { acquireHalfOpenProbe, recordProviderFailure } from './health.js';
 import { invokeSelectedAgent, resetAgentInvocationState } from './invoke.js';
 import { clearRunners, registerRunner } from './registry.js';
 import { selectAgentForInvocation } from './select.js';
@@ -219,6 +219,49 @@ describe('agent failover integration', () => {
     });
 
     expect(waits).toEqual([100]);
+    expect(selected.provider).toBe('claude');
+  });
+
+  it('reclaims a half-open probe abandoned by a killed run', async () => {
+    registerRunner(runner('claude', () => result('claude', true)));
+    const { providersHealthFile } = await resolveProjectPaths();
+    let now = Date.parse('2026-08-30T10:00:00.000Z');
+    const healthConfig = { cooldownMs: 100, failuresToTrip: 1 };
+    await recordProviderFailure(
+      providersHealthFile,
+      'claude',
+      classify({ source: 'agent', stdout: 'service unavailable' }),
+      { now: () => now, config: healthConfig },
+    );
+
+    // A run acquires the probe and is SIGKILLed: the record stays `half_open`
+    // with `probeInFlight`, and nothing else ever clears it.
+    now += 100;
+    expect(
+      (
+        await acquireHalfOpenProbe(providersHealthFile, 'claude', {
+          now: () => now,
+          config: healthConfig,
+        })
+      ).acquired,
+    ).toBe(true);
+
+    // Long enough after that the probe is stale. Before the fix, `half_open`
+    // returned an unconditional cooldown and the next run waited forever.
+    now += 10_000;
+    const waits: number[] = [];
+    const selected = await selectAgentForInvocation('execute', {
+      config: { providers: { failover: true, ...healthConfig } },
+      now: () => now,
+      delay: async (ms) => {
+        waits.push(ms);
+        now += ms;
+        if (waits.length > 3) throw new Error('selection did not converge');
+        return true;
+      },
+    });
+
+    expect(waits).toEqual([]);
     expect(selected.provider).toBe('claude');
   });
 

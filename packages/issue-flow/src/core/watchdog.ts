@@ -156,6 +156,6 @@ export function createWatchdog(options: WatchdogOptions = {}): Watchdog {
  * as a last resort, and `stalled` has to survive the trip through a plain
  * string so the phase gets its retries.
  */
-export function describeStall(silentMs: number): string {
-  return `claude produced no output for ${Math.round(silentMs / 1000)}s and was stopped (stalled)`;
+export function describeStall(silentMs: number, provider = 'claude'): string {
+  return `${provider} produced no output for ${Math.round(silentMs / 1000)}s and was stopped (stalled)`;
 }

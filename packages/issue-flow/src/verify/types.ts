@@ -8,6 +8,7 @@ export interface AcceptanceCheck {
   id: string;
   run?: string;
   expectFiles?: string[];
+  /** A declared check is fatal unless it says otherwise. Defaults to `true`. */
   fatal?: boolean;
 }
 

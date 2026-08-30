@@ -2,7 +2,9 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { platform } from 'node:os';
 import { dirname, join } from 'node:path';
+import { installHint } from './agents/availability.js';
 import { setTrackedOrigins } from './agents/origins.js';
+import { runnerFor } from './agents/registry.js';
 import { agentConfigInputSchema, parsePhasesInput } from './agents/schemas.js';
 import type {
   AgentBlock,
@@ -176,14 +178,13 @@ export async function validateDependencies(): Promise<string[]> {
     if (provider !== undefined) needed.add(provider);
   }
   for (const id of needed) {
-    const binary = id === 'codex' ? 'codex' : 'claude';
-    const result = await run(binary, ['--version']);
+    // The binary is the runner's, never a guess. Mapping every non-Codex
+    // provider to `claude` made preflight demand the wrong CLI for Cursor and
+    // pass without `agy` installed for Antigravity.
+    const { command, args } = runnerFor(id).versionCommand();
+    const result = await run(command, args);
     if (result.exitCode !== 0) {
-      errors.push(
-        id === 'codex'
-          ? '  - codex  (install from: https://developers.openai.com/codex/noninteractive)'
-          : '  - claude  (install with: npm install -g @anthropic-ai/claude-code)',
-      );
+      errors.push(`  - ${command}  (${installHint(id)})`);
     }
   }
 

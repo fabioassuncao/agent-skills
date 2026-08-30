@@ -174,6 +174,7 @@ export class ClaudeCodeRunner implements AgentRunner {
       harnessVersion: peekHarnessVersion(this.id),
     };
 
+    let cleanup: (() => void) | null = null;
     try {
       const subprocess = execa('claude', args, execaOptions);
       const unregister = registerChild({
@@ -196,6 +197,12 @@ export class ClaudeCodeRunner implements AgentRunner {
           ),
         },
       });
+      // The stream can reject; the watchdog timer and the shutdown registry
+      // must not outlive the call either way.
+      cleanup = () => {
+        watchdog.stop();
+        unregister();
+      };
 
       let streamed: Awaited<ReturnType<typeof readClaudeStream>> = {
         result: '',
@@ -311,6 +318,8 @@ export class ClaudeCodeRunner implements AgentRunner {
           : message,
         ...base,
       };
+    } finally {
+      cleanup?.();
     }
   }
 }

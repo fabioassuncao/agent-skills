@@ -357,7 +357,7 @@ withIssueOptions(
 withGlobalOptions(
   program
     .command('generate')
-    .description('Draft an issue via Claude Code Headless and create it')
+    .description('Draft an issue with the configured agent and create it')
     .requiredOption('--prompt <text>', 'Issue description text')
     .option('--github', 'Create the issue on GitHub')
     .option('--local', 'Create the issue under issues/<n>/ only')
@@ -621,7 +621,7 @@ withIssueOptions(
   withGlobalOptions(
     program
       .command('analyze')
-      .description('Analyze an issue via Claude Code Headless')
+      .description('Analyze an issue with the configured agent')
       .argument('<issue>', 'Issue number'),
   ),
 ).action(async (issue: string) => {
@@ -635,7 +635,7 @@ withIssueOptions(
   withGlobalOptions(
     program
       .command('prd')
-      .description('Generate a PRD from an analyzed issue via Claude Code Headless')
+      .description('Generate a PRD from an analyzed issue with the configured agent')
       .argument('<issue>', 'Issue number'),
   ),
 ).action(async (issue: string) => {
@@ -650,7 +650,7 @@ withUserStoryNumberingOptions(
     withGlobalOptions(
       program
         .command('plan')
-        .description('Convert a PRD to a tasks.json task plan via Claude Code Headless')
+        .description('Convert a PRD to a tasks.json task plan with the configured agent')
         .argument('<issue>', 'Issue number'),
     ),
   ),
@@ -717,7 +717,7 @@ withIssueOptions(
   withGlobalOptions(
     program
       .command('review')
-      .description('Validate an issue resolution via Claude Code Headless')
+      .description('Validate an issue resolution with the configured agent')
       .argument('<issue>', 'Issue number'),
   ),
 ).action(async (issue: string) => {
@@ -731,7 +731,7 @@ withIssueOptions(
   withGlobalOptions(
     program
       .command('pr')
-      .description('Create a pull request via Claude Code Headless')
+      .description('Create a pull request with the configured agent')
       .argument('<issue>', 'Issue number'),
   ),
 ).action(async (issue: string) => {
@@ -890,7 +890,7 @@ agentCommand
 withGlobalOptions(
   program
     .command('pr-review')
-    .description('Review a Pull Request as a whole via Claude Code Headless')
+    .description('Review a Pull Request as a whole with the configured agent')
     .argument('[pr]', 'Pull Request number (discovered from the session when omitted)')
     .option('--issue <n>', 'Issue the Pull Request belongs to')
     .option('--round <n>', 'Rewrite a specific review round instead of appending a new one')

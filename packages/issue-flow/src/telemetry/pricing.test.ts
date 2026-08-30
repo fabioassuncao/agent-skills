@@ -62,6 +62,36 @@ describe('pricing', () => {
     expect(historical.pricing.inputPerMillion).toBe(3);
   });
 
+  it('prices a dated model snapshot, an alias and a vendor prefix', () => {
+    // What the harness reports is never the bare family name the table is keyed
+    // on, so an exact lookup made every estimate `unknown` in practice.
+    for (const model of [
+      'claude-sonnet-4-5-20250929',
+      'sonnet',
+      'anthropic/claude-sonnet-4-5',
+      'Claude-Sonnet-4-5',
+    ]) {
+      const cost = estimateCost(usage, model);
+      expect(cost.status, model).toBe('estimated');
+      if (cost.status !== 'estimated') continue;
+      expect(cost.amount, model).toBe(18);
+    }
+  });
+
+  it('still reports an unknown model as unknown', () => {
+    expect(estimateCost(usage, 'gemini-3-pro').status).toBe('unknown');
+    expect(estimateCost(usage, 'claude-sonnet-4-5-2025').status).toBe('unknown');
+  });
+
+  it('normalizes the key an override is looked up under', () => {
+    const cost = estimateCost(usage, 'claude-sonnet-4-5-20250929', {
+      'claude-sonnet-4-5': { inputPerMillion: 1, outputPerMillion: 2 },
+    });
+    expect(cost.status).toBe('estimated');
+    if (cost.status !== 'estimated') return;
+    expect(cost.amount).toBe(3);
+  });
+
   it('lets overrides beat the table', () => {
     const cost = estimateCost(usage, 'claude-sonnet-4', {
       'claude-sonnet-4': { inputPerMillion: 1, outputPerMillion: 2 },

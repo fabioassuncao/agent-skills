@@ -108,7 +108,15 @@ async function verdictFor(
     };
   }
 
-  if (record.status === 'unavailable' || record.status === 'rate_limited') {
+  // `half_open` joins the two closed states on purpose: `acquireHalfOpenProbe`
+  // is the only place that knows a probe went stale, and a record left
+  // `probeInFlight` by a SIGKILLed run is otherwise never reclaimed — the next
+  // run just waits on a cooldown that never ends.
+  if (
+    record.status === 'unavailable' ||
+    record.status === 'rate_limited' ||
+    record.status === 'half_open'
+  ) {
     const waitMs = remainingMs(record.cooldownUntil, options.nowMs);
     if (waitMs !== null && waitMs > 0) {
       return {
@@ -129,16 +137,6 @@ async function verdictFor(
         ? null
         : resolveProviderHealthConfig(options.config.providers).cooldownMs,
       cooldownUntil: probe.record.cooldownUntil,
-      reason,
-      blocked: false,
-    };
-  }
-
-  if (record.status === 'half_open') {
-    return {
-      available: false,
-      waitMs: resolveProviderHealthConfig(options.config.providers).cooldownMs,
-      cooldownUntil: record.cooldownUntil,
       reason,
       blocked: false,
     };
