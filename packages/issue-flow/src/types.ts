@@ -241,6 +241,11 @@ export interface EngineConfig {
    * Absent means the historical format, `feat: [Story ID] - [Story Title]`.
    */
   commitScope?: string;
+  /**
+   * How many related stories the execute agent may close in one session.
+   * Default `1` is the historical "ONE story per iteration".
+   */
+  storiesPerIteration?: number;
 }
 
 export interface ResolvedPaths {

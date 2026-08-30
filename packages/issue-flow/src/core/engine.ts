@@ -14,12 +14,10 @@ import { printError, printInfo, printRetry, printSuccess, printWarning } from '.
 import { printIterationHeader } from '../ui/progress.js';
 import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
 import { committedStoryIds, getBaseBranch, isWorkingTreeClean } from '../utils/git.js';
-import { sleep } from '../utils/retry.js';
 import { applyAcceptanceToPlan, resolveIssueDir, runAcceptanceGate } from '../verify/gate.js';
 import { executeClaude } from './executor.js';
 import { divideUsage } from './metrics.js';
 import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
-import { publishGitState } from './session-git.js';
 import {
   EXECUTE_PHASE,
   elapsedSecondsSince,
@@ -459,6 +457,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
             issueNumber: plan.issueNumber,
             signoff,
           }),
+          __STORIES_PER_ITERATION__: String(config.storiesPerIteration ?? 1),
         });
 
         const startedAt = isoNow();
@@ -611,9 +610,6 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
     getSessionPublisher().publish({ type: 'iteration:end', at: isoNow(), iteration: i });
     publishIterationMetrics(i, result.cost, iterationSeconds);
-    // Low-frequency commit/PR enrichment: iteration end is one of the only
-    // two sanctioned points (the other is phase boundaries in run.ts).
-    await publishGitState(getSessionPublisher());
 
     // Check for completion signal
     if (result.output.includes('<promise>COMPLETE</promise>')) {
@@ -655,7 +651,6 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     if (isVerbose()) {
       printSuccess(`Iteration ${i} complete. Continuing...`);
     }
-    await sleep(2);
   }
 
   // Reached max iterations

@@ -16,6 +16,19 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Router em modo shadow** (#84, estágios 1–2). `src/routing/` classifica a
+  tarefa, filtra por `AgentCapabilities` e pontua priors. Default `shadow`:
+  grava `selected`/`actual` no `ExecutionRecord` e não muda a invocação.
+  `issue-flow routing` e `routing report`. `active`/`recommend` e aprendizado
+  ficam para estágios 3–4.
+
+- **Quick wins de overhead** (#89). Remove o `sleep(2)` e o `gh pr list` por
+  iteração (`publishGitState` fica na fronteira de fase). `storiesPerIteration`
+  default `1`. `--strict-mcp-config` acompanha `ignoreUserConfig`, com escape
+  `strictMcpConfig: false`. Header mostra estimativa N × p50 da baseline #79.
+  Ritual e validação no prompt passam a ser proporcionais. Tabela before/after
+  real ainda pendente.
+
 - **Contrato de aceitação e `unverified`** (#85, estágios 1–2). `src/verify/`
   descobre typecheck/lint/test (ou um contrato declarado), roda os checks
   sem interpretar prosa e grava `verify.json` ligado ao `executionId`.

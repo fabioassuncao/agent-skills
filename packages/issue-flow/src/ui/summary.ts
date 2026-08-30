@@ -118,6 +118,14 @@ export function printStartupHeader(
     `Iterations:  ${maxIterLabel}`,
     `Retries:     ${retryLabel}`,
   ];
+  const remaining = storiesTotal - storiesPassing;
+  if (remaining > 0) {
+    // p50 of execute on the #79 baseline (US-009/US-010 mean, single observation).
+    const p50ExecuteSeconds = 518;
+    lines.push(
+      `Estimate:    ~${formatDuration(remaining * p50ExecuteSeconds)} (${remaining} × p50 execute)`,
+    );
+  }
   if (agent) {
     const model = agent.model ? ` · ${agent.model}` : '';
     const detail = agent.detail ? ` (${agent.detail})` : '';

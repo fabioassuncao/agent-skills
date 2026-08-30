@@ -117,6 +117,16 @@ describe('buildClaudeArgv', () => {
     );
     expect(args).toContain('--setting-sources');
     expect(args).toContain('project');
+    expect(args).toContain('--strict-mcp-config');
+  });
+
+  it('lets strictMcpConfig: false keep user MCP servers', () => {
+    const { args } = buildClaudeArgv(
+      invocation(),
+      settings({ claude: { ignoreUserConfig: true, strictMcpConfig: false } }),
+    );
+    expect(args).toContain('--setting-sources');
+    expect(args).not.toContain('--strict-mcp-config');
   });
 
   it('never emits --fallback-model', () => {

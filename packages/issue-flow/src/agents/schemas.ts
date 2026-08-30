@@ -18,6 +18,7 @@ export const codexReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'h
 export const claudeSettingsSchema = z
   .object({
     ignoreUserConfig: z.boolean(),
+    strictMcpConfig: z.boolean(),
   })
   .partial();
 

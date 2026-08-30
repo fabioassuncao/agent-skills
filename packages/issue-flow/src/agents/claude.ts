@@ -107,6 +107,9 @@ export function buildClaudeArgv(
     if (settings.model) args.push('--model', settings.model);
     if (settings.claude.ignoreUserConfig === true) {
       args.push('--setting-sources', 'project');
+      if (settings.claude.strictMcpConfig !== false) {
+        args.push('--strict-mcp-config');
+      }
     }
     pushRepeatedFlag(args, '--add-dir', invocation.addDirs);
     return { args, stdinMode: 'prompt' };
@@ -138,6 +141,9 @@ export function buildClaudeArgv(
   if (settings.model) args.push('--model', settings.model);
   if (settings.claude.ignoreUserConfig === true) {
     args.push('--setting-sources', 'project');
+    if (settings.claude.strictMcpConfig !== false) {
+      args.push('--strict-mcp-config');
+    }
   }
 
   return { args, stdinMode: 'ignore' };

@@ -152,6 +152,8 @@ export type CodexReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhig
 
 export interface ClaudeSettings {
   ignoreUserConfig?: boolean;
+  /** Companion of `ignoreUserConfig`. Escape: `false` keeps user MCP servers. */
+  strictMcpConfig?: boolean;
 }
 
 export interface CodexSettings {
