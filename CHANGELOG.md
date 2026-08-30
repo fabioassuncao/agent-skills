@@ -14,6 +14,8 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-08-29
+
 ### Fixed
 
 - **A headless timeout was reported as `claude exited with code 143`, and cost
@@ -659,6 +661,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.11.1]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.1
 [0.11.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.0
 [0.10.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.10.0
 [0.9.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.9.0
