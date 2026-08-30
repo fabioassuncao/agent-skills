@@ -615,3 +615,41 @@ describe('runEngine — commit scope in the prompt', () => {
     expect(prompt).toContain('fix(issue-42): address review findings');
   });
 });
+
+describe('commitPlaceholders — repository commit convention', () => {
+  it('keeps the historical format when the repository declares no convention', () => {
+    expect(commitPlaceholders()).toEqual({
+      __COMMIT_MESSAGE__: 'feat: [Story ID] - [Story Title]',
+      __FIX_COMMIT_MESSAGE__: 'fix: address review findings',
+    });
+  });
+
+  it('keeps the scoped format unchanged too', () => {
+    expect(commitPlaceholders('issue-51').__COMMIT_MESSAGE__).toBe(
+      'feat(issue-51): [Story ID] - [Story Title]',
+    );
+  });
+
+  it('lets the agent choose the type when a convention is declared', () => {
+    // A bug fix committed as `feat:` corrupts the changelog and any semver bump
+    // computed from the history — so the type stops being hard-coded.
+    const vars = commitPlaceholders(undefined, 'conventional commits');
+
+    expect(vars.__COMMIT_MESSAGE__).toBe('<type>: [Story ID] - [Story Title]');
+  });
+
+  it('keeps the scope alongside the chosen type', () => {
+    expect(commitPlaceholders('issue-51', 'conventional commits').__COMMIT_MESSAGE__).toBe(
+      '<type>(issue-51): [Story ID] - [Story Title]',
+    );
+  });
+
+  it('treats an empty or null convention as none', () => {
+    expect(commitPlaceholders(undefined, null).__COMMIT_MESSAGE__).toBe(
+      'feat: [Story ID] - [Story Title]',
+    );
+    expect(commitPlaceholders(undefined, '').__COMMIT_MESSAGE__).toBe(
+      'feat: [Story ID] - [Story Title]',
+    );
+  });
+});

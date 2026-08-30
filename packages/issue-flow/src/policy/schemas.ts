@@ -27,6 +27,19 @@ export const policyDiscoveryConfigSchema = z.object({
 
 const policyIssuesDeclarationSchema = z.object({
   titleConvention: z.string().min(1).optional(),
+  /**
+   * Whether Issue Flow may create a label the repository does not have.
+   *
+   * `.optional()` rather than `.default(false)`: the resolved declarations must
+   * stay "only what was written", or the group would always look declared and
+   * `sources` would report a provenance nobody asked for. The effective default
+   * — false — lives at the call site.
+   *
+   * That default is a deliberate change of behaviour: creating taxonomy without
+   * asking is the defect this exists to stop. A repository that wants the old
+   * behaviour opts back into it.
+   */
+  allowLabelCreation: z.boolean().optional(),
 });
 
 const policyPullRequestsDeclarationSchema = z.object({
@@ -48,6 +61,12 @@ const policyGitDeclarationSchema = z.object({
  */
 export const policyConfigSchema = z.object({
   enabled: z.boolean().default(true),
+  /**
+   * Token budget for the `__REPO_POLICY__` projection. Sections above it are
+   * replaced whole by a pointer rather than truncated — see
+   * `policy/placeholders.ts`.
+   */
+  contextBudget: z.number().int().positive().default(1500),
   discovery: policyDiscoveryConfigSchema.prefault({}),
   issues: policyIssuesDeclarationSchema.prefault({}),
   pullRequests: policyPullRequestsDeclarationSchema.prefault({}),
@@ -61,6 +80,7 @@ export const policyConfigSchema = z.object({
  */
 export const policyConfigInputSchema = z.object({
   enabled: z.boolean().optional(),
+  contextBudget: z.number().int().positive().optional(),
   // Spelled out rather than `policyDiscoveryConfigSchema.partial()`: in zod 4
   // a `.default()` survives `.partial()`, so every toggle would come back
   // materialized and the input layer would stop meaning "what the user wrote".
@@ -74,7 +94,9 @@ export const policyConfigInputSchema = z.object({
       issueTypes: z.boolean().optional(),
     })
     .optional(),
-  issues: z.object({ titleConvention: z.string().nullish() }).optional(),
+  issues: z
+    .object({ titleConvention: z.string().nullish(), allowLabelCreation: z.boolean().optional() })
+    .optional(),
   pullRequests: z
     .object({ baseBranch: z.string().nullish(), titleConvention: z.string().nullish() })
     .optional(),

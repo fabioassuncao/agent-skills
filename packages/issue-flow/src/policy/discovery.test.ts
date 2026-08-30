@@ -487,3 +487,27 @@ describe('discoverOrganizationTemplates', () => {
     expect(exec).not.toHaveBeenCalled();
   });
 });
+
+describe('discoverDocuments — pointer files', () => {
+  it('follows the links of a CLAUDE.md that only forwards to AGENTS.md', async () => {
+    // A real and common shape: stopping at the pointer would report a
+    // repository that declares nothing, when it forwards everything.
+    await write('CLAUDE.md', 'Read and follow the instructions in [AGENTS.md](AGENTS.md).');
+    await write('AGENTS.md', '# Agents\n\nSee [standards](docs/standards.md).');
+    await write('docs/standards.md', '# Standards');
+
+    const { documents } = await discoverDocuments(root, null);
+
+    expect(documents.map((d) => d.path)).toEqual(['AGENTS.md', 'CLAUDE.md', 'docs/standards.md']);
+  });
+
+  it('follows a CLAUDE.md pointing somewhere other than AGENTS.md', async () => {
+    await write('CLAUDE.md', 'Conventions live in [our guide](docs/guide.md).');
+    await write('docs/guide.md', '# Guide');
+
+    const { documents } = await discoverDocuments(root, null);
+
+    expect(documents.map((d) => d.path)).toEqual(['CLAUDE.md', 'docs/guide.md']);
+    expect(documents[1]).toMatchObject({ kind: 'referenced', referencedFrom: 'CLAUDE.md' });
+  });
+});

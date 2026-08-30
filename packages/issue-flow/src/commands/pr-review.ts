@@ -20,6 +20,7 @@ import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
+import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import type { PrReviewRecommendation } from '../types.js';
 import { printError, printInfo, printSuccess } from '../ui/logger.js';
@@ -211,6 +212,9 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
 
   const template = await loadPrompt('pr-review');
   const prompt = applyPlaceholders(template, {
+    // The repository's own conventions. Empty when it declares none, which is
+    // what keeps the rendered prompt identical to the pre-policy one.
+    ...(await resolvePolicyPlaceholders()),
     __PR_NUMBER__: String(target.number),
     __ISSUE_NUMBER__: issue ?? NO_ISSUE,
     __TASKS_PATH__: tasksPath ?? NO_PATH,

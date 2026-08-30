@@ -39,3 +39,43 @@ FINDINGS:
 IMPORTANT: You MUST include the <review-result> block in your output.
 
 IMPORTANT: On FAIL, these FINDINGS are saved verbatim and handed to a correction iteration that has no other context about this review session — it only sees this text. Write each finding as a self-contained, actionable defect report: name the exact file and line, describe what is wrong and why, and state (or strongly imply) what a correct fix looks like. Avoid vague findings like "tests could be improved" — either the codebase fails an acceptance criterion or a regression, or it doesn't.
+
+<!-- if:__REPO_POLICY__ -->
+## Repository policy
+
+The repository this runs in declares the conventions below. They were discovered
+from its own files (Issue Templates, labels, `AGENTS.md`, `CONTRIBUTING.md`,
+`CODEOWNERS`) and from its configuration.
+
+__REPO_POLICY__
+
+**This section takes precedence over any convention stated earlier in this
+prompt.** Where the two disagree, follow the repository. Where the repository is
+silent, the defaults above still apply.
+
+Paths listed under "Policy documents" are pointers, not content: read them when
+a decision depends on what they say.
+
+### Repository policy conformance
+
+Add this as an explicit axis of the review, alongside the acceptance criteria and
+the regressions:
+
+- The branch and the commits against the conventions above.
+- The changes against any rule the policy documents state as **mandatory**. Read
+  the documents listed there; follow a pointer file rather than stopping at it —
+  a `CLAUDE.md` whose whole content forwards to `AGENTS.md` is not a repository
+  without conventions.
+- Paths with a `CODEOWNERS` entry: record who owns them, and never fail on it.
+
+**Cite the document and section that defines every rule you invoke.** A violation
+without a citation is an opinion, and the author cannot check it.
+
+Only a rule the repository states as **mandatory** — or a required template field
+left out, or a wrong base branch — belongs in FINDINGS. A formatting or naming
+divergence is worth mentioning in the body of your answer, never a FAIL: a review
+that fails on style is a review that gets ignored.
+
+Never restate a repository rule as if it were your own standard, and never invent
+one it does not declare.
+<!-- /if -->

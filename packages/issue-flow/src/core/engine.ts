@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import type { EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
@@ -79,11 +80,25 @@ function newlyCompletedStoryIds(before: UserStory[], after: UserStory[]): string
  * — the only case being several issues sharing a branch — the issue becomes a
  * conventional-commit scope, which is what makes `git log` on the shared branch
  * readable per issue.
+ *
+ * `convention` is the repository's own commit convention, when it declares one.
+ * The hard-coded `feat` is wrong for most stories under Conventional Commits: a
+ * bug fix committed as `feat:` corrupts a changelog and a semver bump computed
+ * from the history. So a repository that declared a convention gets a `<type>`
+ * placeholder and the instruction to choose; one that declared none keeps the
+ * exact string it always had.
  */
-export function commitPlaceholders(scope?: string): Record<string, string> {
+export function commitPlaceholders(
+  scope?: string,
+  convention?: string | null,
+): Record<string, string> {
   const suffix = scope === undefined || scope === '' ? '' : `(${scope})`;
+  const declared = convention !== undefined && convention !== null && convention !== '';
+
   return {
-    __COMMIT_MESSAGE__: `feat${suffix}: [Story ID] - [Story Title]`,
+    __COMMIT_MESSAGE__: declared
+      ? `<type>${suffix}: [Story ID] - [Story Title]`
+      : `feat${suffix}: [Story ID] - [Story Title]`,
     __FIX_COMMIT_MESSAGE__: `fix${suffix}: address review findings`,
   };
 }
@@ -219,8 +234,14 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // Initialize progress file
   await ensureProgressFile(paths.progressFile);
 
-  // Load prompt template
-  const promptTemplate = await loadPrompt('execute');
+  // Load prompt template. The root is handed over rather than rediscovered:
+  // it was resolved once by `resolvePaths()`, and a second `git rev-parse` here
+  // would be a subprocess per run for an answer already in hand.
+  const promptTemplate = await loadPrompt('execute', { projectRoot: paths.projectRoot });
+
+  // The repository's own conventions, resolved once for the whole loop: they
+  // cannot change mid-run, and every iteration renders the same projection.
+  const policy = await resolvePolicyPlaceholders({ root: paths.projectRoot });
 
   // Print startup header
   printStartupHeader(config, plan);
@@ -266,7 +287,10 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     const prompt = applyPlaceholders(promptTemplate, {
       __PRD_FILE__: paths.prdFile,
       __PROGRESS_FILE__: paths.progressFile,
-      ...commitPlaceholders(config.commitScope),
+      ...policy,
+      // The convention comes off the projection above rather than from a second
+      // discovery: one resolution per run is the whole point of the cache.
+      ...commitPlaceholders(config.commitScope, policy.__COMMIT_CONVENTION__),
     });
 
     const iterationStartedAt = isoNow();

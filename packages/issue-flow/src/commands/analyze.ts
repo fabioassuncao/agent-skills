@@ -6,6 +6,7 @@ import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
+import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printInfo, printSuccess } from '../ui/logger.js';
 
@@ -23,6 +24,9 @@ export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): 
 
   const template = await loadPrompt('analyze');
   const prompt = applyPlaceholders(template, {
+    // The repository's own conventions. Empty when it declares none, which is
+    // what keeps the rendered prompt identical to the pre-policy one.
+    ...(await resolvePolicyPlaceholders()),
     __ISSUE_NUMBER__: issueNumber,
     __ANALYSIS_PATH__: analysisPath,
     // Last: the Issue content is substituted in but never scanned again, so a

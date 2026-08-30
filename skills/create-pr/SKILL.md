@@ -13,6 +13,17 @@ compatibility: Requires gh CLI (https://cli.github.com/) and git
 
 # Create Pull Request
 
+> **Repository policy — read this first.** Every decision below that depends on
+> this repository's conventions (labels, Issue Templates, Issue Types, title,
+> base branch, branch and commit format, Pull Request body) follows
+> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
+> Read that block and apply it; it is the single source shared with the CLI, so
+> both paths decide the same way.
+>
+> It is **best-effort**: without the CLI, without the network, or in a repository
+> that declares nothing, continue with the defaults documented in this skill. A
+> skill that needs the network to work is a regression.
+
 You are an autonomous agent responsible for creating a well-structured Pull Request on GitHub for the current working branch.
 
 ## Core Principles
@@ -60,27 +71,42 @@ Only proceed once the environment is confirmed working.
    BRANCH=$(git branch --show-current)
    ```
 
-2. **Extract issue number from the branch name:**
-   The expected pattern is `issue/{N}-*` (e.g., `issue/42-add-login-page`).
-   ```bash
-   ISSUE_NUMBER=$(echo "$BRANCH" | grep -oP 'issue/\K[0-9]+')
-   ```
+2. **Extract the issue number**, trying each source in turn. A branch that does
+   not match Issue Flow's default pattern is **not** an error: repositories that
+   use `feat/`, `fix/`, `docs/` and `chore/` prefixes are following a common
+   convention, and refusing to open their Pull Requests is the skill's problem,
+   not theirs.
 
-   **If the branch does not match the `issue/{N}-*` pattern:**
-   Ask the user:
-   > The branch `<branch-name>` doesn't follow the `issue/{N}-*` pattern.
+   In order:
+   1. a number embedded in the branch name, read against `git.branchConvention`
+      from [the shared block](../_shared/repository-policy.md) when the repository
+      declares one, otherwise `issue/{N}-*`;
+   2. a `Closes #N` / `Fixes #N` line in a commit on this branch:
+      `git log "$BASE"..HEAD --format=%B | grep -oiE '(closes|fixes|resolves) #[0-9]+'`;
+   3. the issue directory the pipeline is working under, if a run is in progress.
+
+   Only when all three come up empty, ask:
+   > I could not determine which issue this branch belongs to.
    > What issue number should this PR reference? (Enter a number, or "none" to create without issue linking)
 
+   Mention it when the branch does not match the expected convention, but
+   **proceed** — it is a warning, not a stop.
+
 3. **Determine the base branch** using this priority:
-   1. Check if the branch tracks a remote branch and what it was branched from:
+   1. `pullRequests.baseBranch` from [the shared block](../_shared/repository-policy.md)
+   2. `origin/HEAD`:
       ```bash
-      git log --oneline --merges --ancestry-path HEAD...main 2>/dev/null | head -1
+      git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'
       ```
-   2. Check `issues/{N}/tasks.json` for a `baseBranch` field (if the file exists).
-   3. Check if `main` exists: `git show-ref --verify refs/heads/main 2>/dev/null`
-   4. Check if `master` exists: `git show-ref --verify refs/heads/master 2>/dev/null`
-   5. Check if `dev` or `develop` exists.
-   6. If none found, ask the user which branch to target.
+   3. Check `issues/{N}/tasks.json` for a `baseBranch` field (if the file exists).
+   4. Check if `main` exists: `git show-ref --verify refs/heads/main 2>/dev/null`
+   5. Check if `master` exists: `git show-ref --verify refs/heads/master 2>/dev/null`
+   6. Check if `dev` or `develop` exists.
+   7. If none found, ask the user which branch to target.
+
+   Never stop at "`main` exists": in a repository based on `develop`, `main`
+   usually exists too, and a Pull Request opened against it carries the wrong
+   diff without failing.
 
 Store `BRANCH`, `ISSUE_NUMBER`, and `BASE_BRANCH` for use in subsequent steps.
 

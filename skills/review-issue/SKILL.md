@@ -14,6 +14,17 @@ compatibility: Requires gh CLI (https://cli.github.com/) and git
 
 # Review Issue Resolution
 
+> **Repository policy — read this first.** Every decision below that depends on
+> this repository's conventions (labels, Issue Templates, Issue Types, title,
+> base branch, branch and commit format, Pull Request body) follows
+> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
+> Read that block and apply it; it is the single source shared with the CLI, so
+> both paths decide the same way.
+>
+> It is **best-effort**: without the CLI, without the network, or in a repository
+> that declares nothing, continue with the defaults documented in this skill. A
+> skill that needs the network to work is a regression.
+
 Validate whether a GitHub issue has been completely resolved by examining the actual implementation, running the project's tests, and checking for regressions. If everything passes, close the issue automatically. If not, produce a detailed report of what's missing.
 
 ## Why this skill exists
@@ -73,11 +84,23 @@ Before making any decisions about how to run tests, lint, or validate code, unde
 Also check:
 - `docker-compose.yml` / `docker-compose.yaml` / `compose.yaml` → services run in Docker
 - `Dockerfile` → containerized environment
-- `CLAUDE.md` → project-specific instructions that may override default behavior
+- `AGENTS.md` and `CLAUDE.md` → project-specific instructions that may override default behavior
 - `.tool-versions`, `.nvmrc`, `.python-version` → version managers
 - CI config (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`) → how tests are run in CI
 
-**Read CLAUDE.md if it exists** — it may contain critical instructions about how commands should be executed (e.g., through Docker, specific test runners, required flags). These instructions take precedence over any assumptions.
+**Read the repository's declared policy** — see [the shared block](../_shared/repository-policy.md). It lists the
+**paths** of the policy documents this repository actually has (`AGENTS.md`,
+`CLAUDE.md`, `CONTRIBUTING.md`, and whatever they forward to), plus its labels,
+Issue Types, base branch and conventions. Read the documents a finding would
+depend on.
+
+**Follow a pointer file rather than stopping at it.** A `CLAUDE.md` whose entire
+content is `Read and follow the instructions in AGENTS.md.` is not a repository
+without conventions — concluding that discards everything it forwards to.
+
+These instructions may contain critical detail about how commands are executed
+(through Docker, a specific test runner, required flags) and take precedence over
+any assumption.
 
 From these signals, determine:
 1. The primary language and framework
@@ -119,14 +142,23 @@ git log --all --oneline --grep="#{ISSUE_NUMBER}" --grep="{ISSUE_NUMBER}" --since
 ```
 
 ### 3d. From the current branch
-If the user is on a feature branch, compare it against the main branch:
+If the user is on a feature branch, compare it against the repository's base
+branch. Resolve it — never assume `main`:
+
+`$BASE` is `pullRequests.baseBranch` from [the shared block](../_shared/repository-policy.md),
+falling back to `origin/HEAD` and then to `main`:
 
 ```bash
-git log main..HEAD --oneline
-git diff main...HEAD --stat
+BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}
+BASE=${BASE:-main}
+
+git log "$BASE"..HEAD --oneline
+git diff "$BASE"...HEAD --stat
 ```
 
-(Adapt `main` to whatever the project's default branch is — `master`, `develop`, etc.)
+This matters more than it looks: in a repository based on `develop`, `main`
+usually **exists** as well, so hard-coding it does not fail — it silently reviews
+the wrong diff.
 
 Once you've identified the relevant commits and changed files, **read and understand every changed file**. Don't just look at the diff — understand the context around the changes.
 
@@ -313,4 +345,19 @@ FINDINGS:
 - **Prioritize practical analysis** (code behavior) over theoretical assessment.
 - **Be rigorous but fair** — flag real problems, not style preferences that aren't project conventions.
 - **Always justify your decisions** — every "unmet" or "regression" needs evidence pointing to specific code.
-- **Respect the project's own rules** — CLAUDE.md, CI config, and existing conventions always take precedence over generic best practices.
+- **Respect the project's own rules** — `AGENTS.md`, `CLAUDE.md`, CI config, and existing conventions always take precedence over generic best practices.
+- **Report policy conformance as its own axis**, alongside correctness, scope and
+  tests, whenever the repository declares a policy. Check the branch and commits
+  against its conventions, the changes against any rule its documents state as
+  **mandatory**, and record the owners of paths covered by `CODEOWNERS` — without
+  ever failing on that last one, since GitHub enforces the approval.
+
+  **Cite the document and section behind every rule you invoke.** A violation with
+  no citation is an opinion the author cannot check.
+
+  Only a rule the repository states as mandatory, a missing required template
+  field, or a wrong base branch is blocking. A formatting or naming divergence is
+  an observation — a review that fails on style is a review that gets ignored.
+
+  Never restate a repository rule as if it were your own standard, and never
+  invent one it does not declare.

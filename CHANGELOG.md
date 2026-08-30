@@ -10,6 +10,77 @@ that were tagged but never published to the registry are marked as such.
 
 ## [Unreleased]
 
+### Added
+
+- **The repository policy reaches the flows** (issues #57, #58, #59, #60, #61).
+  v0.10.0 shipped the discovery layer with no consumers; this connects it.
+  - **Projection into the prompts and per-repository overrides** (#57): the
+    `__REPO_*` placeholders carry a *summary* of the policy, budgeted by
+    `policy.contextBudget` (default 1500 tokens) and degrading a whole section to
+    a pointer rather than truncating mid-rule. `__REPO_DOCS__` carries **paths,
+    never content** — the agent has `Read`, and embedding documents would
+    multiply the cost of every run. A repository may now adjust any prompt via
+    `.issue-flow/prompts/<name>.append.md` (recommended) or `<name>.md`
+    (replacement, which makes the repository inherit that prompt's maintenance).
+  - **Issue creation aware of templates, types and labels** (#58): the
+    applicable Issue Template defines the body; Issue Types are passed with
+    `--type`; the title follows the repository's convention, with no textual
+    prefix when the repository uses Issue Types.
+  - **Reviews validate conformance** (#60): `review` and `pr-review` gain an
+    explicit policy-conformance axis. Every violation cites the document and
+    section that defines the rule — a violation without a citation is an opinion
+    the author cannot check. Severity is calibrated: a mandatory rule, a missing
+    required template field or a wrong base branch blocks; a formatting
+    divergence is an observation. `CODEOWNERS` is recorded, never blocked on.
+  - **Parity between the Agent Skills and the CLI** (#61): both paths now decide
+    from the same resolved policy, through `issue-flow policy --json` — a
+    published contract with a `schemaVersion`, since skills are markdown and
+    cannot import TypeScript. `skills/_shared/repository-policy.md` is the single
+    source every policy-aware skill references rather than reproduces, and a
+    parity test fails if one starts deciding differently. The step is
+    best-effort by design: without the CLI, the network, or a declared policy,
+    every skill continues with its documented defaults.
+
+### Fixed
+
+- **Pull Requests were opened against the wrong base branch** (#59) —
+  `prompts/pr.md` hard-coded `main` in `git log main..HEAD`, `git diff
+  main...HEAD` and `gh pr create --base main`. In a repository based on
+  `develop`, `main` usually **exists** too, so nothing failed: the agent simply
+  reviewed the wrong diff and opened the Pull Request against the wrong target.
+  The base is now resolved from the repository (`policy.pullRequests.baseBranch`,
+  then `origin/HEAD`, then `main`), and the same fix reaches `review-issue`,
+  `create-pr`, `review-pr` and the `resolve-issue` agent.
+- The branch pattern `issue/{N}-*` is no longer normative in `create-pr`:
+  repositories using `feat/`, `fix/`, `docs/` or `chore/` are following a common
+  convention, and refusing to open their Pull Requests was the skill's problem.
+  The issue number now falls back to a `Closes #N` in the branch's commits and to
+  the run in progress before asking.
+- The execute loop no longer commits every story as `feat`. When the repository
+  declares a commit convention, the type must match the nature of the change: a
+  bug fix committed as `feat:` corrupts the changelog and any version bump
+  computed from the history.
+
+### Changed
+
+- **Issue Flow no longer creates labels.** A label suggested for an issue that
+  the repository does not have is dropped with a warning instead of being
+  created. This is a deliberate behavior change: a team that deleted
+  `high`/`medium`/`low` in favor of a native priority field, or
+  `bug`/`enhancement` in favor of Issue Types, made a governance decision, and
+  recreating those labels undoes it silently and repository-wide — worse than a
+  failure, because it succeeds. Set `policy.issues.allowLabelCreation: true` to
+  restore the previous behavior.
+- `mergeConfigLayers()` gained a `discovered` layer, between the defaults and the
+  global configuration, so repository-discovered values beat a fallback Issue
+  Flow invented and lose to anything the user configured explicitly.
+
+### Compatibility
+
+A repository that declares no policy renders every prompt **byte for byte** as it
+did before, which a test pins over every file in `prompts/`. The single
+intentional exception is label creation, above.
+
 ## [0.10.0] - 2026-08-29
 
 ### Added

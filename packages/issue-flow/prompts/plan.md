@@ -30,7 +30,7 @@ Create a tasks.json file at __TASKS_PATH__ with this exact structure:
   "project": "<repo-name>",
   "issueNumber": __ISSUE_NUMBER__,
   "issueUrl": "__ISSUE_URL__",
-  "branchName": "issue/__ISSUE_NUMBER__-<slug>",
+  "branchName": "<branch, following __BRANCH_CONVENTION__ with N=__ISSUE_NUMBER__>",
   "description": "<brief description>",
   "issueStatus": "pending",
   "completedAt": null,
@@ -74,3 +74,26 @@ Rules:
 - The branchName should use a short kebab-case slug derived from the issue title
 
 IMPORTANT: You MUST write the tasks.json to the file path above. Do not just output it.
+
+<!-- if:__REPO_POLICY__ -->
+## Repository policy
+
+The repository this runs in declares the conventions below. They were discovered
+from its own files (Issue Templates, labels, `AGENTS.md`, `CONTRIBUTING.md`,
+`CODEOWNERS`) and from its configuration.
+
+__REPO_POLICY__
+
+**This section takes precedence over any convention stated earlier in this
+prompt.** Where the two disagree, follow the repository. Where the repository is
+silent, the defaults above still apply.
+
+Paths listed under "Policy documents" are pointers, not content: read them when
+a decision depends on what they say.
+<!-- /if -->
+
+## Branch naming
+
+`branchName` must follow `__BRANCH_CONVENTION__`, where `{N}` is the issue number
+and `{slug}` a short kebab-case summary of the issue title. A repository that
+declares its own convention above overrides this one.

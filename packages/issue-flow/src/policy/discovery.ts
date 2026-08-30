@@ -325,9 +325,9 @@ export function scopeLadder(scope: string | null): string[] {
  * `CODE_OF_CONDUCT.md` are read once, at the root, because that is where
  * GitHub reads them from.
  *
- * Documents linked from an `AGENTS.md` are followed one level; see
- * {@link extractReferencedDocuments} for why that is a link walk rather than a
- * scan of `docs/`.
+ * Documents linked from an `AGENTS.md` or a `CLAUDE.md` are followed one level;
+ * see {@link extractReferencedDocuments} for why that is a link walk rather than
+ * a scan of `docs/`.
  */
 export async function discoverDocuments(
   root: string,
@@ -388,14 +388,18 @@ export async function discoverDocuments(
       const kind = classifyDocument(name);
       if (kind === null) continue;
       const document = await collect(join(levelDir, name), kind, level, null);
-      if (document !== null && kind === 'agents') {
+      // Both agent-instruction files are indexes. A `CLAUDE.md` whose entire
+      // content is "Read and follow the instructions in AGENTS.md" is a real and
+      // common shape: stopping at it would report a repository that declares
+      // nothing, when in fact it forwards everything.
+      if (document !== null && (kind === 'agents' || kind === 'claude')) {
         indexes.push(document);
       }
     }
   }
 
-  // One level only, and only from AGENTS.md: a referenced document that itself
-  // links onwards does not drag its own bibliography into the context.
+  // One level only: a referenced document that itself links onwards does not
+  // drag its own bibliography into the context.
   for (const index of indexes) {
     for (const target of extractReferencedDocuments(index.content, index.path)) {
       await collect(join(root, target), 'referenced', index.scope, index.path);

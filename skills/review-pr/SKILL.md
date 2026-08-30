@@ -14,6 +14,17 @@ compatibility: Requires gh CLI (https://cli.github.com/) and git
 
 # Review Pull Request
 
+> **Repository policy — read this first.** Every decision below that depends on
+> this repository's conventions (labels, Issue Templates, Issue Types, title,
+> base branch, branch and commit format, Pull Request body) follows
+> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
+> Read that block and apply it; it is the single source shared with the CLI, so
+> both paths decide the same way.
+>
+> It is **best-effort**: without the CLI, without the network, or in a repository
+> that declares nothing, continue with the defaults documented in this skill. A
+> skill that needs the network to work is a regression.
+
 You are a reviewer of a complete Pull Request. Your job is to read the PR the way an experienced
 maintainer would — the diff, the architecture it lands in, the tests, the commits and the story the
 description tells — and to end with one unambiguous recommendation.
@@ -29,8 +40,13 @@ gates conformance. Here the subject is the Pull Request itself.
   point at is speculation — leave it out or mark it clearly as a question.
 - **Never approve by omission.** A review you could not complete is a scoped review, not an
   approval. Malformed or missing verdicts are failures, never `APPROVE`.
-- **Respect the repository.** `CLAUDE.md`, `README.md` and the surrounding code define the
-  conventions. A review that contradicts the project's documented conventions is a wrong review.
+- **Respect the repository.** `AGENTS.md`, `CLAUDE.md`, `README.md` and the surrounding code
+  define the conventions. A review that contradicts the project's documented conventions is a
+  wrong review — and one that restates a repository's rule as the reviewer's own preference is
+  no better.
+- **Cite where a rule is written.** Every policy violation names the document and section that
+  defines it. Without that, the author cannot check whether the reviewer is right, and the
+  review is opinion.
 
 ---
 
@@ -55,7 +71,7 @@ Otherwise, discover it in this order and stop at the first hit:
 Never review a guessed PR. When the PR came from discovery (not from the user), state which one you
 picked — number, title and head branch — before reviewing.
 
-Also determine the **associated issue**, best-effort: from the branch name (`issue/{N}-*`), from
+Also determine the **associated issue**, best-effort: from a number in the branch name (read against the repository's own branch convention when it declares one, otherwise `issue/{N}-*`), from
 `Closes #N` in the PR body, or from `issues/{N}/tasks.json`. A PR with no associated issue is
 reviewed on its own terms — that is not an error.
 
@@ -75,8 +91,12 @@ git log --oneline {BASE}..{HEAD}     # commit history of the branch
 Then read, when they exist:
 
 - `issues/{N}/prd.md` and `issues/{N}/tasks.json` — what was intended
-- `CLAUDE.md` (root and any nested ones near the changed files) and `README.md` — the project's
-  conventions
+- the repository's declared policy ([the shared block](../_shared/repository-policy.md)) — the paths of its policy
+  documents, its labels, Issue Types, base branch and conventions. Read the documents a
+  finding would depend on, and **follow a pointer file rather than stopping at it**: a
+  `CLAUDE.md` that forwards to `AGENTS.md` is not a repository without conventions
+- `AGENTS.md`, `CLAUDE.md` (root and any nested ones near the changed files) and `README.md` —
+  the fallback when the CLI is not installed
 
 Missing artifacts are normal. Treat every one as optional and continue.
 
@@ -125,7 +145,17 @@ here", not an axis skipped.
   irreversible in production.
 - **Test coverage**: are the new paths tested? Do the tests assert behaviour or just that the code
   ran? Which uncovered path would you be most afraid of?
-- **Documentation**: README, CLAUDE.md, comments and docs updated where the change makes them stale.
+- **Documentation**: README, `AGENTS.md`, `CLAUDE.md`, comments and docs updated where the change makes them stale.
+- **Repository policy conformance** (only when the repository declares one): the issue body
+  against its Issue Template, labels against the ones that exist, an Issue Type where the
+  repository uses them, the title convention, the Pull Request body against the PR template,
+  the **base branch**, and the branch and commit conventions. Record the owners of paths
+  covered by `CODEOWNERS`, without blocking on it.
+
+  Calibrate: a rule the documentation states as mandatory, a missing required template field,
+  or a wrong base is a blocker. A formatting or naming divergence is an observation. Turning
+  every divergence into `REQUEST_CHANGES` makes the review noisy, and a noisy review is
+  ignored.
 - **Commit messages**: do they describe the change accurately, at a useful granularity?
 - **Simplification**: concrete opportunities to achieve the same result with less code.
 

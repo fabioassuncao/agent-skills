@@ -5,13 +5,27 @@ __USER_PROMPT__
 
 Steps:
 1. Analyze the project's tech stack, architecture, and codebase
-2. Check for duplicates before drafting:
+2. Decide the **human language** to write in, in this order of priority:
+   1. the language the user's request is written in;
+   2. the predominant language of the repository's existing issue titles
+      (`gh issue list --limit 10 --state all --json title --jq '.[].title'`);
+   3. the language of the README;
+   4. the language the user wrote in.
+
+   Use it for the title and the whole body. A backlog written in two languages
+   is harder to search than one written in the "wrong" one.
+3. Check for duplicates before drafting. This is a **multi-strategy search** —
+   one query finds only issues worded the way you happened to word yours:
    - Local issues: read `__LOCAL_ISSUES_DIR__/*/metadata.json` (the directory may not exist)
    - Remote issues, only if `gh` is installed and authenticated:
-     `gh issue list --state open --search "<keywords>"`
-   If an existing issue already covers the request, still emit the draft, but
-   say so in the body under a "Possible duplicates" section.
-3. Emit the issue draft in the exact format below
+     - 2-3 different keyword combinations drawn from the title and the core problem:
+       `gh issue list --search "<keyword1> <keyword2>" --state all --limit 30 --json number,title,state,url`
+     - the affected area, when the request names one (auth, database, API…)
+     - a label the request maps to, when the repository has a matching one
+   Judge a candidate on whether it describes the **same problem**, not on textual
+   overlap. If an existing issue already covers the request, still emit the draft,
+   but say so in the body under a "Possible duplicates" section, citing the issue.
+4. Emit the issue draft in the exact format below
 
 The issue should:
 - Have a clear, descriptive title
@@ -27,6 +41,8 @@ with no surrounding commentary:
 <issue-draft>
 <title>Concise, descriptive title</title>
 <labels>label-one, label-two</labels>
+<type>Issue Type, when the repository has them</type>
+<template>path of the Issue Template followed, when there is one</template>
 <body>
 Full issue body in markdown, including context and acceptance criteria.
 </body>
@@ -35,6 +51,44 @@ Full issue body in markdown, including context and acceptance criteria.
 Rules for the block:
 - `<title>` and `<body>` are required; an empty one aborts the command
 - `<labels>` is a comma-separated list; leave it empty when no label applies
-- Only suggest labels that already exist in the repository, or that are
-  conventional (`bug`, `enhancement`, `documentation`)
+- **Only suggest labels that already exist in this repository.** Never invent
+  one, and never create one. A label that does not exist is dropped before the
+  issue is created, so inventing one silently loses the classification. When the
+  section below lists the repository's labels, that list is exhaustive.
+- `<type>` and `<template>` are optional: omit them entirely unless the section
+  below shows that this repository has Issue Types or Issue Templates
 - Write the body as plain markdown — do not wrap it in a code fence
+
+<!-- if:__REPO_POLICY__ -->
+## Repository policy
+
+The repository this runs in declares the conventions below. They were discovered
+from its own files (Issue Templates, labels, `AGENTS.md`, `CONTRIBUTING.md`,
+`CODEOWNERS`) and from its configuration.
+
+__REPO_POLICY__
+
+**This section takes precedence over any convention stated earlier in this
+prompt.** Where the two disagree, follow the repository. Where the repository is
+silent, the defaults above still apply.
+
+Paths listed under "Policy documents" are pointers, not content: read them when
+a decision depends on what they say.
+
+### Drafting against this repository's conventions
+
+- **Issue Templates.** When the section above lists them, pick the one that fits
+  the request — by its name and description — and write the body to *its*
+  structure, filling every field it marks as required. Report the one you chose
+  in `<template>`. The default structure described earlier in this prompt is the
+  fallback for a repository with no template, not a floor to add on top of one.
+  If two templates fit equally well, say so in the body and pick the more
+  specific: choosing a type is the author's call, and a wrong guess is easier to
+  correct when it is stated.
+- **Issue Types.** When the section above lists them, choose one and put it in
+  `<type>`. A repository with Issue Types has usually *removed* the equivalent
+  textual prefix from titles (`[Bug]`, `[Enhancement]`) precisely because the
+  information moved into a structured field — do not reintroduce it.
+- **Labels.** Use only the ones listed. Anything else is dropped.
+- **Title.** Follow the convention shown above when there is one.
+<!-- /if -->
