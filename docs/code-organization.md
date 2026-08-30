@@ -31,8 +31,7 @@ See also [`AGENTS.md`](../AGENTS.md) (index) and
 
 Root files next to those directories (`cli.ts`, `config.ts`, `types.ts`,
 `schemas.ts`, …) are package entry points or cross-cutting contracts.
-`config.ts` is a façade over `src/config/` once that split lands; until
-then it still holds the domain loaders.
+`config.ts` is a façade over `src/config/` (one loader file per domain).
 
 ## Where new code goes
 
@@ -47,8 +46,7 @@ then it still holds the domain loaders.
 - A **CLI subcommand** → one file (or small folder) under `commands/`.
   Orchestration stays thin; logic belongs in `core/`, `execution/`,
   `issues/`, etc.
-- A **configuration domain** → its own loader under `config/` (or the
-  matching section of `config.ts` until the split), with its own
+- A **configuration domain** → its own loader under `config/`, with its own
   `set*CliOverrides` and mutable state. Domains do not import each other.
 
 ## Size as a signal, not a hard rule
