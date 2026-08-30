@@ -66,6 +66,25 @@ grid`/`flex` da regra base vence o atributo `hidden`. E o overlay/drawer ficam
 em `z-index` 20/21 para cobrir o `.banner` de desconexão, que é `sticky` com
 `z-index: 10`.
 
+## Paleta e tema
+
+As cores do `app.css` são **tokens nomeados por papel**, não por local de uso:
+superfície (`--surface-page`, `--surface`, `--surface-sunken`), texto (`--text`,
+`--text-muted`, `--text-subtle`), borda (`--border`, `--border-strong`), acento
+(`--accent`, `--accent-text`), estado (`--state-ok|run|warn|error` e o
+`--state-*-surface` que acompanha cada um) e `--focus-ring`. Um componente novo
+escolhe o papel que já existe em vez de inventar uma cor.
+
+**Regra dura: nunca defina uma cor só dentro de um `@media` ou de um
+`[data-theme]`.** `:root` carrega a paleta clara inteira; os blocos escuros
+apenas redefinem o que muda. Um token que só existe num deles some no outro
+tema, e o sintoma aparece longe da causa.
+
+O antigo `--idle-bg` (badge inerte, contagem de coluna do Kanban, hover do
+fechar do drawer, trilha da barra de progresso) virou **`--surface-sunken`**, e
+não um `--state-neutral-surface`: metade dos usos não é badge de estado, e um
+recesso neutro é a mesma coisa nos dois casos. "Sem estado" não é um estado.
+
 ## Escrita: o que ainda não existe
 
 A interface é somente leitura por contrato (`snapshot.readOnly === true`,
