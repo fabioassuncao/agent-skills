@@ -23,7 +23,7 @@ export {
   loadGlobalConfig,
 };
 
-/** Historical alias kept for the web monitoring call sites. */
+/** @deprecated Use {@link PROJECT_CONFIG_FILENAME}. Historical alias kept for call-site compatibility. */
 export const WEB_CONFIG_FILENAME = PROJECT_CONFIG_FILENAME;
 
 export {

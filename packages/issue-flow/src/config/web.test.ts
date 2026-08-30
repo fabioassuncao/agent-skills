@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   loadWebConfig,
+  PROJECT_CONFIG_FILENAME,
   setWebCliOverrides,
-  WEB_CONFIG_FILENAME,
 } from '../config.js';
 
 describe('loadWebConfig', () => {
@@ -24,7 +24,7 @@ describe('loadWebConfig', () => {
 
   async function writeConfigFile(content: unknown): Promise<void> {
     const raw = typeof content === 'string' ? content : JSON.stringify(content);
-    await writeFile(join(projectRoot, WEB_CONFIG_FILENAME), raw, 'utf-8');
+    await writeFile(join(projectRoot, PROJECT_CONFIG_FILENAME), raw, 'utf-8');
   }
 
   it('returns the documented defaults when no source is present', async () => {
@@ -147,7 +147,7 @@ describe('loadWebConfig', () => {
 
     expect(config.enabled).toBe(false);
     expect(config.port).toBe(3737);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining(WEB_CONFIG_FILENAME));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(PROJECT_CONFIG_FILENAME));
   });
 
   it('ignores an invalid web key with a warning, without failing', async () => {
@@ -156,7 +156,7 @@ describe('loadWebConfig', () => {
     const config = await loadWebConfig({ cli: {}, env: {}, projectRoot, warn });
 
     expect(config.port).toBe(3737);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining(WEB_CONFIG_FILENAME));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(PROJECT_CONFIG_FILENAME));
   });
 
   it('accepts a file without the web key silently', async () => {
