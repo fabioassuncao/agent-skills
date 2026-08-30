@@ -6,6 +6,7 @@ import { FilePublisher, NullPublisher } from '../core/session-state.js';
 import { allStoriesPass, isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError } from '../ui/logger.js';
+import { getPackageVersion } from '../version.js';
 import { ensureWebMonitor } from '../web/lock.js';
 
 export interface ExecuteOptions {
@@ -73,6 +74,15 @@ export async function runExecute(
       sessionId: randomUUID(),
       issueNumber: numericIssue,
       phases: ['execute'],
+      // The agent is only settled per invocation here, so the run-wide fields
+      // stay null; the version is what makes the session attributable to a build.
+      environment: {
+        node: process.version,
+        platform: process.platform,
+        agent: null,
+        model: null,
+        cliVersion: getPackageVersion(),
+      },
     });
     standalonePublisher.publish({ type: 'phase:start', at: isoNow(), phase: 'execute' });
     await ensureWebMonitor(

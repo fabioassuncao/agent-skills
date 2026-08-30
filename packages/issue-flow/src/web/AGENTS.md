@@ -48,6 +48,10 @@
   serializes replacement through the short-lived sibling `web.restart.lock`.
   A missing `web.lock` may be recovered from the configured listener only when
   both health and the process command line prove it is `issue-flow web serve`.
+- Reusing a monitor names its version, taken from `/api/health` — the reused
+  process is the one serving the UI, so its version is the truthful one. A
+  version different from `getPackageVersion()` is warned about and nothing more:
+  the run still proceeds against the older monitor.
 
 ## Multi-session discovery (`session-directory.ts`, US-003)
 

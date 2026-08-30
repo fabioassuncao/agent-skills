@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import chalk from 'chalk';
@@ -16,6 +15,7 @@ import {
 } from '../core/session-state.js';
 import { readDiagnostics } from '../storage/diagnostics.js';
 import { printInfo, printWarning } from '../ui/logger.js';
+import { getPackageVersion } from '../version.js';
 import type { SessionDirectoryHandle } from './session-directory.js';
 
 /**
@@ -30,24 +30,8 @@ import type { SessionDirectoryHandle } from './session-directory.js';
  * of crashing the process.
  */
 
-const require = createRequire(import.meta.url);
-
 /** Max length of `issueDescription` on GET /api/sessions (dashboard preview). */
 export const SESSION_LIST_DESCRIPTION_MAX = 280;
-
-function readPackageVersion(): string {
-  // Source lives at src/web/server.ts (../../package.json); the bundle lives
-  // directly in dist/ (../package.json). Try both layouts instead of letting a
-  // built monitor silently report 0.0.0 and obscuring restart diagnostics.
-  for (const candidate of ['../package.json', '../../package.json']) {
-    try {
-      return (require(candidate) as { version: string }).version;
-    } catch {
-      // Try the other supported layout.
-    }
-  }
-  return '0.0.0';
-}
 
 /** Collapse whitespace and truncate for the sessions list payload. */
 export function truncateSessionDescription(
@@ -228,7 +212,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 export async function startWebServer(options: WebServerOptions): Promise<WebServerHandle | null> {
   const info = options.info ?? printInfo;
   const warn = options.warn ?? printWarning;
-  const version = options.version ?? readPackageVersion();
+  const version = options.version ?? getPackageVersion();
   const instanceId = options.instanceId ?? randomUUID();
   const startedAtMs = Date.now();
 

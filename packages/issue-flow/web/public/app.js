@@ -89,6 +89,8 @@
     now: document.getElementById('now'),
     resilience: document.getElementById('resilience'),
     configuration: document.getElementById('configuration'),
+    appVersion: document.getElementById('app-version'),
+    appVersionDashboard: document.getElementById('app-version-dashboard'),
     phases: document.getElementById('phases'),
     nextSteps: document.getElementById('next-steps'),
     stories: document.getElementById('stories'),
@@ -130,6 +132,8 @@
     // Identifica o processo que serviu os assets atuais. Uma troca significa
     // que --restart-web colocou código novo no mesmo origin e exige reload.
     serverInstanceId: null,
+    // Versão do monitor, vinda de /api/health. Null enquanto não respondeu.
+    monitorVersion: null,
     // Multi-sessão (#35): lista de /api/sessions e seleção explícita do usuário.
     // selectedSessionId null = modo automático (1 sessão → detalhe; 2+ → dashboard).
     sessions: [],
@@ -529,6 +533,21 @@
     state.events = [];
     state.diagnostics = [];
     state.eventsUrl = null;
+  }
+
+  // A versão exibida no header é a do processo que serviu esta página, nunca a
+  // da CLI que iniciou a execução: os assets vivem na memória desse processo,
+  // então é ela que explica o que está na tela. As duas aparecem juntas no card
+  // de configuração quando divergem.
+  function renderMonitorVersion(version) {
+    const label = typeof version === 'string' && version !== '' ? 'v' + version : null;
+    state.monitorVersion = label === null ? null : version;
+    for (const node of [els.appVersion, els.appVersionDashboard]) {
+      if (!node) continue;
+      node.textContent = label || '';
+      node.title = label === null ? '' : 'Versão do monitor que serve este painel';
+      node.hidden = label === null;
+    }
   }
 
   function serverInstanceChanged(response) {
@@ -1050,6 +1069,34 @@
 
   function renderConfiguration(snapshot) {
     clear(els.configuration);
+
+    // Quem executou e quem está mostrando. São processos diferentes e podem
+    // estar em versões diferentes; este é o único lugar onde as duas aparecem
+    // lado a lado, então a divergência é dita aqui.
+    const env = snapshot.environment;
+    const runVersion = env && env.cliVersion ? env.cliVersion : null;
+    const runtime = el('dl', 'now-grid');
+    const runtimeBits = [runVersion ? 'v' + runVersion : 'versão não registrada'];
+    if (env && env.node) runtimeBits.push(env.node);
+    if (env && env.platform) runtimeBits.push(env.platform);
+    nowRow(runtime, 'Issue Flow (execução)', runtimeBits.join(' · '));
+    nowRow(
+      runtime,
+      'Monitor (este painel)',
+      state.monitorVersion ? 'v' + state.monitorVersion : '—',
+    );
+    els.configuration.appendChild(runtime);
+    if (runVersion !== null && state.monitorVersion && runVersion !== state.monitorVersion) {
+      els.configuration.appendChild(
+        el(
+          'p',
+          'alert-entry level-warn',
+          'Este painel é servido por uma versão diferente da que executa o pipeline. ' +
+            'Reinicie o monitor com --restart-web para ver a interface desta versão.',
+        ),
+      );
+    }
+
     const config = snapshot.configuration;
     if (!config) {
       els.configuration.appendChild(el('p', 'empty', 'Configuração não capturada nesta execução.'));
@@ -1743,6 +1790,7 @@
       const healthRes = await fetch('api/health', { cache: 'no-store' });
       serverInstanceChanged(healthRes);
       const health = await healthRes.json();
+      renderMonitorVersion(health.version);
       state.configWritable = list(health.capabilities).includes('config:agent:write');
       const suggested = Number(health.refreshSeconds);
       if (stored === null && Number.isFinite(suggested) && suggested > 0) {

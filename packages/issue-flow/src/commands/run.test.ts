@@ -377,7 +377,9 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     // A monitoring server was already up under the same lock: run must not
     // attempt to bind a second one.
     expect(vi.mocked(startWebServer)).not.toHaveBeenCalled();
-    expect(lines.some((l) => l.includes('Reusing existing web monitor at'))).toBe(true);
+    // The reuse line carries the version of the *reused* monitor: it is the
+    // process serving the dashboard, and it may not be the one running here.
+    expect(lines.some((l) => /Reusing existing web monitor v\d+\.\d+\.\d+ at /.test(l))).toBe(true);
   });
 
   it('com --web: ao término, session.json global contém o estado final', async () => {

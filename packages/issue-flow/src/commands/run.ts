@@ -89,6 +89,7 @@ import {
   preflightRepository,
 } from '../utils/git.js';
 import { run } from '../utils/shell.js';
+import { getPackageVersion } from '../version.js';
 import { ensureWebMonitor } from '../web/lock.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
@@ -942,6 +943,7 @@ async function runPipelinePhases(
         platform: process.platform,
         agent: agentSummary.defaultProvider,
         model: agentSummary.defaultModel,
+        cliVersion: getPackageVersion(),
       },
     });
   };
@@ -980,7 +982,7 @@ async function runPipelinePhases(
       ),
   };
   printInfo(
-    `Starting pipeline for issue #${issueNumber} (mode: ${mode}, agent: ${agentSummary.label})`,
+    `Issue Flow v${getPackageVersion()} · starting pipeline for issue #${issueNumber} (mode: ${mode}, agent: ${agentSummary.label})`,
   );
 
   // Loaded before the checks so init knows which origin the user is heading

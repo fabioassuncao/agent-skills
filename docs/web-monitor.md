@@ -173,6 +173,30 @@ predates instance ids needs one manual reload. `--restart-web` uses the package
 version currently executing; to request an npm update as well, use for example
 `npx issue-flow@latest run 42 --restart-web`.
 
+### Which version is on screen
+
+Two processes are involved and they can be on different releases: the CLI
+running the pipeline, and the detached monitor serving the dashboard. Both are
+named, so the difference is visible rather than inferred.
+
+| Surface | Shows | Source |
+|---|---|---|
+| Terminal headline | `Issue Flow v0.16.0 · #42 · …` | `session.json` → `environment.cliVersion` |
+| `run` / `execute` first line | `Issue Flow v0.16.0 · starting pipeline for issue #42 …` | the running package |
+| Dashboard header | `issue-flow v0.16.0` | `GET /api/health` → `version` |
+| Configuration card | both, side by side | the snapshot and `/api/health` |
+| `--version` | the running package | the manifest |
+
+The terminal reads the version from the snapshot, not from the manifest, so a
+resumed or replayed session keeps naming the build that produced it. The
+dashboard header names the **monitor**, because the monitor is what served the
+page you are looking at.
+
+When the two differ, both surfaces say so: the CLI warns while reusing an
+existing monitor, naming both versions and pointing at `--restart-web`, and the
+configuration card renders the same warning in the panel. Neither one enforces
+anything — the run proceeds against the older monitor.
+
 If the global storage tree itself is unavailable (no resolvable home directory
 and no `ISSUE_FLOW_HOME`), monitoring falls back to the pre-single-instance
 behaviour instead of being lost: the server binds **inline**, in the pipeline's

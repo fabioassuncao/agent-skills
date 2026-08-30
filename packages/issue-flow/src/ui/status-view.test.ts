@@ -212,6 +212,40 @@ describe('formatIssueHeadline', () => {
   it('degrades when the issue has no number yet', () => {
     expect(formatIssueHeadline(createInitialSnapshot())).toBe('Issue Flow');
   });
+
+  it('names the version that produced the run', () => {
+    const base = createInitialSnapshot();
+    const withVersion: SessionSnapshot = {
+      ...base,
+      issue: { ...base.issue, number: 63, title: 'Autonomous execution' },
+      environment: {
+        node: 'v22.0.0',
+        platform: 'darwin',
+        agent: 'claude',
+        model: null,
+        cliVersion: '0.15.0',
+      },
+    };
+    expect(formatIssueHeadline(withVersion)).toBe(
+      'Issue Flow v0.15.0 · #63 · Autonomous execution',
+    );
+  });
+
+  it('omits the version for a session written before it was recorded', () => {
+    const base = createInitialSnapshot();
+    const legacy: SessionSnapshot = {
+      ...base,
+      issue: { ...base.issue, number: 63, title: 'Autonomous execution' },
+      environment: {
+        node: 'v22.0.0',
+        platform: 'darwin',
+        agent: 'claude',
+        model: null,
+        cliVersion: null,
+      },
+    };
+    expect(formatIssueHeadline(legacy)).toBe('Issue Flow · #63 · Autonomous execution');
+  });
 });
 
 describe('stripMarkdown / failureExcerpt', () => {

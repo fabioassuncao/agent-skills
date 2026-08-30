@@ -84,9 +84,14 @@ export function renderExecuteFocus(
 }
 
 export function formatIssueHeadline(snapshot: SessionSnapshot): string {
+  // The version comes from the snapshot, never from the manifest: this module
+  // is a pure projection, and a resumed or replayed session must keep showing
+  // the build that produced it rather than the one reading it.
+  const version = snapshot.environment?.cliVersion;
+  const name = version ? `Issue Flow v${version}` : 'Issue Flow';
   const number = snapshot.issue.number !== null ? `#${snapshot.issue.number}` : null;
   const title = snapshot.issue.title ? stripMarkdown(snapshot.issue.title) : null;
-  const bits = ['Issue Flow', number, title].filter((bit): bit is string => bit !== null);
+  const bits = [name, number, title].filter((bit): bit is string => bit !== null);
   return bits.join(' · ');
 }
 
