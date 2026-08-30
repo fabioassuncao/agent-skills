@@ -371,6 +371,81 @@ withIssueOptions(
   process.exit(code);
 });
 
+// ── status / runs / logs / pause / cancel ───────────────────────────────────
+// The operation surface of a long run. Every one of them reads state that
+// already exists; only pause and cancel write anything, and what they write is
+// a signal to the process that owns the run.
+withGlobalOptions(
+  program
+    .command('status')
+    .description('What is running right now, in which phase, and since when')
+    .argument('[issue]', 'Restrict the report to one issue')
+    .option('--json', 'Emit the assembled state as JSON'),
+).action(async (issue: string | undefined, options: { json?: boolean }) => {
+  const { runStatus } = await import('./commands/operations.js');
+  process.exit(
+    await runStatus(issue, { ...(options.json === undefined ? {} : { json: options.json }) }),
+  );
+});
+
+withGlobalOptions(
+  program.command('runs').description('History of the runs of this project, with how each ended'),
+).action(async () => {
+  const { runRuns } = await import('./commands/operations.js');
+  process.exit(await runRuns());
+});
+
+withGlobalOptions(
+  program
+    .command('logs')
+    .description('Read the execution journal (events.jsonl), filtered and readable')
+    .argument('[issue]', 'Issue to read. Omitted: the most recently attempted one')
+    .option('--issue <issue>', 'Same as the positional argument')
+    .option('--follow', 'Keep reading as the journal grows')
+    .option('--tail <n>', 'How many entries to show first (default 50)', parseInteger)
+    .option('--kind <kinds>', 'Only these event types, comma separated (retry, phase:end, …)'),
+).action(
+  async (
+    issue: string | undefined,
+    options: { issue?: string; follow?: boolean; tail?: number; kind?: string },
+  ) => {
+    const { runLogs } = await import('./commands/operations.js');
+    const kinds =
+      options.kind === undefined
+        ? undefined
+        : options.kind
+            .split(',')
+            .map((kind) => kind.trim())
+            .filter((kind) => kind !== '');
+    process.exit(
+      await runLogs(issue ?? options.issue, {
+        ...(kinds === undefined ? {} : { kind: kinds }),
+        ...(options.follow === undefined ? {} : { follow: options.follow }),
+        ...(options.tail === undefined ? {} : { tail: options.tail }),
+      }),
+    );
+  },
+);
+
+withGlobalOptions(
+  program
+    .command('pause')
+    .description('Ask the running pipeline to stop after writing a checkpoint'),
+).action(async () => {
+  const { runPause } = await import('./commands/operations.js');
+  process.exit(await runPause());
+});
+
+withGlobalOptions(
+  program
+    .command('cancel')
+    .description('Stop the run and mark the issue so a resume does not pick it up')
+    .argument('[issue]', 'Issue to cancel. Omitted: the most recently attempted one'),
+).action(async (issue: string | undefined) => {
+  const { runCancel } = await import('./commands/operations.js');
+  process.exit(await runCancel(issue));
+});
+
 // ── analyze ─────────────────────────────────────────────────────────────────
 withIssueOptions(
   withGlobalOptions(

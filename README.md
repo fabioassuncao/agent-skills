@@ -279,6 +279,35 @@ agreeing. `resume` makes every step of it explicit, in this order:
 
 `run` is unchanged: its automatic resume behaves exactly as it always has.
 
+### Operating a long run: `status`, `runs`, `logs`, `pause`, `cancel`
+
+A six-hour unattended execution needs answers the pipeline itself cannot give
+you while it is busy. These five commands read the state that already exists --
+`run.lock`, `tasks.json`, `session.json`, `execution-plan.json` and
+`events.jsonl` -- and none of them touches the pipeline.
+
+```bash
+issue-flow status                 # what is running, in which phase, since when
+issue-flow status 42 --json       # the same, assembled as JSON
+issue-flow runs                   # history: how each issue ended, and why
+issue-flow logs 42 --kind retry   # the journal, filtered to what matters
+issue-flow logs --follow          # …and kept open as it grows
+issue-flow pause                  # ask the run to stop, with a checkpoint
+issue-flow cancel 42              # stop it, and mark it so `resume` reports it
+```
+
+| Command | What it answers |
+|---------|-----------------|
+| `status [issue] [--json]` | Who owns the run (pid, host, last heartbeat), which phase and attempt each issue is on, how long since the last activity, and where a queue stands |
+| `runs` | One line per issue: status, duration and the first line of the failure |
+| `logs [issue] [--follow] [--tail n] [--kind a,b]` | The append-only journal, in order and filtered. Needs the journal enabled (`resilience.journal.enabled`, or `--continuous`) |
+| `pause` | Sends `SIGTERM` to the owner, which writes a checkpoint, stops the agent with a grace period and closes its journal before exiting |
+| `cancel [issue]` | The same stop, plus marking the issue so a later `resume` reports it instead of silently continuing |
+
+`pause` and `cancel` deliberately do nothing themselves beyond signalling: the
+owning process already knows how to stop well, and a second implementation of
+that from outside would be a worse one. Neither ever signals a **stale** owner.
+
 ### `analyze` -- Analyze an issue (standalone)
 
 ```bash

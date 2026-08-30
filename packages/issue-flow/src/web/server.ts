@@ -299,6 +299,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
           status: snapshot.status,
           startedAt: snapshot.startedAt,
           updatedAt: snapshot.updatedAt,
+          // Resilience fields, for a card that has to answer "is this still
+          // moving" during a six-hour run. `updatedAt` is already the last
+          // activity; these two say how hard the run has had to work for it.
+          retries: snapshot.execution.retries,
+          correctionCycle: snapshot.execution.correctionCycle,
           statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
         })),
       );

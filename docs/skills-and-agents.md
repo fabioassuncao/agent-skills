@@ -90,6 +90,17 @@ interrupted, and stop on a repository state that needs a human. A skill running
 inside your session has you sitting in front of it, which is the same guarantee
 by other means.
 
+## Operating a run: a CLI-only surface, by construction
+
+`status`, `runs`, `logs`, `pause` and `cancel` have no skill counterpart, and
+the parity contract is not broken by that. Parity is about **decisions** a user
+is entitled to get from both paths; these five commands take no decision at all
+-- they read state and, in two cases, signal the process that owns it.
+
+A skill runs inside your session, where "what is happening" is on screen and
+"stop" is `Esc`. The commands exist because a headless `issue-flow run` has
+neither.
+
 ## Repository policy: parity with the CLI is a contract
 
 The skills and the CLI are two paths to the same outcome, and **a user is
