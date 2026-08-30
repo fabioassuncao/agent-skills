@@ -4,8 +4,6 @@
 // todo texto dinâmico entra via textContent (nunca innerHTML com dados
 // do snapshot).
 (() => {
-  'use strict';
-
   const REFRESH_OPTIONS = [3, 5, 10, 30];
   const PAUSED = 0;
   const STORAGE_KEY = 'issue-flow:refresh-seconds';
@@ -292,7 +290,8 @@
       ...story,
       status: STORY_STATUS_LABELS[status] !== undefined ? status : 'backlog',
       stage: STORY_STAGE_LABELS[stage] !== undefined ? stage : 'pending',
-      stageSince: story.stageSince !== null && story.stageSince !== undefined ? story.stageSince : null,
+      stageSince:
+        story.stageSince !== null && story.stageSince !== undefined ? story.stageSince : null,
       stageDetail:
         story.stageDetail !== null && story.stageDetail !== undefined ? story.stageDetail : null,
       dependencies: list(story.dependencies),
@@ -614,9 +613,7 @@
       }
 
       const nextId =
-        resolved.session && resolved.session.sessionId != null
-          ? resolved.session.sessionId
-          : null;
+        resolved.session && resolved.session.sessionId != null ? resolved.session.sessionId : null;
       const sessionChanged = state.detailSessionId !== nextId;
       if (sessionChanged) {
         clearDetailState();
@@ -663,8 +660,7 @@
         state.snapshot = await res.json();
         render();
       }
-      const configUrl =
-        'api/config?session=' + encodeURIComponent(state.detailSessionId || '');
+      const configUrl = 'api/config?session=' + encodeURIComponent(state.detailSessionId || '');
       const configRes = await fetch(configUrl, { cache: 'no-store' });
       if (configRes.ok) {
         state.configData = await configRes.json();
@@ -722,10 +718,7 @@
   function renderDashboard(sessions) {
     const active = document.activeElement;
     const focusedId =
-      active &&
-      active.dataset &&
-      els.dashboard.contains(active) &&
-      active.dataset.sessionId
+      active && active.dataset && els.dashboard.contains(active) && active.dataset.sessionId
         ? active.dataset.sessionId
         : null;
 
@@ -761,20 +754,15 @@
       if (session.issueNumber !== null && session.issueNumber !== undefined) {
         titleRow.appendChild(el('span', 'dashboard-issue', '#' + session.issueNumber));
       }
-      titleRow.appendChild(
-        el('span', 'dashboard-title', session.issueTitle || 'Sem título'),
-      );
+      titleRow.appendChild(el('span', 'dashboard-title', session.issueTitle || 'Sem título'));
       card.appendChild(titleRow);
 
       const summary = truncateText(session.issueDescription, DESCRIPTION_PREVIEW);
       card.appendChild(el('span', 'dashboard-summary muted', summary || 'Sem descrição'));
 
       const meta = el('span', 'dashboard-meta-row');
-      meta.appendChild(
-        el('span', null, 'Fase: ' + (session.currentPhase || '—')),
-      );
-      const percent =
-        typeof session.progressPercent === 'number' ? session.progressPercent : 0;
+      meta.appendChild(el('span', null, 'Fase: ' + (session.currentPhase || '—')));
+      const percent = typeof session.progressPercent === 'number' ? session.progressPercent : 0;
       meta.appendChild(el('span', null, percent + '%'));
       const elapsed =
         typeof session.elapsedSeconds === 'number'
@@ -939,14 +927,19 @@
 
     const heading = el('p', 'issue-summary-title');
     heading.appendChild(
-      el('span', 'mono', issue.number !== null && issue.number !== undefined ? '#' + issue.number : '—'),
+      el(
+        'span',
+        'mono',
+        issue.number !== null && issue.number !== undefined ? '#' + issue.number : '—',
+      ),
     );
     heading.appendChild(document.createTextNode(' ' + (issue.title || 'Sem título')));
     els.issueSummary.appendChild(heading);
 
     const meta = el('div', 'issue-summary-meta');
     const state = issue.state || null;
-    const stateClass = state === 'open' ? 'state-open' : state === 'closed' ? 'state-closed' : 'state-unknown';
+    const stateClass =
+      state === 'open' ? 'state-open' : state === 'closed' ? 'state-closed' : 'state-unknown';
     meta.appendChild(el('span', 'badge ' + stateClass, state || 'estado desconhecido'));
     meta.appendChild(el('span', 'muted', 'Prioridade: Não definida'));
     els.issueSummary.appendChild(meta);
@@ -960,7 +953,9 @@
       els.issueSummary.appendChild(labelRow);
     }
 
-    els.issueSummary.appendChild(el('p', 'issue-description', issue.description || 'Sem descrição.'));
+    els.issueSummary.appendChild(
+      el('p', 'issue-description', issue.description || 'Sem descrição.'),
+    );
   }
 
   function metaRow(grid, label, value, className) {
@@ -1116,7 +1111,9 @@
     nowRow(
       summary,
       'Harness padrão',
-      (config.defaultProvider.value || '—') + ' · ' + configSourceLabel(config.defaultProvider.source),
+      (config.defaultProvider.value || '—') +
+        ' · ' +
+        configSourceLabel(config.defaultProvider.source),
     );
     nowRow(
       summary,
@@ -1327,7 +1324,10 @@
       option.value = model.id;
       select.appendChild(option);
     }
-    if (selected && !Array.prototype.some.call(select.options, (option) => option.value === selected)) {
+    if (
+      selected &&
+      !Array.prototype.some.call(select.options, (option) => option.value === selected)
+    ) {
       const current = el('option', null, 'configurado · ' + selected);
       current.value = selected;
       select.appendChild(current);
@@ -1364,7 +1364,9 @@
     for (const phase of snapshot.phases) {
       const item = el('li');
       item.className = 'detail-row';
-      item.appendChild(el('span', 'item-icon icon-' + phase.status, PHASE_ICONS[phase.status] || '○'));
+      item.appendChild(
+        el('span', 'item-icon icon-' + phase.status, PHASE_ICONS[phase.status] || '○'),
+      );
       const main = el('div', 'item-main');
       main.appendChild(el('div', 'item-title', phase.name));
       if (phase.error) main.appendChild(el('div', 'item-error', phase.error));
@@ -1409,7 +1411,8 @@
     for (const story of snapshot.stories) {
       // stage vem com default no schema ('pending'), mas session.json gravado
       // antes da issue 38 pode chegar sem ele.
-      const storyStage = story.stage !== null && story.stage !== undefined ? story.stage : 'pending';
+      const storyStage =
+        story.stage !== null && story.stage !== undefined ? story.stage : 'pending';
       const item = el('li', storyStage === 'executing' ? 'story-executing' : null);
       item.classList.add('detail-row');
       const status = story.passes ? 'completed' : 'pending';
@@ -1422,10 +1425,15 @@
 
       // status/dependencies vêm com default no schema (backlog/[]), mas
       // session.json gravado antes de #29 pode chegar sem eles.
-      const storyStatus = story.status !== null && story.status !== undefined ? story.status : 'backlog';
+      const storyStatus =
+        story.status !== null && story.status !== undefined ? story.status : 'backlog';
       const meta = el('div', 'story-meta');
       meta.appendChild(
-        el('span', 'badge story-status-' + storyStatus, STORY_STATUS_LABELS[storyStatus] || storyStatus),
+        el(
+          'span',
+          'badge story-status-' + storyStatus,
+          STORY_STATUS_LABELS[storyStatus] || storyStatus,
+        ),
       );
       const dependencies = story.dependencies || [];
       if (dependencies.length > 0) {
@@ -1468,7 +1476,11 @@
 
     const head = el('span', 'kanban-card-head');
     head.appendChild(
-      el('span', 'item-icon icon-' + (story.passes ? 'completed' : 'pending'), story.passes ? '✓' : '○'),
+      el(
+        'span',
+        'item-icon icon-' + (story.passes ? 'completed' : 'pending'),
+        story.passes ? '✓' : '○',
+      ),
     );
     head.appendChild(el('span', 'story-id', story.id));
     card.appendChild(head);
@@ -1551,16 +1563,30 @@
         item.appendChild(title);
         const grid = el('dl', 'now-grid execution-grid');
         nowRow(grid, 'Harness', execution.agent?.harness || '—');
-        nowRow(grid, 'Modelo', execution.agent?.model?.resolved || execution.agent?.model?.requested || '—');
+        nowRow(
+          grid,
+          'Modelo',
+          execution.agent?.model?.resolved || execution.agent?.model?.requested || '—',
+        );
         nowRow(grid, 'Início', formatClock(execution.startedAt));
-        nowRow(grid, 'Fim', execution.finishedAt ? formatClock(execution.finishedAt) : 'em andamento');
-        nowRow(grid, 'Duração', metric(execution.durationMs) !== null ? formatDuration(execution.durationMs / 1000) : '—');
+        nowRow(
+          grid,
+          'Fim',
+          execution.finishedAt ? formatClock(execution.finishedAt) : 'em andamento',
+        );
+        nowRow(
+          grid,
+          'Duração',
+          metric(execution.durationMs) !== null ? formatDuration(execution.durationMs / 1000) : '—',
+        );
         nowRow(grid, 'Tokens', formatUsage(execution.usage || {}) || '—');
         nowRow(grid, 'Custo', executionCost(execution));
-        if (execution.correctionCycle) nowRow(grid, 'Correção', 'ciclo ' + execution.correctionCycle);
+        if (execution.correctionCycle)
+          nowRow(grid, 'Correção', 'ciclo ' + execution.correctionCycle);
         if (execution.verdict?.status) nowRow(grid, 'Veredito', execution.verdict.status);
         item.appendChild(grid);
-        if (execution.failure?.message) item.appendChild(el('p', 'item-error', execution.failure.message));
+        if (execution.failure?.message)
+          item.appendChild(el('p', 'item-error', execution.failure.message));
         timeline.appendChild(item);
       }
       body.appendChild(timeline);
@@ -1600,7 +1626,9 @@
     if (entries.length === 0) return;
     drawerSection('Diagnóstico global persistente', (body) => {
       const details = el('details', 'process-output');
-      details.appendChild(el('summary', null, entries.length + ' registro(s) em ~/.issue-flow/logs'));
+      details.appendChild(
+        el('summary', null, entries.length + ' registro(s) em ~/.issue-flow/logs'),
+      );
       const output = el('pre', 'process-output-body');
       output.textContent = entries
         .slice(0, 200)
@@ -1617,7 +1645,8 @@
     const kind = state.selectedDetail.kind;
     const id = state.selectedDetail.id;
     const story = kind === 'story' ? getStoryById(snapshot, id) : null;
-    const phase = kind === 'phase' ? list(snapshot.phases).find((entry) => entry.name === id) : null;
+    const phase =
+      kind === 'phase' ? list(snapshot.phases).find((entry) => entry.name === id) : null;
     if ((kind === 'story' && story === null) || (kind === 'phase' && !phase)) {
       closeDrawer();
       return;
@@ -1630,9 +1659,15 @@
       const grid = el('dl', 'now-grid drawer-summary-grid');
       nowRow(grid, 'Início', phase.startedAt ? formatClock(phase.startedAt) : '—');
       nowRow(grid, 'Fim', phase.endedAt ? formatClock(phase.endedAt) : '—');
-      nowRow(grid, 'Duração', metric(phase.durationSeconds) !== null ? formatDuration(phase.durationSeconds) : '—');
+      nowRow(
+        grid,
+        'Duração',
+        metric(phase.durationSeconds) !== null ? formatDuration(phase.durationSeconds) : '—',
+      );
       nowRow(grid, 'Uso total', formatUsage(phase) || '—');
-      const configured = list(snapshot.configuration?.phases).find((entry) => entry.phase === phase.name);
+      const configured = list(snapshot.configuration?.phases).find(
+        (entry) => entry.phase === phase.name,
+      );
       if (configured) {
         nowRow(grid, 'Harness efetivo', configured.provider.value || '—');
         nowRow(grid, 'Origem', configSourceLabel(configured.provider.source));
@@ -1672,7 +1707,8 @@
         return;
       }
       const items = el('ul', 'drawer-list');
-      for (const criterion of story.acceptanceCriteria) items.appendChild(el('li', null, criterion));
+      for (const criterion of story.acceptanceCriteria)
+        items.appendChild(el('li', null, criterion));
       body.appendChild(items);
     });
 
@@ -1786,9 +1822,7 @@
   function renderLogs(snapshot) {
     clear(els.logs);
     const filter = state.logFilter;
-    const entries = snapshot.logs.filter(
-      (entry) => filter === 'all' || entry.level === filter,
-    );
+    const entries = snapshot.logs.filter((entry) => filter === 'all' || entry.level === filter);
     if (entries.length === 0) {
       els.logs.appendChild(el('p', 'empty', 'Nenhum log para exibir.'));
       return;
@@ -1832,9 +1866,20 @@
       case 'agent:activity':
         return 'Atividade recebida de ' + event.provider;
       case 'agent:result':
-        return event.provider + (event.success ? ' concluiu a tentativa' : ' falhou: ' + (event.failureKind || 'desconhecida'));
+        return (
+          event.provider +
+          (event.success
+            ? ' concluiu a tentativa'
+            : ' falhou: ' + (event.failureKind || 'desconhecida'))
+        );
       case 'failover':
-        return 'Failover de ' + event.from + ' para ' + event.to + (event.reason ? ': ' + event.reason : '');
+        return (
+          'Failover de ' +
+          event.from +
+          ' para ' +
+          event.to +
+          (event.reason ? ': ' + event.reason : '')
+        );
       case 'correction:cycle':
         return 'Ciclo de correção ' + event.cycle + '/' + event.maxCycles;
       case 'log':
