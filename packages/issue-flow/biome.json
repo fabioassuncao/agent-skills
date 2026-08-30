@@ -42,8 +42,8 @@
       "web/public/**/*.js",
       "scripts/**/*.mjs",
       "*.config.ts",
-      "!!**/dist/**",
-      "!!**/node_modules/**"
+      "!!**/dist",
+      "!!**/node_modules"
     ]
   },
   "overrides": [
