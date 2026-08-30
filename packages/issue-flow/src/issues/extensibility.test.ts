@@ -24,7 +24,10 @@ import type { Issue, IssueDraft, IssuesConfig } from './types.js';
 // Only the process boundaries are mocked: the agent invocation, the external
 // binaries and the story-execution engine. The resolver, the registry, the
 // prerequisite checks, the commands and the templates are the production ones.
-vi.mock('../core/headless.js', () => ({ runHeadless: vi.fn() }));
+vi.mock('../core/headless.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core/headless.js')>()),
+  runHeadless: vi.fn(),
+}));
 vi.mock('execa', () => ({ execa: vi.fn() }));
 // Partial: run.ts reaches the pr-review discovery, which imports
 // listPullRequests from this same module. Only the publisher is stubbed.

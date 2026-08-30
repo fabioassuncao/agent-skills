@@ -42,6 +42,84 @@ export interface HeadlessResult {
   error: string | null;
 }
 
+/**
+ * Default wall-clock limit for a single headless invocation.
+ *
+ * Every phase that invokes `claude` once (analyze, prd, plan, review, pr,
+ * pr-review, generate) shares it, so the limit is raised in one place. It is
+ * deliberately generous: the phases read the repository before writing their
+ * artifact, and on a large issue that alone outlives a few minutes. The execute
+ * loop is the exception and runs with no limit at all (`core/executor.ts`),
+ * because its iteration budget is what bounds it.
+ */
+export const DEFAULT_HEADLESS_TIMEOUT_MS = 900_000;
+
+/**
+ * The subset of an execa result this module inspects. Declared structurally so
+ * both the awaited `execa()` result and the awaited subprocess of the verbose
+ * path fit it without a cast to `any`.
+ */
+interface FinishedProcess {
+  exitCode?: number | undefined;
+  signal?: string | undefined;
+  timedOut?: boolean | undefined;
+}
+
+/**
+ * How much of the limit an invocation has to have burned through before an
+ * unlabelled kill is attributed to the timeout rather than to something
+ * external. A limit of 0 means no limit, and nothing can be attributed to it.
+ */
+const TIMEOUT_ATTRIBUTION_RATIO = 0.9;
+
+function reachedTimeout(timeoutMs: number, elapsedMs: number): boolean {
+  return timeoutMs > 0 && elapsedMs >= timeoutMs * TIMEOUT_ATTRIBUTION_RATIO;
+}
+
+/**
+ * Whether a finished invocation was killed by the `timeout` option.
+ *
+ * `reject: false` means execa never throws on a timeout — it resolves with a
+ * result carrying `timedOut: true`, which is why the `catch` block below never
+ * sees one. That flag is the authoritative signal; the rest is a fallback for
+ * the case execa cannot label, a CLI that installs its own SIGTERM handler and
+ * exits by itself. `claude` does exactly that and leaves 143 (128 + SIGTERM),
+ * with no signal for execa to report. The elapsed-time guard keeps that
+ * fallback from mislabelling an unrelated external kill as a timeout.
+ */
+function wasTimedOut(proc: FinishedProcess, timeoutMs: number, elapsedMs: number): boolean {
+  if (proc.timedOut === true) return true;
+  if (!reachedTimeout(timeoutMs, elapsedMs)) return false;
+  return (
+    proc.signal === 'SIGTERM' ||
+    proc.signal === 'SIGKILL' ||
+    proc.exitCode === 143 ||
+    proc.exitCode === 137
+  );
+}
+
+/**
+ * The error text of a failed invocation.
+ *
+ * A timeout gets a message of its own, and it has to keep saying "timed out":
+ * `utils/retry.ts` classifies a failure as transient by matching that text, and
+ * it is what earns the phase its retries in `core/phase-runner.ts`. Reporting a
+ * timeout as a bare `claude exited with code 143` — which is what the CLI
+ * leaves behind when it handles the SIGTERM itself — both hid the cause and
+ * cost the phase every retry it had.
+ */
+function describeFailure(
+  proc: FinishedProcess,
+  diagnostics: string,
+  timeoutMs: number,
+  elapsedMs: number,
+): string {
+  if (wasTimedOut(proc, timeoutMs, elapsedMs)) {
+    return `Headless invocation timed out after ${formatDuration(Math.round(timeoutMs / 1000))}. Raise the limit with --timeout <seconds> (0 = no limit).`;
+  }
+  return diagnostics.trim() || `claude exited with code ${proc.exitCode ?? 'unknown'}`;
+}
+
 /* ── argument helpers ───────────────────────────────────────────────────── */
 
 /**
@@ -250,17 +328,11 @@ async function runHeadlessVerbose(options: {
   emit(connectorLine);
 
   if (proc.exitCode !== 0 && !resultText) {
-    const stderr = proc.stderr?.toString() ?? '';
-    const isTimeout =
-      proc.exitCode === 143 || ('signalName' in proc && proc.signalName === 'SIGTERM');
-    const errorMsg = isTimeout
-      ? `Headless invocation timed out after ${timeout}ms`
-      : stderr || `claude exited with code ${proc.exitCode}`;
     return {
       success: false,
       result: '',
       cost: null,
-      error: errorMsg,
+      error: describeFailure(proc, proc.stderr?.toString() ?? '', timeout, Date.now() - startTime),
     };
   }
 
@@ -287,7 +359,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   const {
     prompt,
     maxTurns = 10,
-    timeout = 300_000,
+    timeout = DEFAULT_HEADLESS_TIMEOUT_MS,
     outputFormat = 'json',
     allowedTools,
     addDirs,
@@ -310,6 +382,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   }
 
   // Non-verbose: use spinner with elapsed timer
+  const startTime = Date.now();
   const spinner = statusMessage ? createSpinner(statusMessage).start() : null;
 
   let timer: ElapsedTimer | null = null;
@@ -352,7 +425,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
         success: false,
         result: '',
         cost: null,
-        error: stderr || stdout || `claude exited with code ${proc.exitCode}`,
+        error: describeFailure(proc, stderr || stdout, timeout, Date.now() - startTime),
       };
     }
 
@@ -396,11 +469,22 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     spinner?.fail(`${statusMessage}${catchDur}`);
 
     if (message.includes('timed out') || message.includes('ETIMEDOUT')) {
+      // There is no finished process to inspect here, so the clock is the only
+      // evidence. Claim our own limit only when the invocation actually ran up
+      // against it: an ETIMEDOUT raised minutes earlier — or with no limit set
+      // at all — keeps its own message, which is the honest diagnosis and
+      // already carries the words isTransientFailure() matches on.
+      const elapsedMs = Date.now() - startTime;
       return {
         success: false,
         result: '',
         cost: null,
-        error: `Headless invocation timed out after ${timeout}ms`,
+        error: describeFailure(
+          { timedOut: reachedTimeout(timeout, elapsedMs) },
+          message,
+          timeout,
+          elapsedMs,
+        ),
       };
     }
 

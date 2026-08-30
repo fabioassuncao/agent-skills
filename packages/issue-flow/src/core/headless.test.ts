@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runHeadless } from './headless.js';
+import { isTransientFailure } from '../utils/retry.js';
+import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from './headless.js';
 import { setVerbose } from './verbose.js';
 
 // Mock execa
@@ -112,6 +113,99 @@ describe('runHeadless', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('timed out');
+  });
+
+  // A rejection carries no process to inspect, so the clock decides. One that
+  // arrives nowhere near the limit — or with no limit set at all — is not our
+  // timeout, and telling the user to raise a limit they already removed would
+  // bury the real diagnosis. The original message already says 'timed out', so
+  // the phase keeps its retries either way.
+  it('keeps the original message when a rejection is not our own timeout', async () => {
+    mockExeca.mockRejectedValue(new Error('connect ETIMEDOUT 10.0.0.1:443'));
+
+    const result = await runHeadless({ prompt: 'test', timeout: 0 });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('connect ETIMEDOUT 10.0.0.1:443');
+    expect(result.error).not.toContain('--timeout');
+    expect(isTransientFailure(1, result.error ?? '')).toBe(true);
+  });
+
+  // `reject: false` means execa resolves on a timeout instead of throwing, so
+  // the rejection above is not how a real one arrives — this is. The CLI
+  // handles the SIGTERM itself and leaves 143, which used to be reported as a
+  // bare `claude exited with code 143`: the cause was invisible and, because
+  // isTransientFailure() matches on the text, the phase lost every retry.
+  it('reports a resolved timeout as a timeout, not as exit code 143', async () => {
+    mockExeca.mockResolvedValue({
+      stdout: '',
+      stderr: '',
+      exitCode: 143,
+      timedOut: true,
+    } as unknown as ExecaResult);
+
+    const result = await runHeadless({ prompt: 'test', timeout: 300_000 });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('timed out');
+    expect(result.error).toContain('5m 0s');
+    expect(result.error).toContain('--timeout');
+    expect(isTransientFailure(1, result.error ?? '')).toBe(true);
+  });
+
+  it('reports a timeout the CLI absorbed, with no timedOut flag left behind', async () => {
+    mockExeca.mockImplementation((async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { stdout: '', stderr: '', exitCode: 143 } as unknown as ExecaResult;
+    }) as unknown as typeof execa);
+
+    const result = await runHeadless({ prompt: 'test', timeout: 10 });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('timed out');
+  });
+
+  it('does not mistake an unrelated 143 for a timeout', async () => {
+    mockExeca.mockResolvedValue({
+      stdout: '',
+      stderr: '',
+      exitCode: 143,
+    } as unknown as ExecaResult);
+
+    const result = await runHeadless({ prompt: 'test', timeout: 300_000 });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('claude exited with code 143');
+    expect(isTransientFailure(1, result.error ?? '')).toBe(false);
+  });
+
+  it('keeps the stderr diagnostics of a plain failure', async () => {
+    mockExeca.mockResolvedValue({
+      stdout: '',
+      stderr: 'Authentication required',
+      exitCode: 1,
+      timedOut: false,
+    } as unknown as ExecaResult);
+
+    const result = await runHeadless({ prompt: 'test' });
+
+    expect(result.error).toBe('Authentication required');
+  });
+
+  it('defaults the timeout to the shared phase budget', async () => {
+    mockExeca.mockResolvedValue({
+      stdout: JSON.stringify({ result: 'ok' }),
+      stderr: '',
+      exitCode: 0,
+    } as unknown as ExecaResult);
+
+    await runHeadless({ prompt: 'test' });
+
+    expect(mockExeca).toHaveBeenCalledWith(
+      'claude',
+      expect.anything(),
+      expect.objectContaining({ timeout: DEFAULT_HEADLESS_TIMEOUT_MS }),
+    );
   });
 
   it('passes allowedTools when specified', async () => {
@@ -314,5 +408,25 @@ describe('runHeadless (verbose)', () => {
       ['-p', 'test', '--output-format', 'stream-json', '--verbose', '--max-turns', '10'],
       expect.anything(),
     );
+  });
+
+  // execa escalates to SIGKILL when the CLI does not die on the SIGTERM, and
+  // then reports no exit code at all — a shape the old `signalName` check
+  // (a property execa 9 does not have) never recognised.
+  it('reports a stream run killed by the timeout as a timeout', async () => {
+    const proc = Promise.resolve({
+      exitCode: undefined,
+      signal: 'SIGKILL',
+      timedOut: true,
+      stderr: '',
+    });
+    Object.defineProperty(proc, 'stdout', { value: Readable.from([]) });
+    mockExeca.mockReturnValue(proc as ReturnType<typeof execa>);
+
+    const result = await runHeadless({ prompt: 'test', timeout: 60_000, onOutput: noop });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('timed out');
+    expect(result.error).toContain('--timeout');
   });
 });

@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { runHeadless } from '../core/headless.js';
+import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
 import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
@@ -199,7 +199,7 @@ export async function runPr(
       const result = await runHeadless({
         prompt,
         maxTurns: 15,
-        timeout: getGlobalTimeout() ?? 300_000,
+        timeout: getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS,
         // json (not text) so the CLI reports usage: the envelope's `result`
         // field carries the same assistant text parsePrUrl() already consumed.
         outputFormat: 'json',

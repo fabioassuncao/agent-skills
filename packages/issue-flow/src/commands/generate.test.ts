@@ -7,7 +7,10 @@ const loadIssuesConfig = vi.fn();
 vi.mock('../config.js', () => ({ loadIssuesConfig: () => loadIssuesConfig() }));
 
 const runHeadless = vi.fn();
-vi.mock('../core/headless.js', () => ({ runHeadless: (opts: unknown) => runHeadless(opts) }));
+vi.mock('../core/headless.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core/headless.js')>()),
+  runHeadless: (opts: unknown) => runHeadless(opts),
+}));
 
 vi.mock('../core/prompt-resolver.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../core/prompt-resolver.js')>();
