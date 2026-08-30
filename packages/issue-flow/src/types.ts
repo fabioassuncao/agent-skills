@@ -128,6 +128,50 @@ export interface PrReviewState {
   lastReviewedAt?: string;
 }
 
+/**
+ * Status of one issue's run, the issue-level projection of `RunStatus` in
+ * `resilience/policy.ts`.
+ *
+ * `idle` is the name `queued` takes when there is no queue, and the two
+ * terminal states of the run machine are absent on purpose: "this issue is
+ * done" is already `issueStatus`, and duplicating it here would create two
+ * answers to one question.
+ */
+export type IssueRunStatus =
+  | 'idle'
+  | 'running'
+  | 'waiting'
+  | 'retrying'
+  | 'paused'
+  | 'blocked'
+  | 'failed';
+
+/**
+ * The process that owns this run.
+ *
+ * `pid` plus `host` is what lets a second invocation tell "someone is working
+ * on this" from "someone died holding it": the pid is only meaningful on the
+ * host that wrote it.
+ */
+export interface RunOwner {
+  pid: number;
+  host: string;
+  startedAt: string;
+}
+
+export interface IssueRunState {
+  status: IssueRunStatus;
+  /** Phase the run is in, `null` between phases and before the first one. */
+  currentPhase: string | null;
+  /** 1-based attempt of `currentPhase`; `0` while no attempt has started. */
+  attempt: number;
+  /** Last sign of life. Stale plus a dead pid is what makes a lock reclaimable. */
+  lastHeartbeatAt: string | null;
+  /** Why a human is needed. Non-null only while `status` is `blocked`. */
+  blockedReason: string | null;
+  owner: RunOwner | null;
+}
+
 export interface TaskPlan {
   project: string;
   /** Numeric for GitHub Issues, string for local (possibly non-numeric) ids. */
@@ -155,6 +199,19 @@ export interface TaskPlan {
    */
   lastReviewFindings: string | null;
   pipeline: PipelineState;
+  /**
+   * Where this issue's run stands *right now*, as opposed to how far it got.
+   *
+   * `pipeline` answers "which phases are done" and is what `PipelineManager`
+   * resumes from; it cannot answer "is anything running", "is it waiting on a
+   * backoff", "did someone have to be called". Before this field, resumption
+   * worked by accident — `nextQueueIssue()` treating a stale `in_progress` as
+   * "resume this first" — and a `Ctrl+C` left no trace at all.
+   *
+   * Optional and purely additive: a plan written before it simply has none, and
+   * absent means exactly what it always meant.
+   */
+  runState?: IssueRunState;
   /** Written by the `pr` phase; absent in every plan created before it. */
   pullRequest?: PullRequestRef;
   /** Written by the `pr-review` phase; absent while the phase never ran. */

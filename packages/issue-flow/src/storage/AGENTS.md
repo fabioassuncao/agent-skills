@@ -66,6 +66,14 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   rungs of one ladder rather than two formats. Its enums are pinned to the types of
   `resilience/policy.ts` with `satisfies`, and `ResilienceConfigIsPolicyConfig` fails to compile if
   the file format ever stops being a superset of what `resolvePolicy()` reads.
+- **`TaskPlan.runState` and the queue's `attempts`/`blockedReason` are additive, and
+  `schemaVersion` stays `1`.** `runState` is `.optional()` with **no** default at the top
+  level — absent means "this plan predates the field", which is not the same statement as
+  `idle` — while every field *inside* it defaults, so a process killed mid-write leaves a
+  half-object that still parses. On the queue the two new fields do carry `.default()`
+  (`0` and `null`), because a plan written before them meant exactly "never attempted, not
+  blocked". The `pipeline` booleans stay the resumption contract: `PipelineManager` reads
+  them and nothing else, and `runState` is additional information, never a replacement.
 - Schemas read from disk are never `.strict()`: a file written by a newer version must stay
   readable by an older one.
 - The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other

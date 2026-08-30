@@ -268,3 +268,108 @@ describe('persistence', () => {
     expect(raw).toContain('\n  "id": "50"');
   });
 });
+
+describe('additive fields of the execution plan (US-016)', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'issue-flow-plan-compat-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** An execution-plan.json exactly as an earlier release wrote it. */
+  function legacyPlanJson(): string {
+    return JSON.stringify({
+      schemaVersion: 1,
+      id: '101',
+      project: 'widgets-abc',
+      requested: ['101'],
+      branchName: 'issue/101-thing',
+      noBranch: false,
+      prReview: false,
+      status: 'in_progress',
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      truncated: false,
+      issues: [
+        {
+          id: '101',
+          number: 101,
+          title: 'Thing',
+          url: 'https://github.com/acme/widgets/issues/101',
+          source: 'github',
+          position: 1,
+          status: 'failed',
+          origin: 'requested',
+          dependsOn: [],
+          parent: null,
+          priority: null,
+          heuristic: false,
+          failedPhase: 'prd',
+          lastError: null,
+          startedAt: '2026-08-01T00:00:00.000Z',
+          completedAt: null,
+        },
+      ],
+      excluded: [],
+    });
+  }
+
+  it('reads a plan written before attempts and blockedReason existed', async () => {
+    const file = join(dir, 'execution-plan.json');
+    await writeFile(file, legacyPlanJson(), 'utf-8');
+
+    const plan = await loadExecutionPlan(file);
+
+    expect(plan).not.toBeNull();
+    const entry = plan?.issues[0];
+    // Never attempted, not blocked — which is exactly what the old file meant.
+    expect(entry?.attempts).toBe(0);
+    expect(entry?.blockedReason).toBeNull();
+    expect(plan?.schemaVersion).toBe(1);
+  });
+
+  it('accepts the two new queue statuses', async () => {
+    for (const status of ['blocked', 'skipped']) {
+      const raw = JSON.parse(legacyPlanJson());
+      raw.issues[0].status = status;
+      const file = join(dir, `plan-${status}.json`);
+      await writeFile(file, JSON.stringify(raw), 'utf-8');
+
+      const plan = await loadExecutionPlan(file);
+      expect(plan?.issues[0]?.status).toBe(status);
+    }
+  });
+
+  it('never hands a blocked issue back to the pipeline', async () => {
+    const raw = JSON.parse(legacyPlanJson());
+    raw.issues[0].status = 'blocked';
+    raw.issues[0].blockedReason = 'gh auth login required';
+    const file = join(dir, 'plan-blocked.json');
+    await writeFile(file, JSON.stringify(raw), 'utf-8');
+
+    const plan = (await loadExecutionPlan(file)) as ExecutionPlan;
+
+    expect(nextQueueIssue(plan)).toBeNull();
+  });
+
+  it('gives a freshly built plan a zeroed counter', async () => {
+    const graph = await graphOf({ '1': {}, '2': {} });
+    const order = computeExecutionOrder(graph);
+    const plan = buildExecutionPlan({
+      graph,
+      order: order.order,
+      requested: ['1'],
+      project: 'p',
+      id: '1',
+    });
+
+    for (const entry of plan.issues) {
+      expect(entry.attempts).toBe(0);
+      expect(entry.blockedReason).toBeNull();
+    }
+  });
+});

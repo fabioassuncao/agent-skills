@@ -298,7 +298,9 @@ export const executionPlanIssueSchema = z.object({
   url: z.string().nullable(),
   source: z.string().min(1),
   position: z.number().int().positive(),
-  status: z.enum(['pending', 'in_progress', 'completed', 'failed']),
+  // `blocked` and `skipped` are additive: no plan written before them can
+  // carry one, and a reader that does not know them was never given one.
+  status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'blocked', 'skipped']),
   origin: z.enum(['requested', 'discovered']),
   dependsOn: z.array(z.string()).default([]),
   parent: z.string().nullable().default(null),
@@ -311,6 +313,10 @@ export const executionPlanIssueSchema = z.object({
     .default(null),
   startedAt: z.string().nullable().default(null),
   completedAt: z.string().nullable().default(null),
+  // Both default, so an execution-plan.json written by an earlier release
+  // parses unchanged and reads as "never attempted, not blocked".
+  attempts: z.number().int().min(0).default(0),
+  blockedReason: z.string().nullable().default(null),
 });
 
 export const executionPlanSchema = z.object({

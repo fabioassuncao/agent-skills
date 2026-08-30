@@ -91,6 +91,8 @@ export function buildExecutionPlan(input: BuildExecutionPlanInput): ExecutionPla
       heuristic: (relations?.heuristic.length ?? 0) > 0,
       failedPhase: null,
       lastError: null,
+      attempts: 0,
+      blockedReason: null,
       startedAt: null,
       completedAt: null,
     };
