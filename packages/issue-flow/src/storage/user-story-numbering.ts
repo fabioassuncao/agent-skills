@@ -134,7 +134,7 @@ export async function findHighestUserStoryNumber(
 
   for (const issueId of entries) {
     if (excludeIssueId !== undefined && issueId === excludeIssueId) continue;
-    // Never hand-build an artifact path (see src/storage/CLAUDE.md): asking
+    // Never hand-build an artifact path (see src/storage/AGENTS.md): asking
     // getIssuePaths() keeps a rename of `tasks.json` a one-file change instead
     // of silently making this scan find nothing.
     const { tasksFile } = getIssuePaths(projectId, issueId, { env: options.env });

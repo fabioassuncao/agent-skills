@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How this backlog works
+    url: https://github.com/fabioassuncao/issue-flow/blob/main/docs/conventions.md
+    about: Issue types, what each one authorizes, labels and the lifecycle.

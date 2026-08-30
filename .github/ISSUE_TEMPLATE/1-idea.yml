@@ -1,0 +1,31 @@
+name: "💡 Idea"
+description: "A hypothesis, opportunity or perceived problem, not yet analysed."
+type: "Idea"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Quick capture. Only the first field is required — triage fills in the rest.
+        An Idea is **not approved work**: no agent implements it.
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What it is, in a few lines. It does not have to be solved or complete.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What pain or gain is behind it? Leave blank if you do not know yet.
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Links, related issues, prior discussion, evidence.
+  - type: textarea
+    id: questions
+    attributes:
+      label: Open questions
+      description: What would have to be answered before deciding anything.
