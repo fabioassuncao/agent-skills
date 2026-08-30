@@ -21,6 +21,10 @@ describe('parseAgentPhaseFlag', () => {
       phase: 'review',
       block: { provider: 'cursor' },
     });
+    expect(parseAgentPhaseFlag('review=antigravity:gemini-3.5-flash-medium')).toEqual({
+      phase: 'review',
+      block: { provider: 'antigravity', model: 'gemini-3.5-flash-medium' },
+    });
     expect(() => parseAgentPhaseFlag('review=unknown')).toThrow(/Unknown agent provider/);
   });
 });
@@ -100,6 +104,31 @@ describe('loadAgentConfig / resolveAgentFor', () => {
     expect(resolved.model).toBe('claude-sonnet-5');
   });
 
+  it('resolves antigravity as a phase overlay and via --agent', async () => {
+    const config = {
+      provider: 'claude' as const,
+      model: null,
+      claude: {},
+      codex: {},
+      cursor: {},
+      antigravity: { effort: 'medium' as const },
+      phases: { plan: { provider: 'antigravity' as const, model: 'gemini-3.5-flash-low' } },
+    };
+    const plan = await resolveAgentFor('plan', { config });
+    const review = await resolveAgentFor('review', { config });
+    expect(plan.provider).toBe('antigravity');
+    expect(plan.model).toBe('gemini-3.5-flash-low');
+    expect(plan.antigravity.effort).toBe('medium');
+    expect(review.provider).toBe('claude');
+
+    const forced = await resolveAgentFor('review', {
+      config,
+      cli: { forceProvider: 'antigravity' },
+    });
+    expect(forced.provider).toBe('antigravity');
+    expect(forced.origin.provider).toBe('cli');
+  });
+
   it('lets --agent overwrite every phase', async () => {
     const resolved = await resolveAgentFor('plan', {
       config: {
@@ -108,6 +137,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
         claude: {},
         codex: {},
         cursor: {},
+        antigravity: {},
         phases: { plan: { provider: 'codex' } },
       },
       cli: { forceProvider: 'claude' },
@@ -126,6 +156,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
       claude: {},
       codex: {},
       cursor: {},
+      antigravity: {},
       phases: {},
     };
     const review = await resolveAgentFor('review', { config, cli });
@@ -166,6 +197,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
         claude: {},
         codex: { sandbox: 'danger-full-access' },
         cursor: {},
+        antigravity: {},
         phases: {},
       },
     });

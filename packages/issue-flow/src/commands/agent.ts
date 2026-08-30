@@ -61,10 +61,11 @@ function formatPhaseLine(
 export async function runAgent(options: AgentCommandOptions = {}): Promise<number> {
   const config = await loadAgentConfig();
   const summary = await describeRunAgents();
-  const [claude, codex, cursor] = await Promise.all([
+  const [claude, codex, cursor, antigravity] = await Promise.all([
     probeAgent('claude'),
     probeAgent('codex'),
     probeAgent('cursor'),
+    probeAgent('antigravity'),
   ]);
 
   if (options.json === true) {
@@ -106,6 +107,13 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
               version: cursor.version,
               authenticated: cursor.authenticated,
             },
+            {
+              id: 'antigravity',
+              installed: antigravity.installed,
+              version: antigravity.version,
+              authenticated: antigravity.authenticated,
+              authProbe: 'none',
+            },
           ],
         },
         null,
@@ -138,6 +146,14 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
   console.log(`  claude        ${(claude.version ?? '—').padEnd(16)} ${claude.detail}`);
   console.log(`  codex         ${(codex.version ?? '—').padEnd(16)} ${codex.detail}`);
   console.log(`  cursor        ${(cursor.version ?? '—').padEnd(16)} ${cursor.detail}`);
+  console.log(
+    `  antigravity   ${(antigravity.version ?? '—').padEnd(16)} ${antigravity.detail} (no auth probe)`,
+  );
+  if (antigravity.installed) {
+    console.log(
+      '  Warning: every Antigravity invocation passes --dangerously-skip-permissions. --mode plan is the write containment.',
+    );
+  }
   return 0;
 }
 
@@ -146,7 +162,9 @@ export async function runAgentUse(
   options: AgentUseOptions = {},
 ): Promise<number> {
   if (!isAgentProviderId(providerRaw)) {
-    printError(`Unknown agent provider '${providerRaw}'. Valid providers: claude, codex, cursor.`);
+    printError(
+      `Unknown agent provider '${providerRaw}'. Valid providers: claude, codex, cursor, antigravity.`,
+    );
     return 1;
   }
   const provider = providerRaw as AgentProviderId;
@@ -245,5 +263,7 @@ export async function persistFirstAgentChoice(provider: AgentProviderId): Promis
 }
 
 export function printAgentUseHint(): void {
-  printInfo('Choose an agent later with: issue-flow agent use <claude|codex|cursor> --global');
+  printInfo(
+    'Choose an agent later with: issue-flow agent use <claude|codex|cursor|antigravity> --global',
+  );
 }

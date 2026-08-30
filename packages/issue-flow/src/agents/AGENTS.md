@@ -21,17 +21,28 @@ only argv and stream parsing move here.
   That is the emergency button. Fine-grained overrides use `--agent-phase`.
 - **`AgentRunResult.agent` is who actually ran.** Header, snapshot and
   metrics read it. Nothing infers the provider afterwards.
-- **`readonly capabilities` is the extension point.** Claude, Codex and
-  Cursor declare theirs; the core never asks which provider it is. Extra
-  directories are a capability: `flag` translates, `permission-file`
-  compensates (Cursor grant of `~/.issue-flow/**`), `none` fails as
-  `configuration` when `addDirs` is required. `allowedTools` is a
-  restriction and may be ignored.
+- **`readonly capabilities` is the extension point.** Claude, Codex,
+  Cursor and Antigravity declare theirs; the core never asks which
+  provider it is. Extra directories are a capability: `flag` translates,
+  `permission-file` compensates (Cursor grant of `~/.issue-flow/**`),
+  `none` fails as `configuration` when `addDirs` are required.
+  `allowedTools` is a restriction and may be ignored. `promptChannel`
+  tells the core how the prompt arrives (`argv` is subject to ARG_MAX).
+  `nativeTimeout: true` obliges the runner to translate
+  `AgentInvocation.timeout` — including `timeout: 0` — into argv; omitting
+  it lets the provider's own default win.
 - **Cursor `--force` is an invariant** on `workspace`/`autonomous`.
   `agent.cursor.force: false` is rejected: without it the phase exits 0
   and writes nothing. `read-only` uses `--mode plan` and never `--force`.
 - **Cursor reports no tokens and no cost.** `usage` is always `null`,
   never zeros. A mixed run's totals are structurally incomplete.
+- **Antigravity `--add-dir <workspace>` is an invariant.** Without it
+  writes land in the provider's scratch directory. `--dangerously-skip-permissions`
+  and `--disable-slash-commands` are also invariants: there is no setting
+  that removes them. `--mode` is the real write containment (`plan` vs
+  `accept-edits`). A tool step denied by permission with `status: SUCCESS`
+  is still a `configuration` failure. `status: WAITING` is `configuration`
+  — the run ended waiting for a human.
 - **`harnessVersion` is captured at invocation time** and cached per
   process. After the process exits it is unrecoverable.
 - **`--fallback-model` is not exposed.** A native fallback the pipeline
@@ -58,3 +69,5 @@ only argv and stream parsing move here.
 - A test that mocks `execa` wholesale must not trigger `probeAgent` or
   `ensureHarnessVersion` — those spawn `claude --version` / `codex --version`
   and steal the first mock call from the invocation under test.
+  Antigravity's probe is `agy --version`; `authProbe: 'none'` means
+  `issue-flow agent` can only report install, never login.

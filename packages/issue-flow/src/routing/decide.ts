@@ -1,5 +1,10 @@
 import type { AgentPhase } from '../agents/types.js';
-import { CLAUDE_CAPABILITIES, CODEX_CAPABILITIES, CURSOR_CAPABILITIES } from '../agents/types.js';
+import {
+  ANTIGRAVITY_CAPABILITIES,
+  CLAUDE_CAPABILITIES,
+  CODEX_CAPABILITIES,
+  CURSOR_CAPABILITIES,
+} from '../agents/types.js';
 import { analyzeTask } from './analyze.js';
 import { filterEligible } from './capabilities.js';
 import { PRIORS_VERSION } from './priors.js';
@@ -10,12 +15,14 @@ const CAPS = {
   'claude-code': CLAUDE_CAPABILITIES,
   'codex-cli': CODEX_CAPABILITIES,
   'cursor-cli': CURSOR_CAPABILITIES,
+  'antigravity-cli': ANTIGRAVITY_CAPABILITIES,
 } as const;
 
 const PROVIDER: Record<string, string> = {
   'claude-code': 'claude',
   'codex-cli': 'codex',
   'cursor-cli': 'cursor',
+  'antigravity-cli': 'antigravity',
 };
 
 export function decideRouting(input: {

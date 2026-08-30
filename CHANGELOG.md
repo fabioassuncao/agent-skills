@@ -16,6 +16,16 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Antigravity CLI (`agy`) como quarto provider** (#80). `AntigravityRunner`
+  traduz `permission` via `--mode`, passa `--add-dir` do workspace,
+  `--dangerously-skip-permissions` e `--disable-slash-commands` em toda
+  invocação, e traduz `timeout` (inclusive `0`) para `--print-timeout`.
+  Negação de permissão com `status: SUCCESS` e `status: WAITING` são
+  `configuration`. Tokens sem USD; `num_turns: 0` → `usage: null`.
+  `agent.antigravity.*` e `ISSUE_FLOW_ANTIGRAVITY_*`. Default continua
+  `claude`. Integração ao vivo (`ISSUE_FLOW_E2E_ANTIGRAVITY=1`) fica
+  fora do `npm test`.
+
 - **Router em modo shadow** (#84, estágios 1–2). `src/routing/` classifica a
   tarefa, filtra por `AgentCapabilities` e pontua priors. Default `shadow`:
   grava `selected`/`actual` no `ExecutionRecord` e não muda a invocação.

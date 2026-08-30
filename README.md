@@ -17,7 +17,7 @@ npx issue-flow run 42
 - **Node.js** >= 22.0.0
 - **Git** installed and available in PATH
 - **Claude Code** (`npm install -g @anthropic-ai/claude-code`) -- default agent
-- **Codex CLI** (optional, `codex`) and **Cursor CLI** (optional, `cursor`) -- alternative agents; see [Agents](#agents)
+- **Codex CLI** (optional, `codex`), **Cursor CLI** (optional, `cursor`) and **Antigravity CLI** (optional, `agy`) -- alternative agents; see [Agents](#agents)
 - **GitHub CLI** (`gh`) authenticated (`gh auth login`) -- required only for GitHub issues; a run on [local issues](#issue-sources-providers) does not need it
 
 Run `npx issue-flow init` to verify all prerequisites (`npx issue-flow init --local` when the issue lives in the repository).
@@ -688,7 +688,7 @@ A repository that declares no policy renders every prompt **byte for byte** as i
 
 ## Agents
 
-The pipeline talks to a coding agent through `runHeadless` / `executeClaude`. Those facades stay; the binary they spawn is selected per phase. **Default is Claude Code.** Without any `agent` configuration the argv is the same as before -- Codex is opt-in and is never inferred from which binary happens to be installed.
+The pipeline talks to a coding agent through `runHeadless` / `executeClaude`. Those facades stay; the binary they spawn is selected per phase. **Default is Claude Code.** Without any `agent` configuration the argv is the same as before -- Codex, Cursor and Antigravity (`agy`) are opt-in and are never inferred from which binary happens to be installed.
 
 ```bash
 npx issue-flow agent                              # resolved provider/model per phase
@@ -700,7 +700,7 @@ npx issue-flow run 42 --agent-phase plan=codex --agent-phase execute=codex:gpt-5
 |----------------------|---------|
 | `--agent` / `--agent-model` | overwrite **everything**, including `phases` |
 | `--agent-phase <phase>=<provider>[:<model>]` | one phase only |
-| `ISSUE_FLOW_AGENT`, `ISSUE_FLOW_AGENT_MODEL`, `ISSUE_FLOW_CODEX_*` | no per-phase env vars |
+| `ISSUE_FLOW_AGENT`, `ISSUE_FLOW_AGENT_MODEL`, `ISSUE_FLOW_CODEX_*`, `ISSUE_FLOW_ANTIGRAVITY_*` | no per-phase env vars |
 | `.issue-flow.json` → `agent` | project default and `phases` |
 | `~/.issue-flow/config.json` → `agent` | machine default |
 | Built-in | `claude`, no `--model` |
@@ -1130,7 +1130,7 @@ Both `stage`/`stageSince`/`stageDetail` are additive and tolerant on input: a `s
 
 Every phase reports what it spent on the agent that ran it, and the same numbers show up in three places: the `Tokens:` line of the terminal summary, the web panel (per phase, per story, and the issue total), and `session.json`. `schemaVersion` stays `1` -- the fields below are additive, and a `session.json` written by an earlier version still loads.
 
-On a homogeneous run (every phase on the same agent -- the only case that existed before this layer) the terminal `Tokens:` line is unchanged. On a mixed run the summary prints **one line per agent**. Codex does not report USD: `costUsd` stays absent ("not reported", never zero) on those phases, and a mixed-run total that showed only Claude's dollars would be silently wrong.
+On a homogeneous run (every phase on the same agent -- the only case that existed before this layer) the terminal `Tokens:` line is unchanged. On a mixed run the summary prints **one line per agent**. Codex and Antigravity report tokens but not USD: `costUsd` stays absent ("not reported", never zero) on those phases, and a mixed-run total that showed only Claude's dollars would be silently wrong. Cursor reports neither.
 
 | Field | Where | Meaning |
 |-------|-------|---------|

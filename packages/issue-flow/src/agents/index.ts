@@ -1,3 +1,10 @@
+export {
+  AntigravityRunner,
+  buildAntigravityArgv,
+  consumeAntigravityEvent,
+  parseAntigravityStream,
+  parseAntigravityUsage,
+} from './antigravity.js';
 export { AgentUnavailableError, assertAgentAvailable, probeAgent } from './availability.js';
 export { buildClaudeArgv, ClaudeCodeRunner } from './claude.js';
 export { buildCodexArgv, CodexRunner, consumeCodexEvent, parseCodexStream } from './codex.js';
@@ -36,12 +43,14 @@ export type {
   AgentRunner,
   AgentRunResult,
   AgentUsage,
+  AntigravitySettings,
   CursorSettings,
   ResolvedAgentSettings,
 } from './types.js';
 export {
   AGENT_PHASES,
   AGENT_SCHEMA_VERSION,
+  ANTIGRAVITY_CAPABILITIES,
   CURSOR_CAPABILITIES,
   DEFAULT_PHASE_PERMISSION,
   isAgentPhase,

@@ -11,6 +11,7 @@ import type {
   AgentOrigin,
   AgentPhase,
   AgentProviderId,
+  AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
@@ -1260,7 +1261,7 @@ function readAgentEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void): 
       layer.provider = env.ISSUE_FLOW_AGENT;
     } else {
       warn(
-        `Ignoring ISSUE_FLOW_AGENT="${env.ISSUE_FLOW_AGENT}": expected claude, codex or cursor.`,
+        `Ignoring ISSUE_FLOW_AGENT="${env.ISSUE_FLOW_AGENT}": expected claude, codex, cursor or antigravity.`,
       );
     }
   }
@@ -1322,6 +1323,22 @@ function readAgentEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void): 
     }
   }
   if (Object.keys(cursor).length > 0) layer.cursor = cursor;
+  const antigravity: AntigravitySettings = {};
+  if (env.ISSUE_FLOW_ANTIGRAVITY_EFFORT !== undefined) {
+    const effort = env.ISSUE_FLOW_ANTIGRAVITY_EFFORT;
+    if (effort === 'low' || effort === 'medium' || effort === 'high') {
+      antigravity.effort = effort;
+    } else {
+      warn(`Ignoring ISSUE_FLOW_ANTIGRAVITY_EFFORT="${effort}".`);
+    }
+  }
+  if (env.ISSUE_FLOW_ANTIGRAVITY_SANDBOX !== undefined) {
+    antigravity.sandbox = parseBooleanEnv(env.ISSUE_FLOW_ANTIGRAVITY_SANDBOX);
+  }
+  if (env.ISSUE_FLOW_ANTIGRAVITY_EXECUTE_TIMEOUT !== undefined) {
+    antigravity.executeTimeout = env.ISSUE_FLOW_ANTIGRAVITY_EXECUTE_TIMEOUT;
+  }
+  if (Object.keys(antigravity).length > 0) layer.antigravity = antigravity;
   return layer;
 }
 
@@ -1350,6 +1367,7 @@ function readAgentKey(
     ...(parsed.data.claude !== undefined ? { claude: parsed.data.claude } : {}),
     ...(parsed.data.codex !== undefined ? { codex: parsed.data.codex } : {}),
     ...(parsed.data.cursor !== undefined ? { cursor: parsed.data.cursor } : {}),
+    ...(parsed.data.antigravity !== undefined ? { antigravity: parsed.data.antigravity } : {}),
     ...(Object.keys(phases).length > 0 ? { phases } : {}),
   };
 }
@@ -1380,6 +1398,7 @@ function mergeAgentBlockLayers(
       claude: { ...merged.claude, ...layer.block.claude },
       codex: { ...merged.codex, ...layer.block.codex },
       cursor: { ...merged.cursor, ...layer.block.cursor },
+      antigravity: { ...merged.antigravity, ...layer.block.antigravity },
     };
   }
   return any ? merged : undefined;
@@ -1392,6 +1411,7 @@ function dropUndefinedBlock(block: AgentBlock): AgentBlock {
   if (block.claude !== undefined) result.claude = block.claude;
   if (block.codex !== undefined) result.codex = block.codex;
   if (block.cursor !== undefined) result.cursor = block.cursor;
+  if (block.antigravity !== undefined) result.antigravity = block.antigravity;
   return result;
 }
 
@@ -1461,6 +1481,12 @@ export async function loadAgentConfig(options: LoadAgentConfigOptions = {}): Pro
     env: envLayer.cursor,
     cli: cli.cursor,
   });
+  const antigravity = mergeConfigLayers<AntigravitySettings>({
+    global: globalLayer.antigravity,
+    project: projectLayer.antigravity,
+    env: envLayer.antigravity,
+    cli: cli.antigravity,
+  });
 
   const phases: AgentConfig['phases'] = {};
   const phaseOrigins: TrackedPhaseOrigins = {};
@@ -1514,7 +1540,7 @@ export async function loadAgentConfig(options: LoadAgentConfigOptions = {}): Pro
     phases: phaseOrigins,
   });
 
-  const resolved = { provider, model, claude, codex, cursor, phases };
+  const resolved = { provider, model, claude, codex, cursor, antigravity, phases };
   if (canCache) cachedAgentConfig = resolved;
   return resolved;
 }

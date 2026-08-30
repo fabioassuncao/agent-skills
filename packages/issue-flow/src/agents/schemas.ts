@@ -9,7 +9,7 @@ import { AGENT_PHASES, type AgentConfig, type AgentPhase } from './types.js';
  * like a value the user wrote and would silently override the rung above.
  */
 
-export const agentProviderIdSchema = z.enum(['claude', 'codex', 'cursor']);
+export const agentProviderIdSchema = z.enum(['claude', 'codex', 'cursor', 'antigravity']);
 
 export const codexSandboxSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access']);
 
@@ -49,6 +49,22 @@ export const cursorSettingsSchema = z
   })
   .partial();
 
+export const antigravityEffortSchema = z.enum(['low', 'medium', 'high']);
+
+export const antigravitySettingsSchema = z
+  .object({
+    effort: antigravityEffortSchema,
+    sandbox: z.boolean(),
+    executeTimeout: z.union([z.number().int(), z.string().min(1), z.null()]),
+    maxPromptBytes: z.number().int().positive(),
+    minVersion: z.string().min(1),
+    skipPermissions: z.boolean().refine((value) => value !== false, {
+      message:
+        'agent.antigravity.skipPermissions cannot be false: without --dangerously-skip-permissions, Antigravity finishes SUCCESS and writes nothing.',
+    }),
+  })
+  .partial();
+
 export const agentBlockSchema = z
   .object({
     provider: agentProviderIdSchema,
@@ -56,6 +72,7 @@ export const agentBlockSchema = z
     claude: claudeSettingsSchema,
     codex: codexSettingsSchema,
     cursor: cursorSettingsSchema,
+    antigravity: antigravitySettingsSchema,
   })
   .partial();
 
@@ -84,6 +101,7 @@ export const agentConfigInputSchema = z
     claude: claudeSettingsSchema,
     codex: codexSettingsSchema,
     cursor: cursorSettingsSchema,
+    antigravity: antigravitySettingsSchema,
     phases: agentPhasesSchema,
   })
   .partial();
@@ -125,6 +143,7 @@ export function emptyAgentConfig(): AgentConfig {
     claude: {},
     codex: {},
     cursor: {},
+    antigravity: {},
     phases: {},
   };
 }

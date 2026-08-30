@@ -8,6 +8,7 @@ const VENDOR: Record<string, string> = {
   claude: 'anthropic',
   codex: 'openai',
   cursor: 'cursor',
+  antigravity: 'google',
 };
 
 export interface ReviewFinding {

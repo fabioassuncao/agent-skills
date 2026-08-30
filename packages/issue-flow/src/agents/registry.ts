@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import { AntigravityRunner } from './antigravity.js';
 import { ClaudeCodeRunner, cacheHarnessVersion, peekHarnessVersion } from './claude.js';
 import { CodexRunner } from './codex.js';
 import { CursorRunner } from './cursor.js';
@@ -23,6 +24,7 @@ export function ensureRunnersRegistered(): void {
   if (!registered.has('claude')) registerRunner(new ClaudeCodeRunner());
   if (!registered.has('codex')) registerRunner(new CodexRunner());
   if (!registered.has('cursor')) registerRunner(new CursorRunner());
+  if (!registered.has('antigravity')) registerRunner(new AntigravityRunner());
 }
 
 /**

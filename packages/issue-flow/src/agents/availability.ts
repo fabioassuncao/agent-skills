@@ -68,6 +68,9 @@ export function installHint(id: AgentProviderId): string {
   if (id === 'cursor') {
     return 'Install Cursor CLI: curl https://cursor.com/install -fsS | bash';
   }
+  if (id === 'antigravity') {
+    return 'Install Antigravity CLI: https://antigravity.google/docs/cli/install/';
+  }
   return 'Install Claude Code: https://docs.anthropic.com/en/docs/claude-code';
 }
 
@@ -93,7 +96,11 @@ export async function assertAgentAvailable(
       `Phase '${phase}' is configured to use '${provider}', but ${provider} is not authenticated. ${
         provider === 'codex'
           ? 'Run: codex login --with-api-key  (or set CODEX_API_KEY)'
-          : 'Run: claude auth login'
+          : provider === 'cursor'
+            ? 'Run: cursor-agent login (or cursor-agent status)'
+            : provider === 'antigravity'
+              ? 'Antigravity has no auth probe. Log in with `agy` interactively; Issue Flow never reads GEMINI_API_KEY.'
+              : 'Run: claude auth login'
       }`,
       phase,
       provider,

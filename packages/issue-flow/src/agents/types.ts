@@ -8,8 +8,8 @@
 
 import type { ClaudeUsage } from '../core/metrics.js';
 
-/** Providers the pipeline can invoke. A fourth (#80) adds a file, not a refactor. */
-export type AgentProviderId = 'claude' | 'codex' | 'cursor';
+/** Providers the pipeline can invoke. A fifth would add a file, not a refactor. */
+export type AgentProviderId = 'claude' | 'codex' | 'cursor' | 'antigravity';
 
 /** The eight invocations that actually call an agent. `init` is not one of them. */
 export type AgentPhase =
@@ -38,7 +38,7 @@ export function isAgentPhase(value: string): value is AgentPhase {
 }
 
 export function isAgentProviderId(value: string): value is AgentProviderId {
-  return value === 'claude' || value === 'codex' || value === 'cursor';
+  return value === 'claude' || value === 'codex' || value === 'cursor' || value === 'antigravity';
 }
 
 /**
@@ -174,6 +174,17 @@ export interface CursorSettings {
   minVersion?: string;
 }
 
+export type AntigravityEffort = 'low' | 'medium' | 'high';
+
+export interface AntigravitySettings {
+  effort?: AntigravityEffort;
+  sandbox?: boolean;
+  /** Ceiling used when `timeout === 0`. `null` / `0` is "no ceiling" and is rejected. */
+  executeTimeout?: number | string | null;
+  maxPromptBytes?: number;
+  minVersion?: string;
+}
+
 /** One layer of the agent block — default or a single phase. */
 export interface AgentBlock {
   provider?: AgentProviderId;
@@ -181,6 +192,7 @@ export interface AgentBlock {
   claude?: ClaudeSettings;
   codex?: CodexSettings;
   cursor?: CursorSettings;
+  antigravity?: AntigravitySettings;
 }
 
 export interface AgentConfig {
@@ -189,6 +201,7 @@ export interface AgentConfig {
   claude: ClaudeSettings;
   codex: CodexSettings;
   cursor: CursorSettings;
+  antigravity: AntigravitySettings;
   phases: Partial<Record<AgentPhase, AgentBlock>>;
 }
 
@@ -201,6 +214,7 @@ export interface ResolvedAgentSettings {
   claude: ClaudeSettings;
   codex: CodexSettings;
   cursor: CursorSettings;
+  antigravity: AntigravitySettings;
   origin: {
     provider: AgentOrigin;
     model: AgentOrigin;
@@ -281,6 +295,28 @@ export const CURSOR_CAPABILITIES: AgentCapabilities = {
   readOnlyMode: 'native',
 };
 
+export const ANTIGRAVITY_CAPABILITIES: AgentCapabilities = {
+  extraDirectories: 'flag',
+  addDirs: true,
+  toolAllowlist: false,
+  maxTurns: false,
+  osSandbox: true,
+  modelSelection: true,
+  modelDiscovery: true,
+  usage: 'tokens-only',
+  reportsUsage: true,
+  reportsCost: false,
+  sessionResume: true,
+  authProbe: 'none',
+  bareModelAliases: false,
+  promptChannel: 'argv',
+  nativeTimeout: true,
+  contextFileName: 'AGENTS.md',
+  contextFileMaxBytes: null,
+  toolNameCase: 'CamelCase',
+  readOnlyMode: 'native',
+};
+
 export const AGENT_SCHEMA_VERSION = 1;
 
 /**
@@ -297,5 +333,6 @@ export interface AgentCliOverrides {
   claude?: ClaudeSettings;
   codex?: CodexSettings;
   cursor?: CursorSettings;
+  antigravity?: AntigravitySettings;
   phases?: Partial<Record<AgentPhase, AgentBlock>>;
 }

@@ -8,13 +8,13 @@ export const PRIORS_VERSION = '1';
  * #79 baseline and the #76 capability matrix — not measured affinity.
  */
 export const PRIORS: Record<TaskClass, Record<string, number>> = {
-  bugfix: { 'claude-code': 0.7, 'codex-cli': 0.95, 'cursor-cli': 0.65 },
-  feature: { 'claude-code': 0.85, 'codex-cli': 0.8, 'cursor-cli': 0.7 },
-  refactor: { 'claude-code': 0.75, 'codex-cli': 0.9, 'cursor-cli': 0.65 },
-  docs: { 'claude-code': 0.8, 'codex-cli': 0.7, 'cursor-cli': 0.75 },
-  test: { 'claude-code': 0.7, 'codex-cli': 0.9, 'cursor-cli': 0.65 },
-  infra: { 'claude-code': 0.8, 'codex-cli': 0.75, 'cursor-cli': 0.6 },
-  analysis: { 'claude-code': 0.95, 'codex-cli': 0.6, 'cursor-cli': 0.7 },
+  bugfix: { 'claude-code': 0.7, 'codex-cli': 0.95, 'cursor-cli': 0.65, 'antigravity-cli': 0.6 },
+  feature: { 'claude-code': 0.85, 'codex-cli': 0.8, 'cursor-cli': 0.7, 'antigravity-cli': 0.65 },
+  refactor: { 'claude-code': 0.75, 'codex-cli': 0.9, 'cursor-cli': 0.65, 'antigravity-cli': 0.6 },
+  docs: { 'claude-code': 0.8, 'codex-cli': 0.7, 'cursor-cli': 0.75, 'antigravity-cli': 0.7 },
+  test: { 'claude-code': 0.7, 'codex-cli': 0.9, 'cursor-cli': 0.65, 'antigravity-cli': 0.6 },
+  infra: { 'claude-code': 0.8, 'codex-cli': 0.75, 'cursor-cli': 0.6, 'antigravity-cli': 0.55 },
+  analysis: { 'claude-code': 0.95, 'codex-cli': 0.6, 'cursor-cli': 0.7, 'antigravity-cli': 0.65 },
 };
 
 export function priorFor(taskClass: TaskClass, harness: string): number {

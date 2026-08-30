@@ -11,6 +11,7 @@ import { decideRouting } from '../routing/decide.js';
 import type { ProviderHealthRecord } from '../storage/schemas.js';
 import { beginExecution, endExecution } from '../telemetry/recorder.js';
 import type { ExecutionPurpose, ExecutionRecord, ExecutionTrigger } from '../telemetry/types.js';
+import { resolveAntigravityTimeoutMs } from './antigravity.js';
 import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
 import { ensureCursorStorageGrant } from './permissions.js';
@@ -49,6 +50,8 @@ export function declaredAgentIdentity(provider: AgentProviderId): {
       return { harness: 'codex-cli', vendor: 'openai' };
     case 'cursor':
       return { harness: 'cursor-cli', vendor: 'cursor' };
+    case 'antigravity':
+      return { harness: 'antigravity-cli', vendor: 'google' };
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;
@@ -142,6 +145,34 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
   });
 
   const runner = runnerFor(selection.provider);
+  if (
+    runner.capabilities.nativeTimeout &&
+    invocation.timeout === 0 &&
+    resolveAntigravityTimeoutMs(invocation, selection.settings) === null
+  ) {
+    const run = {
+      success: false,
+      result: '',
+      rawOutput:
+        'configuration: provider has nativeTimeout and received timeout: 0 without a ceiling.',
+      exitCode: 1,
+      usage: null,
+      error:
+        'configuration: provider has nativeTimeout and received timeout: 0 without a ceiling. Set agent.antigravity.executeTimeout.',
+      agent: { provider: selection.provider, model: selection.settings.model },
+      harnessVersion: peekHarnessVersion(selection.provider),
+    };
+    if (executionId !== null) {
+      await endExecution({
+        id: executionId,
+        status: 'failed',
+        error: run.error,
+        exitCode: 1,
+      });
+    }
+    const failure = classify({ source: 'agent', exitCode: 1, stdout: run.error });
+    return { run, failure, selection, attempt, health: null };
+  }
   if (
     (invocation.addDirs?.length ?? 0) > 0 &&
     runner.capabilities.extraDirectories === 'permission-file'

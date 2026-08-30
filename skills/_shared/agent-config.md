@@ -50,7 +50,7 @@ ignore the rest. `schemaVersion` only changes when a reader would have to.
 {
   "schemaVersion": 1,
   "default": {
-    "provider": "claude",          // 'claude' | 'codex'
+    "provider": "claude",          // 'claude' | 'codex' | 'cursor' | 'antigravity'
     "model": null                  // null = provider default, never inferred
   },
   "phases": {

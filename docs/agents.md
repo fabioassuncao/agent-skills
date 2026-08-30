@@ -1,11 +1,11 @@
 # Agents
 
 Issue Flow runs the pipeline through a coding agent. The default is
-**Claude Code**. **Codex CLI** (`codex exec`) and **Cursor CLI**
-(`cursor-agent`) are the alternatives. Selection is
-explicit and, when you want it, **per phase**. The same repository on two
-machines behaves the same way: the agent is never inferred from which binary
-happens to be installed.
+**Claude Code**. **Codex CLI** (`codex exec`), **Cursor CLI**
+(`cursor-agent`) and **Antigravity CLI** (`agy`) are the alternatives.
+Selection is explicit and, when you want it, **per phase**. The same
+repository on two machines behaves the same way: the agent is never
+inferred from which binary happens to be installed.
 
 This document describes *this project's* behaviour. Official references:
 
@@ -13,8 +13,10 @@ This document describes *this project's* behaviour. Official references:
 - [Codex security / sandbox](https://developers.openai.com/codex/security)
 - [Codex authentication](https://developers.openai.com/codex/auth)
 - [GitHub Action `openai/codex-action`](https://github.com/openai/codex-action)
+- [Antigravity CLI](https://antigravity.google/docs/cli/getting-started/)
 
 Minimum Codex CLI version exercised here: **0.149.1**.
+Minimum Antigravity CLI version exercised here: **1.1.22**.
 
 ## Prerequisites
 
@@ -23,12 +25,22 @@ Minimum Codex CLI version exercised here: **0.149.1**.
 | Claude Code (default) | `claude` | delegated to Claude | `npm install -g @anthropic-ai/claude-code` |
 | Codex CLI (opt-in) | `codex` | `codex login status` (exit 0 when authenticated) | see the official docs |
 | Cursor CLI (opt-in) | `cursor-agent` | `cursor-agent status` (exit 0 even when logged out — probe is textual) | `curl https://cursor.com/install -fsS \| bash` |
+| Antigravity CLI (opt-in) | `agy` | none — `issue-flow agent` reports install only | see [Antigravity install](https://antigravity.google/docs/cli/install/) |
 
 Cursor has no `--add-dir`. The first `issue-flow agent use cursor` grants
 `Read`/`Write` on `~/.issue-flow/**` in `~/.cursor/cli-config.json`. Cursor
 reports neither tokens nor USD; a mixed run's cost total is incomplete by
 construction. `--force` is required on every writing phase — without it Cursor
 exits 0 and writes nothing. Minimum version: **2026.01.23**.
+
+Antigravity always receives `--add-dir <workspace>`, `--dangerously-skip-permissions`
+and `--disable-slash-commands`. There is no setting that removes them: without
+skip-permissions a denied tool finishes `SUCCESS` and writes nothing. `--mode`
+is the real write containment (`plan` for `read-only`, `accept-edits` otherwise).
+`--print-timeout` is always present; `timeout: 0` uses `agent.antigravity.executeTimeout`
+(default `4h`). `authProbe` is `none`: Issue Flow never reads `GEMINI_API_KEY`
+and never writes `~/.gemini/antigravity-cli/settings.json`. Tokens are reported;
+USD is not. Minimum version: **1.1.22**.
 
 `issue-flow init` verifies only the **selected** agent. A first-run prompt
 appears only on a TTY, outside CI, and only when no `agent` configuration
@@ -43,6 +55,9 @@ Claude: the usual `claude` login / `ANTHROPIC_API_KEY`.
 
 Codex: `codex login` (browser) or `codex login --with-api-key` (key on stdin).
 `codex login status` is the programmatic probe.
+
+Antigravity: log in through `agy` itself. Issue Flow does not probe
+authentication and does not read, log or persist `GEMINI_API_KEY`.
 
 ### CI / Docker / GitHub Actions
 
@@ -79,7 +94,7 @@ recommended on for CI.
 default (claude)
   < ~/.issue-flow/config.json
   < .issue-flow.json
-  < ISSUE_FLOW_AGENT / ISSUE_FLOW_AGENT_MODEL / ISSUE_FLOW_CODEX_*
+  < ISSUE_FLOW_AGENT / ISSUE_FLOW_AGENT_MODEL / ISSUE_FLOW_CODEX_* / ISSUE_FLOW_ANTIGRAVITY_*
   < --agent-phase (repeatable)
   < --agent / --agent-model   ← emergency: overwrites phases too
 ```
@@ -124,11 +139,11 @@ Claude `workspace` and `autonomous` keep the historical flags (byte-identical
 argv with no config). `read-only` adds `--permission-mode plan` and a
 deny-list, because `--allowedTools` alone does not restrict a subagent.
 
-| `permission` | Phases | Claude | Codex |
-|---|---|---|---|
-| `read-only` | analyze, review, pr-review | `--permission-mode plan` + deny-list | `--sandbox read-only` |
-| `workspace` | generate, prd, plan, pr | historical `runHeadless` argv | `--sandbox workspace-write` |
-| `autonomous` | execute | `--dangerously-skip-permissions` | `--sandbox workspace-write` |
+| `permission` | Phases | Claude | Codex | Cursor | Antigravity |
+|---|---|---|---|---|---|
+| `read-only` | analyze, review, pr-review | `--permission-mode plan` + deny-list | `--sandbox read-only` | `--mode plan` | `--mode plan` (+ skip-permissions) |
+| `workspace` | generate, prd, plan, pr | historical `runHeadless` argv | `--sandbox workspace-write` | `--force` | `--mode accept-edits` (+ skip-permissions) |
+| `autonomous` | execute | `--dangerously-skip-permissions` | `--sandbox workspace-write` | `--force` | `--mode accept-edits` (+ skip-permissions) |
 
 Codex `--sandbox` is **always** explicit. Codex `autonomous` stays inside the
 workspace. `danger-full-access` is opt-in only and prints a warning every time.
@@ -184,23 +199,27 @@ so a large PRD cannot hit `ARG_MAX`.
 | `prd`, `generate`, `pr` | structured writing | mid-tier model |
 
 A homogeneous run (every phase on the same agent) prints the same `Tokens:`
-line as before. A mixed run prints **one line per agent**. Codex does not
-report USD: `costUsd` stays absent ("not reported", never zero). Do not treat
-a mixed-run total that only shows Claude's dollars as the cost of the run.
+line as before. A mixed run prints **one line per agent**. Codex and
+Antigravity do not report USD: `costUsd` stays absent ("not reported", never
+zero). Do not treat a mixed-run total that only shows Claude's dollars as the
+cost of the run. Antigravity lets one credential cover Gemini Flash on
+`plan`/`analyze` and a stronger model on `review`.
 
-## Claude × Codex (what this project uses)
+## Claude × Codex × Cursor × Antigravity (what this project uses)
 
-| | Claude Code | Codex CLI |
-|---|---|---|
-| Invocation | `claude -p` / `--print` | `codex exec --json -` |
-| Prompt | argv (`-p`) or stdin (`execute`) | always stdin (`-`) |
-| Structured output | `stream-json` | `--json` JSONL + `--output-last-message` |
-| Per-tool allowlist | `--allowedTools` | none — OS sandbox only |
-| Sandbox | `--permission-mode` / skip-permissions | `--sandbox` (Seatbelt / bubblewrap) |
-| Turn cap | `--max-turns` | none — timeout is the cap |
-| USD cost | `total_cost_usd` | not reported |
-| Transient exit | `75` or text | text only |
-| Auth probe | delegated | `codex login status` |
+| | Claude Code | Codex CLI | Cursor CLI | Antigravity CLI |
+|---|---|---|---|---|
+| Invocation | `claude -p` / `--print` | `codex exec --json -` | `cursor-agent -p` | `agy -p` |
+| Prompt | argv (`-p`) or stdin (`execute`) | always stdin (`-`) | argv | argv (`promptChannel: argv`) |
+| Structured output | `stream-json` | `--json` JSONL + `--output-last-message` | `stream-json` | `stream-json` |
+| Per-tool allowlist | `--allowedTools` | none — OS sandbox only | none | none |
+| Sandbox | `--permission-mode` / skip-permissions | `--sandbox` (Seatbelt / bubblewrap) | `--sandbox` opt-in | `--sandbox` opt-in |
+| Extra directories | `--add-dir` | `--add-dir` | permission file | `--add-dir` (workspace always) |
+| Turn cap | `--max-turns` | none — timeout is the cap | none | `--print-timeout` (always) |
+| USD cost | `total_cost_usd` | not reported | not reported | not reported |
+| Tokens | yes | yes | no | yes (`num_turns: 0` → `usage: null`) |
+| Transient exit | `75` or text | text only | text | text |
+| Auth probe | delegated | `codex login status` | textual `status` | **none** |
 
 Where there is no equivalent, nothing is invented: `allowedTools` / `maxTurns`
 are ignored by Codex; `--sandbox` is ignored by Claude.
@@ -214,9 +233,13 @@ are ignored by Codex; `--sandbox` is ignored by Claude.
 | Writes under `read-only` | `$CODEX_HOME/config.toml` escalating | `ignoreUserConfig: true` |
 | Auth error in CI | browser OAuth | `CODEX_API_KEY` or `codex login --with-api-key` |
 | Network command fails in a container | sandbox network | `codex.configOverrides` → `sandbox_workspace_write.network_access` |
-| Cost line empty | Codex does not report USD | expected |
+| Cost line empty | Codex / Antigravity / Cursor do not report USD | expected |
 | Phase config seems ignored | a higher layer won | `issue-flow agent` shows provenance |
 | Codex not installed, `provider: 'codex'` | missing binary | fails **before** the run, naming the phase |
+| `agy` not installed | missing binary | fails as `configuration`, names the install URL |
+| Antigravity `status: WAITING` | the task asked for a human | `configuration` — not success |
+| Antigravity SUCCESS but no files | a tool was denied | treated as `configuration`; skip-permissions is invariant |
+| Execute loop dies at 5 minutes on `agy` | `--print-timeout` omitted | Issue Flow always passes it; `timeout: 0` uses `executeTimeout` (default 4h) |
 
 `item.type === 'error'` in the Codex stream is a **warning**, not a failure.
 Skill-context notices arrive that way on successful runs. Failure is
