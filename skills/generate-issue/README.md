@@ -1,6 +1,6 @@
 # generate-issue
 
-Generates detailed, architect-quality GitHub issues from short instructions. Analyzes the project's actual stack, architecture, and codebase before writing. Detects duplicate issues, validates labels, and publishes via `gh` CLI.
+Generates detailed, architect-quality GitHub issues from short instructions. Analyzes the project's actual stack, architecture, and codebase before writing. Detects duplicate issues, applies existing labels (never creates them unless `issues.allowLabelCreation`), and publishes via `gh` CLI.
 
 ## Usage
 
@@ -25,7 +25,7 @@ We need to fix the auth flow
 5. **Controls scope** — splits overly broad requests into separate issues (with user approval)
 6. **Writes the issue** — produces a structured issue with context, diagnosis, solution, execution plan, risks, and acceptance criteria
 7. **Checks for duplicates** — multi-strategy search (keywords, area, labels) to avoid duplicate issues
-8. **Validates labels** — creates missing labels with standard colors before applying
+8. **Validates labels** — uses only labels the repository already has; never creates them unless `issues.allowLabelCreation`
 9. **Publishes** — creates the issue via `gh` CLI with error handling
 10. **Cross-references** — links related issues bidirectionally
 

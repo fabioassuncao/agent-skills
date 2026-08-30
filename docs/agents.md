@@ -129,8 +129,11 @@ npx issue-flow agent use claude --project
 npx issue-flow agent use codex --phase execute --project
 ```
 
-`--json` is a published contract (`schemaVersion` in the payload). Skills read
-it via [`skills/_shared/agent-config.md`](../skills/_shared/agent-config.md).
+`--json` is a published contract (`schemaVersion` in the payload).
+[`skills/_shared/agent-config.md`](../skills/_shared/agent-config.md) is the
+bridge document for that payload — the same pattern as `repository-policy.md`.
+No `SKILL.md` includes it yet, so the skills still fall through to the default
+Claude agent.
 
 ## Permission
 

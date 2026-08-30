@@ -3,7 +3,8 @@ name: generate-issue
 description: >
   Generates detailed, architect-quality GitHub issues from short instructions. Analyzes the project's
   actual stack, architecture, and codebase before writing. Detects duplicate issues with intelligent
-  multi-strategy search, validates and creates labels, enforces title conventions, controls scope,
+  multi-strategy search, applies existing labels (never creates them unless
+  `issues.allowLabelCreation`), enforces title conventions, controls scope,
   and publishes via `gh` CLI with robust error handling. Use this skill whenever the user wants to
   create a GitHub issue, report a bug, propose a feature, request a refactor, or file any kind of
   technical issue — even if they just say something brief like "we need to fix the auth flow" or

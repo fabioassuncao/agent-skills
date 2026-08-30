@@ -365,7 +365,7 @@ Issue Flow has two types of components with different installation methods:
 
 | Component | Type | Portable | Claude Code required |
 |-----------|------|----------|---------------------|
-| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `review-pr`, `generate-issue`, `generate-local-issue` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
+| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `review-pr`, `generate-issue`, `generate-local-issue`, `init-repository` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
 | `resolve-issue` (orchestrator) | Sub-agent (`agents/`) | **No** -- exclusive to Claude Code | **Yes** |
 
 ### Full installation (sub-agent + all skills)

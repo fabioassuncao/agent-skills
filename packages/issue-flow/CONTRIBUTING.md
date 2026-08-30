@@ -29,49 +29,33 @@ npm install
 
 ```
 src/
-  cli.ts                  # Entry point, subcommand registration (commander)
-  config.ts               # Configuration resolution and defaults
-  types.ts                # Shared TypeScript interfaces
-  schemas.ts              # Zod validation schemas
-  commands/
-    init.ts               # Prerequisite checking
-    generate.ts           # Issue creation via headless
-    run.ts                # Full pipeline orchestrator
-    analyze.ts            # Issue analysis via headless
-    prd.ts                # PRD generation via headless
-    plan.ts               # PRD-to-JSON conversion via headless
-    execute.ts            # Iterative story execution loop
-    review.ts             # Implementation review via headless
-    pr.ts                 # PR creation via headless
-  core/
-    engine.ts             # Main agent loop
-    executor.ts           # Claude CLI invocation via execa
-    headless.ts           # Typed wrapper for claude -p
-    pipeline.ts           # Pipeline state machine
-    state-manager.ts      # Typed CRUD for tasks.json
-    prompt-resolver.ts    # Prompt and packaged asset resolution
-    session-state.ts      # Session snapshot model (web monitoring)
-    session-publisher.ts  # Atomic writes of issues/{N}/session.json
-    session-git.ts        # Commit and PR tracking during a run
-    verbose.ts            # Global verbosity and timeout flags
-  ui/
-    logger.ts             # Colored logging with ASCII fallback
-    progress.ts           # Progress bar and iteration headers
-    pipeline-renderer.ts  # listr2 pipeline rendering
-    summary.ts            # Box drawing and summaries
-  utils/
-    shell.ts              # Shell command execution wrapper
-    git.ts                # Git operations (repo root detection)
-    retry.ts              # Transient failure detection and backoff
-  web/
-    server.ts             # HTTP server for `run --web`
+  cli.ts, config.ts, types.ts, schemas.ts
+  agents/       # Claude / Codex / Cursor / Antigravity, selection by phase
+  commands/     # Phase commands, publication order, multi-issue queue
+  core/         # Execute loop, session snapshot, metrics
+  storage/      # Global tree (~/.issue-flow), artifact paths, legacy migration
+  telemetry/    # Execution history in tasks.json
+  verify/       # Acceptance contract and independent review
+  routing/      # Shadow routing and escalation
+  policy/       # Convention discovery
+  conventions/  # Git conventions (branch, commit, PR title)
+  resilience/   # Failure taxonomy and retry policy
+  benchmark/    # Real / synthetic corpus
+  issues/       # GitHub and local providers
+  execution/    # Multi-issue queue
+  ui/           # Terminal output
+  web/          # Monitoring server
+  utils/        # Shell, git, filesystem helpers
 
-scripts/
-  git-version.mjs         # preversion/postversion hooks: release commit + tag
-
-prompts/*.md              # Prompt templates  (packaged, runtime asset)
+prompts/*.md              # Prompt templates (packaged, runtime asset)
 web/public/               # Monitoring dashboard (packaged, runtime asset)
+scripts/git-version.mjs   # preversion/postversion hooks: release commit + tag
 ```
+
+Invariants live next to the code: each of those directories has an `AGENTS.md`.
+The index is the repository [`AGENTS.md`](../../AGENTS.md). Session and plan
+artifacts live in the [global storage](../../docs/storage.md)
+(`~/.issue-flow/projects/<id>/issues/<N>/`), not under `<repo>/issues/`.
 
 `prompts/` and `web/public/` are resolved at runtime relative to the installed
 package (see `core/prompt-resolver.ts`), which is why both are listed in the
@@ -90,11 +74,23 @@ npm run dev
 # Type checking (without emitting files)
 npm run typecheck
 
+# Lint (Biome)
+npm run lint
+
+# Lint + typecheck (Biome write + tsc)
+npm run check
+
 # Unit tests (single run)
 npm test
 
 # Tests in watch mode (re-runs on save)
 npm run test:watch
+
+# Integration tests
+npm run test:integration
+
+# Smoke script (real provider probes)
+npm run smoke
 ```
 
 ## Local testing
@@ -105,20 +101,7 @@ npm run test:watch
 npm test
 ```
 
-Runs tests in `src/**/*.test.ts` via Vitest. Current coverage:
-
-- `state-manager.test.ts` - tasks.json CRUD and state mutations
-- `prompt-resolver.test.ts` - Placeholder substitution
-- `retry.test.ts` - Transient failure detection and backoff calculation
-- `pipeline.test.ts` - Phase transitions and resume logic
-- `headless.test.ts` - Headless invocation wrapper
-- `schemas.test.ts` - Zod schema validation
-- `config.test.ts` - Configuration resolution (CLI flags, env, `.issue-flow.json`)
-- `session-state.test.ts` / `session-publisher.test.ts` - Snapshot model and atomic publishing
-- `session-git.test.ts` - Commit and PR tracking
-- `web/server.test.ts` - Monitoring HTTP server
-- `git.test.ts` - Git helpers
-- `run.test.ts` - `run` command orchestration
+Runs every `src/**/*.test.ts` via Vitest.
 
 ### 2. Manual CLI testing
 
@@ -127,7 +110,7 @@ Runs tests in `src/**/*.test.ts` via Vitest. Current coverage:
 npm run build
 node dist/cli.js --help
 
-# Test with a real issue (requires tasks.json in issues/N/)
+# Test with a real issue (requires a plan in global storage)
 node dist/cli.js execute --issue 1 --max-iterations 1
 
 # Full pipeline
@@ -168,7 +151,7 @@ tar -tzf issue-flow-*.tgz
 
 # Test installation from the tarball
 cd /tmp
-npm install /path/to/issue-flow-0.5.0.tgz
+npm install /path/to/issue-flow-0.12.0.tgz
 npx issue-flow --help
 ```
 

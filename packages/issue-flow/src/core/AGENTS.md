@@ -352,7 +352,7 @@ which is what the retry backoff waits on since the loop delegated to
 `resilience/retry.ts:withRetry`.
 
 Both artifacts are user-facing contracts: any new field on `SessionSnapshot` or
-`UserStory` also belongs in the root `README.md` (`Web Monitoring →
-session.json` for the snapshot, `Pipeline State & File Structure` for
-`tasks.json`), which documents each field's meaning and states that `null` /
-absent means "not reported", never zero.
+`UserStory` also belongs in [`docs/storage.md`](../../../../docs/storage.md)
+(`session.json` for the snapshot, `tasks.json` for the plan), which documents
+each field's meaning and states that `null` / absent means "not reported",
+never zero.

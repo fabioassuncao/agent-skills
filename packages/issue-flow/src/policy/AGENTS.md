@@ -154,12 +154,6 @@ reaching it, silently.
 a `git rev-parse`. Pass `projectRoot` wherever one is already in hand — `engine.ts`
 does, from `resolvePaths()`.
 
-## No consumers yet
-
-Issue #56 delivered the foundation and `issue-flow policy`; #57 added the
-projection into the prompts and the per-repository override. The Agent Skills
-still do not consume any of it — that is #61.
-
 Git conventions (`commitlint`, release-please, semantic-release, Changesets,
 `action-semantic-pull-request`, husky) are discovered as text. A `.js`/`.ts`
 commitlint file is never `import()`ed. The canonical implementation lives in
