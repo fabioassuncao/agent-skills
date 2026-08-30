@@ -1,4 +1,4 @@
-import { NullPublisher, type SessionPublisher } from './session-state.js';
+import { NullPublisher, type SessionPublisher } from './session/publishers.js';
 
 /**
  * Global slot for the active SessionPublisher, following the same pattern as
