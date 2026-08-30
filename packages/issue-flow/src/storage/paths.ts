@@ -18,6 +18,9 @@ export const ISSUES_DIR_NAME = 'issues';
 /** Directory under a project holding one folder per multi-issue execution queue. */
 export const QUEUES_DIR_NAME = 'queues';
 
+/** Run-ownership lock, a sibling of `issues/` inside the project directory. */
+export const RUN_LOCK_FILENAME = 'run.lock';
+
 export interface GetGlobalRootOptions {
   /** Environment source. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;

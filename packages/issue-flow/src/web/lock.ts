@@ -3,6 +3,10 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { isoNow } from '../core/state-manager.js';
+// The liveness probe is shared with `storage/lock.ts`, which generalised this
+// module's guard into run ownership: one definition of "is that pid alive",
+// with one place to get the EPERM case right.
+import { isProcessAlive } from '../storage/lock.js';
 import { type GetGlobalRootOptions, getGlobalRoot } from '../storage/paths.js';
 import { type WebLock, webLockSchema } from '../storage/schemas.js';
 import { printInfo, printWarning } from '../ui/logger.js';
@@ -45,17 +49,6 @@ export function getWebLockFile(options: GetGlobalRootOptions = {}): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** `process.kill(pid, 0)` throws ESRCH when the pid is gone, EPERM when it is
- * alive but owned by another user — only ESRCH means "not alive". */
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
 }
 
 /** 0.0.0.0 is not a connectable address; probe loopback instead, same mapping

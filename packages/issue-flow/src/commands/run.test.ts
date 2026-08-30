@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer as createNetServer } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { hostname, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setIssuesCliOverrides, setWebCliOverrides } from '../config.js';
 import { sessionSnapshotSchema } from '../schemas.js';
@@ -148,7 +148,11 @@ import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
-import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
+import {
+  resetStorageResolutionCache,
+  resolveIssuePaths,
+  resolveProjectPaths,
+} from '../storage/resolve.js';
 import type { TaskPlan, UserStory } from '../types.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { ensureSingleWebServer } from '../web/lock.js';
@@ -1239,5 +1243,85 @@ describe('runPipeline — enriquecimento do snapshot no início da sessão (issu
 
     expect(snapshot.issue.url).toBe('https://github.com/acme/repo/issues/42');
     expect(snapshot.issue.title).toBe('Local');
+  });
+});
+
+describe('run ownership (US-017)', () => {
+  let originalCwd: string;
+  let tmp: string;
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-lock-run-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    vi.mocked(getProvider).mockReturnValue(makeProvider(vi.fn(async () => {})));
+  });
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('refuses when another live process owns the project, naming it', async () => {
+    const { runLockFile } = await resolveProjectPaths();
+    await mkdir(dirname(runLockFile), { recursive: true });
+    // pid 1 exists on every platform this runs on, and its heartbeat is now:
+    // a live owner, which is precisely what must not be taken over.
+    await writeFile(
+      runLockFile,
+      JSON.stringify({
+        pid: 1,
+        host: hostname(),
+        target: '101',
+        startedAt: new Date().toISOString(),
+        lastHeartbeatAt: new Date().toISOString(),
+      }),
+      'utf-8',
+    );
+
+    const code = await runPipeline('42', 'auto');
+
+    expect(code).toBe(1);
+    // Not a single phase ran: the refusal happens before any work.
+    expect(vi.mocked(runInit)).not.toHaveBeenCalled();
+    // And the owner's lock is untouched.
+    const still = JSON.parse(await readFile(runLockFile, 'utf-8'));
+    expect(still).toMatchObject({ pid: 1, target: '101' });
+  });
+
+  it('releases the lock when the run finishes, so the next one starts clean', async () => {
+    const { runLockFile } = await resolveProjectPaths();
+
+    await expect(runPipeline('42', 'auto')).resolves.toBe(0);
+
+    expect(existsSync(runLockFile)).toBe(false);
+    await expect(runPipeline('42', 'auto')).resolves.toBe(0);
+  });
+
+  it('takes over a lock whose owner is gone and records it as interrupted', async () => {
+    const { runLockFile } = await resolveProjectPaths();
+    await mkdir(dirname(runLockFile), { recursive: true });
+    await writeFile(
+      runLockFile,
+      JSON.stringify({
+        pid: 0x7ffffffe,
+        host: hostname(),
+        target: '101',
+        startedAt: '2026-08-30T03:00:00.000Z',
+        lastHeartbeatAt: '2026-08-30T03:00:00.000Z',
+      }),
+      'utf-8',
+    );
+
+    await expect(runPipeline('42', 'auto')).resolves.toBe(0);
+
+    // It ran, and the stale lock is gone rather than inherited.
+    expect(vi.mocked(runInit)).toHaveBeenCalled();
+    expect(existsSync(runLockFile)).toBe(false);
   });
 });

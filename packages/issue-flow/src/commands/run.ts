@@ -38,8 +38,10 @@ import { parseIssueArguments } from '../issues/args.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import { acquireRunLock, describeRunLockOwner } from '../storage/lock.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
+import type { RunLock } from '../storage/schemas.js';
 import type { PullRequestRef, UserStory } from '../types.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
@@ -258,23 +260,70 @@ export async function runPipeline(
     return 1;
   }
 
-  const first = await runIssueSession(requested[0] as string, mode, {
-    from,
-    noBranch,
-    prReview,
-    requested,
-    runOptions: options,
-  });
-
-  if (first.queue === undefined) {
-    return first.code;
+  // Ownership of the run, for the whole invocation — a queue is one run, not
+  // one per issue. Two invocations in the same repository share a working tree
+  // and a branch, so "a different issue" is not a different lock.
+  const ownership = await claimRunOwnership(requested[0] as string);
+  if (!ownership.ok) {
+    printError(
+      `Another issue-flow run owns this project: ${describeRunLockOwner(ownership.owner)}.`,
+    );
+    printInfo('Wait for it to finish, or stop that process before running again.');
+    return 1;
   }
 
-  return runQueue(
-    first.queue.plan,
-    { mode, from, noBranch, prReview, runOptions: options },
-    first.queue.resolved,
-  );
+  try {
+    const first = await runIssueSession(requested[0] as string, mode, {
+      from,
+      noBranch,
+      prReview,
+      requested,
+      runOptions: options,
+      ...(ownership.interruptedBy === null ? {} : { interruptedBy: ownership.interruptedBy }),
+    });
+
+    if (first.queue === undefined) {
+      return first.code;
+    }
+
+    return runQueue(
+      first.queue.plan,
+      { mode, from, noBranch, prReview, runOptions: options },
+      first.queue.resolved,
+    );
+  } finally {
+    await ownership.release();
+  }
+}
+
+type RunOwnership =
+  | { ok: true; interruptedBy: RunLock | null; release: () => Promise<void> }
+  | { ok: false; owner: RunLock };
+
+/**
+ * Take the project's run lock, or report who holds it.
+ *
+ * A project whose storage cannot be resolved at all (no git repository yet, no
+ * home directory) runs **without** a lock rather than not running: the guard
+ * exists to stop two runs from colliding, and it must never be the reason a
+ * single run cannot start.
+ */
+async function claimRunOwnership(target: string): Promise<RunOwnership> {
+  let lockFile: string;
+  try {
+    lockFile = (await resolveProjectPaths()).runLockFile;
+  } catch {
+    return { ok: true, interruptedBy: null, release: async () => {} };
+  }
+
+  const result = await acquireRunLock(lockFile, { target });
+  if (!result.ok) return result;
+
+  return {
+    ok: true,
+    interruptedBy: result.handle.reclaimedFrom,
+    release: () => result.handle.release(),
+  };
 }
 
 interface IssueSessionInput {
@@ -285,6 +334,12 @@ interface IssueSessionInput {
   requested?: string[];
   runOptions?: RunPipelineOptions;
   queue?: QueueRunContext;
+  /**
+   * The dead owner whose lock this run took over. Recorded in the journal as
+   * an interrupted run: something was executing here and never finished, and
+   * that is the difference between a resume and a fresh start.
+   */
+  interruptedBy?: RunLock;
 }
 
 /**
@@ -358,6 +413,18 @@ async function runIssueSession(
         ? (surfaces[0] as SessionPublisher)
         : new MultiPublisher(surfaces);
   setSessionPublisher(publisher);
+
+  // Recorded through the publisher rather than printed, so it lands in the
+  // journal beside the events of the run that replaced it.
+  if (input.interruptedBy !== undefined) {
+    const previous = input.interruptedBy;
+    publisher.publish({
+      type: 'log',
+      at: isoNow(),
+      level: 'warn',
+      message: `Previous run interrupted: ${describeRunLockOwner(previous)}. Its lock was stale and has been taken over.`,
+    });
+  }
 
   // A null handle (port in use, ...) means the pipeline runs without a server.
   // ensureWebMonitor reuses an already-running, healthy instance instead of

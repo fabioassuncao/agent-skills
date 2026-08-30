@@ -278,6 +278,27 @@ export const webLockSchema = z.object({
 });
 
 /**
+ * `~/.issue-flow/projects/<project-id>/run.lock`.
+ *
+ * Ownership of a run, so a second invocation in the same project refuses
+ * instead of fighting the first one over `tasks.json` and the branch. Same
+ * shape of guard as `web.lock` — a pid, a host and a timestamp — plus the
+ * heartbeat that tells a dead owner from a slow one.
+ *
+ * No field defaults: a lock is written whole by its owner, and a half-read one
+ * degrades to "no lock" at the reader, exactly like `readWebLock`.
+ */
+export const runLockSchema = z.object({
+  pid: z.number().int().positive(),
+  /** `os.hostname()`. A pid only means something on the host that wrote it. */
+  host: z.string().min(1),
+  /** The issue (or queue) identifier the owner is running. */
+  target: z.string().min(1),
+  startedAt: z.string().min(1),
+  lastHeartbeatAt: z.string().min(1),
+});
+
+/**
  * `~/.issue-flow/projects/<project-id>/queues/<queue-id>/execution-plan.json`.
  *
  * The coordination state of a multi-issue run: which Issues, in which order, on
@@ -374,3 +395,4 @@ export type ResilienceConfigIsPolicyConfig = Assert<
   ResilienceConfig extends ResiliencePolicyConfig ? true : false
 >;
 export type WebLock = z.infer<typeof webLockSchema>;
+export type RunLock = z.infer<typeof runLockSchema>;
