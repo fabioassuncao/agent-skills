@@ -12,7 +12,16 @@ Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
 the fact, so they list what changed rather than explaining why. Everything from
 0.9.0 onwards was written at release time.
 
-## [Unreleased]
+## [0.13.0] - 2026-08-30
+
+Quatro providers atrás de um contrato único, e um pipeline que passa a medir a
+si mesmo. `AgentRunner` desacopla cada fase do binário `claude`; Codex, Cursor e
+Antigravity entram por configuração, com failover por saúde de provider. A
+telemetria por invocação grava harness, modelo, tokens, custo e latência em
+`tasks.json`; o contrato de aceitação executa checks reais e introduz
+`unverified` — um pipeline que não pôde verificar deixa de se apresentar como
+verde. O router decide em modo shadow sem mudar a invocação, e a convenção Git
+passa a ser derivada da issue, nunca do executor.
 
 ### Added
 
@@ -21,7 +30,9 @@ the fact, so they list what changed rather than explaining why. Everything from
   default. Custo `unknown` não consome teto de custo. A escada só sobe.
   `provider_down` não entra nela. Enforcement no `invokeSelectedAgent`, não
   em flag de harness. `--no-escalation`, `--max-cost`, `--max-duration`.
-  Não toca `src/resilience/`. Experimento no corpus da #79 fica pendente.
+  Não toca `src/resilience/`. `detectNonConvergence()` está implementada e
+  testada mas ainda não é chamada pelo gate: a escalada por não-convergência
+  não age nesta versão. Experimento no corpus da #79 fica pendente.
 
 - **Antigravity CLI (`agy`) como quarto provider** (#80). `AntigravityRunner`
   traduz `permission` via `--mode`, passa `--add-dir` do workspace,
@@ -78,25 +89,6 @@ the fact, so they list what changed rather than explaining why. Everything from
   lista todas as execuções da máquina a partir do lock, sem depender de
   `--web`.
 
-### Changed
-
-- **Saída do terminal em modo clean** (#81). `issue-flow run` deixa de
-  despejar o relatório do agente e a lista de stories: a tela renderiza o
-  `SessionSnapshot` (fases, `N/M`, story ativa, tempos). `--verbose` preserva
-  o detalhe anterior, linha a linha. Sem `--web` o reducer roda em memória e
-  o disco continua intocado. `issue-flow init` segue imprimindo o relatório
-  completo.
-
-- **Convenção Git default** (#77). Branches passam de `issue/{N}-{slug}` para
-  `{type}/{N}-{slug}`, com o tipo resolvido por Issue Type, labels, prefixo do
-  título ou fallback `feat`. Commits e títulos de PR seguem Conventional
-  Commits mesmo quando o repositório não declara convenção. Branches
-  existentes não são renomeadas; `issue/{N}-*` continua reconhecida na
-  extração do número, e uma execução retomada conserva `tasks.json.branchName`.
-  Novo comando `issue-flow conventions {branch,commit,pr-title}`.
-
-### Added
-
 - **Cursor CLI (`cursor-agent`) como terceiro provider** (#76).
   `AgentCapabilities` declara o que cada runner sabe fazer. Sem
   `--add-dir`, o Cursor concede `~/.issue-flow/**` via
@@ -138,6 +130,65 @@ the fact, so they list what changed rather than explaining why. Everything from
   projeta tentativa, provider, última falha, cooldown e atividade do agente;
   o painel exibe esses dados e ganha uma aba de histórico alimentada por
   `events.jsonl` (incluindo a geração rotacionada).
+
+### Changed
+
+- **Saída do terminal em modo clean** (#81). `issue-flow run` deixa de
+  despejar o relatório do agente e a lista de stories: a tela renderiza o
+  `SessionSnapshot` (fases, `N/M`, story ativa, tempos). `--verbose` preserva
+  o detalhe anterior, linha a linha. Sem `--web` o reducer roda em memória e
+  o disco continua intocado. `issue-flow init` segue imprimindo o relatório
+  completo.
+
+- **Convenção Git default** (#77). Branches passam de `issue/{N}-{slug}` para
+  `{type}/{N}-{slug}`, com o tipo resolvido por Issue Type, labels, prefixo do
+  título ou fallback `feat`. Commits e títulos de PR seguem Conventional
+  Commits mesmo quando o repositório não declara convenção. Branches
+  existentes não são renomeadas; `issue/{N}-*` continua reconhecida na
+  extração do número, e uma execução retomada conserva `tasks.json.branchName`.
+  Novo comando `issue-flow conventions {branch,commit,pr-title}`.
+
+### Fixed
+
+- **Preflight pedia o binário errado** para Cursor e Antigravity: um run com
+  Cursor abortava pedindo `claude`, e um com Antigravity passava sem `agy`
+  instalado e só falhava dentro da fase. O binário vem de
+  `runnerFor(id).versionCommand()`.
+
+- **Check declarado voltou a ser fatal por default.** `expectFiles` que
+  falhava era gravado como não-fatal e o contrato inteiro ficava verde.
+
+- **Stall do Cursor e do Antigravity** chegava só em `error`, e `classify()`
+  lê `rawOutput`: um agente que imprimia algo antes de emudecer perdia a
+  classificação `stalled` e as três tentativas. O silêncio reportado é o que
+  o watchdog mediu, e a mensagem nomeia o binário que travou.
+
+- **`half_open` não recuperava uma probe órfã.** Um run morto por SIGKILL
+  deixava `probeInFlight: true` para sempre e o run seguinte esperava um
+  cooldown que não terminava.
+
+- **`verify.json` registrava o veredito superado.** A evidência era escrita
+  antes do revisor L2 e nunca reescrita: um L2 que reprovava deixava
+  `passed` no disco. Agora é escrita antes e reescrita depois, com o nível e
+  o veredito que o pipeline usou.
+
+- **Comando de contrato com aspas** era cortado em espaço — `pytest -k "not
+  slow"` virava três argumentos, e os checks rodam sem shell.
+
+- **Estimativa de custo era inerte na prática.** A tabela é indexada por
+  família e o que chega é o id resolvido ou um alias; `normalizeModelKey`
+  reduz snapshot, prefixo de vendor e alias antes da consulta.
+
+- **`--max-cost` colidia** entre `bench` e as opções globais.
+
+- **`verify.json` resolvido por `getIssuePaths`**, como todo artefato.
+
+- **PR recuperado quando a URL não volta** (#68), e a referência da issue sem
+  o placeholder morto.
+
+- **Monitor web**: sessões ao vivo deixam de sumir do painel (#75), e a
+  quarta linha não vaza mais sob o clamp do card do dashboard.
+
 
 ## [0.12.0] - 2026-08-30
 
@@ -900,6 +951,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.13.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.13.0
 [0.12.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.12.0
 [0.11.1]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.1
 [0.11.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.0
