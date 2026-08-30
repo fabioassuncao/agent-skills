@@ -17,8 +17,8 @@ import { printWarning } from '../ui/logger.js';
 import { mergeConfigLayers, parseBooleanEnv } from './layers.js';
 import {
   GLOBAL_CONFIG_FILENAME,
-  PROJECT_CONFIG_FILENAME,
   loadGlobalConfig,
+  PROJECT_CONFIG_FILENAME,
   readProjectConfigFile,
 } from './sources.js';
 

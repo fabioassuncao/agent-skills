@@ -5,7 +5,7 @@ import {
   routingConfigSchema,
 } from '../schemas.js';
 import { printWarning } from '../ui/logger.js';
-import { PROJECT_CONFIG_FILENAME, loadGlobalConfig, readProjectConfigFile } from './sources.js';
+import { loadGlobalConfig, PROJECT_CONFIG_FILENAME, readProjectConfigFile } from './sources.js';
 
 let routingCliOverrides: Partial<RoutingConfig> = {};
 

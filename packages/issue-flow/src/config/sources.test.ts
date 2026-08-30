@@ -2,11 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  GLOBAL_CONFIG_FILENAME,
-  loadGlobalConfig,
-  mergeConfigLayers,
-} from '../config.js';
+import { GLOBAL_CONFIG_FILENAME, loadGlobalConfig, mergeConfigLayers } from '../config.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 
 describe('loadGlobalConfig', () => {
@@ -164,4 +160,3 @@ describe('loadGlobalConfig', () => {
     expect(merged).toEqual({ port: 4000, host: 'global-host', refreshSeconds: 20 });
   });
 });
-

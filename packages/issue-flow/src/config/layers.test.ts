@@ -62,4 +62,3 @@ describe('mergeConfigLayers', () => {
     expect(cli).toEqual({ value: 'cli' });
   });
 });
-

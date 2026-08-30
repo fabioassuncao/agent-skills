@@ -2,11 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  loadIssuesConfig,
-  PROJECT_CONFIG_FILENAME,
-  setIssuesCliOverrides,
-} from '../config.js';
+import { loadIssuesConfig, PROJECT_CONFIG_FILENAME, setIssuesCliOverrides } from '../config.js';
 
 describe('loadIssuesConfig', () => {
   let projectRoot: string;
@@ -150,4 +146,3 @@ describe('loadIssuesConfig', () => {
     expect(config).toEqual(DEFAULT_ISSUES_CONFIG);
   });
 });
-

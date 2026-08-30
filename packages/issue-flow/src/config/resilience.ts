@@ -6,11 +6,7 @@ import {
 } from '../storage/schemas.js';
 import { printWarning } from '../ui/logger.js';
 import { mergeConfigLayers, parseBooleanEnv, readNumberEnv } from './layers.js';
-import {
-  PROJECT_CONFIG_FILENAME,
-  loadGlobalConfig,
-  readProjectConfigFile,
-} from './sources.js';
+import { loadGlobalConfig, PROJECT_CONFIG_FILENAME, readProjectConfigFile } from './sources.js';
 
 /**
  * CLI overrides for the `resilience` key, captured by the preAction hook in

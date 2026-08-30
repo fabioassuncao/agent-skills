@@ -171,4 +171,3 @@ describe('resolvePaths', () => {
     expect(vi.mocked(getRemoteUrl)).toHaveBeenCalledTimes(1);
   });
 });
-

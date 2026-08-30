@@ -1,15 +1,8 @@
-import {
-  type TelemetryConfigInput,
-  telemetryConfigInputSchema,
-} from '../storage/schemas.js';
+import { type TelemetryConfigInput, telemetryConfigInputSchema } from '../storage/schemas.js';
 import { DEFAULT_TELEMETRY_CONFIG, type TelemetryConfig } from '../telemetry/types.js';
 import { printWarning } from '../ui/logger.js';
 import { mergeConfigLayers, parseBooleanEnv, readNumberEnv } from './layers.js';
-import {
-  PROJECT_CONFIG_FILENAME,
-  loadGlobalConfig,
-  readProjectConfigFile,
-} from './sources.js';
+import { loadGlobalConfig, PROJECT_CONFIG_FILENAME, readProjectConfigFile } from './sources.js';
 
 export interface LoadTelemetryConfigOptions {
   env?: NodeJS.ProcessEnv;

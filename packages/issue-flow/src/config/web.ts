@@ -96,4 +96,3 @@ export async function loadWebConfig(options: LoadWebConfigOptions = {}): Promise
   );
   return webConfigSchema.parse({});
 }
-

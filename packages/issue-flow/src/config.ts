@@ -6,12 +6,12 @@
 import {
   GLOBAL_CONFIG_FILENAME,
   type LoadGlobalConfigOptions,
-  PROJECT_CONFIG_FILENAME,
   loadGlobalConfig,
+  PROJECT_CONFIG_FILENAME,
 } from './config/sources.js';
 
-export { DEFAULTS, createConfig, resolvePaths } from './config/engine.js';
 export { getInstallHint, validateDependencies } from './config/dependencies.js';
+export { createConfig, DEFAULTS, resolvePaths } from './config/engine.js';
 
 export type { ConfigLayers } from './config/layers.js';
 export { mergeConfigLayers } from './config/layers.js';
@@ -19,19 +19,20 @@ export { mergeConfigLayers } from './config/layers.js';
 export {
   GLOBAL_CONFIG_FILENAME,
   type LoadGlobalConfigOptions,
-  PROJECT_CONFIG_FILENAME,
   loadGlobalConfig,
+  PROJECT_CONFIG_FILENAME,
 };
 
 /** @deprecated Use {@link PROJECT_CONFIG_FILENAME}. Historical alias kept for call-site compatibility. */
 export const WEB_CONFIG_FILENAME = PROJECT_CONFIG_FILENAME;
 
+export type { AgentCliOverrides, AgentConfig } from './config/agent.js';
 export {
-  type LoadWebConfigOptions,
-  loadWebConfig,
-  setWebCliOverrides,
-} from './config/web.js';
-
+  getAgentCliOverrides,
+  type LoadAgentConfigOptions,
+  loadAgentConfig,
+  setAgentCliOverrides,
+} from './config/agent.js';
 export {
   type LoadIssuesConfigOptions,
   loadIssuesConfig,
@@ -39,42 +40,36 @@ export {
 } from './config/issues.js';
 
 export {
+  type LoadPolicyConfigOptions,
+  loadPolicyConfig,
+  setPolicyCliOverrides,
+} from './config/policy.js';
+export {
   type LoadPrReviewConfigOptions,
   loadPrReviewConfig,
 } from './config/pr-review.js';
 
 export {
-  type LoadPolicyConfigOptions,
-  loadPolicyConfig,
-  setPolicyCliOverrides,
-} from './config/policy.js';
-
+  getActiveResilienceConfig,
+  initResilienceConfig,
+  type LoadResilienceConfigOptions,
+  loadResilienceConfig,
+  setActiveResilienceConfig,
+  setResilienceCliOverrides,
+} from './config/resilience.js';
+export { loadRoutingConfig, setRoutingCliOverrides } from './config/routing.js';
 export {
   type LoadTelemetryConfigOptions,
   loadTelemetryConfig,
 } from './config/telemetry.js';
 
 export {
-  type LoadResilienceConfigOptions,
-  getActiveResilienceConfig,
-  initResilienceConfig,
-  loadResilienceConfig,
-  setActiveResilienceConfig,
-  setResilienceCliOverrides,
-} from './config/resilience.js';
-
-export type { AgentCliOverrides, AgentConfig } from './config/agent.js';
-export {
-  type LoadAgentConfigOptions,
-  getAgentCliOverrides,
-  loadAgentConfig,
-  setAgentCliOverrides,
-} from './config/agent.js';
-
-export {
   type LoadVerifyConfigOptions,
   loadVerifyConfig,
   setVerifyCliOverrides,
 } from './config/verify.js';
-
-export { loadRoutingConfig, setRoutingCliOverrides } from './config/routing.js';
+export {
+  type LoadWebConfigOptions,
+  loadWebConfig,
+  setWebCliOverrides,
+} from './config/web.js';

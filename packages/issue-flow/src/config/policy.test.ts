@@ -2,11 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  loadPolicyConfig,
-  PROJECT_CONFIG_FILENAME,
-  setPolicyCliOverrides,
-} from '../config.js';
+import { loadPolicyConfig, PROJECT_CONFIG_FILENAME, setPolicyCliOverrides } from '../config.js';
 
 describe('loadPolicyConfig', () => {
   let projectRoot: string;

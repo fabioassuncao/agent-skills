@@ -2,10 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  loadPrReviewConfig,
-  PROJECT_CONFIG_FILENAME,
-} from '../config.js';
+import { loadPrReviewConfig, PROJECT_CONFIG_FILENAME } from '../config.js';
 
 describe('loadPrReviewConfig', () => {
   let projectRoot: string;
@@ -133,4 +130,3 @@ describe('loadPrReviewConfig', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
-
