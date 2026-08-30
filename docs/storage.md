@@ -6,6 +6,7 @@ working tree untouched: no artifact to ignore, no artifact to commit, no diff
 noise. The trade-off is that the artifacts are machine-local.
 
 - [Directory tree](#directory-tree)
+- [One issue directory](#one-issue-directory)
 - [Project id](#project-id)
 - [`ISSUE_FLOW_HOME`](#issue_flow_home)
 - [`tasks.json`](#tasksjson) — the task plan and the pipeline state
@@ -18,38 +19,49 @@ noise. The trade-off is that the artifacts are machine-local.
 
 ```
 ~/.issue-flow/
-  config.json                          # Machine-wide preferences (optional)
-  web.lock                             # PID + port of the active web monitor, if any
+  config.json                    # Machine-wide preferences (optional)
+  web.lock                       # PID + port of the active web monitor, if any
   projects/
-    issue-flow-4b21c0e9f7a3/           # One directory per project: <slug>-<hash12>
-      metadata.json                    # Project identity and timestamps
-      providers.json                   # Durable agent health, circuit and cooldown state
-      run.lock                          # Ownership of the run in progress
+    issue-flow-4b21c0e9f7a3/     # One directory per project: <slug>-<hash12>
+      metadata.json              # Project identity and timestamps
+      providers.json             # Durable agent health, circuit and cooldown state
+      run.lock                   # Ownership of the run in progress
       issues/
-        42/                            # One directory per issue identifier
-          issue.md                     # Issue statement (local issues only)
-          metadata.json                # Issue metadata (local issues only)
-          analysis.md                  # Issue analysis (standalone `analyze` only)
-          prd.md                       # Product requirements
-          tasks.json                   # Task plan, pipeline state, stories, telemetry
-          progress.txt                 # Execution log
-          session.json                 # Live session snapshot (web monitoring)
-          events.jsonl                 # Append-only event journal (opt-in)
-          events.1.jsonl               # Previous journal generation, after a rotation
-          verify.json                  # Acceptance-contract evidence, redacted
-          decomposition.md             # "This issue looks larger than one run" report
-          run.log                      # stdout/stderr of a `--background` run
-          .last-branch                 # Last branch the execution loop worked on
-          archive/                     # Artifacts superseded by a later iteration
-          pr-review/                   # PR review reports and index
+        42/                      # One per issue identifier — see below
       queues/
-        50/                            # One directory per multi-issue queue
-          execution-plan.json          # Order, per-issue status, shared branch, PR
+        50/                      # One per multi-issue queue
+          execution-plan.json    # Order, per-issue status, shared branch, PR
+```
+
+`queues/` only exists once a run really coordinates more than one issue.
+
+## One issue directory
+
+Everything a single issue accumulates. Nothing here is created before something
+needs to write it, so a given run leaves most of these absent:
+
+```
+~/.issue-flow/projects/<project-id>/issues/42/
+  issue.md          # Issue statement (local issues only)
+  metadata.json     # Issue metadata (local issues only)
+  analysis.md       # Issue analysis (standalone `analyze` only)
+  prd.md            # Product requirements
+  tasks.json        # Task plan, pipeline state, stories, telemetry
+  progress.txt      # Execution log
+  session.json      # Live session snapshot (web monitoring)
+  events.jsonl      # Append-only event journal (opt-in)
+  events.1.jsonl    # Previous journal generation, after a rotation
+  verify.json       # Acceptance-contract evidence, redacted
+  decomposition.md  # "This issue looks larger than one run" report
+  run.log           # stdout/stderr of a `--background` run
+  run.log.1         # Previous generation, after a rotation
+  .last-branch      # Last branch the execution loop worked on
+  archive/          # Artifacts superseded by a later iteration
+  pr-review/        # PR review reports and index
 ```
 
 `issue.md` and `metadata.json` only exist for issues created or mirrored
-locally; a GitHub-only run never writes them. `queues/` only exists once a run
-really coordinates more than one issue.
+locally; a GitHub-only run never writes them.
 
 Issue identifiers are not necessarily numeric — `auth-refactor` and `pr-184` are
 valid directory names. Every path above is resolved by a single function

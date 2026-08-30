@@ -28,6 +28,13 @@ export const PROVIDERS_HEALTH_FILENAME = 'providers.json';
 export const SESSION_FILENAME = 'session.json';
 export const EVENTS_FILENAME = 'events.jsonl';
 export const ROTATED_EVENTS_FILENAME = 'events.1.jsonl';
+/**
+ * Acceptance-contract evidence. Named here — and not at the call site — because
+ * `verify/run-issue.ts` also writes it in standalone mode, where there is no
+ * `IssuePaths` to ask: one constant, two callers, no second spelling.
+ */
+export const VERIFY_FILENAME = 'verify.json';
+
 export const RUN_LOG_FILENAME = 'run.log';
 export const ROTATED_RUN_LOG_FILENAME = 'run.log.1';
 
@@ -182,6 +189,7 @@ export interface IssuePaths {
   runLogFile: string;
   rotatedRunLogFile: string;
   decompositionFile: string;
+  verifyFile: string;
   lastBranchFile: string;
   archiveDir: string;
   prReviewDir: string;
@@ -284,6 +292,7 @@ export function getIssuePaths(
     // "This issue looks larger than one run": written only when the signals
     // agree, and read by a person rather than by the pipeline.
     decompositionFile: join(issueDir, 'decomposition.md'),
+    verifyFile: join(issueDir, VERIFY_FILENAME),
     lastBranchFile: join(issueDir, '.last-branch'),
     archiveDir: join(issueDir, 'archive'),
     prReviewDir: join(issueDir, 'pr-review'),

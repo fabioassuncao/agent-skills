@@ -4,6 +4,7 @@ import type { AgentProviderId } from '../agents/types.js';
 import { loadVerifyConfig } from '../config.js';
 import { getSessionPublisher } from '../core/session-publisher.js';
 import { isoNow } from '../core/state-manager.js';
+import { VERIFY_FILENAME } from '../storage/paths.js';
 import { attachVerdict } from '../telemetry/recorder.js';
 import { getProjectRoot } from '../utils/git.js';
 import { run } from '../utils/shell.js';
@@ -61,7 +62,7 @@ export async function runAcceptance(options: {
   executed.level = level === 'L0' ? 'L0' : 'L1';
 
   const bundle = buildEvidence(executed, options.executionId ?? null);
-  await writeEvidence(join(options.issueDir, 'verify.json'), bundle);
+  await writeEvidence(join(options.issueDir, VERIFY_FILENAME), bundle);
 
   let review: StructuredReview | null = null;
   let verdict: VerdictStatus = executed.verdict;

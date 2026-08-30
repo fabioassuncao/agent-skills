@@ -234,6 +234,7 @@ describe('getIssuePaths', () => {
       runLogFile: join(issueDir, 'run.log'),
       rotatedRunLogFile: join(issueDir, 'run.log.1'),
       decompositionFile: join(issueDir, 'decomposition.md'),
+      verifyFile: join(issueDir, 'verify.json'),
       lastBranchFile: join(issueDir, '.last-branch'),
       archiveDir: join(issueDir, 'archive'),
       prReviewDir: join(issueDir, 'pr-review'),
@@ -280,15 +281,18 @@ describe('getIssuePaths', () => {
     expect(existsSync(paths.issueDir)).toBe(false);
   });
 
-  it('covers every artifact documented in the README file structure', async () => {
-    const readmePath = resolve(fileURLToPath(import.meta.url), '../../../../../README.md');
-    const readme = await readFile(readmePath, 'utf-8');
+  it('covers every artifact documented in docs/storage.md', async () => {
+    const docPath = resolve(fileURLToPath(import.meta.url), '../../../../../docs/storage.md');
+    const doc = await readFile(docPath, 'utf-8');
 
-    const section = readme.split('## Pipeline State & File Structure')[1];
+    // "One issue directory" is the flat listing of what a single issue
+    // accumulates; the tree above it stops at `issues/42/` on purpose, so this
+    // is the one place an artifact is named and the only one to keep in sync.
+    const section = doc.split('## One issue directory')[1];
     expect(section).toBeDefined();
 
     const block = section.split('```')[1];
-    // Artifacts are the indented entries of the tree; `issues/42/` heads it.
+    // Artifacts are the indented entries; the issue directory itself heads it.
     const documented = [...block.matchAll(/^ {2}(\S+)/gm)].map((match) =>
       match[1].replace(/\/$/, ''),
     );

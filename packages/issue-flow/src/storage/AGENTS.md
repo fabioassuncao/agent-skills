@@ -109,11 +109,12 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   never overwritten.** That is also what makes a failed run resumable — re-running it picks up
   where it stopped instead of clobbering what already crossed over.
 
-- The user-facing documentation of this layer is the `## Global Storage` section of the root
-  `README.md` (tree, project id derivation, `config.json` schema, precedence table,
-  `ISSUE_FLOW_HOME`, migration). Changing the layout, the id format or the precedence means
-  changing that section in the same commit — and `paths.test.ts` already fails on purpose when the
-  `## Pipeline State & File Structure` tree drifts from `getIssuePaths()`.
+- The user-facing documentation of this layer is [`docs/storage.md`](../../../../docs/storage.md)
+  (tree, project id derivation, `ISSUE_FLOW_HOME`, `tasks.json`, `session.json`, telemetry,
+  migration). Changing the layout, the id format or the precedence means changing that document in
+  the same commit — and `paths.test.ts` already fails on purpose when its `## One issue directory`
+  listing drifts from `getIssuePaths()`. That listing is the only place an issue artifact is named
+  in prose; the tree above it stops at `issues/42/` so there is nothing to keep in sync twice.
 
 ## Gotchas
 
