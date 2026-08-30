@@ -9,6 +9,11 @@
   const REFRESH_OPTIONS = [3, 5, 10, 30];
   const PAUSED = 0;
   const STORAGE_KEY = 'issue-flow:refresh-seconds';
+  // A chave 'issue-flow:theme' também é lida pelo <script> inline do <head>
+  // do index.html, que aplica o tema antes do primeiro paint. A duplicação
+  // é deliberada: aquele script roda antes deste arquivo existir na página e
+  // não pode depender de nenhum símbolo daqui. Mudou o formato do valor,
+  // mude nos dois lugares.
   const MAX_BACKOFF_MS = 60000;
   const ALERT_PREVIEW = 3;
   const DESCRIPTION_PREVIEW = 140;

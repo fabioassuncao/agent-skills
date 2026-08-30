@@ -94,6 +94,20 @@ fechar do drawer, trilha da barra de progresso) virou **`--surface-sunken`**, e
 não um `--state-neutral-surface`: metade dos usos não é badge de estado, e um
 recesso neutro é a mesma coisa nos dois casos. "Sem estado" não é um estado.
 
+O tema é aplicado **antes do primeiro paint** por um `<script>` inline no
+`<head>` do `index.html`, colocado antes do `<link>` do `app.css`: ele lê
+`issue-flow:theme` do `localStorage` e define `data-theme` na raiz. Fora dali
+o reload piscaria a paleta do SO até o `app.js` rodar. Ele é à prova de
+exceção (`try`/`catch`) e não referencia nada do `app.js` — que só carrega no
+fim do `<body>`. Por isso a leitura da chave é **duplicada** entre os dois, com
+comentário nos dois lugares; mudou o formato do valor, mude nos dois.
+
+Consequência para o servidor: `baseHeaders()` em `src/web/server.ts` hoje não
+define `Content-Security-Policy`. Se um CSP for adicionado, ele precisa
+contemplar esse script inline (`'unsafe-inline'` em `script-src` ou, melhor, um
+hash/nonce), senão o painel volta a piscar — e um `script-src` estrito sem essa
+provisão quebra a aplicação do tema silenciosamente.
+
 ## Escrita: o que ainda não existe
 
 A interface é somente leitura por contrato (`snapshot.readOnly === true`,
