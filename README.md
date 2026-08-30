@@ -138,7 +138,7 @@ Full reference: [**Commands**](docs/commands.md).
 
 ## Watching a run
 
-`--web` starts a local, read-only dashboard. It is a single server per machine,
+`--web` starts a local dashboard. It is a single server per machine,
 detached from any one run, and it shows every active pipeline from every project
 at once:
 
@@ -151,7 +151,7 @@ issue-flow web stop
 | | |
 |---|---|
 | ![Executions dashboard](docs/screenshots/painel-execucoes.png) | ![Kanban of user stories](docs/screenshots/painel-kanban.png) |
-| One card per active run | Stories by status, with a detail drawer |
+| One card per active run | Stories by status, with a shared detail drawer |
 
 The panel binds to `0.0.0.0` by default and warns about it. Full documentation —
 tabs, the HTTP API, remote access, single-instance behaviour:
@@ -325,8 +325,9 @@ tested contract — the bridge between them is `issue-flow policy --json`. See
   inspection.
 - **Shadow routing acts on nothing.** It records what it would have chosen;
   `recommend` and `active` are not implemented yet.
-- **The web panel is read-only by contract.** There are no write routes, and none
-  are planned before `capabilities` is non-empty.
+- **Execution control in the web panel is read-only.** On loopback only, a
+  capability-gated form may save global harness/model preferences for future
+  runs; it never changes the active execution.
 
 ## Documentation
 

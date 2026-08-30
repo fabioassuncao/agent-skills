@@ -932,6 +932,143 @@ progress {
   overflow-wrap: anywhere;
 }
 
+.detail-row {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.detail-row:hover {
+  background: var(--surface-sunken);
+}
+
+.detail-row:focus-visible,
+.config-phase-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.config-phase-grid {
+  display: grid;
+  gap: 1px;
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.config-phase-row {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.7fr) minmax(6rem, 1fr) minmax(8rem, 1.4fr) minmax(10rem, 1.4fr);
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0.8rem;
+  border: 0;
+  color: var(--text);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.config-phase-row:hover {
+  background: var(--surface-sunken);
+}
+
+.config-form {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.7fr) minmax(12rem, 1fr) auto minmax(10rem, 1fr);
+  gap: 0.65rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.config-form[hidden] {
+  display: none;
+}
+
+.config-form select,
+.config-form input,
+.config-save {
+  min-height: 2.25rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 0.4rem 0.65rem;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.config-save {
+  color: var(--accent-text);
+  border-color: var(--accent);
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.execution-timeline {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.execution-entry {
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-sunken);
+}
+
+.execution-entry-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+
+.execution-grid,
+.drawer-summary-grid {
+  margin-top: 0.75rem;
+}
+
+.process-output summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.process-output-body {
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.8rem;
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-sunken);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.commit-meta {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.76rem;
+  font-weight: 400;
+}
+
+@media (max-width: 720px) {
+  .config-phase-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .config-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---- Diversos ---- */
 
 .empty {

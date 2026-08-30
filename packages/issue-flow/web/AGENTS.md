@@ -36,8 +36,8 @@ do snapshot.
 
 ## Abas, Kanban e drawer
 
-O painel tem três abas ("Execução", "Kanban" e "Histórico") e um drawer de detalhes por
-story. Três regras seguram esse conjunto:
+O painel tem três abas ("Execução", "Kanban" e "Histórico") e um único drawer de detalhes
+para fases e stories (inclusive cards do Kanban). Três regras seguram esse conjunto:
 
 - **Acesso a story sempre por `getStoryById()` / `getStories()`.** Elas são a
   camada de leitura: normalizam num lugar só o que pode faltar num
@@ -45,7 +45,7 @@ story. Três regras seguram esse conjunto:
   `acceptanceCriteria` → `[]`, `description` → `''`) e são o ponto onde uma
   futura camada de escrita entra. Nenhum consumidor varre `snapshot.stories`
   por conta própria, ou a normalização se espalha.
-- **Estado de UI vive em `state`** (`activeTab`, `selectedStoryId`), junto de
+- **Estado de UI vive em `state`** (`activeTab`, `selectedDetail`), junto de
   `logFilter`, nunca em variável solta ou em referência a nó do DOM. O drawer
   guarda o **id** da story, não o card: `render()` recria o Kanban a cada poll,
   então uma referência guardada na abertura apontaria para um nó fora do
@@ -206,14 +206,13 @@ Para contraste, **meça na página** (ler os tokens com
 partir dos valores no arquivo: só assim a cascata resolvida aparece, incluindo
 o token que um tema herda do outro por engano.
 
-## Escrita: o que ainda não existe
+## Escrita limitada a preferências futuras
 
-A interface é somente leitura por contrato (`snapshot.readOnly === true`,
-`capabilities: []`), e o servidor não registra nenhuma rota de escrita — o
-comentário em `src/web/server.ts` reserva `POST /api/control/*` para isso. O
-Kanban e o drawer foram desenhados para que a escrita caiba depois sem
-redesenhar a interação: o drawer já é o lugar onde uma story é inspecionada por
-id, e `getStoryById()` já é o único ponto por onde ela é lida.
+O estado de execução continua somente leitura (`snapshot.readOnly === true`). A
+única mutação é `POST /api/config/agent`, que salva preferência global para
+execuções **futuras**, aparece via capability e só funciona em loopback. Nunca
+inferir permissão pela versão: o client renderiza o formulário apenas quando
+`/api/health.capabilities` contém `config:agent:write`.
 
 Quando essa etapa chegar, o contrato esperado é: as rotas de escrita passam a
 ser anunciadas em `capabilities` (o client decide o que renderizar a partir
