@@ -83,6 +83,7 @@ export interface ExecutionOwner {
 export interface ExecutionVerdict {
   status: VerdictStatus;
   level?: string | null;
+  independence?: string | null;
 }
 
 export interface RoutingDecision {

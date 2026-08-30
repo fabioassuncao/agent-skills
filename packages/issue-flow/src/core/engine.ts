@@ -15,6 +15,7 @@ import { printIterationHeader } from '../ui/progress.js';
 import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
 import { committedStoryIds, getBaseBranch, isWorkingTreeClean } from '../utils/git.js';
 import { sleep } from '../utils/retry.js';
+import { applyAcceptanceToPlan, resolveIssueDir, runAcceptanceGate } from '../verify/gate.js';
 import { executeClaude } from './executor.js';
 import { divideUsage } from './metrics.js';
 import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
@@ -344,7 +345,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     emitLog('All user stories already pass. Marking issue as completed.');
     plan = markIssueCompleted(plan);
     await saveTaskPlan(paths.prdFile, plan);
-    return 0;
+    return finishWithAcceptance(config, paths, plan);
   }
 
   // Archive previous run if branch changed
@@ -631,7 +632,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
           undefined,
           getPhaseUsageTotals(EXECUTE_PHASE),
         );
-        return 0;
+        return finishWithAcceptance(config, paths, plan);
       }
 
       plan = setLastError(
@@ -670,4 +671,24 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     getPhaseUsageTotals(EXECUTE_PHASE),
   );
   return 1;
+}
+
+async function finishWithAcceptance(
+  config: EngineConfig,
+  paths: ResolvedPaths,
+  plan: TaskPlan,
+): Promise<number> {
+  const issueDir = resolveIssueDir(config, paths);
+  const outcome = await runAcceptanceGate({
+    issueDir,
+    cwd: paths.projectRoot,
+    addDirs: config.issueNumber === undefined ? undefined : [issueDir],
+    skipReviewer: true,
+  });
+  const applied = applyAcceptanceToPlan(plan, outcome);
+  if (applied.failed) {
+    await saveTaskPlan(paths.prdFile, applied.plan);
+    return 1;
+  }
+  return 0;
 }

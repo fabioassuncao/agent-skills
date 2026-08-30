@@ -26,6 +26,10 @@ Task telemetry → describes how the change was produced
 - **Estimation is opt-in.** Default `telemetry.pricing.estimate: false`.
   Issue Flow never estimates a price unless asked, and never labels an
   estimate as a charge. An estimate stores the four rates it used.
+- **`verdict` is additive.** `attachVerdict` writes `{ status, level,
+  independence }` onto the last `ExecutionRecord`. Empty contract →
+  `unverified`. L2 cost uses `purpose: 'verify'`, never mixed into
+  `execute`.
 - **Time lives on the same record.** `cliDurationMs`, `harnessStartupMs`
   (`wall − duration_ms`), `apiDurationMs`, `ttftMs` and `numTurns` are
   additive and optional. Absent means "not reported", never zero. There is

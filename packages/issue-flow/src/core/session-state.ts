@@ -174,7 +174,15 @@ export type SessionEvent =
       headCommit?: string | null;
       repositoryRoot?: string | null;
     }
-  | { type: 'session:end'; at: string; status: 'completed' | 'failed'; error?: string };
+  | { type: 'session:end'; at: string; status: 'completed' | 'failed'; error?: string }
+  | {
+      type: 'verify:end';
+      at: string;
+      verdict: 'passed' | 'failed' | 'unverified';
+      level: string;
+      independence: string | null;
+      executionId: string | null;
+    };
 
 export interface SessionEnvironment {
   node: string;
@@ -379,6 +387,12 @@ export interface SessionSnapshot {
   lastError: { message: string; at: string } | null;
   nextSteps: string[];
   environment: SessionEnvironment | null;
+  /** Acceptance-contract verdict. `null` until a contract has run. */
+  verification: {
+    verdict: 'passed' | 'failed' | 'unverified' | null;
+    level: string | null;
+    independence: string | null;
+  } | null;
 }
 
 export interface SessionReducerOptions {
@@ -469,6 +483,7 @@ export function createInitialSnapshot(): SessionSnapshot {
     lastError: null,
     nextSteps: [],
     environment: null,
+    verification: null,
   };
 }
 
@@ -1078,6 +1093,16 @@ function applyEvent(
       };
     }
 
+    case 'verify:end':
+      return {
+        ...snapshot,
+        verification: {
+          verdict: event.verdict,
+          level: event.level,
+          independence: event.independence,
+        },
+      };
+
     case 'session:end':
       return {
         ...snapshot,
@@ -1248,7 +1273,8 @@ export class FilePublisher extends MemoryPublisher {
 
   protected override afterPublish(event: SessionEvent): void {
     if (this.closed) return;
-    const terminal = event.type === 'phase:end' || event.type === 'session:end';
+    const terminal =
+      event.type === 'phase:end' || event.type === 'session:end' || event.type === 'verify:end';
     this.scheduleWrite(terminal);
   }
 

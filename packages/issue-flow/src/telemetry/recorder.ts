@@ -158,6 +158,24 @@ export function timingFromUsage(
   };
 }
 
+export async function attachVerdict(verdict: ExecutionRecord['verdict']): Promise<void> {
+  const ctx = context;
+  if (ctx === null || verdict == null) return;
+  try {
+    await mutate(ctx.tasksPath, (plan) => {
+      const records = [...(plan.executions ?? [])];
+      if (records.length === 0) return plan;
+      const index = records.length - 1;
+      const current = records[index];
+      if (current === undefined) return plan;
+      records[index] = { ...current, verdict };
+      return { ...plan, executions: records };
+    });
+  } catch {
+    // Observational: a failed write must never change the invocation outcome.
+  }
+}
+
 export interface EndExecutionInput {
   id: string;
   status?: ExecutionStatus;

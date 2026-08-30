@@ -12,6 +12,7 @@ import {
   setAgentCliOverrides,
   setIssuesCliOverrides,
   setResilienceCliOverrides,
+  setVerifyCliOverrides,
   setWebCliOverrides,
 } from './config.js';
 import { installShutdownHandlers } from './core/shutdown.js';
@@ -99,6 +100,8 @@ function withGlobalOptions(cmd: Command): Command {
         collectAgentPhase,
         {} as AgentCliOverrides['phases'],
       )
+      .option('--verify-level <level>', 'Acceptance-contract level: L0 | L1 | L2 | L3 | L5')
+      .option('--no-cross-verify', 'Keep L2 off even when a trigger would fire')
   );
 }
 
@@ -124,6 +127,23 @@ function resolveAgentOverrides(opts: Record<string, unknown>): AgentCliOverrides
   if (opts.agentPhase && typeof opts.agentPhase === 'object') {
     overrides.phases = opts.agentPhase as AgentCliOverrides['phases'];
   }
+  return overrides;
+}
+
+const VERIFY_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L5'] as const;
+
+function resolveVerifyOverrides(opts: Record<string, unknown>): {
+  level?: (typeof VERIFY_LEVELS)[number];
+  crossVerify?: boolean;
+} {
+  const overrides: { level?: (typeof VERIFY_LEVELS)[number]; crossVerify?: boolean } = {};
+  if (typeof opts.verifyLevel === 'string') {
+    if (!VERIFY_LEVELS.includes(opts.verifyLevel as (typeof VERIFY_LEVELS)[number])) {
+      throw new InvalidArgumentError('Must be one of: L0, L1, L2, L3, L5.');
+    }
+    overrides.level = opts.verifyLevel as (typeof VERIFY_LEVELS)[number];
+  }
+  if (opts.crossVerify === false) overrides.crossVerify = false;
   return overrides;
 }
 
@@ -227,6 +247,7 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
   }
   setWebCliOverrides(resolveWebOverrides(opts));
   try {
+    setVerifyCliOverrides(resolveVerifyOverrides(opts));
     setAgentCliOverrides(resolveAgentOverrides(opts));
   } catch (error) {
     if (error instanceof InvalidArgumentError) {

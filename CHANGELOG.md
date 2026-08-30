@@ -16,6 +16,15 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Contrato de aceitação e `unverified`** (#85, estágios 1–2). `src/verify/`
+  descobre typecheck/lint/test (ou um contrato declarado), roda os checks
+  sem interpretar prosa e grava `verify.json` ligado ao `executionId`.
+  Contrato vazio ou que não pôde rodar é `unverified` — o pipeline segue,
+  sem se apresentar como sucesso verificado. L1 é o default; L2
+  (`--verify-level L2` ou gatilho configurado) escolhe um revisor
+  independente sempre `read-only`. A tabela L1 vs L2 no corpus fica
+  pendente (estágio 3) e nenhum gatilho vira default sem ela.
+
 - **Cascata a partir de um container** (#74). Uma issue com filhas (Epic)
   entra na fila como `container`: nomeia a branch e o PR, não roda fase
   nenhuma, e só fecha quando as filhas concluem. `--cascade` (e `--yes`

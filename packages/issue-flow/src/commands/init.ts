@@ -393,6 +393,24 @@ export async function runInit(
 
   await maybeOfferAgentChoice(options, agent);
 
+  if (!json) {
+    try {
+      const { resolveContract } = await import('../verify/contract.js');
+      const { getProjectRoot } = await import('../utils/git.js');
+      const { loadVerifyConfig } = await import('../config.js');
+      const cwd = await getProjectRoot();
+      const verify = await loadVerifyConfig({ projectRoot: cwd });
+      const contract = await resolveContract({ cwd, declared: verify.contract });
+      if (contract.source === 'empty') {
+        printWarning(
+          'No acceptance contract declared or discovered — runs will finish unverified.',
+        );
+      }
+    } catch {
+      // Observational: init still reports prerequisites if discovery fails.
+    }
+  }
+
   return allPassed ? 0 : 1;
 }
 

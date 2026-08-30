@@ -31,7 +31,7 @@ import {
 } from '../core/pr-review/report.js';
 import { listPullRequests, publishGitState } from '../core/session-git.js';
 import { beginUsageScope, getRunUsageTotals } from '../core/session-metrics.js';
-import { setSessionPublisher } from '../core/session-publisher.js';
+import { getSessionPublisher, setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, MemoryPublisher, type SessionPublisher } from '../core/session-state.js';
 import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
@@ -203,6 +203,16 @@ const RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW: PipelinePhase[] = ['pr', 'pr-review'
  * suppression and is true on exit code 2 even when the plan is gone.
  */
 type PrReviewOutcome = RunSummaryPrReview;
+
+function verificationForSummary(
+  value: {
+    verdict: 'passed' | 'failed' | 'unverified' | null;
+    level: string | null;
+  } | null,
+): { verdict: 'passed' | 'failed' | 'unverified'; level: string | null } | null {
+  if (value === null || value.verdict === null) return null;
+  return { verdict: value.verdict, level: value.level };
+}
 
 /**
  * Recover the verdict and the report path the `pr-review` phase produced.
@@ -1406,6 +1416,7 @@ async function runPipelinePhases(
     // Process-owned counters: the session snapshot is empty whenever web
     // monitoring is off, so it cannot be the source of these totals.
     usage: getRunUsageTotals(),
+    verification: verificationForSummary(getSessionPublisher().snapshot().verification),
   });
 
   return {

@@ -29,6 +29,9 @@ never had them must not gain artificial nulls on a round trip.
   publish. Anything accumulated per story by other events (`completedAt`,
   metrics) must be copied over from the `previous` map, or the next update
   wipes it.
+- `verification` on the snapshot is additive (`verify:end`). Absent
+  session.json parses as `null` (`.default(null)`). `unverified` is a
+  first-class verdict, never presented as verified success.
 - A phase's `durationSeconds` comes only from `phase:start`/`phase:end`. Other
   events carrying a duration must not write it. Additive timing on the same
   event (`harnessExecutionMs`, `orchestrationOverheadMs`, `harnessStartupMs`,

@@ -163,6 +163,11 @@ function formatFooter(snapshot: SessionSnapshot): string | null {
   if (snapshot.execution.retries > 0) {
     bits.push(`${snapshot.execution.retries} retries`);
   }
+  if (snapshot.verification?.verdict === 'unverified') {
+    bits.push('unverified');
+  } else if (snapshot.verification?.verdict === 'failed') {
+    bits.push('contract failed');
+  }
   return bits.length > 0 ? bits.join(' · ') : null;
 }
 

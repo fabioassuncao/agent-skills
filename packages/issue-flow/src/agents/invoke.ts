@@ -9,8 +9,24 @@ import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
 import { ensureCursorStorageGrant } from './permissions.js';
 import { runnerFor } from './registry.js';
+import { resolveAgentFor } from './resolve.js';
 import { type AgentSelection, selectAgentForInvocation } from './select.js';
 import type { AgentInvocation, AgentProviderId, AgentRunResult } from './types.js';
+
+async function selectionForForced(invocation: AgentInvocation): Promise<AgentSelection> {
+  const settings = await resolveAgentFor(invocation.phase, {
+    cli: { forceProvider: invocation.forceProvider },
+  });
+  return {
+    primary: settings.provider,
+    provider: settings.provider,
+    settings,
+    healthFile: null,
+    failover: false,
+    reason: null,
+    cooldownUntil: null,
+  };
+}
 
 const attempts = new Map<string, number>();
 const lastFailure = new Map<string, FailureKind>();
@@ -62,7 +78,10 @@ export function resetAgentInvocationState(): void {
 /** One invocation, including provider selection, health persistence and audit events. */
 export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<SelectedAgentRun> {
   const config = getActiveResilienceConfig();
-  const selection = await selectAgentForInvocation(invocation.phase, { config });
+  const selection =
+    invocation.forceProvider === undefined
+      ? await selectAgentForInvocation(invocation.phase, { config })
+      : await selectionForForced(invocation);
   const attempt = nextAttempt(invocation.phase);
   const publisher = getSessionPublisher();
   publisher.publish({
@@ -87,7 +106,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
   const identity = declaredAgentIdentity(selection.provider);
   const requested = selection.settings.model;
   const executionId = await beginExecution({
-    purpose: invocation.phase as ExecutionPurpose,
+    purpose: (invocation.purpose ?? invocation.phase) as ExecutionPurpose,
     attempt,
     trigger: triggerOf(selection, attempt),
     triggerReason: selection.failover

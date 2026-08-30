@@ -26,6 +26,8 @@ import {
   policyConfigInputSchema,
   policyConfigSchema,
   prReviewConfigSchema,
+  type VerifyConfig,
+  verifyConfigSchema,
   type WebConfig,
   webConfigSchema,
 } from './schemas.js';
@@ -1512,4 +1514,58 @@ export async function loadAgentConfig(options: LoadAgentConfigOptions = {}): Pro
   const resolved = { provider, model, claude, codex, cursor, phases };
   if (canCache) cachedAgentConfig = resolved;
   return resolved;
+}
+
+// ── Acceptance-contract configuration ───────────────────────────────────────
+
+let verifyCliOverrides: Partial<VerifyConfig> = {};
+
+export function setVerifyCliOverrides(overrides: Partial<VerifyConfig>): void {
+  verifyCliOverrides = overrides;
+}
+
+export function getVerifyCliOverrides(): Partial<VerifyConfig> {
+  return verifyCliOverrides;
+}
+
+export interface LoadVerifyConfigOptions {
+  cli?: Partial<VerifyConfig>;
+  projectRoot?: string;
+  warn?: (message: string) => void;
+}
+
+async function readVerifyConfigFile(
+  projectRoot: string | undefined,
+  warn: (message: string) => void,
+): Promise<Partial<VerifyConfig>> {
+  const file = await readProjectConfigFile(projectRoot, warn);
+  const verify = file?.verify;
+  if (verify === undefined) return {};
+  const result = verifyConfigSchema.partial().safeParse(verify);
+  if (!result.success) {
+    warn(
+      `Ignoring "verify" key of ${PROJECT_CONFIG_FILENAME}: ${result.error.issues[0]?.message ?? 'invalid value'}.`,
+    );
+    return {};
+  }
+  return result.data;
+}
+
+/**
+ * Resolve the acceptance-contract configuration.
+ * CLI > .issue-flow.json > defaults. Absence is `{}` (L1, discover).
+ */
+export async function loadVerifyConfig(
+  options: LoadVerifyConfigOptions = {},
+): Promise<VerifyConfig> {
+  const warn = options.warn ?? printWarning;
+  const cli = options.cli ?? verifyCliOverrides;
+  const fileLayer = await readVerifyConfigFile(options.projectRoot, warn);
+  const merged = { ...fileLayer, ...cli };
+  const result = verifyConfigSchema.safeParse(merged);
+  if (result.success) return result.data;
+  warn(
+    `Invalid verify configuration (${result.error.issues[0]?.message ?? 'invalid value'}); using defaults.`,
+  );
+  return verifyConfigSchema.parse({});
 }

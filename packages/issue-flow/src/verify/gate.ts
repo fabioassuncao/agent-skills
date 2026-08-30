@@ -1,0 +1,45 @@
+import { dirname } from 'node:path';
+import { setLastError } from '../core/state-manager.js';
+import type { EngineConfig, ResolvedPaths, TaskPlan } from '../types.js';
+import { printError, printSuccess, printWarning } from '../ui/logger.js';
+import { formatVerificationLine } from './present.js';
+import { type AcceptanceOutcome, runAcceptance } from './run-issue.js';
+
+/** `prdFile` is `tasks.json` in the issue directory (global or standalone). */
+export function resolveIssueDir(_config: EngineConfig, paths: ResolvedPaths): string {
+  return dirname(paths.prdFile);
+}
+
+export async function runAcceptanceGate(options: {
+  issueDir: string;
+  cwd?: string;
+  addDirs?: string[];
+  skipReviewer?: boolean;
+}): Promise<AcceptanceOutcome> {
+  return runAcceptance({
+    issueDir: options.issueDir,
+    cwd: options.cwd,
+    addDirs: options.addDirs,
+    skipReviewer: options.skipReviewer,
+  });
+}
+
+export function applyAcceptanceToPlan(
+  plan: TaskPlan,
+  outcome: AcceptanceOutcome,
+): { plan: TaskPlan; failed: boolean } {
+  const line = formatVerificationLine(outcome.verdict, outcome.level);
+  if (outcome.verdict === 'failed') {
+    printError(line);
+    return {
+      plan: setLastError(plan, 'task_execution', line),
+      failed: true,
+    };
+  }
+  if (outcome.verdict === 'unverified') {
+    printWarning(line);
+    return { plan, failed: false };
+  }
+  printSuccess(line);
+  return { plan, failed: false };
+}

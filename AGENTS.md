@@ -58,6 +58,7 @@ the code, and was learned the hard way.
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
 | Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |
+| Acceptance contract and independent review | [`packages/issue-flow/src/verify/AGENTS.md`](packages/issue-flow/src/verify/AGENTS.md) |
 
 ## Agent entry points
 

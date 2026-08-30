@@ -798,6 +798,29 @@ The same project config file used by web monitoring carries an `issues` key. Pre
 | `conflictPolicy` | `ask` \| `prefer-local` \| `prefer-github` | `ask` | What to do on divergence |
 | `requireConfirmation` | boolean | `true` | Reserved for confirmation prompts; validated but not consumed yet |
 
+### Acceptance contract (`verify`)
+
+Objective checks run at the end of `execute` and before the `review` LLM. An empty contract (nothing declared, nothing discovered) finishes **`unverified`** — the pipeline continues and is never labelled as a verified success. L1 is the default. L2 is opt-in (`--verify-level L2` or a configured trigger); no trigger becomes a default until the L1/L2 corpus table exists.
+
+```json
+{
+  "verify": {
+    "level": "L1",
+    "triggers": [],
+    "contract": [
+      { "id": "typecheck", "run": "npm run typecheck", "fatal": true },
+      { "id": "lint", "run": "npm run lint", "fatal": true },
+      { "id": "test", "run": "npm test", "fatal": true }
+    ]
+  }
+}
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--verify-level L0\|L1\|L2\|L3\|L5` | Request a verification level |
+| `--no-cross-verify` | Keep L2 off even when a trigger would fire |
+
 A missing file, invalid JSON or an invalid `issues` key falls back to the defaults with a warning -- it never throws. Every default reproduces the previous behavior.
 
 ### Local issue format

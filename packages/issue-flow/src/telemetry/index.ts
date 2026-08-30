@@ -2,6 +2,7 @@ export { groupBy, summarize } from './aggregate.js';
 export { estimateCost, PRICING_TABLE_VERSION, resolveCost } from './pricing.js';
 export { reconcileInterruptedExecutions } from './reconcile.js';
 export {
+  attachVerdict,
   beginExecution,
   bindTelemetry,
   discardedExecutionCount,

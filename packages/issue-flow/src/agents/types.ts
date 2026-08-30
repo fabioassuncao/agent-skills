@@ -96,6 +96,10 @@ export interface AgentInvocation {
    * disables the watchdog — verbose headless never had one.
    */
   inactivityTimeoutMs?: number;
+  /** Pin this invocation to a provider (L2 reviewer). Skips failover. */
+  forceProvider?: AgentProviderId;
+  /** Telemetry purpose when it is not the phase name (`verify`). */
+  purpose?: 'verify';
 }
 
 export interface AgentRunResult {

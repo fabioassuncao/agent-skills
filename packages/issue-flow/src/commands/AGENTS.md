@@ -11,6 +11,10 @@ mode so the clean terminal and the dashboard share `currentActivity`;
 
 ## Contract of a single-invocation phase
 
+`review` runs the acceptance contract (`src/verify/`) **before** its
+`runHeadless` call. A fatal red check is `task_execution` and skips the
+LLM. `unverified` continues, labelled.
+
 `analyze`, `generate`, `prd`, `plan`, `review`, `pr` and `pr-review` each own
 one `runHeadless` call. Anything that has to be derived from that call belongs
 to the command, not to the `instrumentedRunners` wrapper in `run.ts`: the

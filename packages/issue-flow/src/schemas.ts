@@ -296,6 +296,7 @@ export const executionRecordSchema = z.object({
     .object({
       status: z.enum(['passed', 'failed', 'unverified']),
       level: z.string().nullable().optional(),
+      independence: z.string().nullable().optional(),
     })
     .nullable()
     .optional(),
@@ -546,6 +547,16 @@ export const sessionSnapshotSchema = z.object({
       model: z.string().nullable().default(null),
     })
     .nullable(),
+  // Additive: a session.json written before the acceptance contract existed
+  // parses as "not reported". schemaVersion stays 1.
+  verification: z
+    .object({
+      verdict: z.enum(['passed', 'failed', 'unverified']).nullable(),
+      level: z.string().nullable(),
+      independence: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
 }) satisfies z.ZodType<SessionSnapshot>;
 
 /**
@@ -607,5 +618,21 @@ export type ValidatedTaskPlan = z.infer<typeof taskPlanSchema>;
 export type ValidatedIssueMetadata = z.infer<typeof issueMetadataSchema>;
 export type ValidatedHeadlessResult = z.infer<typeof headlessResultSchema>;
 export type ValidatedSessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
+export const verifyCheckSchema = z.object({
+  id: z.string().min(1),
+  run: z.string().optional(),
+  expectFiles: z.array(z.string()).optional(),
+  fatal: z.boolean().optional(),
+});
+
+export const verifyConfigSchema = z.object({
+  level: z.enum(['L0', 'L1', 'L2', 'L3', 'L5']).default('L1'),
+  triggers: z.array(z.string()).default([]),
+  pairings: z.record(z.string(), z.string()).default({}),
+  contract: z.array(verifyCheckSchema).optional(),
+  crossVerify: z.boolean().default(true),
+});
+
 export type WebConfig = z.infer<typeof webConfigSchema>;
 export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
+export type VerifyConfig = z.infer<typeof verifyConfigSchema>;

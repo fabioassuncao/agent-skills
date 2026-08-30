@@ -7,7 +7,9 @@ import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
-import { printError, printSuccess } from '../ui/logger.js';
+import { printError, printSuccess, printWarning } from '../ui/logger.js';
+import { applyAcceptanceToPlan, runAcceptanceGate } from '../verify/gate.js';
+import { formatVerificationLine } from '../verify/present.js';
 
 export interface ReviewResult {
   status: 'PASS' | 'FAIL';
@@ -52,6 +54,40 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
   const resolution = await resolveCommandIssue(issueNumber, resolvedIssue);
   if (!resolution.ok) {
     return resolution.code;
+  }
+
+  const acceptance = await runAcceptanceGate({
+    issueDir: paths.issueDir,
+    addDirs: [paths.issueDir],
+  });
+  if (acceptance.verdict === 'failed') {
+    try {
+      const plan = await loadTaskPlan(tasksPath);
+      const applied = applyAcceptanceToPlan(plan, acceptance);
+      await saveTaskPlan(tasksPath, applied.plan);
+    } catch {
+      printError(formatVerificationLine(acceptance.verdict, acceptance.level));
+    }
+    return 1;
+  }
+  if (acceptance.verdict === 'unverified') {
+    printWarning(formatVerificationLine(acceptance.verdict, acceptance.level));
+  } else {
+    printSuccess(formatVerificationLine(acceptance.verdict, acceptance.level));
+  }
+  if (acceptance.review?.status === 'failed') {
+    printError('Independent review failed');
+    try {
+      const plan = await loadTaskPlan(tasksPath);
+      plan.pipeline.reviewCompleted = false;
+      plan.lastReviewFindings = acceptance.review.findings
+        .map((finding) => finding.claim)
+        .join('\n');
+      await saveTaskPlan(tasksPath, plan);
+    } catch {
+      // tasks.json may not exist
+    }
+    return 1;
   }
 
   const template = await loadPrompt('review');

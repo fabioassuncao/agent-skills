@@ -228,6 +228,8 @@ export interface RunSummaryInfo {
   usage?: ClaudeUsage | null;
   /** When more than one agent ran, the summary prints one Tokens line each. */
   usageByAgent?: Record<string, ClaudeUsage>;
+  /** Acceptance-contract verdict. Absent when the contract never ran. */
+  verification?: { verdict: 'passed' | 'failed' | 'unverified'; level?: string | null } | null;
 }
 
 function executionCostLines(plan: TaskPlan, prefix = 'Cost:        '): string[] {
@@ -317,6 +319,16 @@ export function buildRunSummaryLines(info: RunSummaryInfo): string[] {
 
   if (!info.noBranch) {
     lines.push(`  PR:       ${info.prUrl}`);
+  }
+
+  if (info.verification != null) {
+    const label =
+      info.verification.verdict === 'passed'
+        ? 'passed'
+        : info.verification.verdict === 'failed'
+          ? 'failed'
+          : 'unverified';
+    lines.push(`  Contract: ${label}`);
   }
 
   const review = info.prReview;
@@ -432,6 +444,14 @@ export function printRunSummary(info: RunSummaryInfo): void {
   if (info.prReview?.requestedChanges) {
     printWarning(
       `Pipeline finished for issue #${info.issueNumber}, but the PR review requested changes.`,
+    );
+  } else if (info.verification?.verdict === 'unverified') {
+    printWarning(
+      `Pipeline finished for issue #${info.issueNumber}, but the acceptance contract is unverified.`,
+    );
+  } else if (info.verification?.verdict === 'failed') {
+    printWarning(
+      `Pipeline finished for issue #${info.issueNumber}, but the acceptance contract failed.`,
     );
   } else {
     printSuccess(`Pipeline complete for issue #${info.issueNumber}!`);

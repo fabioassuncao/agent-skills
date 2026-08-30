@@ -54,6 +54,10 @@ export interface HeadlessOptions {
    * `runHeadless` argv (no `--permission-mode`, no `--dangerously-skip-permissions`).
    */
   permission?: AgentPermission;
+  /** Pin this invocation to a provider (L2 reviewer). */
+  forceProvider?: AgentProviderId;
+  /** Telemetry purpose when it is not the phase name (`verify`). */
+  purpose?: 'verify';
 }
 
 export type HeadlessCost = ClaudeUsage;
@@ -173,6 +177,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     onOutput,
     phase = 'analyze',
     permission = 'workspace',
+    forceProvider,
+    purpose,
   } = options;
   const timeout = await escalatedTimeout(configuredTimeout, options.timeoutHistory);
   const settings = await resolveAgentFor(phase);
@@ -202,6 +208,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
       permission,
       maxTurns,
       allowedTools,
+      ...(forceProvider === undefined ? {} : { forceProvider }),
+      ...(purpose === undefined ? {} : { purpose }),
       onEvent: (event) => printAgentEvent(event, effectiveOnOutput),
     });
 
@@ -234,6 +242,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
       maxTurns,
       allowedTools,
       inactivityTimeoutMs: getInactivityTimeout(),
+      ...(forceProvider === undefined ? {} : { forceProvider }),
+      ...(purpose === undefined ? {} : { purpose }),
       onEvent: (event) => {
         if (event.kind === 'text') return;
         getSessionPublisher().publish({
