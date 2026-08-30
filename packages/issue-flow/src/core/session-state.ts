@@ -1,10 +1,69 @@
 import { mkdir, rename, utimes, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import type { FailureKind } from '../resilience/errors.js';
 import { setTelemetrySessionId } from '../telemetry/session-id.js';
-import type { ExecutionRecord } from '../telemetry/types.js';
-import type { StoryStage, UserStory, UserStoryStatus } from '../types.js';
+import type { StoryStage, UserStory } from '../types.js';
+import {
+  DEFAULT_LOG_LIMIT,
+  DEFAULT_SESSION_HEARTBEAT_MS,
+  DEFAULT_THROTTLE_MS,
+  type SessionEvent,
+  type SessionLogLevel,
+} from './session/events.js';
+import {
+  accumulate,
+  accumulateUsage,
+  computePercent,
+  deriveNextSteps,
+  deriveStoryStatuses,
+  estimateRemainingSeconds,
+  reported,
+  secondsBetween,
+} from './session/derive.js';
+import {
+  createInitialSnapshot,
+  emptyPhaseTiming,
+  emptyUsage,
+  type SessionLogEntry,
+  type SessionProcessLogEntry,
+  type SessionReducerOptions,
+  type SessionSnapshot,
+  type SessionStorySnapshot,
+} from './session/snapshot.js';
+
+export type {
+  SessionLogLevel,
+  SessionStatus,
+  SessionPhaseStatus,
+  SessionEvent,
+} from './session/events.js';
+export {
+  DEFAULT_LOG_LIMIT,
+  DEFAULT_THROTTLE_MS,
+  DEFAULT_SESSION_HEARTBEAT_MS,
+} from './session/events.js';
+export type {
+  SessionEnvironment,
+  SessionLogEntry,
+  SessionProcessLogEntry,
+  SessionConfigurationValue,
+  SessionPhaseConfiguration,
+  SessionConfigurationSnapshot,
+  SessionStageHistoryEntry,
+  SessionUsageSnapshot,
+  SessionMetricsSnapshot,
+  SessionPhaseSnapshot,
+  SessionStorySnapshot,
+  SessionActivity,
+  SessionResilienceSnapshot,
+  SessionCommit,
+  SessionPullRequest,
+  SessionIssueSnapshot,
+  SessionRepositorySnapshot,
+  SessionSnapshot,
+  SessionReducerOptions,
+} from './session/snapshot.js';
+export { createInitialSnapshot } from './session/snapshot.js';
 
 /**
  * Session state publishing layer for the optional web monitoring mode.
@@ -18,677 +77,6 @@ import type { StoryStage, UserStory, UserStoryStatus } from '../types.js';
  * single warning.
  */
 
-export type SessionLogLevel = 'info' | 'warn' | 'error';
-export type SessionStatus = 'idle' | 'running' | 'completed' | 'failed';
-export type SessionPhaseStatus = 'pending' | 'running' | 'completed' | 'failed';
-
-/** Default max entries retained in the logs ring buffer. */
-export const DEFAULT_LOG_LIMIT = 200;
-
-/** Default minimum interval between FilePublisher disk writes. */
-export const DEFAULT_THROTTLE_MS = 1000;
-
-/** Default interval for touching a live session file without rewriting it. */
-export const DEFAULT_SESSION_HEARTBEAT_MS = 10_000;
-
-export type SessionEvent =
-  | {
-      type: 'session:start';
-      at: string;
-      sessionId: string;
-      /** `null` for local identifiers that are not numbers. */
-      issueNumber: number | null;
-      issueUrl?: string;
-      branch?: string;
-      baseBranch?: string;
-      phases: string[];
-      environment?: SessionEnvironment;
-      configuration?: SessionConfigurationSnapshot;
-      branchCreated?: boolean | null;
-      startCommit?: string | null;
-    }
-  | {
-      /**
-       * Structural data of the Issue being worked on, published once the
-       * provider has resolved it. Merged over the `issue` section instead of
-       * replacing it, so the number and the URL that came with `session:start`
-       * survive an origin that reports neither.
-       */
-      type: 'issue:update';
-      at: string;
-      number: number | null;
-      url?: string;
-      title: string | null;
-      /** Issue body, published whole — no truncation. */
-      description: string | null;
-      labels: string[];
-      state: string | null;
-    }
-  | { type: 'phase:start'; at: string; phase: string }
-  | {
-      type: 'phase:end';
-      at: string;
-      phase: string;
-      success: boolean;
-      error?: string;
-      harnessExecutionMs?: number | null;
-      orchestrationOverheadMs?: number | null;
-      harnessStartupMs?: number | null;
-      ttftMs?: number | null;
-      attemptCount?: number | null;
-      retryDurationMs?: number | null;
-    }
-  | {
-      type: 'iteration:start';
-      at: string;
-      iteration: number;
-      /**
-       * Id of the story `execute` is about to work on, computed by
-       * `core/engine.ts` with the same "highest priority, `passes: false`"
-       * rule `prompts/execute.md` gives the agent. Optional so a caller that
-       * cannot determine it (or an older build) is still a valid event —
-       * `applyEvent` simply skips the `executing`/`pending` transition then.
-       */
-      storyId?: string;
-    }
-  | { type: 'iteration:end'; at: string; iteration: number }
-  | {
-      type: 'retry';
-      at: string;
-      attempt: number;
-      delaySeconds?: number;
-      reason?: string;
-      /**
-       * What the resilience layer classified the failure as. Optional so an
-       * event written by an older build — or by a caller with nothing but a
-       * message — stays valid; the reducer only counts retries either way.
-       */
-      kind?: FailureKind;
-    }
-  | {
-      type: 'agent:attempt';
-      at: string;
-      attempt: number;
-      provider: string;
-      model?: string | null;
-      primaryProvider: string;
-    }
-  | {
-      type: 'failover';
-      at: string;
-      from: string;
-      to: string;
-      reason: FailureKind | null;
-      cooldownUntil?: string | null;
-    }
-  | {
-      type: 'agent:result';
-      at: string;
-      provider: string;
-      success: boolean;
-      failureKind?: FailureKind;
-      cooldownUntil?: string | null;
-    }
-  | { type: 'agent:activity'; at: string; provider: string }
-  | { type: 'stories:update'; at: string; stories: UserStory[] }
-  | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
-  | { type: 'log'; at: string; level: SessionLogLevel; message: string }
-  | {
-      type: 'process:output';
-      at: string;
-      phase: string;
-      executionId: string | null;
-      provider: string;
-      stream: 'stdout' | 'stderr' | 'combined';
-      message: string;
-    }
-  | { type: 'execution:update'; at: string; execution: ExecutionRecord }
-  | { type: 'correction:cycle'; at: string; cycle: number; maxCycles: number }
-  | {
-      type: 'metrics:update';
-      at: string;
-      /**
-       * Where the metrics land:
-       * - `phase`: the named phase plus the issue-wide aggregate;
-       * - `iteration`: one execute-loop pass — same targets as `phase`;
-       * - `story`: the story alone, never the phase nor the aggregate (the
-       *   iteration event of the same cycle already counted those tokens).
-       */
-      scope: 'phase' | 'iteration' | 'story';
-      phase?: string;
-      storyId?: string;
-      iteration?: number;
-      inputTokens?: number;
-      outputTokens?: number;
-      cacheReadTokens?: number;
-      cacheCreationTokens?: number;
-      costUsd?: number;
-      durationSeconds?: number;
-    }
-  | {
-      /**
-       * One publication feeds both the `git` section (branch, base, commits)
-       * and the `repository` section (identity and location). They come from
-       * the same collection pass, so extending this event keeps `branch`
-       * consistent across the two instead of racing a second event.
-       *
-       * Every field is optional: `undefined` means "not collected in this
-       * publication" and leaves the snapshot untouched, while an explicit
-       * `null` means "collected and unavailable" and is written as-is.
-       */
-      type: 'git:update';
-      at: string;
-      branch?: string;
-      baseBranch?: string;
-      branchCreated?: boolean | null;
-      commits?: SessionCommit[];
-      pullRequests?: SessionPullRequest[];
-      /** `owner/repo`, derived from the origin remote. */
-      repositoryName?: string | null;
-      remoteUrl?: string | null;
-      headCommit?: string | null;
-      repositoryRoot?: string | null;
-    }
-  | { type: 'session:end'; at: string; status: 'completed' | 'failed'; error?: string }
-  | {
-      type: 'verify:end';
-      at: string;
-      verdict: 'passed' | 'failed' | 'unverified';
-      level: string;
-      independence: string | null;
-      executionId: string | null;
-    };
-
-export interface SessionEnvironment {
-  node: string;
-  platform: string;
-  /** Winning agent provider for the run. `null` on snapshots from earlier releases. */
-  agent: string | null;
-  /** Winning model for the run. `null` when unset or on older snapshots. */
-  model: string | null;
-  /**
-   * Version of the `issue-flow` package that produced the run. `null` on
-   * snapshots written before it was recorded. It is the version of the CLI, not
-   * of the monitor serving the dashboard — the two can differ, which is exactly
-   * what `--restart-web` exists to fix.
-   */
-  cliVersion: string | null;
-}
-
-export interface SessionLogEntry {
-  at: string;
-  level: SessionLogLevel;
-  message: string;
-}
-
-export interface SessionProcessLogEntry {
-  at: string;
-  phase: string;
-  executionId: string | null;
-  provider: string;
-  stream: 'stdout' | 'stderr' | 'combined';
-  message: string;
-}
-
-export interface SessionConfigurationValue {
-  value: string | null;
-  source: 'default' | 'global' | 'project' | 'env' | 'cli' | 'fallback' | 'recommended';
-}
-
-export interface SessionPhaseConfiguration {
-  phase: string;
-  provider: SessionConfigurationValue;
-  model: SessionConfigurationValue;
-}
-
-export interface SessionConfigurationSnapshot {
-  precedence: string[];
-  defaultProvider: SessionConfigurationValue;
-  defaultModel: SessionConfigurationValue;
-  phases: SessionPhaseConfiguration[];
-  fallbacks: string[];
-  overrides: string[];
-}
-
-export interface SessionStageHistoryEntry {
-  at: string;
-  stage: StoryStage;
-  detail: string | null;
-}
-
-/**
- * Token/cost counters attached to a phase or a story.
- *
- * `null` means "never reported" — the `claude` CLI does not always return
- * usage data, and a metric that was never observed must stay distinguishable
- * from an observed zero.
- */
-export interface SessionUsageSnapshot {
-  inputTokens: number | null;
-  outputTokens: number | null;
-  cacheReadTokens: number | null;
-  cacheCreationTokens: number | null;
-  costUsd: number | null;
-}
-
-/** Issue-wide totals, accumulated from phase- and iteration-scoped metrics. */
-export interface SessionMetricsSnapshot {
-  totalInputTokens: number | null;
-  totalOutputTokens: number | null;
-  totalCacheReadTokens: number | null;
-  totalCacheCreationTokens: number | null;
-  totalCostUsd: number | null;
-}
-
-export interface SessionPhaseSnapshot extends SessionUsageSnapshot {
-  name: string;
-  status: SessionPhaseStatus;
-  startedAt: string | null;
-  endedAt: string | null;
-  durationSeconds: number | null;
-  error: string | null;
-  /** Sum of invocation walls for this phase. */
-  harnessExecutionMs: number | null;
-  /** Phase wall minus harnessExecutionMs, when both are known. */
-  orchestrationOverheadMs: number | null;
-  /** Wall clock − CLI `duration_ms`. */
-  harnessStartupMs: number | null;
-  /** Time to first output, when the harness reports it. */
-  ttftMs: number | null;
-  attemptCount: number | null;
-  retryDurationMs: number | null;
-}
-
-export interface SessionStorySnapshot extends SessionUsageSnapshot {
-  id: string;
-  title: string;
-  priority: number;
-  passes: boolean;
-  /**
-   * When the story flipped to passing during this session; null for stories
-   * that were already passing at session start (their duration is unknown).
-   */
-  completedAt: string | null;
-  /** Wall-clock seconds attributed to the story, or null when unknown. */
-  durationSeconds: number | null;
-  /**
-   * Board-style status, recomputed on every reduction by
-   * {@link deriveStoryStatus}. Observational: the pipeline keeps deciding what
-   * to execute from `passes`.
-   */
-  status: UserStoryStatus;
-  /** IDs of the stories this one depends on, as declared in the plan. */
-  dependencies: string[];
-  /** The plan's description; empty string when the plan carries none. */
-  description: string;
-  /** The plan's acceptance criteria; empty when the plan carries none. */
-  acceptanceCriteria: string[];
-  /**
-   * Fine-grained execution stage, derived only from real pipeline events —
-   * see {@link StoryStage} and the `applyEvent` cases for `iteration:start`,
-   * `stories:update`, `phase:start`/`phase:end` (phase `'review'`) and
-   * `correction:cycle`. Unlike `status`, this is not a post-hoc derivation
-   * recomputed on every reduction: it is set directly, event by event, like
-   * `completedAt`.
-   */
-  stage: StoryStage;
-  /** ISO timestamp of the event that produced the current `stage`. */
-  stageSince: string | null;
-  /** Short human detail for the current stage (e.g. a correction cycle). */
-  stageDetail: string | null;
-  /** Append-only transition history retained in the snapshot for the drawer. */
-  history: SessionStageHistoryEntry[];
-}
-
-export interface SessionActivity {
-  story: string | null;
-  tool: string | null;
-  detail: string | null;
-  since: string;
-}
-
-/** Live resilience state for the current agent invocation. */
-export interface SessionResilienceSnapshot {
-  attempt: number;
-  provider: string | null;
-  model: string | null;
-  lastFailureKind: FailureKind | null;
-  cooldownUntil: string | null;
-  lastActivityAt: string | null;
-}
-
-export interface SessionCommit {
-  hash: string;
-  subject: string;
-  committedAt?: string | null;
-  storyId?: string | null;
-}
-
-export interface SessionPullRequest {
-  number: number;
-  url: string;
-  title: string;
-}
-
-/**
- * The Issue under execution, as far as the session knows it.
- *
- * `number`/`url` come with `session:start`; the remaining fields arrive with
- * `issue:update`, once the provider has resolved the Issue. Everything is
- * nullable because a run may start before (or without) that resolution —
- * `null` means "not reported", never "empty".
- */
-export interface SessionIssueSnapshot {
-  number: number | null;
-  url: string | null;
-  title: string | null;
-  /** Issue body in full; the consumer decides how to fold it. */
-  description: string | null;
-  labels: string[];
-  /** Provider lifecycle state ('open' / 'closed' for the built-ins). */
-  state: string | null;
-}
-
-/**
- * Where the run is happening: which repository, which checkout, which commit.
- *
- * Fed by `git:update` (see `publishGitState`). Every field is nullable because
- * each source is independent and failure-tolerant — no remote configured, a
- * repository with no commits yet or a missing git binary all show up as
- * `null` instead of failing the publication.
- */
-export interface SessionRepositorySnapshot {
-  /** `owner/repo`, derived from the origin remote; null without one. */
-  name: string | null;
-  remoteUrl: string | null;
-  branch: string | null;
-  /** Abbreviated hash of HEAD. */
-  headCommit: string | null;
-  /** Absolute path of the working directory the pipeline runs from. */
-  root: string | null;
-}
-
-export interface SessionSnapshot {
-  schemaVersion: 1;
-  sessionId: string | null;
-  readOnly: true;
-  capabilities: string[];
-  issue: SessionIssueSnapshot;
-  status: SessionStatus;
-  startedAt: string | null;
-  updatedAt: string | null;
-  endedAt: string | null;
-  elapsedSeconds: number | null;
-  estimatedRemainingSeconds: number | null;
-  progress: {
-    percent: number;
-    phasesCompleted: number;
-    phasesTotal: number;
-    storiesCompleted: number;
-    storiesTotal: number;
-  };
-  currentPhase: string | null;
-  currentActivity: SessionActivity | null;
-  phases: SessionPhaseSnapshot[];
-  stories: SessionStorySnapshot[];
-  metrics: SessionMetricsSnapshot;
-  execution: {
-    iteration: number;
-    retries: number;
-    correctionCycle: number;
-    maxCorrectionCycles: number | null;
-  };
-  executions: ExecutionRecord[];
-  processLogs: SessionProcessLogEntry[];
-  configuration: SessionConfigurationSnapshot | null;
-  resilience: SessionResilienceSnapshot;
-  git: {
-    branch: string | null;
-    baseBranch: string | null;
-    branchCreated: boolean | null;
-    startCommit: string | null;
-    commits: SessionCommit[];
-  };
-  repository: SessionRepositorySnapshot;
-  pullRequests: SessionPullRequest[];
-  logs: SessionLogEntry[];
-  errors: SessionLogEntry[];
-  warnings: SessionLogEntry[];
-  lastError: { message: string; at: string } | null;
-  nextSteps: string[];
-  environment: SessionEnvironment | null;
-  /** Acceptance-contract verdict. `null` until a contract has run. */
-  verification: {
-    verdict: 'passed' | 'failed' | 'unverified' | null;
-    level: string | null;
-    independence: string | null;
-  } | null;
-}
-
-export interface SessionReducerOptions {
-  /** Max entries retained in the logs ring buffer. */
-  logLimit?: number;
-}
-
-/** Fresh, all-null usage counters for a new phase or story entry. */
-function emptyUsage(): SessionUsageSnapshot {
-  return {
-    inputTokens: null,
-    outputTokens: null,
-    cacheReadTokens: null,
-    cacheCreationTokens: null,
-    costUsd: null,
-  };
-}
-
-function emptyPhaseTiming(): Pick<
-  SessionPhaseSnapshot,
-  | 'harnessExecutionMs'
-  | 'orchestrationOverheadMs'
-  | 'harnessStartupMs'
-  | 'ttftMs'
-  | 'attemptCount'
-  | 'retryDurationMs'
-> {
-  return {
-    harnessExecutionMs: null,
-    orchestrationOverheadMs: null,
-    harnessStartupMs: null,
-    ttftMs: null,
-    attemptCount: null,
-    retryDurationMs: null,
-  };
-}
-
-function emptyMetrics(): SessionMetricsSnapshot {
-  return {
-    totalInputTokens: null,
-    totalOutputTokens: null,
-    totalCacheReadTokens: null,
-    totalCacheCreationTokens: null,
-    totalCostUsd: null,
-  };
-}
-
-export function createInitialSnapshot(): SessionSnapshot {
-  return {
-    schemaVersion: 1,
-    sessionId: null,
-    readOnly: true,
-    capabilities: [],
-    issue: { number: null, url: null, title: null, description: null, labels: [], state: null },
-    status: 'idle',
-    startedAt: null,
-    updatedAt: null,
-    endedAt: null,
-    elapsedSeconds: null,
-    estimatedRemainingSeconds: null,
-    progress: {
-      percent: 0,
-      phasesCompleted: 0,
-      phasesTotal: 0,
-      storiesCompleted: 0,
-      storiesTotal: 0,
-    },
-    currentPhase: null,
-    currentActivity: null,
-    phases: [],
-    stories: [],
-    metrics: emptyMetrics(),
-    execution: { iteration: 0, retries: 0, correctionCycle: 0, maxCorrectionCycles: null },
-    executions: [],
-    processLogs: [],
-    configuration: null,
-    resilience: {
-      attempt: 0,
-      provider: null,
-      model: null,
-      lastFailureKind: null,
-      cooldownUntil: null,
-      lastActivityAt: null,
-    },
-    git: {
-      branch: null,
-      baseBranch: null,
-      branchCreated: null,
-      startCommit: null,
-      commits: [],
-    },
-    repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
-    pullRequests: [],
-    logs: [],
-    errors: [],
-    warnings: [],
-    lastError: null,
-    nextSteps: [],
-    environment: null,
-    verification: null,
-  };
-}
-
-type MetricsUpdateEvent = Extract<SessionEvent, { type: 'metrics:update' }>;
-
-/**
- * Add a reported delta to an accumulator. `undefined` means "not reported":
- * it leaves the accumulator untouched, so a metric the CLI never returned
- * stays null instead of collapsing to zero.
- */
-function accumulate(current: number | null, delta: number | undefined): number | null {
-  return delta === undefined ? current : (current ?? 0) + delta;
-}
-
-/** Fold the event's token/cost fields into a phase or story entry. */
-function accumulateUsage<T extends SessionUsageSnapshot>(target: T, event: MetricsUpdateEvent): T {
-  return {
-    ...target,
-    inputTokens: accumulate(target.inputTokens, event.inputTokens),
-    outputTokens: accumulate(target.outputTokens, event.outputTokens),
-    cacheReadTokens: accumulate(target.cacheReadTokens, event.cacheReadTokens),
-    cacheCreationTokens: accumulate(target.cacheCreationTokens, event.cacheCreationTokens),
-    costUsd: accumulate(target.costUsd, event.costUsd),
-  };
-}
-
-/**
- * Pick between a reported value and the one already in the snapshot.
- * Unlike `??`, an explicitly reported `null` wins: only `undefined` — the
- * absence of the field on the event — keeps the previous value.
- */
-function reported<T>(value: T | undefined, previous: T): T {
-  return value === undefined ? previous : value;
-}
-
-/**
- * Seconds between two ISO timestamps, or null when either is unparsable.
- */
-function secondsBetween(from: string | null, to: string): number | null {
-  if (from === null) return null;
-  const fromMs = Date.parse(from);
-  const toMs = Date.parse(to);
-  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return null;
-  return Math.max(0, Math.round((toMs - fromMs) / 1000));
-}
-
-function computePercent(phasesCompleted: number, phasesTotal: number): number {
-  if (phasesTotal === 0) return 0;
-  return Math.round((phasesCompleted / phasesTotal) * 100);
-}
-
-/**
- * Estimated seconds until all stories pass: average duration of the stories
- * completed during this session × pending stories. Durations are the gaps
- * between consecutive completions (the first is measured from startedAt).
- * Published as null with fewer than two samples.
- */
-function estimateRemainingSeconds(snapshot: SessionSnapshot): number | null {
-  const completions = snapshot.stories
-    .map((story) => (story.completedAt === null ? Number.NaN : Date.parse(story.completedAt)))
-    .filter((ms) => !Number.isNaN(ms))
-    .sort((a, b) => a - b);
-  if (completions.length < 2) return null;
-
-  const startMs = snapshot.startedAt === null ? Number.NaN : Date.parse(snapshot.startedAt);
-  const boundaries = Number.isNaN(startMs) ? completions : [startMs, ...completions];
-  const durations: number[] = [];
-  for (let i = 1; i < boundaries.length; i++) {
-    durations.push(Math.max(0, boundaries[i] - boundaries[i - 1]));
-  }
-  if (durations.length === 0) return null;
-
-  const averageMs = durations.reduce((sum, d) => sum + d, 0) / durations.length;
-  const pending = snapshot.stories.filter((story) => !story.passes).length;
-  return Math.round((averageMs * pending) / 1000);
-}
-
-/**
- * Remaining pipeline phases, in order. The phase list originates from the
- * session:start event, whose caller passes PIPELINE_PHASES (or
- * PIPELINE_PHASES_NO_BRANCH in --no-branch mode) from src/core/pipeline.ts.
- */
-function deriveNextSteps(snapshot: SessionSnapshot): string[] {
-  if (snapshot.status === 'completed') return [];
-  return snapshot.phases.filter((phase) => phase.status === 'pending').map((phase) => phase.name);
-}
-
-/**
- * Board status of a single story, in a fixed order that makes the derivation
- * idempotent — recomputing it over its own result yields the same value:
- *
- * 1. `passes: true` → `done` (execution is the only authority on completion);
- * 2. already `in_review` → kept, since nothing here can produce or clear it;
- * 3. the story owns the current activity → `in_progress`;
- * 4. otherwise → `backlog`.
- *
- * `in_review` is therefore never derived: it only enters through an explicit
- * `status` in tasks.json, and leaves when the story starts passing.
- */
-function deriveStoryStatus(
-  story: SessionStorySnapshot,
-  activeStory: string | null,
-): UserStoryStatus {
-  if (story.passes) return 'done';
-  if (story.status === 'in_review') return 'in_review';
-  if (activeStory !== null && activeStory === story.id) return 'in_progress';
-  return 'backlog';
-}
-
-/** Recompute every story's status; entries that do not change keep identity. */
-function deriveStoryStatuses(snapshot: SessionSnapshot): SessionStorySnapshot[] {
-  const activeStory = snapshot.currentActivity?.story ?? null;
-  return snapshot.stories.map((story) => {
-    const status = deriveStoryStatus(story, activeStory);
-    return status === story.status ? story : { ...story, status };
-  });
-}
-
-/**
- * Fold a SessionEvent into a SessionSnapshot. Pure: never mutates the input
- * and performs no I/O. Unknown event types return the snapshot unchanged.
- *
- * errors/warnings are derived slices of the logs ring buffer, recomputed on
- * each reduction — they are never accumulated separately. The same applies
- * to estimatedRemainingSeconds, nextSteps and each story's status.
- */
 export function reduceSessionEvent(
   snapshot: SessionSnapshot,
   event: SessionEvent,
