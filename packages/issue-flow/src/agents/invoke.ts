@@ -7,6 +7,7 @@ import {
 import { getSessionPublisher } from '../core/session-publisher.js';
 import { isoNow } from '../core/state-manager.js';
 import { type ClassifiedFailure, classify, type FailureKind } from '../resilience/errors.js';
+import { evaluateCeilings } from '../routing/budget.js';
 import { decideRouting } from '../routing/decide.js';
 import type { ProviderHealthRecord } from '../storage/schemas.js';
 import { beginExecution, endExecution } from '../telemetry/recorder.js';
@@ -37,6 +38,12 @@ async function selectionForForced(invocation: AgentInvocation): Promise<AgentSel
 
 const attempts = new Map<string, number>();
 const lastFailure = new Map<string, FailureKind>();
+const issueSpend = {
+  reportedUsd: 0,
+  durationMs: 0,
+  executions: 0,
+  sawReported: false,
+};
 
 /** Declared identity of a runner — never inferred from argv or logs. */
 export function declaredAgentIdentity(provider: AgentProviderId): {
@@ -71,6 +78,7 @@ export interface SelectedAgentRun {
   selection: AgentSelection;
   attempt: number;
   health: ProviderHealthRecord | null;
+  blocked?: { stopReason: string; detail: string; actor: 'human' };
 }
 
 function nextAttempt(phase: string): number {
@@ -82,6 +90,10 @@ function nextAttempt(phase: string): number {
 export function resetAgentInvocationState(): void {
   attempts.clear();
   lastFailure.clear();
+  issueSpend.reportedUsd = 0;
+  issueSpend.durationMs = 0;
+  issueSpend.executions = 0;
+  issueSpend.sawReported = false;
 }
 
 /** One invocation, including provider selection, health persistence and audit events. */
@@ -145,6 +157,45 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
   });
 
   const runner = runnerFor(selection.provider);
+  const ceiling = evaluateCeilings({
+    ceilings: routingCfg.ceilings,
+    spent: {
+      reportedUsd: issueSpend.reportedUsd,
+      costStatus: issueSpend.sawReported ? 'reported' : 'unknown',
+      durationMs: issueSpend.durationMs,
+      executions: issueSpend.executions,
+    },
+  });
+  if (!ceiling.ok) {
+    const detail = `blocked by ${ceiling.binding} ceiling (${ceiling.numbers.spent} ≥ ${ceiling.numbers.ceiling}). Enforced by Issue Flow, not by a harness flag.`;
+    const run = {
+      success: false,
+      result: '',
+      rawOutput: detail,
+      exitCode: 1,
+      usage: null,
+      error: detail,
+      agent: { provider: selection.provider, model: selection.settings.model },
+      harnessVersion: peekHarnessVersion(selection.provider),
+    };
+    if (executionId !== null) {
+      await endExecution({
+        id: executionId,
+        status: 'failed',
+        error: detail,
+        exitCode: 1,
+        stopReason: ceiling.stopReason,
+      });
+    }
+    return {
+      run,
+      failure: null,
+      selection,
+      attempt,
+      health: null,
+      blocked: { stopReason: ceiling.stopReason, detail, actor: 'human' },
+    };
+  }
   if (
     runner.capabilities.nativeTimeout &&
     invocation.timeout === 0 &&
@@ -198,6 +249,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
   }
 
   let run: AgentRunResult;
+  const startedMs = Date.now();
   try {
     run = await runner.run(
       {
@@ -222,6 +274,12 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       });
     }
     throw err;
+  }
+  issueSpend.executions += 1;
+  issueSpend.durationMs += Math.max(0, Date.now() - startedMs);
+  if (run.usage?.costUsd !== undefined) {
+    issueSpend.reportedUsd += run.usage.costUsd;
+    issueSpend.sawReported = true;
   }
 
   const failure =

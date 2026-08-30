@@ -16,3 +16,8 @@ ladder: it never overrides an explicit `agent.phases` / `--agent`.
   permissive than the configured phase.
 - **Cost `unknown` does not score cost.** `{ unknown }` is not `$0`.
 - **`active` (stage 3) applies only where nothing was configured.**
+- **Escalation lives here, not in `resilience/`.** Default `enabled: false`
+  and every ceiling `null`. `detectNonConvergence()` reads `CheckResult`
+  ids, never error text. The ladder only climbs. `provider_down` never
+  enters it. A ceiling is `blocked`, left only by `actor: 'human'`.
+  Cost `unknown` does not consume the cost ceiling.

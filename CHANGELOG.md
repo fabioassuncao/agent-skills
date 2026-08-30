@@ -16,6 +16,13 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Escalada por não-convergência e tetos** (#86). `src/routing/budget.ts` e
+  `escalation.ts` são puros: tetos `null` e `escalation.enabled: false` por
+  default. Custo `unknown` não consome teto de custo. A escada só sobe.
+  `provider_down` não entra nela. Enforcement no `invokeSelectedAgent`, não
+  em flag de harness. `--no-escalation`, `--max-cost`, `--max-duration`.
+  Não toca `src/resilience/`. Experimento no corpus da #79 fica pendente.
+
 - **Antigravity CLI (`agy`) como quarto provider** (#80). `AntigravityRunner`
   traduz `permission` via `--mode`, passa `--add-dir` do workspace,
   `--dangerously-skip-permissions` e `--disable-slash-commands` em toda

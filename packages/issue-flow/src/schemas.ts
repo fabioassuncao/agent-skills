@@ -638,6 +638,34 @@ export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
 export const routingConfigSchema = z.object({
   mode: z.enum(['off', 'shadow', 'recommend', 'active']).default('shadow'),
   profile: z.enum(['economy', 'balanced', 'quality', 'speed']).default('balanced'),
+  escalation: z
+    .object({
+      enabled: z.boolean().default(false),
+      minAttemptsBeforeEscalation: z.number().int().positive().default(2),
+      maxEscalations: z.number().int().nonnegative().default(2),
+      maxRungs: z
+        .array(z.enum(['effort', 'model', 'harness', 'review', 'decompose']))
+        .default(['effort', 'model', 'harness']),
+    })
+    .default({
+      enabled: false,
+      minAttemptsBeforeEscalation: 2,
+      maxEscalations: 2,
+      maxRungs: ['effort', 'model', 'harness'],
+    }),
+  ceilings: z
+    .object({
+      maxCostUsdPerIssue: z.number().nonnegative().nullable().default(null),
+      maxDurationMsPerIssue: z.number().nonnegative().nullable().default(null),
+      maxExecutionsPerIssue: z.number().int().nonnegative().nullable().default(null),
+      onCeiling: z.literal('block').default('block'),
+    })
+    .default({
+      maxCostUsdPerIssue: null,
+      maxDurationMsPerIssue: null,
+      maxExecutionsPerIssue: null,
+      onCeiling: 'block',
+    }),
 });
 
 export type VerifyConfig = z.infer<typeof verifyConfigSchema>;

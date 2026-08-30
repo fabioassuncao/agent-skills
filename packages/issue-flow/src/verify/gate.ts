@@ -1,9 +1,20 @@
 import { dirname } from 'node:path';
 import { setLastError } from '../core/state-manager.js';
+import { failureFingerprint, fatalFailedCount } from '../routing/escalation.js';
 import type { EngineConfig, ResolvedPaths, TaskPlan } from '../types.js';
 import { printError, printSuccess, printWarning } from '../ui/logger.js';
 import { formatVerificationLine } from './present.js';
 import { type AcceptanceOutcome, runAcceptance } from './run-issue.js';
+
+const contractHistory: { fingerprint: string; fatalFailed: number }[] = [];
+
+export function resetEscalationHistory(): void {
+  contractHistory.length = 0;
+}
+
+export function contractFailureHistory(): readonly { fingerprint: string; fatalFailed: number }[] {
+  return contractHistory;
+}
 
 /** `prdFile` is `tasks.json` in the issue directory (global or standalone). */
 export function resolveIssueDir(_config: EngineConfig, paths: ResolvedPaths): string {
@@ -31,6 +42,11 @@ export function applyAcceptanceToPlan(
   const line = formatVerificationLine(outcome.verdict, outcome.level);
   if (outcome.verdict === 'failed') {
     printError(line);
+    const results = outcome.contract.results;
+    contractHistory.push({
+      fingerprint: failureFingerprint(results),
+      fatalFailed: fatalFailedCount(results),
+    });
     return {
       plan: setLastError(plan, 'task_execution', line),
       failed: true,

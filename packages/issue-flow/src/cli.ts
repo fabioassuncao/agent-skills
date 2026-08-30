@@ -12,6 +12,7 @@ import {
   setAgentCliOverrides,
   setIssuesCliOverrides,
   setResilienceCliOverrides,
+  setRoutingCliOverrides,
   setVerifyCliOverrides,
   setWebCliOverrides,
 } from './config.js';
@@ -24,7 +25,7 @@ import {
 } from './issues/cli-flags.js';
 import type { IssueGenerateTarget } from './issues/types.js';
 import { resolveResilienceOverrides } from './resilience/cli-flags.js';
-import type { WebConfig } from './schemas.js';
+import type { RoutingConfig, WebConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
 
 const require = createRequire(import.meta.url);
@@ -37,6 +38,14 @@ function parseInteger(value: string): number {
   const parsed = parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed < 0) {
     throw new InvalidArgumentError('Must be a non-negative integer.');
+  }
+  return parsed;
+}
+
+function parseUsd(value: string): number {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new InvalidArgumentError('Must be a non-negative number.');
   }
   return parsed;
 }
@@ -105,6 +114,9 @@ function withGlobalOptions(cmd: Command): Command {
       )
       .option('--verify-level <level>', 'Acceptance-contract level: L0 | L1 | L2 | L3 | L5')
       .option('--no-cross-verify', 'Keep L2 off even when a trigger would fire')
+      .option('--no-escalation', 'Keep routing.escalation.enabled off')
+      .option('--max-cost <usd>', 'Issue cost ceiling in USD (Issue Flow enforces it)', parseUsd)
+      .option('--max-duration <seconds>', 'Issue duration ceiling in seconds', parseInteger)
   );
 }
 
@@ -147,6 +159,27 @@ function resolveVerifyOverrides(opts: Record<string, unknown>): {
     overrides.level = opts.verifyLevel as (typeof VERIFY_LEVELS)[number];
   }
   if (opts.crossVerify === false) overrides.crossVerify = false;
+  return overrides;
+}
+
+function resolveRoutingOverrides(opts: Record<string, unknown>): Partial<RoutingConfig> {
+  const overrides: Partial<RoutingConfig> = {};
+  if (opts.escalation === false) {
+    overrides.escalation = {
+      enabled: false,
+      minAttemptsBeforeEscalation: 2,
+      maxEscalations: 2,
+      maxRungs: ['effort', 'model', 'harness'],
+    };
+  }
+  if (typeof opts.maxCost === 'number' || typeof opts.maxDuration === 'number') {
+    overrides.ceilings = {
+      maxCostUsdPerIssue: typeof opts.maxCost === 'number' ? opts.maxCost : null,
+      maxDurationMsPerIssue: typeof opts.maxDuration === 'number' ? opts.maxDuration * 1000 : null,
+      maxExecutionsPerIssue: null,
+      onCeiling: 'block',
+    };
+  }
   return overrides;
 }
 
@@ -252,6 +285,7 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
   try {
     setVerifyCliOverrides(resolveVerifyOverrides(opts));
     setAgentCliOverrides(resolveAgentOverrides(opts));
+    setRoutingCliOverrides(resolveRoutingOverrides(opts));
   } catch (error) {
     if (error instanceof InvalidArgumentError) {
       printError(error.message);

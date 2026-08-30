@@ -820,6 +820,9 @@ Objective checks run at the end of `execute` and before the `review` LLM. An emp
 |------|---------|
 | `--verify-level L0\|L1\|L2\|L3\|L5` | Request a verification level |
 | `--no-cross-verify` | Keep L2 off even when a trigger would fire |
+| `--no-escalation` | Keep `routing.escalation.enabled` off (the default) |
+| `--max-cost <usd>` | Issue cost ceiling, enforced by Issue Flow (not a harness flag) |
+| `--max-duration <seconds>` | Issue duration ceiling |
 
 A missing file, invalid JSON or an invalid `issues` key falls back to the defaults with a warning -- it never throws. Every default reproduces the previous behavior.
 

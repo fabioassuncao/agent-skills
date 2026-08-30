@@ -14,6 +14,7 @@ import {
   type ExecutionStatus,
   type ExecutionTrigger,
   type NormalizedUsage,
+  type StopReason,
   type TelemetryConfig,
 } from './types.js';
 
@@ -194,6 +195,7 @@ export interface EndExecutionInput {
   modelSource?: ExecutionRecord['agent']['model']['source'];
   harnessVersion?: string | null;
   providerSessionId?: string | null;
+  stopReason?: StopReason | null;
 }
 
 export async function endExecution(input: EndExecutionInput): Promise<void> {
@@ -273,6 +275,7 @@ export async function endExecution(input: EndExecutionInput): Promise<void> {
         failure,
         owner: null,
         ...(input.storyIds === undefined ? {} : { storyIds: input.storyIds }),
+        ...(input.stopReason === undefined ? {} : { stopReason: input.stopReason }),
       };
       return { ...plan, executions: records };
     });
