@@ -12,7 +12,7 @@ import type { ExecutionPlan, ExecutionPlanIssue } from './types.js';
  */
 
 /** What the user decided about the discovered hierarchy. */
-export type QueueChoice = 'requested' | 'all' | 'cancel';
+export type QueueChoice = 'requested' | 'all' | 'cascade' | 'cancel';
 
 /** How many invalid answers are tolerated before the prompt gives up. */
 const MAX_PROMPT_ATTEMPTS = 3;
@@ -33,6 +33,8 @@ export interface ConfirmQueueOptions {
   yes?: boolean;
   /** `--only`: run just the requested Issues, without asking. */
   only?: boolean;
+  /** `--cascade`: the hierarchy of a container, without implementing it. */
+  cascade?: boolean;
   /**
    * Whether a prompt may be shown. Defaults to a real TTY on both ends outside
    * CI, mirroring `pr-review`'s discovery confirmation.
@@ -91,17 +93,31 @@ export function buildQueueSummaryLines(plan: ExecutionPlan): string[] {
   const lines: string[] = [];
 
   if (primary !== undefined) {
-    lines.push(`  Main issue:   ${issueLabel(primary)}${primary.title ? ` ${primary.title}` : ''}`);
+    const role = primary.role === 'container' ? '   (container)' : '';
+    lines.push(
+      `  Main issue:   ${issueLabel(primary)}${primary.title ? ` ${primary.title}` : ''}${role}`,
+    );
   }
-  lines.push(`  Total issues: ${plan.issues.length}`);
+  const executables = plan.issues.filter((entry) => entry.role !== 'container').length;
+  const containers = plan.issues.length - executables;
+  lines.push(
+    containers > 0
+      ? `  Total issues: ${executables} executable + ${containers} container`
+      : `  Total issues: ${plan.issues.length}`,
+  );
   lines.push('  Suggested order:');
 
   for (const entry of plan.issues) {
     const reason = reasonFor(entry);
     const flag = entry.heuristic ? ' ~' : '';
+    const external =
+      entry.externalDependencies.length > 0
+        ? `  ⚠ depends on ${entry.externalDependencies.map((id) => `#${id}`).join(', ')} (outside this scope)`
+        : '';
+    const role = entry.role === 'container' ? ' (container)' : '';
     const title = entry.title === '' ? '' : ` ${entry.title}`;
     lines.push(
-      `    ${entry.position}. ${issueLabel(entry)}${title}${reason === '' ? '' : ` (${reason})`}${flag}`,
+      `    ${entry.position}. ${issueLabel(entry)}${title}${role}${reason === '' ? '' : ` (${reason})`}${flag}${external}`,
     );
   }
 
@@ -122,7 +138,17 @@ export function buildScopeSummaryLine(plan: ExecutionPlan, choice: QueueChoice):
   if (choice === 'requested') {
     return `Scope: ${plan.requested.length} requested issue(s).`;
   }
+  if (choice === 'cascade') {
+    const executables = plan.issues.filter((entry) => entry.role !== 'container').length;
+    return `Scope: hierarchy of #${primary} (${executables} executable, container not implemented).`;
+  }
   return `Scope: ${plan.issues.length} issues from the hierarchy of #${primary}.`;
+}
+
+function requestedIsContainer(plan: ExecutionPlan): boolean {
+  return plan.issues.some(
+    (entry) => plan.requested.includes(entry.id) && entry.role === 'container',
+  );
 }
 
 /**
@@ -147,10 +173,25 @@ export async function confirmQueue(
     (options.stdout ?? process.stdout).write(`${line}\n`);
   }
 
+  const container = requestedIsContainer(plan);
+
   if (options.only === true) {
+    if (container) {
+      warn(
+        `${plan.requested.map((id) => `#${id}`).join(', ')} is a container. ` +
+          '--only will run it as an executable issue.',
+      );
+    }
     info(`--only: running just the ${requestedOnlyCount} issue(s) you asked for.`);
     info(buildScopeSummaryLine(plan, 'requested') ?? '');
     return 'requested';
+  }
+  if (options.cascade === true || (options.yes === true && container)) {
+    info(
+      `${options.cascade === true ? '--cascade' : '--yes'}: running the hierarchy of the container, without implementing it.`,
+    );
+    info(buildScopeSummaryLine(plan, 'cascade') ?? '');
+    return 'cascade';
   }
   if (options.yes === true) {
     info(`--yes: running the whole hierarchy (${plan.issues.length} issues).`);
@@ -159,6 +200,12 @@ export async function confirmQueue(
   }
 
   const interactive = options.interactive ?? isInteractiveByDefault();
+  if (!interactive && container) {
+    throw new QueueConfirmationError(
+      `${plan.requested.map((id) => `#${id}`).join(', ')} is a container (umbrella) and the terminal is not interactive. ` +
+        'Re-run with --cascade to execute its children, or --only to execute just that issue.',
+    );
+  }
   if (!interactive && options.singleRequest === true) {
     warn(
       'A larger structure was found, but the terminal is not interactive: running just ' +
@@ -177,15 +224,19 @@ export async function confirmQueue(
     );
   }
 
-  const query =
-    `Which scope should run? [1] Only the issues informed (${requestedOnlyCount})  ` +
-    `[2] The whole hierarchy (${plan.issues.length})  [3] Cancel: `;
+  const query = container
+    ? `Which scope should run? [1] The hierarchy of #${plan.id} ` +
+      `(${plan.issues.filter((entry) => entry.role !== 'container').length} issues)  ` +
+      `[2] Include dependencies outside it  [3] Just #${plan.id} itself  [4] Cancel: `
+    : `Which scope should run? [1] Only the issues informed (${requestedOnlyCount})  ` +
+      `[2] The whole hierarchy (${plan.issues.length})  [3] Cancel: `;
 
   const choice = await ask(
     query,
     options.stdin ?? process.stdin,
     options.stdout ?? process.stdout,
     warn,
+    container ? 'container' : 'plain',
   );
   const summary = buildScopeSummaryLine(plan, choice);
   if (summary) info(summary);
@@ -202,6 +253,7 @@ async function ask(
   stdin: NodeJS.ReadableStream,
   stdout: NodeJS.WritableStream,
   warn: (message: string) => void,
+  mode: 'plain' | 'container' = 'plain',
 ): Promise<QueueChoice> {
   const rl = createInterface({ input: stdin, output: stdout });
   const queued: string[] = [];
@@ -248,6 +300,14 @@ async function ask(
         return 'cancel';
       }
       const choice = answer.trim();
+      if (mode === 'container') {
+        if (choice === '' || choice === '1') return 'cascade';
+        if (choice === '2') return 'all';
+        if (choice === '3') return 'requested';
+        if (choice === '4') return 'cancel';
+        warn(`Invalid choice: '${choice}'. Enter 1, 2, 3 or 4.`);
+        continue;
+      }
       if (choice === '1') return 'requested';
       // An empty answer accepts the suggestion, which is the whole point of
       // having computed an order: the same convention as `pr-review`'s (Y/n).

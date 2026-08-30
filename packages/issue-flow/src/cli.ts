@@ -337,6 +337,7 @@ withUserStoryNumberingOptions(
             )
             .option('--pr-review', 'Review the created Pull Request after the pr phase')
             .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
+            .option('--cascade', 'Run the children of a container, without implementing it')
             .option('--only', 'Run just the issues informed, without their hierarchy')
             // Same two flags `execute` has always had, forwarded to the execute
             // phase of the pipeline: a `run` is the only way most users reach that
@@ -404,6 +405,7 @@ withUserStoryNumberingOptions(
       {
         yes: scope.yes,
         only: scope.only,
+        cascade: scope.cascade,
         continueNumbering: numbering.continueFlag,
         startUs: numbering.startUs,
         retryLimit: options.retryLimit,

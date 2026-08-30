@@ -13,7 +13,7 @@ function result(overrides?: Partial<ExecResult>): ExecResult {
   return { stdout: '', stderr: '', exitCode: 0, ...overrides };
 }
 
-const VIEW_FIELDS = 'number,title,body,labels,state,url,createdAt,updatedAt';
+const VIEW_FIELDS = 'number,title,body,labels,state,url,createdAt,updatedAt,issueType';
 
 /**
  * Every `gh` invocation now goes through the retry chokepoint carrying the
@@ -74,6 +74,15 @@ describe('get', () => {
       hashIssueContent('Abstract issue providers', 'Make the pipeline origin-agnostic.'),
     );
     expect(issue?.raw).toEqual(ghPayload);
+    expect(issue?.type).toBeUndefined();
+  });
+
+  it('maps issueType.name onto Issue.type when GitHub reports one', async () => {
+    mockRun.mockResolvedValueOnce(
+      result({ stdout: JSON.stringify({ ...ghPayload, issueType: { name: 'Epic' } }) }),
+    );
+    const issue = await provider.get('23');
+    expect(issue?.type).toBe('Epic');
   });
 
   it('normalizes CLOSED into the closed state', async () => {

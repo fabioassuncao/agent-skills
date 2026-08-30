@@ -295,6 +295,23 @@ describe('issueClosesLines', () => {
     ).toBe('Closes #52');
   });
 
+  it('uses Refs for a container whose children did not all complete', () => {
+    expect(
+      issueClosesLines([
+        {
+          id: '87',
+          number: 87,
+          title: 'Epic',
+          url: 'u',
+          source: 'github',
+          role: 'container',
+          complete: false,
+        },
+        { id: '62', number: 62, title: 'Agents', url: 'u', source: 'github', complete: true },
+      ]),
+    ).toBe('Refs #87\nCloses #62');
+  });
+
   it('is empty when no issue of the queue is hosted on GitHub', () => {
     expect(
       issueClosesLines([{ id: 'a', number: null, title: '', url: null, source: 'local' }]),

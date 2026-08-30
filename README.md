@@ -107,7 +107,8 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--from <phase>` | Resume from a specific phase |
 | `--no-branch` | Run on the current branch without creating a new branch or PR |
 | `--pr-review` | Review the created Pull Request after the `pr` phase (see [`pr-review`](#pr-review----review-a-pull-request)) |
-| `-y, --yes` | Run the whole discovered hierarchy without asking (see [Multiple issues](#multiple-issues-and-hierarchies)) |
+| `-y, --yes` | Run the whole discovered hierarchy without asking (see [Multiple issues](#multiple-issues-and-hierarchies)). On a container, this means `--cascade` |
+| `--cascade` | Run the children of a container (Epic / issue with sub-issues), without implementing the umbrella |
 | `--only` | Run just the issues informed, without their hierarchy |
 | `--continue` | Continue User Story numbering from the last one used in this project (see [User Story numbering continuity](#user-story-numbering-continuity)) |
 | `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history. In a queue it applies to the first issue only; the rest continue from history |
@@ -151,7 +152,7 @@ Answering `2` (or just pressing Enter) runs the whole thing; `1` trims it to wha
 
 **Order of execution.** The queue is ordered by, in this precedence: **dependencies and blocks** (a hard constraint -- an issue never starts before something it depends on has finished) → **hierarchy** (a parent before its children) → **priority labels** (`high` > `medium` > `low`; an issue with no priority label sorts after every labelled one) → **issue number**. A dependency **cycle** is refused with an explicit error instead of being resolved into an arbitrary order.
 
-**Non-interactive runs.** Outside a TTY (CI, a pipe) the answer must come from a flag: `--yes` runs the whole hierarchy, `--only` runs just what you informed. With **several issues informed**, passing neither **fails with exit code 1** rather than guessing -- picking silently would either implement issues nobody approved or ignore a dependency you were never told about. With a **single issue** informed, there is nothing to guess: the run falls back to that issue alone, with a warning, so a command that always worked keeps working. The same rule applies to a discovered dependency **cycle** -- refused for a multi-issue request, degraded to the single issue you asked for otherwise. `--yes` and `--only` cannot be combined.
+**Non-interactive runs.** Outside a TTY (CI, a pipe) the answer must come from a flag: `--yes` runs the whole hierarchy, `--cascade` runs the children of a container, `--only` runs just what you informed. With **several issues informed**, passing neither **fails with exit code 1** rather than guessing -- picking silently would either implement issues nobody approved or ignore a dependency you were never told about. With a **single issue** informed that is **not** a container, the run falls back to that issue alone, with a warning. A **container** (an Epic, or any issue with sub-issues) without `--cascade` or `--only` **fails**: running the umbrella by omission would implement a document nobody approved. The same rule applies to a discovered dependency **cycle** -- refused for a multi-issue request, degraded to the single issue you asked for otherwise. `--yes` and `--only` cannot be combined.
 
 **How a queue runs.** Every issue goes through the same phases as always (`prd` → `plan` → `execute` → `review`), each with its own `tasks.json`, its own [session](#web-monitoring) and its own token/cost accounting, all inside a single process -- nothing has to be restarted between issues. What the queue owns is what is shared:
 

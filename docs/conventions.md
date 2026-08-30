@@ -179,7 +179,11 @@ organization. The other three answer a question those cannot: *is this worth
 doing*, *what is the answer*, and *what is the umbrella*.
 
 **An open issue is not approved work.** `Idea`, `Research` and `Epic` record
-intent and never authorize an agent to start implementing.
+intent and never authorize an agent to start implementing. The multi-issue
+queue honours that: an Epic (or any issue with sub-issues) is a `container`
+— `issue-flow run <epic> --cascade` executes the children and never a phase
+for the umbrella. Without `--cascade` or `--only`, a non-interactive run
+of a container fails instead of implementing the document nobody approved.
 
 ### What is deliberately not a type
 

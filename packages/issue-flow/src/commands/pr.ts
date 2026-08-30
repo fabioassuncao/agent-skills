@@ -61,6 +61,10 @@ export interface PrQueueIssue {
   url: string | null;
   /** Origin the Issue came from; `github` is what GitHub can close. */
   source: IssueSource;
+  parent?: string | null;
+  role?: 'executable' | 'container';
+  /** When false, the body uses `Refs` instead of `Closes`. */
+  complete?: boolean;
 }
 
 /**
@@ -105,7 +109,10 @@ export function issueClosesLines(issues: readonly PrQueueIssue[]): string {
   return issueReferenceLines({
     references: issues
       .filter((entry) => entry.source === 'github' && entry.number !== null)
-      .map((entry) => ({ number: entry.number as number, complete: true })),
+      .map((entry) => ({
+        number: entry.number as number,
+        complete: entry.complete !== false,
+      })),
   });
 }
 
@@ -122,10 +129,24 @@ export function multiIssueContext(queue: PrQueueContext | undefined): string {
     return '';
   }
 
+  const byId = new Map(queue.issues.map((entry) => [entry.id, entry]));
+  const depthOf = (entry: PrQueueIssue): number => {
+    let depth = 0;
+    let parent = entry.parent ?? null;
+    const seen = new Set<string>();
+    while (parent !== null && !seen.has(parent)) {
+      seen.add(parent);
+      depth += 1;
+      parent = byId.get(parent)?.parent ?? null;
+    }
+    return depth;
+  };
   const order = queue.issues
-    .map(
-      (entry, index) => `${index + 1}. ${issueRef(entry)}${entry.title ? ` — ${entry.title}` : ''}`,
-    )
+    .map((entry, index) => {
+      const indent = '  '.repeat(depthOf(entry));
+      const role = entry.role === 'container' ? ' (container)' : '';
+      return `${index + 1}. ${indent}${issueRef(entry)}${entry.title ? ` — ${entry.title}` : ''}${role}`;
+    })
     .join('\n');
 
   const pending = [

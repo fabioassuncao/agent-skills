@@ -289,7 +289,7 @@ describe('queue of several issues', () => {
     const executed = vi
       .mocked(runExecute)
       .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
-    expect(executed).toEqual(['50', '52', '51']);
+    expect(executed).toEqual(['52', '51']);
     // Prerequisites are checked once for the whole queue, not per issue.
     expect(vi.mocked(runInit)).toHaveBeenCalledTimes(1);
   });
@@ -298,7 +298,7 @@ describe('queue of several issues', () => {
     await run('50');
 
     const branches = await Promise.all(
-      ['50', '51', '52'].map(async (id) => {
+      ['51', '52'].map(async (id) => {
         const paths = await resolveIssuePaths(id);
         const plan = JSON.parse(
           await import('node:fs/promises').then((fs) => fs.readFile(paths.tasksFile, 'utf-8')),
@@ -306,12 +306,12 @@ describe('queue of several issues', () => {
         return plan.branchName;
       }),
     );
-    expect(branches).toEqual(['issue/50-work', 'issue/50-work', 'issue/50-work']);
+    expect(branches).toEqual(['issue/52-work', 'issue/52-work']);
 
     const scopes = vi
       .mocked(runExecute)
       .mock.calls.map(([, options]) => (options as { commitScope?: string }).commitScope);
-    expect(scopes).toEqual(['issue-50', 'issue-52', 'issue-51']);
+    expect(scopes).toEqual(['issue-52', 'issue-51']);
   });
 
   it('makes an issue planned before the queue adopt the shared branch', async () => {
@@ -328,7 +328,7 @@ describe('queue of several issues', () => {
     await run('50');
 
     const plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8'));
-    expect(plan.branchName).toBe('issue/50-work');
+    expect(plan.branchName).toBe('issue/52-work');
   });
 
   it('opens exactly one Pull Request, covering every issue of the queue', async () => {
@@ -355,7 +355,13 @@ describe('queue of several issues', () => {
     // The real `pr` phase writes the reference on the primary issue's plan.
     vi.mocked(runPr).mockImplementation(async (issue: string) => {
       const paths = await resolveIssuePaths(issue);
-      const plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8'));
+      await mkdir(paths.issueDir, { recursive: true });
+      let plan: TaskPlan;
+      try {
+        plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8')) as TaskPlan;
+      } catch {
+        plan = taskPlan(issue, 'issue/52-work');
+      }
       plan.pullRequest = pullRequest;
       plan.pipeline.prCreated = true;
       await writeFile(paths.tasksFile, JSON.stringify(plan, null, 2), 'utf-8');
@@ -410,8 +416,7 @@ describe('queue of several issues', () => {
     // Handing 27 to every issue would give them all the same ids — the very
     // collision issue #36 set out to remove.
     expect(numbering).toEqual([
-      ['50', 27],
-      ['52', undefined],
+      ['52', 27],
       ['51', undefined],
     ]);
   });
@@ -421,7 +426,7 @@ describe('queue of several issues', () => {
 
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
     expect(plan.status).toBe('completed');
-    expect(plan.branchName).toBe('issue/50-work');
+    expect(plan.branchName).toBe('issue/52-work');
     expect(plan.issues.map((entry) => [entry.id, entry.status])).toEqual([
       ['50', 'completed'],
       ['52', 'completed'],
@@ -515,18 +520,10 @@ describe('scope confirmation', () => {
     relations.set('51', { ...emptyRelations('51'), parent: '50' });
   });
 
-  it('runs just the informed issue when it cannot ask (single issue, no flag)', async () => {
-    // The user asked for one issue; only the *hierarchy* around it needs
-    // consent, so a non-interactive terminal falls back to exactly what was
-    // asked for instead of failing a run that always worked.
+  it('fails a non-interactive container without a flag instead of implementing it', async () => {
     const code = await run('50', {});
-    expect(code).toBe(0);
-
-    const executed = vi
-      .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
-    expect(executed).toEqual(['50']);
-    expect(existsSync((await resolveQueuePaths('50')).planFile)).toBe(false);
+    expect(code).toBe(1);
+    expect(vi.mocked(runExecute)).not.toHaveBeenCalled();
   });
 
   it('still fails when several issues were informed and it cannot ask', async () => {
@@ -581,7 +578,7 @@ describe('one failing issue does not have to end the queue (US-027)', () => {
     expect(await run('50')).not.toBe(0);
 
     // 50 ran, 51 failed, and the queue ended there.
-    expect(executed()).toEqual(['50', '51']);
+    expect(executed()).toEqual(['51']);
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
     expect(plan.issues.find((entry) => entry.id === '51')?.status).toBe('failed');
     expect(plan.issues.find((entry) => entry.id === '52')?.status).toBe('pending');
@@ -593,9 +590,9 @@ describe('one failing issue does not have to end the queue (US-027)', () => {
     const code = await run('50', { yes: true, onIssueFailure: 'skip' });
 
     // Everything ran; 51 was set aside and retried at the end of the queue.
-    expect(executed()).toEqual(['50', '51', '52', '53', '51']);
+    expect(executed()).toEqual(['51', '52', '53', '51']);
     // It still failed the second time, so the queue reports failure — but the
-    // nine independent issues are done rather than never attempted.
+    // independent issues are done rather than never attempted.
     expect(code).not.toBe(0);
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
     expect(plan.issues.find((entry) => entry.id === '52')?.status).toBe('completed');
@@ -619,7 +616,7 @@ describe('one failing issue does not have to end the queue (US-027)', () => {
 
     expect(await run('50', { yes: true, onIssueFailure: 'skip' })).toBe(0);
 
-    expect(executed()).toEqual(['50', '51', '52', '53', '51']);
+    expect(executed()).toEqual(['51', '52', '53', '51']);
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
     expect(plan.status).toBe('completed');
   });
@@ -630,7 +627,7 @@ describe('one failing issue does not have to end the queue (US-027)', () => {
     await run('50', { yes: true, onIssueFailure: 'skip' });
 
     const runs = executed();
-    expect(runs.filter((id) => id === '50')).toHaveLength(1);
+    expect(runs.filter((id) => id === '50')).toHaveLength(0);
     expect(runs.filter((id) => id === '52')).toHaveLength(1);
     expect(runs.filter((id) => id === '53')).toHaveLength(1);
   });
@@ -640,7 +637,7 @@ describe('one failing issue does not have to end the queue (US-027)', () => {
 
     const code = await run('50', { yes: true, onIssueFailure: 'block' });
 
-    expect(executed()).toEqual(['50', '51', '52', '53']);
+    expect(executed()).toEqual(['51', '52', '53']);
     expect(code).not.toBe(0);
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
     const blocked = plan.issues.find((entry) => entry.id === '51');

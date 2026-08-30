@@ -116,6 +116,13 @@ common case and the one every older test covers:
 - **A queue is only ever a queue with more than one issue.** Discovery finding
   nothing, `--only` on a single issue, a scope trimmed back to one issue: all of
   them fall back to `{ kind: 'single' }` and create no `execution-plan.json`.
+- **A container is not implemented.** A node with children (or, when configured,
+  an Epic type / `epic` label / `[Epic]` prefix) gets `role: 'container'`: it
+  names the branch and the PR, `nextQueueIssue` never hands it out, and it
+  completes when every child in the queue completes. `--yes` on a container
+  means `--cascade`. Non-interactive without a flag **fails** rather than
+  running the umbrella alone. `Closes` becomes `Refs` when a child is still
+  pending — the verb follows the plan, not the issue type (#77 / #74).
 - **Per-issue runs differ from a standalone run in exactly four ways**: the `pr`
   (and `pr-review`) phase leaves the per-issue phase list, the branch of the
   queue is written over the plan's own `branchName` after the `plan` phase,

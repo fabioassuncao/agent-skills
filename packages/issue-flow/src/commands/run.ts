@@ -246,6 +246,8 @@ export interface RunPipelineOptions {
   yes?: boolean;
   /** `--only`: run just the issues informed, skipping discovery. */
   only?: boolean;
+  /** `--cascade`: hierarchy of a container, without implementing it. */
+  cascade?: boolean;
   /** `--background`: parent process should detach after confirmation. */
   background?: boolean;
   /** Hidden: this process is the child of a `--background` spawn. */
@@ -1497,7 +1499,11 @@ async function decideQueue(input: DecideQueueInput): Promise<QueueDecision> {
       planFile: queuePaths.planFile,
       noBranch: input.noBranch,
       prReview: input.prReview,
-      confirm: { yes: input.runOptions.yes, only: input.runOptions.only },
+      confirm: {
+        yes: input.runOptions.yes,
+        only: input.runOptions.only,
+        cascade: input.runOptions.cascade,
+      },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1818,6 +1824,9 @@ async function buildPrQueueContext(plan: ExecutionPlan): Promise<PrQueueContext>
       title: entry.title,
       url: entry.url,
       source: entry.source,
+      parent: entry.parent,
+      role: entry.role,
+      complete: entry.status === 'completed',
     })),
     excluded: plan.excluded.map((entry) => ({
       id: entry.id,

@@ -7,11 +7,13 @@ import type { Issue } from '../issues/types.js';
 import { executionPlanSchema } from '../storage/schemas.js';
 import type { LastError, PullRequestRef } from '../types.js';
 import { writeFileAtomic } from '../utils/fs.js';
+import { isContainer } from './containers.js';
 import { priorityOf } from './order.js';
 import type {
   ExecutionPlan,
   ExecutionPlanExcluded,
   ExecutionPlanIssue,
+  QueueIssueRole,
   QueueIssueStatus,
   QueueStatus,
 } from './types.js';
@@ -36,6 +38,13 @@ export interface BuildExecutionPlanInput {
   prReview?: boolean;
   /** Injectable clock, so tests can assert `createdAt` vs `updatedAt`. */
   now?: () => string;
+}
+
+function parentOf(graph: DependencyGraph, id: string): string | null {
+  for (const node of graph.nodes.values()) {
+    if (node.relations.children.includes(id)) return node.id;
+  }
+  return null;
 }
 
 /** Title/url/number of a node, falling back to what the id alone tells us. */
@@ -74,6 +83,13 @@ export function buildExecutionPlan(input: BuildExecutionPlanInput): ExecutionPla
     const node = input.graph.nodes.get(id);
     const relations = node?.relations;
     const described = describeIssue(node?.issue ?? null, id);
+    const children = relations?.children ?? [];
+    const role: QueueIssueRole = isContainer({
+      issue: node?.issue ?? null,
+      children,
+    })
+      ? 'container'
+      : 'executable';
 
     return {
       id,
@@ -84,10 +100,14 @@ export function buildExecutionPlan(input: BuildExecutionPlanInput): ExecutionPla
       position: index + 1,
       status: 'pending',
       origin: requested.has(id) ? 'requested' : 'discovered',
+      role,
+      externalDependencies: (relations?.blockedBy ?? []).filter(
+        (blocker) => !scheduled.has(blocker),
+      ),
       // Only the constraints that survive inside the queue: a blocker left out
       // of it is reported in `excluded`, not enforced as a dependency.
       dependsOn: (relations?.blockedBy ?? []).filter((blocker) => scheduled.has(blocker)),
-      parent: relations?.parent ?? null,
+      parent: relations?.parent ?? parentOf(input.graph, id),
       priority: priorityOf(node?.issue?.labels ?? []),
       heuristic: (relations?.heuristic.length ?? 0) > 0,
       failedPhase: null,
@@ -191,7 +211,11 @@ export interface NextQueueIssueOptions {
 function dependenciesSatisfied(plan: ExecutionPlan, entry: ExecutionPlanIssue): boolean {
   return entry.dependsOn.every((id) => {
     const dependency = plan.issues.find((candidate) => candidate.id === id);
-    return dependency === undefined || dependency.status === 'completed';
+    if (dependency === undefined) return true;
+    // A container is not work: waiting on it would deadlock the children
+    // that complete it.
+    if (dependency.role === 'container') return true;
+    return dependency.status === 'completed';
   });
 }
 
@@ -213,7 +237,10 @@ export function nextQueueIssue(
 ): ExecutionPlanIssue | null {
   const exclude = options.exclude ?? new Set<string>();
   const eligible = (status: QueueIssueStatus) => (entry: ExecutionPlanIssue) =>
-    entry.status === status && !exclude.has(entry.id) && dependenciesSatisfied(plan, entry);
+    entry.role !== 'container' &&
+    entry.status === status &&
+    !exclude.has(entry.id) &&
+    dependenciesSatisfied(plan, entry);
 
   return (
     plan.issues.find(eligible('in_progress')) ??
@@ -273,17 +300,43 @@ export function markQueueIssueInProgress(
   });
 }
 
+function completeResolvedContainers(plan: ExecutionPlan, now: () => string): ExecutionPlan {
+  let next = plan;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const entry of next.issues) {
+      if (entry.role !== 'container' || entry.status === 'completed') continue;
+      const children = next.issues.filter((candidate) => candidate.parent === entry.id);
+      if (children.length === 0) continue;
+      if (children.every((child) => child.status === 'completed')) {
+        next = updateIssue(next, entry.id, {
+          status: 'completed',
+          completedAt: now(),
+          failedPhase: null,
+          lastError: null,
+        });
+        changed = true;
+      }
+    }
+  }
+  return next;
+}
+
 export function markQueueIssueCompleted(
   plan: ExecutionPlan,
   id: string,
   now: () => string = isoNow,
 ): ExecutionPlan {
-  return updateIssue(plan, id, {
-    status: 'completed',
-    completedAt: now(),
-    failedPhase: null,
-    lastError: null,
-  });
+  return completeResolvedContainers(
+    updateIssue(plan, id, {
+      status: 'completed',
+      completedAt: now(),
+      failedPhase: null,
+      lastError: null,
+    }),
+    now,
+  );
 }
 
 export function markQueueIssueFailed(

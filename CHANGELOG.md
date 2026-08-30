@@ -16,6 +16,13 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Cascata a partir de um container** (#74). Uma issue com filhas (Epic)
+  entra na fila como `container`: nomeia a branch e o PR, não roda fase
+  nenhuma, e só fecha quando as filhas concluem. `--cascade` (e `--yes`
+  sobre um container) executa a hierarquia. Sem TTY e sem flag o comando
+  falha em vez de implementar o guarda-chuva. `Closes`/`Refs` no PR
+  seguem o estado do plano (#77).
+
 - **Instrumentação de latência por invocação** (#79). `parseUsage` passa a
   ler `duration_ms`, `duration_api_ms`, `ttft_ms` e `num_turns`. O
   `ExecutionRecord` guarda `cliDurationMs`, `harnessStartupMs`

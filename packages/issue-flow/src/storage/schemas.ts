@@ -420,6 +420,8 @@ export const executionPlanIssueSchema = z.object({
   // carry one, and a reader that does not know them was never given one.
   status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'blocked', 'skipped']),
   origin: z.enum(['requested', 'discovered']),
+  role: z.enum(['executable', 'container']).default('executable'),
+  externalDependencies: z.array(z.string()).default([]),
   dependsOn: z.array(z.string()).default([]),
   parent: z.string().nullable().default(null),
   priority: z.enum(['high', 'medium', 'low']).nullable().default(null),

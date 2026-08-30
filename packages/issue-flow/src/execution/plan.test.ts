@@ -359,17 +359,94 @@ describe('additive fields of the execution plan (US-016)', () => {
   it('gives a freshly built plan a zeroed counter', async () => {
     const graph = await graphOf({ '1': {}, '2': {} });
     const order = computeExecutionOrder(graph);
+    if (!order.ok) throw new Error('unexpected cycle');
     const plan = buildExecutionPlan({
       graph,
       order: order.order,
       requested: ['1'],
-      project: 'p',
-      id: '1',
+      projectId: 'p',
     });
 
     for (const entry of plan.issues) {
       expect(entry.attempts).toBe(0);
       expect(entry.blockedReason).toBeNull();
+      expect(entry.role).toBe('executable');
     }
+  });
+});
+
+describe('containers in the queue', () => {
+  it('classifies a node with children as a container and skips it', async () => {
+    const plan = await planOf({
+      '87': { children: ['62', '76'] },
+      '62': { parent: '87' },
+      '76': { parent: '87', blockedBy: ['62'] },
+    });
+
+    expect(plan.issues.find((entry) => entry.id === '87')).toMatchObject({ role: 'container' });
+    expect(plan.issues.find((entry) => entry.id === '62')?.role).toBe('executable');
+    expect(nextQueueIssue(plan)?.id).toBe('62');
+  });
+
+  it('completes the container when its last child completes', async () => {
+    let plan = await planOf({
+      '87': { children: ['62'] },
+      '62': { parent: '87' },
+    });
+    plan = markQueueIssueCompleted(plan, '62', () => 'T');
+    expect(plan.issues.find((entry) => entry.id === '87')?.status).toBe('completed');
+    expect(isQueueComplete(plan)).toBe(true);
+  });
+
+  it('marks a dependency that stayed outside the queue', async () => {
+    const plan = await planOf(
+      {
+        '84': { blockedBy: ['62'] },
+        '62': {},
+      },
+      ['84'],
+      ['84'],
+    );
+    expect(plan.issues[0]).toMatchObject({
+      id: '84',
+      externalDependencies: ['62'],
+      dependsOn: [],
+    });
+  });
+
+  it('loads an older execution-plan.json without role as executable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-queue-role-'));
+    const file = join(dir, 'execution-plan.json');
+    const raw = {
+      schemaVersion: 1,
+      id: '50',
+      project: 'p',
+      requested: ['50'],
+      branchName: null,
+      noBranch: false,
+      prReview: false,
+      status: 'pending',
+      createdAt: 'T',
+      updatedAt: 'T',
+      truncated: false,
+      issues: [
+        {
+          id: '50',
+          number: 50,
+          title: 'Old',
+          url: null,
+          source: 'github',
+          position: 1,
+          status: 'pending',
+          origin: 'requested',
+        },
+      ],
+      excluded: [],
+    };
+    await writeFile(file, JSON.stringify(raw), 'utf-8');
+    const loaded = await loadExecutionPlan(file);
+    expect(loaded.issues[0]?.role).toBe('executable');
+    expect(loaded.issues[0]?.externalDependencies).toEqual([]);
+    await rm(dir, { recursive: true, force: true });
   });
 });
