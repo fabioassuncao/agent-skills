@@ -17,7 +17,7 @@ npx issue-flow run 42
 - **Node.js** >= 22.0.0
 - **Git** installed and available in PATH
 - **Claude Code** (`npm install -g @anthropic-ai/claude-code`) -- default agent
-- **Codex CLI** (optional, `codex`) -- alternative agent; see [Agents](#agents)
+- **Codex CLI** (optional, `codex`) and **Cursor CLI** (optional, `cursor`) -- alternative agents; see [Agents](#agents)
 - **GitHub CLI** (`gh`) authenticated (`gh auth login`) -- required only for GitHub issues; a run on [local issues](#issue-sources-providers) does not need it
 
 Run `npx issue-flow init` to verify all prerequisites (`npx issue-flow init --local` when the issue lives in the repository).

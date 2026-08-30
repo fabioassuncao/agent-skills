@@ -12,20 +12,14 @@ import { recordProviderFailure } from './health.js';
 import { invokeSelectedAgent, resetAgentInvocationState } from './invoke.js';
 import { clearRunners, registerRunner } from './registry.js';
 import { selectAgentForInvocation } from './select.js';
-import type { AgentRunner, AgentRunResult } from './types.js';
+import { type AgentRunner, type AgentRunResult, CLAUDE_CAPABILITIES } from './types.js';
 
 const originalHome = process.env.ISSUE_FLOW_HOME;
 
 function runner(id: 'claude' | 'codex', run: () => AgentRunResult): AgentRunner {
   return {
     id,
-    capabilities: {
-      addDirs: true,
-      reportsUsage: true,
-      reportsCost: true,
-      authProbe: 'none',
-      bareModelAliases: true,
-    },
+    capabilities: CLAUDE_CAPABILITIES,
     versionCommand: () => ({ command: id, args: ['--version'] }),
     run: async () => run(),
   };

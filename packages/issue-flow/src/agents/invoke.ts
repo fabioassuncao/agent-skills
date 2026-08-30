@@ -7,6 +7,7 @@ import { beginExecution, endExecution } from '../telemetry/recorder.js';
 import type { ExecutionPurpose, ExecutionTrigger } from '../telemetry/types.js';
 import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
+import { ensureCursorStorageGrant } from './permissions.js';
 import { runnerFor } from './registry.js';
 import { type AgentSelection, selectAgentForInvocation } from './select.js';
 import type { AgentInvocation, AgentProviderId, AgentRunResult } from './types.js';
@@ -24,6 +25,8 @@ export function declaredAgentIdentity(provider: AgentProviderId): {
       return { harness: 'claude-code', vendor: 'anthropic' };
     case 'codex':
       return { harness: 'codex-cli', vendor: 'openai' };
+    case 'cursor':
+      return { harness: 'cursor-cli', vendor: 'cursor' };
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;
@@ -100,9 +103,34 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     modelSource: requested ? 'config' : 'unavailable',
   });
 
+  const runner = runnerFor(selection.provider);
+  if (
+    (invocation.addDirs?.length ?? 0) > 0 &&
+    runner.capabilities.extraDirectories === 'permission-file'
+  ) {
+    const grant =
+      selection.settings.cursor.permissionsFile === 'none'
+        ? { skipped: true as const, reason: 'none' as const }
+        : await ensureCursorStorageGrant({
+            mode: selection.settings.cursor.permissionsFile ?? 'global',
+          });
+    if ('skipped' in grant && selection.settings.cursor.permissionsFile !== 'none') {
+      throw new Error(
+        `Phase '${invocation.phase}' needs extraDirectories on '${selection.provider}', which only grants them via a permission file. Run \`issue-flow agent use cursor\` or set agent.cursor.permissionsFile.`,
+      );
+    }
+  } else if (
+    (invocation.addDirs?.length ?? 0) > 0 &&
+    runner.capabilities.extraDirectories === 'none'
+  ) {
+    throw new Error(
+      `Phase '${invocation.phase}' needs extraDirectories, but '${selection.provider}' cannot grant them.`,
+    );
+  }
+
   let run: AgentRunResult;
   try {
-    run = await runnerFor(selection.provider).run(
+    run = await runner.run(
       {
         ...invocation,
         onLine: (line) => {

@@ -13,6 +13,7 @@ import type {
   AgentProviderId,
   ClaudeSettings,
   CodexSettings,
+  CursorSettings,
 } from './agents/types.js';
 import { AGENT_PHASES, isAgentProviderId } from './agents/types.js';
 import type { IssuesConfig } from './issues/types.js';
@@ -1253,7 +1254,9 @@ function readAgentEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void): 
     if (isAgentProviderId(env.ISSUE_FLOW_AGENT)) {
       layer.provider = env.ISSUE_FLOW_AGENT;
     } else {
-      warn(`Ignoring ISSUE_FLOW_AGENT="${env.ISSUE_FLOW_AGENT}": expected claude or codex.`);
+      warn(
+        `Ignoring ISSUE_FLOW_AGENT="${env.ISSUE_FLOW_AGENT}": expected claude, codex or cursor.`,
+      );
     }
   }
   if (env.ISSUE_FLOW_AGENT_MODEL !== undefined && env.ISSUE_FLOW_AGENT_MODEL !== '') {
@@ -1289,6 +1292,31 @@ function readAgentEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void): 
     codex.ignoreUserConfig = parseBooleanEnv(env.ISSUE_FLOW_CODEX_IGNORE_USER_CONFIG);
   }
   if (Object.keys(codex).length > 0) layer.codex = codex;
+  const cursor: CursorSettings = {};
+  if (env.ISSUE_FLOW_CURSOR_SANDBOX !== undefined) {
+    if (
+      env.ISSUE_FLOW_CURSOR_SANDBOX === 'enabled' ||
+      env.ISSUE_FLOW_CURSOR_SANDBOX === 'disabled'
+    ) {
+      cursor.sandbox = env.ISSUE_FLOW_CURSOR_SANDBOX;
+    } else {
+      warn(`Ignoring ISSUE_FLOW_CURSOR_SANDBOX="${env.ISSUE_FLOW_CURSOR_SANDBOX}".`);
+    }
+  }
+  if (env.ISSUE_FLOW_CURSOR_PERMISSIONS_FILE !== undefined) {
+    if (
+      env.ISSUE_FLOW_CURSOR_PERMISSIONS_FILE === 'global' ||
+      env.ISSUE_FLOW_CURSOR_PERMISSIONS_FILE === 'project' ||
+      env.ISSUE_FLOW_CURSOR_PERMISSIONS_FILE === 'none'
+    ) {
+      cursor.permissionsFile = env.ISSUE_FLOW_CURSOR_PERMISSIONS_FILE;
+    } else {
+      warn(
+        `Ignoring ISSUE_FLOW_CURSOR_PERMISSIONS_FILE="${env.ISSUE_FLOW_CURSOR_PERMISSIONS_FILE}".`,
+      );
+    }
+  }
+  if (Object.keys(cursor).length > 0) layer.cursor = cursor;
   return layer;
 }
 
@@ -1316,6 +1344,7 @@ function readAgentKey(
     ...(parsed.data.model !== undefined ? { model: parsed.data.model } : {}),
     ...(parsed.data.claude !== undefined ? { claude: parsed.data.claude } : {}),
     ...(parsed.data.codex !== undefined ? { codex: parsed.data.codex } : {}),
+    ...(parsed.data.cursor !== undefined ? { cursor: parsed.data.cursor } : {}),
     ...(Object.keys(phases).length > 0 ? { phases } : {}),
   };
 }
@@ -1345,6 +1374,7 @@ function mergeAgentBlockLayers(
       ...dropUndefinedBlock(layer.block),
       claude: { ...merged.claude, ...layer.block.claude },
       codex: { ...merged.codex, ...layer.block.codex },
+      cursor: { ...merged.cursor, ...layer.block.cursor },
     };
   }
   return any ? merged : undefined;
@@ -1356,6 +1386,7 @@ function dropUndefinedBlock(block: AgentBlock): AgentBlock {
   if (block.model !== undefined) result.model = block.model;
   if (block.claude !== undefined) result.claude = block.claude;
   if (block.codex !== undefined) result.codex = block.codex;
+  if (block.cursor !== undefined) result.cursor = block.cursor;
   return result;
 }
 
@@ -1419,6 +1450,12 @@ export async function loadAgentConfig(options: LoadAgentConfigOptions = {}): Pro
     env: envLayer.codex,
     cli: cli.codex,
   });
+  const cursor = mergeConfigLayers<CursorSettings>({
+    global: globalLayer.cursor,
+    project: projectLayer.cursor,
+    env: envLayer.cursor,
+    cli: cli.cursor,
+  });
 
   const phases: AgentConfig['phases'] = {};
   const phaseOrigins: TrackedPhaseOrigins = {};
@@ -1472,7 +1509,7 @@ export async function loadAgentConfig(options: LoadAgentConfigOptions = {}): Pro
     phases: phaseOrigins,
   });
 
-  const resolved = { provider, model, claude, codex, phases };
+  const resolved = { provider, model, claude, codex, cursor, phases };
   if (canCache) cachedAgentConfig = resolved;
   return resolved;
 }

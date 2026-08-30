@@ -9,7 +9,7 @@ import { AGENT_PHASES, type AgentConfig, type AgentPhase } from './types.js';
  * like a value the user wrote and would silently override the rung above.
  */
 
-export const agentProviderIdSchema = z.enum(['claude', 'codex']);
+export const agentProviderIdSchema = z.enum(['claude', 'codex', 'cursor']);
 
 export const codexSandboxSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access']);
 
@@ -31,12 +31,30 @@ export const codexSettingsSchema = z
   })
   .partial();
 
+export const cursorSandboxSchema = z.enum(['enabled', 'disabled']);
+
+export const cursorPermissionsFileSchema = z.enum(['global', 'project', 'none']);
+
+export const cursorSettingsSchema = z
+  .object({
+    sandbox: cursorSandboxSchema,
+    approveMcps: z.boolean(),
+    permissionsFile: cursorPermissionsFileSchema,
+    minVersion: z.string().min(1),
+    force: z.boolean().refine((value) => value !== false, {
+      message:
+        'agent.cursor.force cannot be false: without --force, Cursor finishes with exit 0 and writes nothing.',
+    }),
+  })
+  .partial();
+
 export const agentBlockSchema = z
   .object({
     provider: agentProviderIdSchema,
     model: z.string().min(1).nullable(),
     claude: claudeSettingsSchema,
     codex: codexSettingsSchema,
+    cursor: cursorSettingsSchema,
   })
   .partial();
 
@@ -64,6 +82,7 @@ export const agentConfigInputSchema = z
     model: z.string().min(1).nullable(),
     claude: claudeSettingsSchema,
     codex: codexSettingsSchema,
+    cursor: cursorSettingsSchema,
     phases: agentPhasesSchema,
   })
   .partial();
@@ -104,6 +123,7 @@ export function emptyAgentConfig(): AgentConfig {
     model: null,
     claude: {},
     codex: {},
+    cursor: {},
     phases: {},
   };
 }

@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { ClaudeCodeRunner, cacheHarnessVersion, peekHarnessVersion } from './claude.js';
 import { CodexRunner } from './codex.js';
+import { CursorRunner } from './cursor.js';
 import type { AgentProviderId, AgentRunner } from './types.js';
 
 const runners = new Map<AgentProviderId, AgentRunner>();
@@ -21,6 +22,7 @@ export function ensureRunnersRegistered(): void {
   const registered = new Set(getRegisteredProviders());
   if (!registered.has('claude')) registerRunner(new ClaudeCodeRunner());
   if (!registered.has('codex')) registerRunner(new CodexRunner());
+  if (!registered.has('cursor')) registerRunner(new CursorRunner());
 }
 
 /**

@@ -91,7 +91,7 @@ function withGlobalOptions(cmd: Command): Command {
         'Stop the agent after this many seconds with no output (0 = no watchdog)',
         parseInteger,
       )
-      .option('--agent <provider>', 'Run every phase on this agent (claude|codex)')
+      .option('--agent <provider>', 'Run every phase on this agent (claude|codex|cursor)')
       .option('--agent-model <model>', 'Override the model for every phase')
       .option(
         '--agent-phase <phase>=<provider>[:<model>]',
@@ -114,7 +114,7 @@ function resolveAgentOverrides(opts: Record<string, unknown>): AgentCliOverrides
   const overrides: AgentCliOverrides = {};
   if (typeof opts.agent === 'string') {
     if (!isAgentProviderId(opts.agent)) {
-      throw new InvalidArgumentError('Must be one of: claude, codex.');
+      throw new InvalidArgumentError('Must be one of: claude, codex, cursor.');
     }
     overrides.forceProvider = opts.agent;
   }
@@ -768,7 +768,7 @@ agentCommand.action(async (options: { json?: boolean }) => {
 agentCommand
   .command('use')
   .description('Write an agent preference to config.json or .issue-flow.json')
-  .argument('<provider>', 'claude or codex')
+  .argument('<provider>', 'claude, codex or cursor')
   .option('--model <model>', 'Model identifier for this preference')
   .option('--global', 'Write to ~/.issue-flow/config.json (default)')
   .option('--project', 'Write to .issue-flow.json in the repository')

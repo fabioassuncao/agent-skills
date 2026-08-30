@@ -13,6 +13,7 @@ function settings(overrides: Partial<ResolvedAgentSettings> = {}): ResolvedAgent
     model: null,
     claude: {},
     codex: {},
+    cursor: {},
     origin: { provider: 'project', model: 'default' },
     ...overrides,
   };

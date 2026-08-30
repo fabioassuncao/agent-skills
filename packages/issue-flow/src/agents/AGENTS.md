@@ -21,9 +21,17 @@ only argv and stream parsing move here.
   That is the emergency button. Fine-grained overrides use `--agent-phase`.
 - **`AgentRunResult.agent` is who actually ran.** Header, snapshot and
   metrics read it. Nothing infers the provider afterwards.
-- **`readonly capabilities` is the extension point** for a third runner
-  (#76). Claude and Codex declare theirs; the core must not grow
-  `if (provider === …)` chains.
+- **`readonly capabilities` is the extension point.** Claude, Codex and
+  Cursor declare theirs; the core never asks which provider it is. Extra
+  directories are a capability: `flag` translates, `permission-file`
+  compensates (Cursor grant of `~/.issue-flow/**`), `none` fails as
+  `configuration` when `addDirs` is required. `allowedTools` is a
+  restriction and may be ignored.
+- **Cursor `--force` is an invariant** on `workspace`/`autonomous`.
+  `agent.cursor.force: false` is rejected: without it the phase exits 0
+  and writes nothing. `read-only` uses `--mode plan` and never `--force`.
+- **Cursor reports no tokens and no cost.** `usage` is always `null`,
+  never zeros. A mixed run's totals are structurally incomplete.
 - **`harnessVersion` is captured at invocation time** and cached per
   process. After the process exits it is unrecoverable.
 - **`--fallback-model` is not exposed.** A native fallback the pipeline

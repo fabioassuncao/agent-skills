@@ -17,7 +17,11 @@ describe('parseAgentPhaseFlag', () => {
 
   it('rejects an unknown phase or provider', () => {
     expect(() => parseAgentPhaseFlag('research=claude')).toThrow(/Unknown agent phase/);
-    expect(() => parseAgentPhaseFlag('review=cursor')).toThrow(/Unknown agent provider/);
+    expect(parseAgentPhaseFlag('review=cursor')).toEqual({
+      phase: 'review',
+      block: { provider: 'cursor' },
+    });
+    expect(() => parseAgentPhaseFlag('review=unknown')).toThrow(/Unknown agent provider/);
   });
 });
 
@@ -103,6 +107,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
         model: 'gpt-5.6',
         claude: {},
         codex: {},
+        cursor: {},
         phases: { plan: { provider: 'codex' } },
       },
       cli: { forceProvider: 'claude' },
@@ -120,6 +125,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
       model: null,
       claude: {},
       codex: {},
+      cursor: {},
       phases: {},
     };
     const review = await resolveAgentFor('review', { config, cli });
@@ -159,6 +165,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
         model: null,
         claude: {},
         codex: { sandbox: 'danger-full-access' },
+        cursor: {},
         phases: {},
       },
     });

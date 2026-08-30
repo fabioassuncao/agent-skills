@@ -1,6 +1,7 @@
 export { AgentUnavailableError, assertAgentAvailable, probeAgent } from './availability.js';
 export { buildClaudeArgv, ClaudeCodeRunner } from './claude.js';
 export { buildCodexArgv, CodexRunner, consumeCodexEvent, parseCodexStream } from './codex.js';
+export { buildCursorArgv, CursorRunner, consumeCursorEvent, parseCursorStream } from './cursor.js';
 export {
   DEFAULT_PROVIDER_COOLDOWN_MS,
   DEFAULT_PROVIDER_FAILURE_WINDOW_MS,
@@ -35,11 +36,13 @@ export type {
   AgentRunner,
   AgentRunResult,
   AgentUsage,
+  CursorSettings,
   ResolvedAgentSettings,
 } from './types.js';
 export {
   AGENT_PHASES,
   AGENT_SCHEMA_VERSION,
+  CURSOR_CAPABILITIES,
   DEFAULT_PHASE_PERMISSION,
   isAgentPhase,
   isAgentProviderId,

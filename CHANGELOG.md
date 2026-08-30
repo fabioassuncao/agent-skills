@@ -26,6 +26,13 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Cursor CLI (`cursor-agent`) como terceiro provider** (#76).
+  `AgentCapabilities` declara o que cada runner sabe fazer. Sem
+  `--add-dir`, o Cursor concede `~/.issue-flow/**` via
+  `~/.cursor/cli-config.json` (opt-in em `agent use cursor`). `--force`
+  é invariante nas fases que escrevem. Tokens e custo do Cursor são
+  ausentes, nunca zero.
+
 - **Telemetria por invocação em `tasks.json`** (#78). Cada chamada de agente
   grava um `ExecutionRecord` com harness, provider, modelo, propósito,
   tentativa, tokens, custo (informado / estimado / desconhecido) e status.

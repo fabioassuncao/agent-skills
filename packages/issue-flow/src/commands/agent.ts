@@ -61,7 +61,11 @@ function formatPhaseLine(
 export async function runAgent(options: AgentCommandOptions = {}): Promise<number> {
   const config = await loadAgentConfig();
   const summary = await describeRunAgents();
-  const [claude, codex] = await Promise.all([probeAgent('claude'), probeAgent('codex')]);
+  const [claude, codex, cursor] = await Promise.all([
+    probeAgent('claude'),
+    probeAgent('codex'),
+    probeAgent('cursor'),
+  ]);
 
   if (options.json === true) {
     const phases: Record<string, unknown> = {};
@@ -96,6 +100,12 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
               version: codex.version,
               authenticated: codex.authenticated,
             },
+            {
+              id: 'cursor',
+              installed: cursor.installed,
+              version: cursor.version,
+              authenticated: cursor.authenticated,
+            },
           ],
         },
         null,
@@ -127,6 +137,7 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
   console.log('Disponibilidade');
   console.log(`  claude        ${(claude.version ?? '—').padEnd(16)} ${claude.detail}`);
   console.log(`  codex         ${(codex.version ?? '—').padEnd(16)} ${codex.detail}`);
+  console.log(`  cursor        ${(cursor.version ?? '—').padEnd(16)} ${cursor.detail}`);
   return 0;
 }
 
@@ -135,7 +146,7 @@ export async function runAgentUse(
   options: AgentUseOptions = {},
 ): Promise<number> {
   if (!isAgentProviderId(providerRaw)) {
-    printError(`Unknown agent provider '${providerRaw}'. Valid providers: claude, codex.`);
+    printError(`Unknown agent provider '${providerRaw}'. Valid providers: claude, codex, cursor.`);
     return 1;
   }
   const provider = providerRaw as AgentProviderId;
@@ -218,6 +229,13 @@ export async function writeAgentPreference(input: {
   existing.agent = currentAgent;
   await mkdir(dirname(path), { recursive: true });
   await writeFileAtomic(path, `${JSON.stringify(existing, null, 2)}\n`);
+  if (input.provider === 'cursor') {
+    const { ensureCursorStorageGrant } = await import('../agents/permissions.js');
+    await ensureCursorStorageGrant({
+      mode: input.target === 'project' ? 'project' : 'global',
+      ...(input.projectRoot === undefined ? {} : { projectRoot: input.projectRoot }),
+    });
+  }
   return path;
 }
 
@@ -227,5 +245,5 @@ export async function persistFirstAgentChoice(provider: AgentProviderId): Promis
 }
 
 export function printAgentUseHint(): void {
-  printInfo('Choose an agent later with: issue-flow agent use <claude|codex> --global');
+  printInfo('Choose an agent later with: issue-flow agent use <claude|codex|cursor> --global');
 }

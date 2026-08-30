@@ -1,7 +1,8 @@
 # Agents
 
 Issue Flow runs the pipeline through a coding agent. The default is
-**Claude Code**. **Codex CLI** (`codex exec`) is the alternative. Selection is
+**Claude Code**. **Codex CLI** (`codex exec`) and **Cursor CLI**
+(`cursor-agent`) are the alternatives. Selection is
 explicit and, when you want it, **per phase**. The same repository on two
 machines behaves the same way: the agent is never inferred from which binary
 happens to be installed.
@@ -21,6 +22,13 @@ Minimum Codex CLI version exercised here: **0.149.1**.
 |-------|--------|------------|-----------------|
 | Claude Code (default) | `claude` | delegated to Claude | `npm install -g @anthropic-ai/claude-code` |
 | Codex CLI (opt-in) | `codex` | `codex login status` (exit 0 when authenticated) | see the official docs |
+| Cursor CLI (opt-in) | `cursor-agent` | `cursor-agent status` (exit 0 even when logged out — probe is textual) | `curl https://cursor.com/install -fsS \| bash` |
+
+Cursor has no `--add-dir`. The first `issue-flow agent use cursor` grants
+`Read`/`Write` on `~/.issue-flow/**` in `~/.cursor/cli-config.json`. Cursor
+reports neither tokens nor USD; a mixed run's cost total is incomplete by
+construction. `--force` is required on every writing phase — without it Cursor
+exits 0 and writes nothing. Minimum version: **2026.01.23**.
 
 `issue-flow init` verifies only the **selected** agent. A first-run prompt
 appears only on a TTY, outside CI, and only when no `agent` configuration

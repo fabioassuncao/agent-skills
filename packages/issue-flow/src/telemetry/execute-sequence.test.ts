@@ -46,6 +46,7 @@ function selection(provider: 'claude' | 'codex', failover: boolean) {
       model: provider === 'codex' ? 'gpt-5' : null,
       claude: {},
       codex: {},
+      cursor: {},
       origin: { provider: 'default' as const, model: 'default' as const },
     },
     healthFile: null,

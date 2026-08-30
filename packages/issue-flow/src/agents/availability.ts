@@ -42,11 +42,15 @@ async function probeAgentUncached(id: AgentProviderId): Promise<AgentAvailabilit
   let authenticated = installed;
   let detail = installed ? (version ?? 'installed') : 'not found';
 
-  if (installed && runner.authCommand && runner.capabilities.authProbe === 'exit-code') {
+  if (installed && runner.authCommand && runner.capabilities.authProbe !== 'none') {
     try {
       const { command, args } = runner.authCommand();
       const auth = await execa(command, args, { reject: false, timeout: 10_000 });
-      authenticated = auth.exitCode === 0;
+      const text = `${auth.stdout?.toString() ?? ''}\n${auth.stderr?.toString() ?? ''}`;
+      authenticated =
+        runner.capabilities.authProbe === 'text'
+          ? !/not logged in|not authenticated|no models available/i.test(text)
+          : auth.exitCode === 0;
       detail = authenticated ? `${version} (authenticated)` : `${version} (not authenticated)`;
     } catch {
       authenticated = false;
@@ -60,6 +64,9 @@ async function probeAgentUncached(id: AgentProviderId): Promise<AgentAvailabilit
 export function installHint(id: AgentProviderId): string {
   if (id === 'codex') {
     return 'Install Codex CLI: https://developers.openai.com/codex/noninteractive';
+  }
+  if (id === 'cursor') {
+    return 'Install Cursor CLI: curl https://cursor.com/install -fsS | bash';
   }
   return 'Install Claude Code: https://docs.anthropic.com/en/docs/claude-code';
 }

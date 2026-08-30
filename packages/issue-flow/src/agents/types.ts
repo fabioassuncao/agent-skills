@@ -8,8 +8,8 @@
 
 import type { ClaudeUsage } from '../core/metrics.js';
 
-/** The two providers this issue delivers. A third (#76) adds a file, not a refactor. */
-export type AgentProviderId = 'claude' | 'codex';
+/** Providers the pipeline can invoke. A fourth (#80) adds a file, not a refactor. */
+export type AgentProviderId = 'claude' | 'codex' | 'cursor';
 
 /** The eight invocations that actually call an agent. `init` is not one of them. */
 export type AgentPhase =
@@ -38,7 +38,7 @@ export function isAgentPhase(value: string): value is AgentPhase {
 }
 
 export function isAgentProviderId(value: string): value is AgentProviderId {
-  return value === 'claude' || value === 'codex';
+  return value === 'claude' || value === 'codex' || value === 'cursor';
 }
 
 /**
@@ -114,16 +114,33 @@ export interface AgentRunResult {
 }
 
 /**
- * What a runner can do. Declared so #76 (Cursor) and #80 (Antigravity) add a
- * file instead of refactoring the contract.
+ * What a runner can do. Declared so a fourth provider adds a file, not a
+ * refactor. The core asks "does this invocation need extraDirectories?",
+ * never "which provider is this?".
  */
 export interface AgentCapabilities {
+  /** Extra directories beyond the workspace. `flag` is `--add-dir`. */
+  extraDirectories: 'flag' | 'permission-file' | 'none';
+  /** Convenience: `extraDirectories === 'flag'`. */
   addDirs: boolean;
+  toolAllowlist: boolean;
+  maxTurns: boolean;
+  osSandbox: boolean;
+  modelSelection: boolean;
+  modelDiscovery: boolean;
+  usage: 'tokens-and-cost' | 'tokens-only' | 'none';
   reportsUsage: boolean;
   reportsCost: boolean;
+  sessionResume: boolean;
   /** How the auth probe is interpreted. Cursor's `status` exits 0 while logged out. */
   authProbe: 'exit-code' | 'text' | 'none';
   bareModelAliases: boolean;
+  promptChannel: 'argv' | 'stdin' | 'both';
+  nativeTimeout: boolean;
+  contextFileName: string;
+  contextFileMaxBytes: number | null;
+  toolNameCase: 'CamelCase' | 'lowercase' | 'none';
+  readOnlyMode: 'native' | 'sandbox' | 'tool-allowlist' | 'none';
 }
 
 export type CodexSandbox = 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -141,12 +158,23 @@ export interface CodexSettings {
   configOverrides?: Record<string, string | number | boolean>;
 }
 
+export type CursorSandbox = 'enabled' | 'disabled';
+export type CursorPermissionsFile = 'global' | 'project' | 'none';
+
+export interface CursorSettings {
+  sandbox?: CursorSandbox;
+  approveMcps?: boolean;
+  permissionsFile?: CursorPermissionsFile;
+  minVersion?: string;
+}
+
 /** One layer of the agent block — default or a single phase. */
 export interface AgentBlock {
   provider?: AgentProviderId;
   model?: string | null;
   claude?: ClaudeSettings;
   codex?: CodexSettings;
+  cursor?: CursorSettings;
 }
 
 export interface AgentConfig {
@@ -154,6 +182,7 @@ export interface AgentConfig {
   model: string | null;
   claude: ClaudeSettings;
   codex: CodexSettings;
+  cursor: CursorSettings;
   phases: Partial<Record<AgentPhase, AgentBlock>>;
 }
 
@@ -165,6 +194,7 @@ export interface ResolvedAgentSettings {
   model: string | null;
   claude: ClaudeSettings;
   codex: CodexSettings;
+  cursor: CursorSettings;
   origin: {
     provider: AgentOrigin;
     model: AgentOrigin;
@@ -180,19 +210,69 @@ export interface AgentRunner {
 }
 
 export const CLAUDE_CAPABILITIES: AgentCapabilities = {
+  extraDirectories: 'flag',
   addDirs: true,
+  toolAllowlist: true,
+  maxTurns: true,
+  osSandbox: false,
+  modelSelection: true,
+  modelDiscovery: false,
+  usage: 'tokens-and-cost',
   reportsUsage: true,
   reportsCost: true,
+  sessionResume: false,
   authProbe: 'none',
   bareModelAliases: true,
+  promptChannel: 'both',
+  nativeTimeout: false,
+  contextFileName: 'CLAUDE.md',
+  contextFileMaxBytes: null,
+  toolNameCase: 'CamelCase',
+  readOnlyMode: 'native',
 };
 
 export const CODEX_CAPABILITIES: AgentCapabilities = {
+  extraDirectories: 'flag',
   addDirs: true,
+  toolAllowlist: false,
+  maxTurns: false,
+  osSandbox: true,
+  modelSelection: true,
+  modelDiscovery: false,
+  usage: 'tokens-only',
   reportsUsage: true,
   reportsCost: false,
+  sessionResume: true,
   authProbe: 'exit-code',
   bareModelAliases: false,
+  promptChannel: 'both',
+  nativeTimeout: false,
+  contextFileName: 'AGENTS.md',
+  contextFileMaxBytes: 32 * 1024,
+  toolNameCase: 'none',
+  readOnlyMode: 'sandbox',
+};
+
+export const CURSOR_CAPABILITIES: AgentCapabilities = {
+  extraDirectories: 'permission-file',
+  addDirs: false,
+  toolAllowlist: false,
+  maxTurns: false,
+  osSandbox: true,
+  modelSelection: true,
+  modelDiscovery: true,
+  usage: 'none',
+  reportsUsage: false,
+  reportsCost: false,
+  sessionResume: true,
+  authProbe: 'text',
+  bareModelAliases: false,
+  promptChannel: 'argv',
+  nativeTimeout: false,
+  contextFileName: 'AGENTS.md',
+  contextFileMaxBytes: null,
+  toolNameCase: 'lowercase',
+  readOnlyMode: 'native',
 };
 
 export const AGENT_SCHEMA_VERSION = 1;
@@ -210,5 +290,6 @@ export interface AgentCliOverrides {
   forceModel?: string;
   claude?: ClaudeSettings;
   codex?: CodexSettings;
+  cursor?: CursorSettings;
   phases?: Partial<Record<AgentPhase, AgentBlock>>;
 }
