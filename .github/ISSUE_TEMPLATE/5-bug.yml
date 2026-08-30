@@ -1,0 +1,56 @@
+name: "🐛 Bug"
+description: "Existing behaviour that diverges from what is expected."
+type: "Bug"
+body:
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Where it happens — environment, version, component, browser.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, request and response, screenshot, trace id, affected URL.
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - "Data loss or improper exposure"
+        - "Feature unavailable, no workaround"
+        - "Feature degraded, workaround exists"
+        - "Cosmetic or low consequence"
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: How to tell it is fixed
+      description: The check that fails today and passes afterwards.
+    validations:
+      required: true

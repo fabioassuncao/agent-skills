@@ -171,7 +171,7 @@ describe('handmade issue paths', () => {
     }
 
     // Every one of these must go through resolveIssuePaths(issueNumber) —
-    // see src/storage/CLAUDE.md.
+    // see src/storage/AGENTS.md.
     expect(offenders).toEqual([]);
   });
 });
