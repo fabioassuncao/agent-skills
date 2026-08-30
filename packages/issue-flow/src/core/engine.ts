@@ -80,11 +80,25 @@ function newlyCompletedStoryIds(before: UserStory[], after: UserStory[]): string
  * — the only case being several issues sharing a branch — the issue becomes a
  * conventional-commit scope, which is what makes `git log` on the shared branch
  * readable per issue.
+ *
+ * `convention` is the repository's own commit convention, when it declares one.
+ * The hard-coded `feat` is wrong for most stories under Conventional Commits: a
+ * bug fix committed as `feat:` corrupts a changelog and a semver bump computed
+ * from the history. So a repository that declared a convention gets a `<type>`
+ * placeholder and the instruction to choose; one that declared none keeps the
+ * exact string it always had.
  */
-export function commitPlaceholders(scope?: string): Record<string, string> {
+export function commitPlaceholders(
+  scope?: string,
+  convention?: string | null,
+): Record<string, string> {
   const suffix = scope === undefined || scope === '' ? '' : `(${scope})`;
+  const declared = convention !== undefined && convention !== null && convention !== '';
+
   return {
-    __COMMIT_MESSAGE__: `feat${suffix}: [Story ID] - [Story Title]`,
+    __COMMIT_MESSAGE__: declared
+      ? `<type>${suffix}: [Story ID] - [Story Title]`
+      : `feat${suffix}: [Story ID] - [Story Title]`,
     __FIX_COMMIT_MESSAGE__: `fix${suffix}: address review findings`,
   };
 }
@@ -274,7 +288,9 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       __PRD_FILE__: paths.prdFile,
       __PROGRESS_FILE__: paths.progressFile,
       ...policy,
-      ...commitPlaceholders(config.commitScope),
+      // The convention comes off the projection above rather than from a second
+      // discovery: one resolution per run is the whole point of the cache.
+      ...commitPlaceholders(config.commitScope, policy.__COMMIT_CONVENTION__),
     });
 
     const iterationStartedAt = isoNow();

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  conventionPlaceholders,
+  DEFAULT_BRANCH_CONVENTION,
   DEFAULT_POLICY_CONTEXT_BUDGET,
   emptyPolicyPlaceholders,
   estimateTokens,
@@ -242,5 +244,42 @@ describe('isEmptyPolicy', () => {
         }),
       ),
     ).toBe(true);
+  });
+});
+
+describe('conventionPlaceholders', () => {
+  it('falls back to the detected base branch when the repository declares none', () => {
+    expect(conventionPlaceholders(makePolicy(), 'main').__BASE_BRANCH__).toBe('main');
+    expect(conventionPlaceholders(null, 'master').__BASE_BRANCH__).toBe('master');
+  });
+
+  it("prefers the repository's own base branch over the detected one", () => {
+    const policy = makePolicy({
+      pullRequests: { template: null, templates: [], baseBranch: 'develop', titleConvention: null },
+    });
+
+    expect(conventionPlaceholders(policy, 'main').__BASE_BRANCH__).toBe('develop');
+  });
+
+  it('never renders empty, because a prompt puts it inside a command', () => {
+    for (const policy of [null, makePolicy()]) {
+      const vars = conventionPlaceholders(policy, 'main');
+      expect(vars.__BASE_BRANCH__).not.toBe('');
+      expect(vars.__BRANCH_CONVENTION__).not.toBe('');
+    }
+  });
+
+  it("keeps Issue Flow's branch pattern as the default", () => {
+    expect(conventionPlaceholders(makePolicy(), 'main').__BRANCH_CONVENTION__).toBe(
+      DEFAULT_BRANCH_CONVENTION,
+    );
+  });
+
+  it("uses the repository's branch convention when declared", () => {
+    const policy = makePolicy({
+      git: { branchConvention: 'feat/{slug}', commitConvention: null },
+    });
+
+    expect(conventionPlaceholders(policy, 'main').__BRANCH_CONVENTION__).toBe('feat/{slug}');
   });
 });

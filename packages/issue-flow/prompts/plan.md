@@ -30,7 +30,7 @@ Create a tasks.json file at __TASKS_PATH__ with this exact structure:
   "project": "<repo-name>",
   "issueNumber": __ISSUE_NUMBER__,
   "issueUrl": "__ISSUE_URL__",
-  "branchName": "issue/__ISSUE_NUMBER__-<slug>",
+  "branchName": "<branch, following __BRANCH_CONVENTION__ with N=__ISSUE_NUMBER__>",
   "description": "<brief description>",
   "issueStatus": "pending",
   "completedAt": null,
@@ -91,3 +91,9 @@ silent, the defaults above still apply.
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
 <!-- /if -->
+
+## Branch naming
+
+`branchName` must follow `__BRANCH_CONVENTION__`, where `{N}` is the issue number
+and `{slug}` a short kebab-case summary of the issue title. A repository that
+declares its own convention above overrides this one.

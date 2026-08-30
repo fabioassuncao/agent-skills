@@ -20,7 +20,7 @@ Open PR for issue #15
 ## How It Works
 
 1. **Validates environment** — checks `gh` CLI is installed and authenticated, confirms you're in a git repo on a feature branch
-2. **Detects branch and issue** — reads the current branch, extracts the issue number from the `issue/{N}-*` pattern, determines the base branch
+2. **Detects branch and issue** — reads the current branch, extracts the issue number (from the repository's branch convention, a `Closes #N` in the branch's commits, or the run in progress), and resolves the base branch from the repository rather than assuming `main`
 3. **Collects context** — fetches the GitHub issue via `gh`, reads `issues/{N}/prd.md` and `issues/{N}/tasks.json` if they exist, runs `git log` and `git diff --stat` against the base branch
 4. **Checks for duplicates** — looks for existing open PRs on the same branch via `gh pr list --head <branch>`
 5. **Pushes the branch** — pushes to remote if not already pushed

@@ -60,27 +60,52 @@ Only proceed once the environment is confirmed working.
    BRANCH=$(git branch --show-current)
    ```
 
-2. **Extract issue number from the branch name:**
-   The expected pattern is `issue/{N}-*` (e.g., `issue/42-add-login-page`).
+2. **Extract the issue number**, trying each source in turn. A branch that does
+   not match Issue Flow's default pattern is **not** an error: repositories that
+   use `feat/`, `fix/`, `docs/` and `chore/` prefixes are following a common
+   convention, and refusing to open their Pull Requests is the skill's problem,
+   not theirs.
+
    ```bash
-   ISSUE_NUMBER=$(echo "$BRANCH" | grep -oP 'issue/\K[0-9]+')
+   # a) the repository's own branch convention, when it declares one
+   CONVENTION=$(issue-flow policy --json 2>/dev/null | jq -r '.git.branchConvention // empty')
+
+   # b) the default pattern
+   ISSUE_NUMBER=$(echo "$BRANCH" | grep -oE '[0-9]+' | head -1)
    ```
 
-   **If the branch does not match the `issue/{N}-*` pattern:**
-   Ask the user:
-   > The branch `<branch-name>` doesn't follow the `issue/{N}-*` pattern.
+   In order:
+   1. a number embedded in the branch name, read against `CONVENTION` when the
+      repository declares one, otherwise `issue/{N}-*`;
+   2. a `Closes #N` / `Fixes #N` line in a commit on this branch:
+      `git log "$BASE"..HEAD --format=%B | grep -oiE '(closes|fixes|resolves) #[0-9]+'`;
+   3. the issue directory the pipeline is working under, if a run is in progress.
+
+   Only when all three come up empty, ask:
+   > I could not determine which issue this branch belongs to.
    > What issue number should this PR reference? (Enter a number, or "none" to create without issue linking)
 
+   Mention it when the branch does not match the expected convention, but
+   **proceed** — it is a warning, not a stop.
+
 3. **Determine the base branch** using this priority:
-   1. Check if the branch tracks a remote branch and what it was branched from:
+   1. The repository's declared or discovered base:
       ```bash
-      git log --oneline --merges --ancestry-path HEAD...main 2>/dev/null | head -1
+      issue-flow policy --json 2>/dev/null | jq -r '.pullRequests.baseBranch // empty'
       ```
-   2. Check `issues/{N}/tasks.json` for a `baseBranch` field (if the file exists).
-   3. Check if `main` exists: `git show-ref --verify refs/heads/main 2>/dev/null`
-   4. Check if `master` exists: `git show-ref --verify refs/heads/master 2>/dev/null`
-   5. Check if `dev` or `develop` exists.
-   6. If none found, ask the user which branch to target.
+   2. `origin/HEAD`:
+      ```bash
+      git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'
+      ```
+   3. Check `issues/{N}/tasks.json` for a `baseBranch` field (if the file exists).
+   4. Check if `main` exists: `git show-ref --verify refs/heads/main 2>/dev/null`
+   5. Check if `master` exists: `git show-ref --verify refs/heads/master 2>/dev/null`
+   6. Check if `dev` or `develop` exists.
+   7. If none found, ask the user which branch to target.
+
+   Never stop at "`main` exists": in a repository based on `develop`, `main`
+   usually exists too, and a Pull Request opened against it carries the wrong
+   diff without failing.
 
 Store `BRANCH`, `ISSUE_NUMBER`, and `BASE_BRANCH` for use in subsequent steps.
 

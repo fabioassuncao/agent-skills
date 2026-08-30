@@ -1,4 +1,5 @@
 import { loadPolicyConfig } from '../config.js';
+import { getBaseBranch } from '../utils/git.js';
 import { loadRepositoryPolicy } from './resolve.js';
 import type { IssueTemplate, PolicyDocument, RepositoryPolicy } from './types.js';
 
@@ -262,6 +263,40 @@ export function policyPlaceholders(
 /** Default token budget for `__REPO_POLICY__`, overridable via `policy.contextBudget`. */
 export const DEFAULT_POLICY_CONTEXT_BUDGET = 1500;
 
+// ── Conventions that always have a value ────────────────────────────────────
+
+/** Branch naming Issue Flow has always used, when the repository declares none. */
+export const DEFAULT_BRANCH_CONVENTION = 'issue/{N}-{slug}';
+
+/**
+ * Placeholders that must **never** render empty, because a prompt puts them
+ * inside a command it asks the agent to run.
+ *
+ * `__BASE_BRANCH__` is the reason this group exists separately from the policy
+ * projection. `prompts/pr.md` used to spell `main` three times — in
+ * `git log main..HEAD`, in `git diff main...HEAD` and in `gh pr create --base
+ * main`. In a repository whose base is `develop` that is not a missing feature
+ * but an active defect: `main` often *exists* there too, so nothing fails — the
+ * agent simply reviews the wrong diff and opens the Pull Request against the
+ * wrong target.
+ *
+ * The resolution order is the repository's declared or discovered base, then
+ * `getBaseBranch()`, whose own fallback is `main`. So a repository on `main`
+ * renders exactly the text it rendered before.
+ */
+export function conventionPlaceholders(
+  policy: RepositoryPolicy | null,
+  baseBranchFallback: string,
+): Record<string, string> {
+  return {
+    __BASE_BRANCH__: policy?.pullRequests.baseBranch ?? baseBranchFallback,
+    __BRANCH_CONVENTION__: policy?.git.branchConvention ?? DEFAULT_BRANCH_CONVENTION,
+    // The one member of this group that may legitimately render empty: it gates
+    // a conditional section rather than sitting inside a command.
+    __COMMIT_CONVENTION__: policy?.git.commitConvention ?? '',
+  };
+}
+
 export interface ResolvePolicyPlaceholdersOptions {
   /** Repository root. Defaults to the git project root. */
   root?: string;
@@ -283,11 +318,24 @@ export interface ResolvePolicyPlaceholdersOptions {
 export async function resolvePolicyPlaceholders(
   options: ResolvePolicyPlaceholdersOptions = {},
 ): Promise<Record<string, string>> {
+  let policy: RepositoryPolicy | null = null;
+  let projection = emptyPolicyPlaceholders();
   try {
-    const policy = await loadRepositoryPolicy({ root: options.root, scope: options.scope ?? null });
+    policy = await loadRepositoryPolicy({ root: options.root, scope: options.scope ?? null });
     const config = await loadPolicyConfig({ projectRoot: policy.root });
-    return policyPlaceholders(policy, { budgetTokens: config.contextBudget });
+    projection = policyPlaceholders(policy, { budgetTokens: config.contextBudget });
   } catch {
-    return emptyPolicyPlaceholders();
+    // Discovery is an enrichment; the conventions below still have to resolve.
+    policy = null;
   }
+
+  let fallbackBase = 'main';
+  try {
+    fallbackBase = await getBaseBranch();
+  } catch {
+    // getBaseBranch() does not throw today, but its contract is "never fails",
+    // and a base branch that cannot be resolved must not cost the whole prompt.
+  }
+
+  return { ...projection, ...conventionPlaceholders(policy, fallbackBase) };
 }
