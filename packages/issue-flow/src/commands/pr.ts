@@ -287,19 +287,34 @@ export async function runPr(
   }
 
   const prUrl = parsePrUrl(headlessOutput);
+  const parsedPrNumber = prUrl === null ? null : parsePrNumber(prUrl);
+  let pullRequest =
+    prUrl === null || parsedPrNumber === null ? null : { number: parsedPrNumber, url: prUrl };
+
+  // The agent may create the Pull Request successfully but omit (or mangle)
+  // its URL in the final answer. Ask GitHub again after the side effect so the
+  // durable plan never loses a trustworthy PR that now exists for this branch.
+  if (pullRequest === null) {
+    try {
+      const [discovered] = await listPullRequests(branchName, { state: 'open' });
+      if (discovered !== undefined) {
+        pullRequest = { number: discovered.number, url: discovered.url };
+      }
+    } catch {
+      // With no trustworthy answer, keep the historical successful-but-unlinked state.
+    }
+  }
 
   // Update pipeline state
   try {
     const plan = await loadTaskPlan(tasksPath);
     plan.pipeline.prCreated = true;
-    const prNumber = prUrl === null ? null : parsePrNumber(prUrl);
-    // Without a URL the PR is still assumed created (the phase succeeded), but
-    // there is nothing trustworthy to record: an invented number would send
-    // `pr-review` at an unrelated Pull Request.
-    if (prUrl !== null && prNumber !== null) {
+    // Without an output URL or a post-create GitHub match the PR is still
+    // assumed created (the phase succeeded), but no number is invented.
+    if (pullRequest !== null) {
       plan.pullRequest = {
-        number: prNumber,
-        url: prUrl,
+        number: pullRequest.number,
+        url: pullRequest.url,
         headBranch: branchName,
         createdAt: isoNow(),
       };
@@ -309,8 +324,8 @@ export async function runPr(
     // tasks.json may not exist
   }
 
-  if (prUrl) {
-    printSuccess(`PR created: ${prUrl}`);
+  if (pullRequest !== null) {
+    printSuccess(`PR created: ${pullRequest.url}`);
   } else {
     printSuccess('PR creation completed');
   }
