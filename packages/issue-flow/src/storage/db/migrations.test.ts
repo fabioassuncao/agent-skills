@@ -114,4 +114,36 @@ describe('SQLite migrations', () => {
       db.close();
     }
   });
+
+  it('creates the execution-history indexes required by query readers', async () => {
+    const db = await database();
+    try {
+      migrateDatabase(db);
+      const indexes = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'executions'")
+        .all<{ name: string }>()
+        .map((row) => row.name);
+
+      expect(indexes).toEqual(
+        expect.arrayContaining(['executions_harness_started_idx', 'executions_run_id_idx']),
+      );
+      const harnessPlan = db
+        .prepare(
+          'EXPLAIN QUERY PLAN SELECT id FROM executions WHERE harness = ? ORDER BY started_at',
+        )
+        .all<{ detail: string }>('claude-code')
+        .map((row) => row.detail)
+        .join('\n');
+      const runPlan = db
+        .prepare('EXPLAIN QUERY PLAN SELECT id FROM executions WHERE run_id = ?')
+        .all<{ detail: string }>('run-1')
+        .map((row) => row.detail)
+        .join('\n');
+
+      expect(harnessPlan).toContain('executions_harness_started_idx');
+      expect(runPlan).toContain('executions_run_id_idx');
+    } finally {
+      db.close();
+    }
+  });
 });

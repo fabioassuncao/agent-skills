@@ -21,12 +21,32 @@ import type { Issue, IssueDraft, IssuesConfig } from './types.js';
  * anything ever starts naming it.
  */
 
-// Only the process boundaries are mocked: the agent invocation, the external
-// binaries and the story-execution engine. The resolver, the registry, the
-// prerequisite checks, the commands and the templates are the production ones.
+// Only the process boundaries are mocked: agent responses and external binaries.
+// The resolver, registry, prerequisite checks, commands, execution engine and
+// templates are production code.
 vi.mock('../core/headless.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../core/headless.js')>()),
   runHeadless: vi.fn(),
+}));
+vi.mock('../core/executor.js', () => ({
+  executeClaude: async () => {
+    if (executeAgentCompletesStory) {
+      const { readFile, writeFile } = await import('node:fs/promises');
+      const { resolveIssuePaths } = await import('../storage/resolve.js');
+      const { beginExecution, endExecution } = await import('../telemetry/recorder.js');
+      const paths = await resolveIssuePaths(ISSUE_ID);
+      const executionId = await beginExecution({ purpose: 'execute', harness: 'fake-agent' });
+      const plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8')) as TaskPlan;
+      plan.userStories[0] = {
+        ...plan.userStories[0],
+        passes: true,
+        notes: 'completed by fake agent',
+      };
+      await writeFile(paths.tasksFile, JSON.stringify(plan, null, 2), 'utf-8');
+      if (executionId !== null) await endExecution({ id: executionId, status: 'completed' });
+    }
+    return { exitCode: 0, output: '<promise>COMPLETE</promise>', cost: null };
+  },
 }));
 vi.mock('execa', () => ({ execa: vi.fn() }));
 // Partial: run.ts reaches the pr-review discovery, which imports
@@ -35,7 +55,6 @@ vi.mock('../core/session-git.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../core/session-git.js')>();
   return { ...actual, publishGitState: vi.fn(async () => {}) };
 });
-vi.mock('../commands/execute.js', () => ({ runExecute: vi.fn(async () => 0) }));
 vi.mock('../ui/pipeline-renderer.js', () => ({
   runPipelineWithRenderer: vi.fn(
     async (options: {
@@ -63,6 +82,7 @@ import { setIssuesCliOverrides } from '../config.js';
 import { runHeadless } from '../core/headless.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
+import type { TaskPlan } from '../types.js';
 
 /** The origin this proof invents. Nothing outside this file mentions it. */
 const MEMORY_SOURCE = 'memory';
@@ -150,7 +170,7 @@ function makeConfig(overrides: Partial<IssuesConfig> = {}): IssuesConfig {
   };
 }
 
-const VALID_TASK_PLAN = {
+const VALID_TASK_PLAN: TaskPlan = {
   project: 'issue-flow',
   issueNumber: 42,
   issueUrl: '',
@@ -182,6 +202,9 @@ const VALID_TASK_PLAN = {
   ],
 };
 
+let generatedPlan: TaskPlan = VALID_TASK_PLAN;
+let executeAgentCompletesStory = false;
+
 describe('extensibilidade: um provider novo roda o pipeline sem tocar em commands/prompts', () => {
   let tmp: string;
   let globalHome: string;
@@ -207,6 +230,8 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     setIssuesCliOverrides({});
     vi.clearAllMocks();
     prompts = [];
+    generatedPlan = VALID_TASK_PLAN;
+    executeAgentCompletesStory = false;
 
     // Every binary the pipeline may reach for. The environment is a healthy
     // GitHub one — gh installed and authenticated, prerequisite checks green —
@@ -272,13 +297,17 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
         if (status.startsWith('Converting PRD')) {
           await writeFile(
             join(issueDir, 'tasks.json'),
-            JSON.stringify(VALID_TASK_PLAN, null, 2),
+            JSON.stringify(generatedPlan, null, 2),
             'utf-8',
           );
         }
-        const output = status.startsWith('Reviewing')
-          ? '<review-result>\nSTATUS: PASS\n</review-result>'
-          : 'done';
+        const output = status.startsWith('Reviewing Pull Request')
+          ? '<pr-review-result>\nRECOMMENDATION: APPROVE\nBLOCKERS:\n- None\n</pr-review-result>'
+          : status.startsWith('Reviewing')
+            ? '<review-result>\nSTATUS: PASS\n</review-result>'
+            : status.startsWith('Creating PR')
+              ? 'https://github.com/acme/repo/pull/42'
+              : 'done';
         return { success: true, result: output, cost: null, error: null };
       },
     );
@@ -365,6 +394,31 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     expect(await readFile(paths.prdFile, 'utf-8')).toContain('# PRD');
     // Nothing was written back into the repository itself.
     await expect(readFile(join(tmp, 'issues', ISSUE_ID, 'prd.md'), 'utf-8')).rejects.toThrow();
+  });
+
+  it('runs the real plan → execute → review → pr → pr-review chain and preserves agent state after telemetry closes', async () => {
+    generatedPlan = {
+      ...VALID_TASK_PLAN,
+      pipeline: { ...VALID_TASK_PLAN.pipeline, prReviewCompleted: false },
+      userStories: [{ ...VALID_TASK_PLAN.userStories[0], passes: false, notes: '' }],
+    };
+    executeAgentCompletesStory = true;
+
+    const code = await runPipeline(ISSUE_ID, 'auto', undefined, false, true);
+
+    expect(code).toBe(0);
+    const paths = await resolveIssuePaths(ISSUE_ID);
+    const plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8')) as TaskPlan;
+    expect(plan.userStories[0]).toMatchObject({
+      passes: true,
+      notes: 'completed by fake agent',
+    });
+    expect(plan.pipeline).toMatchObject({
+      executionCompleted: true,
+      reviewCompleted: true,
+      prCreated: true,
+      prReviewCompleted: true,
+    });
   });
 
   it('a Issue é lida uma única vez e fechada pelo provider da origem', async () => {

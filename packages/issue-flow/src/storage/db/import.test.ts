@@ -107,6 +107,25 @@ describe('legacy JSON importer', () => {
       join(projectDir, 'providers.json'),
       JSON.stringify({ providers: { codex: {} } }),
     );
+    await writeFile(
+      join(projectDir, 'metadata.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        projectId: 'imported-project',
+        root: '/repo',
+        remoteUrl: null,
+        createdAt: '2026-08-30T20:00:00Z',
+        updatedAt: '2026-08-30T20:00:00Z',
+        lastAttemptAt: null,
+        userStoryNumbering: {
+          nextNumber: 3,
+          source: 'history',
+          issueNumber: '91',
+          decidedAt: '2026-08-30T20:00:00Z',
+          detail: 'US-002 (issue #91)',
+        },
+      }),
+    );
     const taskBefore = await readFile(taskFile, 'utf-8');
     const journalBefore = await readFile(journalFile, 'utf-8');
     const env = { [GLOBAL_ROOT_ENV]: home };
@@ -120,7 +139,7 @@ describe('legacy JSON importer', () => {
 
     const first = await importProjectArtifacts(options);
     expect(first.failed).toBe(false);
-    expect(first.imported).toBe(3);
+    expect(first.imported).toBe(4);
     const second = await importProjectArtifacts(options);
     expect(second).toMatchObject({ failed: false, imported: 0, skipped: 0 });
     await expect(readFile(taskFile, 'utf-8')).resolves.toBe(taskBefore);
@@ -143,6 +162,20 @@ describe('legacy JSON importer', () => {
       expect(
         database.prepare('SELECT COUNT(*) AS count FROM events').get<{ count: number }>()?.count,
       ).toBe(1);
+      expect(
+        database
+          .prepare(
+            'SELECT next_number, source, issue_id, detail FROM user_story_numbering WHERE project_id = ?',
+          )
+          .get<{ next_number: number; source: string; issue_id: string; detail: string }>(
+            'imported-project',
+          ),
+      ).toEqual({
+        next_number: 3,
+        source: 'history',
+        issue_id: '91',
+        detail: 'US-002 (issue #91)',
+      });
     } finally {
       database.close();
     }

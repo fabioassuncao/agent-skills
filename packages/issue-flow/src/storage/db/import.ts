@@ -66,6 +66,7 @@ const EMPTY_COUNTS: Record<string, number> = {
   provider_health: 0,
   verifications: 0,
   pull_requests: 0,
+  user_story_numbering: 0,
 };
 
 function digest(content: string): string {
@@ -187,6 +188,26 @@ function importArtifact(
       )
       .run(projectId, metadata.root, metadata.remoteUrl, metadata.createdAt, metadata.updatedAt);
     increment(counts, 'projects');
+    if (metadata.userStoryNumbering !== undefined) {
+      const decision = metadata.userStoryNumbering;
+      database
+        .prepare(
+          `INSERT INTO user_story_numbering (project_id, next_number, source, issue_id, decided_at, detail)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(project_id) DO UPDATE SET next_number = excluded.next_number,
+             source = excluded.source, issue_id = excluded.issue_id, decided_at = excluded.decided_at,
+             detail = excluded.detail`,
+        )
+        .run(
+          projectId,
+          decision.nextNumber,
+          decision.source,
+          decision.issueNumber,
+          decision.decidedAt,
+          decision.detail ?? null,
+        );
+      increment(counts, 'user_story_numbering');
+    }
     return;
   }
   if (artifact.kind === 'tasks') {

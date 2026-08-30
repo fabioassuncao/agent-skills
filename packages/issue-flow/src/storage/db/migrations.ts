@@ -360,6 +360,15 @@ export const migrations: readonly Migration[] = [
         CREATE INDEX reviews_pull_request_created_idx ON reviews(pull_request_id, created_at DESC);
       `),
   },
+  {
+    version: 7,
+    name: 'index execution history by harness and run',
+    up: (database) =>
+      database.exec(`
+        CREATE INDEX executions_harness_started_idx ON executions(harness, started_at);
+        CREATE INDEX executions_run_id_idx ON executions(run_id);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

@@ -82,6 +82,7 @@ vi.mock('../ui/logger.js', async (importOriginal) => {
 });
 
 import type { Issue, ResolvedIssue } from '../issues/types.js';
+import { openIssueFlowDatabase } from '../storage/db/index.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
 import { printInfo, printWarning } from '../ui/logger.js';
@@ -149,10 +150,21 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     vi.clearAllMocks();
   });
 
-  async function readMetadata(): Promise<Record<string, unknown>> {
+  async function readStoredNumbering(): Promise<Record<string, unknown> | undefined> {
     const { resolveProjectPaths } = await import('../storage/resolve.js');
-    const { projectDir } = await resolveProjectPaths({});
-    return JSON.parse(await readFile(join(projectDir, 'metadata.json'), 'utf-8'));
+    const { projectId } = await resolveProjectPaths({});
+    const database = await openIssueFlowDatabase();
+    try {
+      return database
+        .prepare(
+          `SELECT next_number AS nextNumber, source, issue_id AS issueNumber,
+                  decided_at AS decidedAt, detail
+           FROM user_story_numbering WHERE project_id = ?`,
+        )
+        .get<Record<string, unknown>>(projectId);
+    } finally {
+      database.close();
+    }
   }
 
   async function seedPriorStory(): Promise<void> {
@@ -177,8 +189,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
       true,
     );
 
-    const metadata = await readMetadata();
-    expect(metadata.userStoryNumbering).toMatchObject({ nextNumber: 1, source: 'none' });
+    expect(await readStoredNumbering()).toMatchObject({ nextNumber: 1, source: 'none' });
   });
 
   it('continues numbering automatically from a previous issue in the same project', async () => {
@@ -193,8 +204,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     const messages = mockPrintInfo.mock.calls.map(([line]) => String(line));
     expect(messages.some((m) => m.includes('Continuing') && m.includes('US-016'))).toBe(true);
 
-    const metadata = await readMetadata();
-    expect(metadata.userStoryNumbering).toMatchObject({ nextNumber: 16, source: 'history' });
+    expect(await readStoredNumbering()).toMatchObject({ nextNumber: 16, source: 'history' });
   });
 
   it('--start-us forces the numbering and ignores history', async () => {
@@ -208,8 +218,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     const messages = mockPrintInfo.mock.calls.map(([line]) => String(line));
     expect(messages.some((m) => m.includes('forced') && m.includes('US-027'))).toBe(true);
 
-    const metadata = await readMetadata();
-    expect(metadata.userStoryNumbering).toMatchObject({ nextNumber: 27, source: 'start-us' });
+    expect(await readStoredNumbering()).toMatchObject({ nextNumber: 27, source: 'start-us' });
   });
 
   it('--continue names the flag explicitly in the log while resolving the same number', async () => {
@@ -232,8 +241,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     expect(await runPlan('42', makeResolved())).toBe(0);
 
     expect(String(headlessOptions.last?.prompt)).toContain('US-016');
-    const metadata = await readMetadata();
-    expect(metadata.userStoryNumbering).toMatchObject({ nextNumber: 16, source: 'history' });
+    expect(await readStoredNumbering()).toMatchObject({ nextNumber: 16, source: 'history' });
   });
 
   it('warns when the generated plan ignores the requested numbering', async () => {
