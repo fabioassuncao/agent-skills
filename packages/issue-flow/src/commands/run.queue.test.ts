@@ -45,6 +45,11 @@ vi.mock('execa', () => ({
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
       return { stdout: 'issue/50-work', exitCode: 0 };
     }
+    // The repository preflight (US-019) asks which branch HEAD points at. The
+    // queue shares one branch, so every issue of it answers the same.
+    if (file === 'git' && args[0] === 'symbolic-ref') {
+      return { stdout: 'refs/heads/issue/50-work\n', exitCode: 0 };
+    }
     return { stdout: '', exitCode: 1 };
   }),
 }));

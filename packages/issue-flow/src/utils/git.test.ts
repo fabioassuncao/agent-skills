@@ -5,6 +5,8 @@ vi.mock('./shell.js', () => ({ run: vi.fn() }));
 
 const { run } = await import('./shell.js');
 const {
+  describePreflight,
+  preflightRepository,
   getBaseBranch,
   getCommitsSince,
   getHeadCommit,
@@ -230,5 +232,166 @@ describe('getCommitsSince', () => {
   it('returns [] when git fails (unknown base, shallow clone)', async () => {
     mockRun.mockResolvedValueOnce(result({ exitCode: 128, stderr: 'unknown revision' }));
     await expect(getCommitsSince('nope')).resolves.toEqual([]);
+  });
+});
+
+describe('preflightRepository (US-019)', () => {
+  /**
+   * Answers for the read-only probes the preflight runs, keyed by the argv it
+   * uses. Anything not listed answers "clean", so each test states only what
+   * it is actually about.
+   */
+  function repository(overrides: Record<string, Partial<ExecResult>> = {}) {
+    mockRun.mockImplementation(async (_command: string, args: string[] = []) => {
+      const key = args.join(' ');
+      const preset = overrides[key];
+      if (preset !== undefined) return result(preset);
+
+      if (args[0] === 'rev-parse') return result({ exitCode: 1 });
+      if (args[0] === 'symbolic-ref') return result({ stdout: 'refs/heads/issue/63-x\n' });
+      return result({ stdout: '' });
+    });
+  }
+
+  /** Every git invocation the preflight made, as `git <argv>`. */
+  function invocations(): string[] {
+    return mockRun.mock.calls.map(([command, args]) => `${command} ${(args ?? []).join(' ')}`);
+  }
+
+  beforeEach(() => {
+    mockRun.mockReset();
+  });
+
+  it('reports a clean repository as safe', async () => {
+    repository();
+
+    const preflight = await preflightRepository({ expectedBranch: 'issue/63-x' });
+
+    expect(preflight.ok).toBe(true);
+    expect(preflight.blocks).toEqual([]);
+    expect(preflight.branch).toBe('issue/63-x');
+    expect(preflight.dirty).toBe(false);
+  });
+
+  it.each([
+    ['REBASE_HEAD', 'rebase_in_progress', 'git rebase'],
+    ['MERGE_HEAD', 'merge_in_progress', 'git merge'],
+    ['CHERRY_PICK_HEAD', 'cherry_pick_in_progress', 'git cherry-pick'],
+    ['REVERT_HEAD', 'revert_in_progress', 'git revert'],
+  ])('blocks on %s and names the way out', async (ref, kind, suggestion) => {
+    repository({ [`rev-parse --verify --quiet ${ref}`]: { exitCode: 0, stdout: 'abc123' } });
+
+    const preflight = await preflightRepository();
+
+    expect(preflight.ok).toBe(false);
+    const block = preflight.blocks.find((entry) => entry.kind === kind);
+    expect(block).toBeDefined();
+    expect(block?.suggestion).toContain(suggestion);
+  });
+
+  it('runs nothing destructive while blocking on a merge', async () => {
+    repository({ 'rev-parse --verify --quiet MERGE_HEAD': { exitCode: 0, stdout: 'abc123' } });
+
+    await preflightRepository({ expectedBranch: 'issue/63-x' });
+
+    // The whole contract in one assertion: every git call is a read.
+    const forbidden = [
+      'merge --abort',
+      'rebase --abort',
+      'cherry-pick --abort',
+      'reset',
+      'checkout',
+      'switch',
+      'stash',
+      'clean',
+      'restore',
+    ];
+    for (const call of invocations()) {
+      for (const verb of forbidden) {
+        expect(call).not.toContain(verb);
+      }
+    }
+    expect(invocations().every((call) => call.startsWith('git '))).toBe(true);
+  });
+
+  it('blocks on unresolved conflicts, naming the files', async () => {
+    repository({ 'diff --name-only --diff-filter=U': { stdout: 'src/a.ts\nsrc/b.ts\n' } });
+
+    const preflight = await preflightRepository();
+
+    const block = preflight.blocks.find((entry) => entry.kind === 'unmerged_paths');
+    expect(block?.message).toContain('src/a.ts');
+    expect(block?.message).toContain('src/b.ts');
+  });
+
+  it('blocks on a detached HEAD', async () => {
+    repository({ 'symbolic-ref -q HEAD': { exitCode: 1, stdout: '' } });
+
+    const preflight = await preflightRepository({ expectedBranch: 'issue/63-x' });
+
+    expect(preflight.branch).toBeNull();
+    expect(preflight.blocks.some((entry) => entry.kind === 'detached_head')).toBe(true);
+  });
+
+  it('blocks when the repository is on a branch the plan does not know', async () => {
+    repository({ 'symbolic-ref -q HEAD': { stdout: 'refs/heads/main\n' } });
+
+    const preflight = await preflightRepository({ expectedBranch: 'issue/63-x' });
+
+    const block = preflight.blocks.find((entry) => entry.kind === 'branch_mismatch');
+    // Both names, because either one alone leaves the user guessing.
+    expect(block?.message).toContain('issue/63-x');
+    expect(block?.message).toContain('main');
+  });
+
+  it('does not check the branch when the plan has none yet', async () => {
+    repository({ 'symbolic-ref -q HEAD': { stdout: 'refs/heads/main\n' } });
+
+    const preflight = await preflightRepository({ expectedBranch: null });
+
+    expect(preflight.blocks.some((entry) => entry.kind === 'branch_mismatch')).toBe(false);
+  });
+
+  it('tolerates a dirty tree when resuming the phase that dirtied it', async () => {
+    repository({ 'status --porcelain': { stdout: ' M src/a.ts\n' } });
+
+    const preflight = await preflightRepository({
+      expectedBranch: 'issue/63-x',
+      intent: 'resume-same-phase',
+    });
+
+    expect(preflight.dirty).toBe(true);
+    expect(preflight.ok).toBe(true);
+  });
+
+  it('blocks on a dirty tree when moving on to something else', async () => {
+    repository({ 'status --porcelain': { stdout: ' M src/a.ts\n' } });
+
+    const preflight = await preflightRepository({
+      expectedBranch: 'issue/63-x',
+      intent: 'new-phase',
+    });
+
+    expect(preflight.ok).toBe(false);
+    expect(preflight.blocks.some((entry) => entry.kind === 'dirty_tree')).toBe(true);
+  });
+
+  it('reports every problem at once instead of one per run', async () => {
+    repository({
+      'rev-parse --verify --quiet MERGE_HEAD': { exitCode: 0, stdout: 'abc' },
+      'diff --name-only --diff-filter=U': { stdout: 'src/a.ts\n' },
+      'symbolic-ref -q HEAD': { stdout: 'refs/heads/main\n' },
+      'status --porcelain': { stdout: ' M src/a.ts\n' },
+    });
+
+    const preflight = await preflightRepository({ expectedBranch: 'issue/63-x' });
+
+    expect(preflight.blocks.map((block) => block.kind).sort()).toEqual([
+      'branch_mismatch',
+      'dirty_tree',
+      'merge_in_progress',
+      'unmerged_paths',
+    ]);
+    expect(describePreflight(preflight)).toHaveLength(4);
   });
 });

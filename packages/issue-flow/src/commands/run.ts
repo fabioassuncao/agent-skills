@@ -51,6 +51,7 @@ import {
   type QueueIssueSummary,
   type RunSummaryPrReview,
 } from '../ui/summary.js';
+import { describePreflight, preflightRepository } from '../utils/git.js';
 import { ensureWebMonitor } from '../web/lock.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
@@ -294,6 +295,47 @@ export async function runPipeline(
   } finally {
     await ownership.release();
   }
+}
+
+/**
+ * Phases that write to the repository — the working tree, the branch, or the
+ * remote. The read-only ones (`init`, `prd`, `review`) produce artifacts under
+ * the global storage and cannot be hurt by, nor hurt, a repository mid-rebase.
+ */
+const WRITING_PHASES: ReadonlySet<string> = new Set(['plan', 'execute', 'pr']);
+
+/**
+ * Refuse to hand the repository to an agent while it is in a state a human has
+ * to settle first.
+ *
+ * **Nothing is repaired here.** A rebase in progress, an unresolved conflict, a
+ * detached HEAD or a branch that is not the plan's are reported with the
+ * command that gets out of them, and the phase fails. That is the Epic's second
+ * limit: no destructive operation is ever run automatically to fix state, and
+ * "the tool aborted my rebase overnight" is exactly the outcome it forbids.
+ *
+ * Two of the checks are deliberately left to `resume` rather than run here:
+ *
+ * - a **dirty tree** does not block mid-pipeline, because the phases of one run
+ *   follow each other by design and uncommitted work between them is the
+ *   pipeline's own doing;
+ * - the **branch** is not compared either, because within a run the `plan`
+ *   phase is what creates and checks it out, and a queue adopts a shared branch
+ *   after its own plan ran.
+ *
+ * `resume` reads both strictly, because there the repository may have been
+ * touched by anything at all in between.
+ */
+async function ensureRepositoryWritable(phase: string): Promise<void> {
+  if (!WRITING_PHASES.has(phase)) return;
+
+  const preflight = await preflightRepository({ intent: 'resume-same-phase' });
+  if (preflight.ok) return;
+
+  for (const line of describePreflight(preflight)) {
+    printError(line);
+  }
+  throw new Error(`The repository is not in a state the ${phase} phase can write to`);
 }
 
 type RunOwnership =
@@ -758,6 +800,7 @@ async function runPipelinePhases(
 
   // Build phase runner functions that throw on failure
   const makeRunner = (fn: () => Promise<number>, phase: string) => async () => {
+    await ensureRepositoryWritable(phase);
     const code = await fn();
     if (code !== 0) {
       throw new Error(`Phase ${phase} failed with exit code ${code}`);

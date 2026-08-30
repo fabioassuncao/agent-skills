@@ -32,6 +32,12 @@ vi.mock('execa', () => ({
     if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
       return { stdout: mockProjectRoot.current, exitCode: 0 };
     }
+    // The repository preflight (US-019) asks which branch HEAD points at; a
+    // failing answer here would read as a detached HEAD and block every phase
+    // that writes.
+    if (file === 'git' && args[0] === 'symbolic-ref') {
+      return { stdout: `refs/heads/${mockBranch.current || 'main'}\n`, exitCode: 0 };
+    }
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
       return { stdout: mockBranch.current, exitCode: 0 };
     }
