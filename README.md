@@ -157,16 +157,35 @@ npx issue-flow run 50        # resumes at #52; #50 and #51 are left alone
 
 The coordination state lives in `~/.issue-flow/projects/<project-id>/queues/<queue-id>/execution-plan.json` (see [Global Storage](#global-storage)); each issue's own artifacts stay exactly where they were.
 
-### `init` -- Check prerequisites
+### `init` -- Check prerequisites and standardize the repository
 
 ```bash
-npx issue-flow init
-npx issue-flow init --local
+npx issue-flow init                 # prerequisites + what conventions are missing. Writes nothing
+npx issue-flow init --apply         # create the missing files
+npx issue-flow init --json          # the plan, for tooling and for the init-repository skill
+npx issue-flow init --scope apps/api
+npx issue-flow init --check-only    # prerequisites only, as earlier releases did
 ```
 
 Verifies that `claude`, `gh` (authenticated), and `git` (inside a repo) are available. Reports pass/fail for each with install hints.
 
 `claude` and `git` are always blocking. `gh` is blocking only when the issue origin is GitHub: with `--local` (or `issues.preferredProvider: "local"` in `.issue-flow.json`) a missing or unauthenticated `gh` is reported as a warning and the environment still passes.
+
+It then reports the repository's conventions and what a baseline would add. That half never changes the exit code -- a repository missing a template is not a broken environment -- so a script that treats `init` as a prerequisite gate sees exactly the pass/fail it always did.
+
+Each file gets one of three verdicts:
+
+| Verdict | Meaning |
+|---|---|
+| `create` | Missing, and the repository has no equivalent |
+| `keep` | Something equivalent already exists -- left untouched |
+| `review` | Present but inconsistent; reported, never rewritten |
+
+**Nothing that exists is ever overwritten**, even when it differs from the defaults: adapting to the repository is the point. **Running it twice writes nothing the second time.** With `--apply` it can create Issue Forms, the template chooser, a Pull Request template, `AGENTS.md`, `CLAUDE.md`, `docs/conventions.md` and a baseline `.github/labels.json`.
+
+The same capability is available interactively through the [`init-repository`](skills/init-repository/SKILL.md) skill, which calls this command rather than re-deriving the analysis.
+
+> Full behavior -- the default convention set, the `AGENTS.md`/`CLAUDE.md` policy, and what happens for each repository state -- is in [**Conventions**](docs/conventions.md).
 
 ### `generate` -- Create a new issue
 
