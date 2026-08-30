@@ -14,6 +14,16 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Changed
+
+- **Convenção Git default** (#77). Branches passam de `issue/{N}-{slug}` para
+  `{type}/{N}-{slug}`, com o tipo resolvido por Issue Type, labels, prefixo do
+  título ou fallback `feat`. Commits e títulos de PR seguem Conventional
+  Commits mesmo quando o repositório não declara convenção. Branches
+  existentes não são renomeadas; `issue/{N}-*` continua reconhecida na
+  extração do número, e uma execução retomada conserva `tasks.json.branchName`.
+  Novo comando `issue-flow conventions {branch,commit,pr-title}`.
+
 ### Added
 
 - **Camada de agentes (`src/agents/`)** (#62). `AgentRunner` desacopla o

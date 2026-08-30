@@ -1,4 +1,9 @@
 import { mkdir, readFile } from 'node:fs/promises';
+import {
+  branchName,
+  DEFAULT_BRANCH_CONVENTION,
+  resolveChangeType,
+} from '../conventions/git/index.js';
 import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
 import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
@@ -7,6 +12,7 @@ import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
+import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { taskPlanSchema } from '../schemas.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
@@ -64,6 +70,35 @@ export async function runPlan(
   });
   printInfo(numberingMessage);
 
+  let persistedBranch: string | null = null;
+  try {
+    persistedBranch = (await loadTaskPlan(tasksPath)).branchName ?? null;
+  } catch {
+    persistedBranch = null;
+  }
+
+  const policy = await loadRepositoryPolicy();
+  const change = resolveChangeType({
+    labels: resolution.resolved.issue.labels,
+    title: resolution.resolved.issue.title,
+    titleConvention: policy.issues.titleConvention,
+    typeMap: policy.git.typeMap,
+  });
+  const numericIssue = /^\d+$/.test(issueNumber) ? Number(issueNumber) : null;
+  const computedBranch = branchName({
+    type: change.type,
+    issueNumber: numericIssue,
+    title: resolution.resolved.issue.title,
+    convention: policy.git.branchConvention ?? DEFAULT_BRANCH_CONVENTION,
+  });
+  const resolvedBranch =
+    persistedBranch !== null && persistedBranch !== '' ? persistedBranch : computedBranch;
+  printInfo(
+    `Branch: ${resolvedBranch} (type ${change.type} from ${change.source}${
+      persistedBranch !== null && persistedBranch !== '' ? ', persisted' : ''
+    })`,
+  );
+
   const template = await loadPrompt('plan');
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
@@ -73,6 +108,7 @@ export async function runPlan(
     __PRD_CONTENT__: prdContent,
     __TASKS_PATH__: tasksPath,
     __NEXT_US_NUMBER__: nextUserStoryId,
+    __BRANCH_NAME__: resolvedBranch,
     ...issuePlaceholders(resolution.resolved),
   });
 
@@ -149,9 +185,13 @@ export async function runPlan(
     return 1;
   }
 
-  // Ensure pipeline state reflects completion of this phase
+  // Ensure pipeline state reflects completion of this phase.
+  // The branch is a CLI calculation: a persisted name is never recalculated,
+  // and a fresh plan is overwritten if the agent drifted from __BRANCH_NAME__.
   const plan = await loadTaskPlan(tasksPath);
   plan.pipeline.jsonCompleted = true;
+  plan.branchName =
+    persistedBranch !== null && persistedBranch !== '' ? persistedBranch : computedBranch;
   await saveTaskPlan(tasksPath, plan);
 
   // The numbering is a prompt instruction, not a programmatic rewrite, so the

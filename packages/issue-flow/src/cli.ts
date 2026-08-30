@@ -672,6 +672,56 @@ withGlobalOptions(
   process.exit(code);
 });
 
+const conventionsCommand = withGlobalOptions(
+  program
+    .command('conventions')
+    .description('Compute the repository Git convention (branch, commit, PR title)'),
+);
+conventionsCommand
+  .command('branch')
+  .description('Print the deterministic branch name for an issue')
+  .option('--issue <n>', 'Issue number')
+  .option('--title <text>', 'Issue title, when the issue cannot be resolved')
+  .option('--json', 'Emit JSON')
+  .action(async (options: { issue?: string; title?: string; json?: boolean }) => {
+    const { runConventionsBranch } = await import('./commands/conventions.js');
+    process.exit(await runConventionsBranch(options));
+  });
+conventionsCommand
+  .command('commit')
+  .description('Print a Conventional Commit message')
+  .requiredOption('--type <type>', 'Change type (feat, fix, docs, …)')
+  .option('--scope <scope>', 'Optional scope')
+  .requiredOption('--subject <text>', 'Commit subject')
+  .option('--issue <n>', 'Issue number for the Refs trailer')
+  .option('--story <id>', 'Story id (US-010)')
+  .option('--breaking <text>', 'Breaking change description')
+  .option('--json', 'Emit JSON')
+  .action(
+    async (options: {
+      type: string;
+      scope?: string;
+      subject: string;
+      issue?: string;
+      story?: string;
+      breaking?: string;
+      json?: boolean;
+    }) => {
+      const { runConventionsCommit } = await import('./commands/conventions.js');
+      process.exit(await runConventionsCommit(options));
+    },
+  );
+conventionsCommand
+  .command('pr-title')
+  .description('Print the Conventional Commit Pull Request title')
+  .option('--issue <n>', 'Issue number')
+  .option('--title <text>', 'Issue title, when the issue cannot be resolved')
+  .option('--json', 'Emit JSON')
+  .action(async (options: { issue?: string; title?: string; json?: boolean }) => {
+    const { runConventionsPrTitle } = await import('./commands/conventions.js');
+    process.exit(await runConventionsPrTitle(options));
+  });
+
 // ── agent ───────────────────────────────────────────────────────────────
 const agentCommand = withGlobalOptions(
   program

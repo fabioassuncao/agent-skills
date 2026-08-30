@@ -160,6 +160,11 @@ Issue #56 delivered the foundation and `issue-flow policy`; #57 added the
 projection into the prompts and the per-repository override. The Agent Skills
 still do not consume any of it — that is #61.
 
+Git conventions (`commitlint`, release-please, semantic-release, Changesets,
+`action-semantic-pull-request`, husky) are discovered as text. A `.js`/`.ts`
+commitlint file is never `import()`ed. The canonical implementation lives in
+`src/conventions/git/` — this layer only *finds* what the repository declared.
+
 `issue-flow policy --json` is the bridge for the Agent Skills: they are markdown
 and cannot import TypeScript, so a versioned JSON document on stdout is the only
 interface available to them. `schemaVersion` therefore belongs to the payload,

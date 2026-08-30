@@ -14,6 +14,8 @@ those live in the documents referenced below, which are the source of truth.
  structure, the configuration and the web monitor
 - [`docs/conventions.md`](docs/conventions.md) — how conventions are discovered,
  the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
+- [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and
+ Pull Request titles; provider-independent by construction
 - [`docs/agents.md`](docs/agents.md) — Claude Code and Codex CLI: selection by
  phase, authentication, token economy and troubleshooting
 - [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
@@ -47,6 +49,7 @@ the code, and was learned the hard way.
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |
+| Git conventions (branch, commit, PR title) | [`docs/git-conventions.md`](docs/git-conventions.md) |
 | Failure taxonomy and retry policy | [`packages/issue-flow/src/resilience/AGENTS.md`](packages/issue-flow/src/resilience/AGENTS.md) |
 | Global storage and artifact paths | [`packages/issue-flow/src/storage/AGENTS.md`](packages/issue-flow/src/storage/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |

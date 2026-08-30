@@ -6,6 +6,7 @@ import {
   FALLBACK_TYPE_LABELS,
   NON_TYPES,
 } from '../conventions/defaults.js';
+import { DEFAULT_BRANCH_CONVENTION } from '../conventions/git/index.js';
 
 /**
  * The files initialization can write, rendered from the default convention set.
@@ -452,7 +453,7 @@ it: the label becomes a second truth that ages on its own.
 
 ## Branches and commits
 
-- Branch: \`issue/{N}-{slug}\`
+- Branch: \`${DEFAULT_BRANCH_CONVENTION}\`
 - Commit: ${DEFAULT_COMMIT_CONVENTION}
 
 The commit type must match the nature of the change. A bug fix committed as

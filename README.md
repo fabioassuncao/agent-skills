@@ -524,7 +524,7 @@ The Markdown report always carries the same eight sections: executive summary, s
 ```json
 {
   "schemaVersion": 1,
-  "pullRequest": { "number": 184, "title": "feat: …", "url": "…", "headBranch": "issue/42-dark-mode" },
+  "pullRequest": { "number": 184, "title": "feat: …", "url": "…", "headBranch": "feat/42-dark-mode" },
   "rounds": [
     {
       "round": 1,
@@ -648,7 +648,7 @@ The `policy` key both **declares** what discovery cannot infer and **turns off**
 | `issues.titleConvention` | Declares an issue title convention; nothing discovers one |
 | `issues.allowLabelCreation` | `true` lets Issue Flow create a label the repository does not have. **Defaults to `false`**, which is a deliberate change of behavior -- see below |
 | `pullRequests.baseBranch` | Overrides the branch discovered from git |
-| `pullRequests.titleConvention`, `git.branchConvention`, `git.commitConvention` | Declared only; no repository exposes these in a machine-readable form |
+| `pullRequests.titleConvention`, `git.branchConvention`, `git.commitConvention`, `git.pullRequestTitleConvention`, `git.issueReference`, `git.typeMap` | Declared in `.issue-flow.json`, or discovered from commitlint / release-please / semantic-release / Changesets / `action-semantic-pull-request`. See [`docs/git-conventions.md`](docs/git-conventions.md) |
 | `contextBudget` | Token budget for the policy summary injected into prompts (default `1500`). Over it, a whole section is replaced by a pointer -- never truncated mid-rule |
 | `discovery.{issueTemplates,pullRequestTemplate,docs,codeowners,labels,issueTypes}` | Turns a single discovery pass off, leaving the others running |
 
@@ -1007,11 +1007,11 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
     "cooldownUntil": "2026-08-03T16:14:00Z",
     "lastActivityAt": "2026-08-03T16:13:08Z"
   },
-  "git": { "branch": "issue/42-dark-mode", "baseBranch": "main", "commits": [{ "hash": "abc1234", "subject": "feat: …" }] },
+  "git": { "branch": "feat/42-dark-mode", "baseBranch": "main", "commits": [{ "hash": "abc1234", "subject": "feat: …" }] },
   "repository": {
     "name": "owner/repo",
     "remoteUrl": "git@github.com:owner/repo.git",
-    "branch": "issue/42-dark-mode",
+    "branch": "feat/42-dark-mode",
     "headCommit": "abc1234",
     "root": "/Users/me/code/repo"
   },
@@ -1238,7 +1238,7 @@ The `pr` and `pr-review` phases add three optional fields. All of them are **abs
   "pullRequest": {
     "number": 184,
     "url": "https://github.com/owner/repo/pull/184",
-    "headBranch": "issue/42-dark-mode",
+    "headBranch": "feat/42-dark-mode",
     "createdAt": "2026-08-03T16:00:00Z"
   },
   "prReview": {

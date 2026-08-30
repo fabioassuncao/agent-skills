@@ -71,7 +71,7 @@ Otherwise, discover it in this order and stop at the first hit:
 Never review a guessed PR. When the PR came from discovery (not from the user), state which one you
 picked — number, title and head branch — before reviewing.
 
-Also determine the **associated issue**, best-effort: from a number in the branch name (read against the repository's own branch convention when it declares one, otherwise `issue/{N}-*`), from
+Also determine the **associated issue**, best-effort: from a number in the branch name (read against the repository's own branch convention when it declares one, otherwise the default in `docs/git-conventions.md`), from
 `Closes #N` in the PR body, or from `issues/{N}/tasks.json`. A PR with no associated issue is
 reviewed on its own terms — that is not an error.
 

@@ -1,4 +1,9 @@
 import { execa } from 'execa';
+import {
+  issueReferenceLines,
+  pullRequestTitle,
+  resolveChangeType,
+} from '../conventions/git/index.js';
 import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
 import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
@@ -8,6 +13,7 @@ import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
@@ -35,11 +41,15 @@ function parsePrNumber(url: string): number | null {
  * counterpart: GitHub only understands the reference for Issues it hosts, and
  * an invented `#N` would silently point at an unrelated Issue.
  */
-function issueClosesLine(issue: Issue, fallbackId: string): string {
+function issueClosesLine(issue: Issue, fallbackId: string, complete: boolean): string {
   if (issue.remoteRef === null) {
     return '';
   }
-  return `Closes #${issue.number ?? fallbackId}`;
+  const number = issue.number ?? (/^\d+$/.test(fallbackId) ? Number(fallbackId) : null);
+  if (number === null) {
+    return '';
+  }
+  return issueReferenceLines({ references: [{ number, complete }] });
 }
 
 /** One Issue of a queue, as the consolidated Pull Request has to describe it. */
@@ -92,10 +102,11 @@ function issueRef(entry: { id: string; number: number | null }): string {
  * out of the very body that is supposed to reference it.
  */
 export function issueClosesLines(issues: readonly PrQueueIssue[]): string {
-  return issues
-    .filter((entry) => entry.source === 'github' && entry.number !== null)
-    .map((entry) => `Closes #${entry.number}`)
-    .join('\n');
+  return issueReferenceLines({
+    references: issues
+      .filter((entry) => entry.source === 'github' && entry.number !== null)
+      .map((entry) => ({ number: entry.number as number, complete: true })),
+  });
 }
 
 /**
@@ -233,6 +244,28 @@ export async function runPr(
   const queue = options.queue;
   const consolidating = queue !== undefined && queue.issues.length > 1;
 
+  let planComplete = false;
+  try {
+    const existing = await loadTaskPlan(tasksPath);
+    planComplete =
+      existing.userStories.every((story) => story.passes) &&
+      (existing.lastReviewFindings === null || existing.lastReviewFindings === '');
+  } catch {
+    planComplete = false;
+  }
+
+  const policy = await loadRepositoryPolicy();
+  const change = resolveChangeType({
+    labels: resolution.resolved.issue.labels,
+    title: resolution.resolved.issue.title,
+    titleConvention: policy.issues.titleConvention,
+    typeMap: policy.git.typeMap,
+  });
+  const prTitle = pullRequestTitle({
+    type: change.type,
+    subject: resolution.resolved.issue.title.replace(/^\s*\[[^\]]+\]\s*/, ''),
+  });
+
   const template = await loadPrompt('pr');
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
@@ -243,7 +276,11 @@ export async function runPr(
     __TASKS_PATH__: tasksPath,
     __ISSUE_CLOSES__: consolidating
       ? issueClosesLines(queue.issues)
-      : issueClosesLine(resolution.resolved.issue, issueNumber),
+      : issueClosesLine(resolution.resolved.issue, issueNumber, planComplete),
+    __PR_TITLE_CONVENTION__: prTitle,
+    __ISSUE_REFERENCE__: consolidating
+      ? issueClosesLines(queue.issues)
+      : issueClosesLine(resolution.resolved.issue, issueNumber, planComplete),
     __MULTI_ISSUE_CONTEXT__: multiIssueContext(queue),
     ...issuePlaceholders(resolution.resolved),
   });

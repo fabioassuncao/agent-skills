@@ -7,6 +7,7 @@ import {
   discoverBaseBranch,
   discoverCodeowners,
   discoverDocuments,
+  discoverGitConventions,
   discoverGitHubSlug,
   discoverIssueTemplates,
   discoverIssueTypes,
@@ -83,7 +84,15 @@ function emptyPolicy(
     enabled,
     issues: { templates: [], types: [], labels: [], titleConvention: null },
     pullRequests: { template: null, templates: [], baseBranch: null, titleConvention: null },
-    git: { branchConvention: null, commitConvention: null },
+    git: {
+      branchConvention: null,
+      commitConvention: null,
+      pullRequestTitleConvention: null,
+      issueReference: null,
+      typeMap: null,
+      allowedTypes: null,
+      scopes: null,
+    },
     docs: [],
     codeowners: null,
     sources,
@@ -105,7 +114,7 @@ function disabledSource(kind: PolicySource['kind']): PolicySource {
 const DECLARATION_KINDS = {
   issues: 'issue-templates',
   pullRequests: 'pull-request-template',
-  git: 'base-branch',
+  git: 'git-conventions',
 } as const satisfies Record<string, PolicySource['kind']>;
 
 /**
@@ -145,20 +154,23 @@ async function resolvePolicy(
 
   const toggles = config.discovery;
 
-  const [templateDiscovery, prTemplates, documents, codeowners] = await Promise.all([
-    toggles.issueTemplates
-      ? discoverIssueTemplates(root)
-      : Promise.resolve({ templates: [], sources: [disabledSource('issue-templates')] }),
-    toggles.pullRequestTemplate
-      ? discoverPullRequestTemplates(root)
-      : Promise.resolve({ templates: [], sources: [disabledSource('pull-request-template')] }),
-    toggles.docs
-      ? discoverDocuments(root, scope)
-      : Promise.resolve({ documents: [], sources: [disabledSource('docs')] }),
-    toggles.codeowners
-      ? discoverCodeowners(root)
-      : Promise.resolve({ content: null, sources: [disabledSource('codeowners')] }),
-  ]);
+  const [templateDiscovery, prTemplates, documents, codeowners, gitConventions] = await Promise.all(
+    [
+      toggles.issueTemplates
+        ? discoverIssueTemplates(root)
+        : Promise.resolve({ templates: [], sources: [disabledSource('issue-templates')] }),
+      toggles.pullRequestTemplate
+        ? discoverPullRequestTemplates(root)
+        : Promise.resolve({ templates: [], sources: [disabledSource('pull-request-template')] }),
+      toggles.docs
+        ? discoverDocuments(root, scope)
+        : Promise.resolve({ documents: [], sources: [disabledSource('docs')] }),
+      toggles.codeowners
+        ? discoverCodeowners(root)
+        : Promise.resolve({ content: null, sources: [disabledSource('codeowners')] }),
+      discoverGitConventions(root),
+    ],
+  );
 
   // The organization defaults are only worth asking for when the local tree has
   // none — that is precisely the case local discovery cannot see.
@@ -200,6 +212,7 @@ async function resolvePolicy(
     ...baseBranch.sources,
     ...documents.sources,
     ...codeowners.sources,
+    ...gitConventions.sources,
   ];
 
   // Only the base branch is inferable today; the conventions have no reliable
@@ -218,8 +231,31 @@ async function resolvePolicy(
     discovered: discoveredPullRequests,
     project: config.pullRequests,
   });
+  const discoveredGit: Partial<PolicyGit> = {};
+  if (gitConventions.commitConvention !== null) {
+    discoveredGit.commitConvention = gitConventions.commitConvention;
+  }
+  if (gitConventions.pullRequestTitleConvention !== null) {
+    discoveredGit.pullRequestTitleConvention = gitConventions.pullRequestTitleConvention;
+  }
+  if (gitConventions.allowedTypes !== null) {
+    discoveredGit.allowedTypes = gitConventions.allowedTypes;
+  }
+  if (gitConventions.scopes !== null) {
+    discoveredGit.scopes = gitConventions.scopes;
+  }
+
   const git = mergeConfigLayers<PolicyGit>({
-    defaults: { branchConvention: null, commitConvention: null },
+    defaults: {
+      branchConvention: null,
+      commitConvention: null,
+      pullRequestTitleConvention: null,
+      issueReference: null,
+      typeMap: null,
+      allowedTypes: null,
+      scopes: null,
+    },
+    discovered: discoveredGit,
     project: config.git,
   });
 
@@ -255,6 +291,11 @@ async function resolvePolicy(
     git: {
       branchConvention: git.branchConvention ?? null,
       commitConvention: git.commitConvention ?? null,
+      pullRequestTitleConvention: git.pullRequestTitleConvention ?? null,
+      issueReference: git.issueReference ?? null,
+      typeMap: git.typeMap ?? null,
+      allowedTypes: git.allowedTypes ?? gitConventions.allowedTypes,
+      scopes: git.scopes ?? gitConventions.scopes,
     },
     docs: documents.documents,
     codeowners: codeowners.content,

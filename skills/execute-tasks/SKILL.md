@@ -35,7 +35,7 @@ You are an autonomous coding agent. Work on one user story at a time, commit it,
 3. **Read `CLAUDE.md`** if it exists (project conventions)
 4. **Verify you're on the right branch**: `git branch --show-current`
    - Should match `branchName` from the JSON
-   - If not, check it out: `git checkout issue/{ISSUE_NUMBER}-{slug}`
+   - If not, check it out from `branchName` in the plan, or `issue-flow conventions branch --issue {ISSUE_NUMBER}`
 
 ---
 
@@ -234,7 +234,7 @@ Completed {N} user stories:
   ✅ US-002: [title]
   ...
 
-Branch: issue/{ISSUE_NUMBER}-{slug}
+Branch: see `docs/git-conventions.md`
 Ready to open a PR.
 ```
 

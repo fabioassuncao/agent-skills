@@ -208,6 +208,11 @@ describe('loadRepositoryPolicy', () => {
       expect(policy.git).toEqual({
         branchConvention: 'feat/{slug}',
         commitConvention: 'conventional',
+        pullRequestTitleConvention: null,
+        issueReference: null,
+        typeMap: null,
+        allowedTypes: null,
+        scopes: null,
       });
       expect(policy.pullRequests.titleConvention).toBe('type(scope): subject');
       expect(policy.sources).toEqual(

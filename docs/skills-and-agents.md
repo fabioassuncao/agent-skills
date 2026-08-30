@@ -241,7 +241,7 @@ With no GitHub access (offline, no remote, or a demand that is not public yet), 
 
 **Planning phases (automatic):**
 1. Check for existing work and pipeline state in `issues/{N}/`
-2. Create the working branch `issue/{N}-{slug}`
+2. Create the working branch (`issue-flow conventions branch`, see [`docs/git-conventions.md`](git-conventions.md))
 3. Generate PRD with `generate-prd` -> `issues/{N}/prd.md`
 4. Convert to task plan with `convert-prd-to-json` -> `issues/{N}/tasks.json`
 

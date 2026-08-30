@@ -80,7 +80,7 @@ Only proceed once the environment is confirmed working.
    In order:
    1. a number embedded in the branch name, read against `git.branchConvention`
       from [the shared block](../_shared/repository-policy.md) when the repository
-      declares one, otherwise `issue/{N}-*`;
+      declares one, otherwise the default in `docs/git-conventions.md`;
    2. a `Closes #N` / `Fixes #N` line in a commit on this branch:
       `git log "$BASE"..HEAD --format=%B | grep -oiE '(closes|fixes|resolves) #[0-9]+'`;
    3. the issue directory the pipeline is working under, if a run is in progress.
@@ -200,12 +200,10 @@ git push -u origin "$BRANCH" 2>&1
 
 #### 5a — Build the PR Title
 
-Use this format:
-```
-[Issue #N] <issue title>
-```
+Use `issue-flow conventions pr-title --issue N` (see `docs/git-conventions.md`).
+If the binary is missing, follow that document's `<type>(<scope>): <subject>` default.
 
-If an issue title is available from Step 2a, use it. Otherwise, derive a title from the branch name slug.
+If an issue title is available from Step 2a, use it as the subject. Otherwise, derive a subject from the branch name slug.
 
 **Rules:**
 - Max 70 characters

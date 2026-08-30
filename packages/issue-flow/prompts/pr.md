@@ -27,7 +27,7 @@ Steps:
 5. Create a well-structured PR using gh pr create
 
 The PR should:
-- Have a clear, concise title (under 70 characters)
+- Use this title verbatim: `__PR_TITLE_CONVENTION__`
 - Include a summary of changes
 - Include a test plan
 - Cite where the demand is described: the reference above (`__ISSUE_URL__`)
@@ -36,7 +36,7 @@ Issue reference line(s):
 - Include the lines below verbatim in the PR body, each entry on its own line,
   with no surrounding code fence or quoting — GitHub only auto-closes an issue
   when the `Closes #N` line is plain body text:
-__ISSUE_CLOSES__
+__ISSUE_REFERENCE__
 - When nothing follows the line above, the issue has no GitHub counterpart: do
   NOT invent a "Closes #" reference, and cite `__ISSUE_URL__` in the body instead
 

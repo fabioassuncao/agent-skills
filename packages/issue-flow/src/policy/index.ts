@@ -17,6 +17,7 @@ export {
   discoverBaseBranch,
   discoverCodeowners,
   discoverDocuments,
+  discoverGitConventions,
   discoverGitHubSlug,
   discoverIssueTemplates,
   discoverIssueTypes,
@@ -33,6 +34,7 @@ export {
   resetPolicyCache,
 } from './resolve.js';
 export {
+  EMPTY_POLICY_GIT,
   type IssueTemplate,
   type LabelDefinition,
   MAX_POLICY_DOCUMENT_BYTES,

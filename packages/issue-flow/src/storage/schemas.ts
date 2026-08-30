@@ -298,7 +298,7 @@ export const resilienceConfigSchema = z
   })
   .partial();
 
-/** Global commit preferences. Consumed by later issues, not by this release. */
+/** Global commit preferences. `signoff` is consumed by `commitMessage()`. */
 export const globalCommitConfigSchema = z
   .object({
     signoff: z.boolean(),

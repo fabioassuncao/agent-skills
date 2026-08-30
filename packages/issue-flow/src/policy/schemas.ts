@@ -50,6 +50,9 @@ const policyPullRequestsDeclarationSchema = z.object({
 const policyGitDeclarationSchema = z.object({
   branchConvention: z.string().min(1).optional(),
   commitConvention: z.string().min(1).optional(),
+  pullRequestTitleConvention: z.string().min(1).optional(),
+  issueReference: z.enum(['closes', 'refs']).optional(),
+  typeMap: z.record(z.string(), z.string().min(1)).optional(),
 });
 
 /**
@@ -101,7 +104,13 @@ export const policyConfigInputSchema = z.object({
     .object({ baseBranch: z.string().nullish(), titleConvention: z.string().nullish() })
     .optional(),
   git: z
-    .object({ branchConvention: z.string().nullish(), commitConvention: z.string().nullish() })
+    .object({
+      branchConvention: z.string().nullish(),
+      commitConvention: z.string().nullish(),
+      pullRequestTitleConvention: z.string().nullish(),
+      issueReference: z.enum(['closes', 'refs']).nullish(),
+      typeMap: z.record(z.string(), z.string().min(1)).nullish(),
+    })
     .optional(),
 });
 

@@ -157,8 +157,7 @@ a decision depends on what they say.
 
 This repository declares: __COMMIT_CONVENTION__
 
-`<type>` in the commit message above is for you to choose, and it must match the
-**nature of the change** — `fix` for a bug fix, `docs` for documentation, `test`,
-`refactor`, `chore`, `feat` for a new capability. Committing a bug fix as `feat`
-corrupts the changelog and any version bump computed from the history.
+The commit message above is already in the resolved format. If you must pick a
+`<type>` inside that format, choose from the repository's vocabulary and match
+the **nature of this commit** — never invent a type outside it.
 <!-- /if -->

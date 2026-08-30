@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolveAgentFor } from '../agents/resolve.js';
-import { getActiveResilienceConfig } from '../config.js';
+import { getActiveResilienceConfig, loadGlobalConfig } from '../config.js';
+import { archiveFolderName, type ChangeType, commitMessage } from '../conventions/git/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { classify } from '../resilience/errors.js';
 import type { RetryPolicy } from '../resilience/policy.js';
@@ -107,34 +108,70 @@ function newlyCompletedStoryIds(before: UserStory[], after: UserStory[]): string
     .map((story) => story.id);
 }
 
+export interface CommitPlaceholderOptions {
+  issueNumber?: string | number | null;
+  signoff?: boolean;
+  type?: ChangeType;
+}
+
+function numericIssue(value: string | number | null | undefined): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 /**
  * Commit message formats handed to the execute prompt.
  *
- * Without a scope they are byte-for-byte what the prompt has always spelled
- * out, so a single-issue run produces the same history it always did. With one
- * — the only case being several issues sharing a branch — the issue becomes a
- * conventional-commit scope, which is what makes `git log` on the shared branch
- * readable per issue.
- *
- * `convention` is the repository's own commit convention, when it declares one.
- * The hard-coded `feat` is wrong for most stories under Conventional Commits: a
- * bug fix committed as `feat:` corrupts a changelog and a semver bump computed
- * from the history. So a repository that declared a convention gets a `<type>`
- * placeholder and the instruction to choose; one that declared none keeps the
- * exact string it always had.
+ * Built by `commitMessage()` so Conventional Commits is the default even when
+ * the repository declared nothing. A scope is the issue id of a queue, which
+ * is what makes `git log` on the shared branch readable per issue.
  */
 export function commitPlaceholders(
   scope?: string,
   convention?: string | null,
+  options?: CommitPlaceholderOptions,
 ): Record<string, string> {
-  const suffix = scope === undefined || scope === '' ? '' : `(${scope})`;
   const declared = convention !== undefined && convention !== null && convention !== '';
+  const type = options?.type ?? 'feat';
+  const issueNumber = numericIssue(options?.issueNumber);
+  const resolvedScope = scope === undefined || scope === '' ? undefined : scope;
+
+  if (declared && options?.type === undefined) {
+    const suffix = resolvedScope === undefined ? '' : `(${resolvedScope})`;
+    return {
+      __COMMIT_MESSAGE__: commitMessage({
+        type,
+        scope: resolvedScope,
+        subject: '[Story ID] - [Story Title]',
+        issueNumber,
+        signoff: options?.signoff,
+      }).replace(`${type}${suffix}:`, `<type>${suffix}:`),
+      __FIX_COMMIT_MESSAGE__: commitMessage({
+        type: 'fix',
+        scope: resolvedScope,
+        subject: 'address review findings',
+        issueNumber,
+        signoff: options?.signoff,
+      }),
+    };
+  }
 
   return {
-    __COMMIT_MESSAGE__: declared
-      ? `<type>${suffix}: [Story ID] - [Story Title]`
-      : `feat${suffix}: [Story ID] - [Story Title]`,
-    __FIX_COMMIT_MESSAGE__: `fix${suffix}: address review findings`,
+    __COMMIT_MESSAGE__: commitMessage({
+      type,
+      scope: resolvedScope,
+      subject: '[Story ID] - [Story Title]',
+      issueNumber,
+      signoff: options?.signoff,
+    }),
+    __FIX_COMMIT_MESSAGE__: commitMessage({
+      type: 'fix',
+      scope: resolvedScope,
+      subject: 'address review findings',
+      issueNumber,
+      signoff: options?.signoff,
+    }),
   };
 }
 
@@ -219,7 +256,7 @@ async function archiveIfBranchChanged(plan: TaskPlan, paths: ResolvedPaths): Pro
 
   if (currentBranch && lastBranch && currentBranch !== lastBranch) {
     const dateStr = new Date().toISOString().split('T')[0];
-    const folderName = lastBranch.replace(/^issue\//, '').replace(/[<>:"|?*\\]/g, '_');
+    const folderName = archiveFolderName(lastBranch);
     const archiveFolder = join(archiveDir, `${dateStr}-${folderName}`);
 
     printInfo(`Archiving previous run: ${lastBranch}`);
@@ -327,6 +364,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // The repository's own conventions, resolved once for the whole loop: they
   // cannot change mid-run, and every iteration renders the same projection.
   const policy = await resolvePolicyPlaceholders({ root: paths.projectRoot });
+  const signoff = (await loadGlobalConfig()).commit?.signoff === true;
 
   const executeAgent = await resolveAgentFor('execute');
   printStartupHeader(config, plan, {
@@ -416,7 +454,10 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
           ...policy,
           // The convention comes off the projection above rather than from a second
           // discovery: one resolution per run is the whole point of the cache.
-          ...commitPlaceholders(config.commitScope, policy.__COMMIT_CONVENTION__),
+          ...commitPlaceholders(config.commitScope, policy.__COMMIT_CONVENTION__, {
+            issueNumber: plan.issueNumber,
+            signoff,
+          }),
         });
 
         const startedAt = isoNow();
