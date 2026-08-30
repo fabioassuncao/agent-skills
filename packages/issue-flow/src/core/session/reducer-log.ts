@@ -1,6 +1,11 @@
 import { stripVTControlCharacters } from 'node:util';
 import { DEFAULT_LOG_LIMIT, type SessionEvent } from './events.js';
-import type { SessionLogEntry, SessionProcessLogEntry, SessionReducerOptions, SessionSnapshot } from './snapshot.js';
+import type {
+  SessionLogEntry,
+  SessionProcessLogEntry,
+  SessionReducerOptions,
+  SessionSnapshot,
+} from './snapshot.js';
 
 export type LogEvent = Extract<
   SessionEvent,

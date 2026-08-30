@@ -1,12 +1,12 @@
 import { utimes } from 'node:fs/promises';
 import { writeFileAtomic } from '../../utils/fs.js';
-import {
-  DEFAULT_SESSION_HEARTBEAT_MS,
-  DEFAULT_THROTTLE_MS,
-  type SessionEvent,
-} from './events.js';
+import { DEFAULT_SESSION_HEARTBEAT_MS, DEFAULT_THROTTLE_MS, type SessionEvent } from './events.js';
 import { reduceSessionEvent } from './reducer.js';
-import { createInitialSnapshot, type SessionReducerOptions, type SessionSnapshot } from './snapshot.js';
+import {
+  createInitialSnapshot,
+  type SessionReducerOptions,
+  type SessionSnapshot,
+} from './snapshot.js';
 
 export interface SessionPublisher {
   /**
@@ -232,4 +232,3 @@ export class FilePublisher extends MemoryPublisher {
     await this.flush();
   }
 }
-

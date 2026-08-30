@@ -7,12 +7,7 @@ import { emptyPhaseTiming, emptyUsage, type SessionSnapshot } from './snapshot.j
 export type PhaseEvent = Extract<
   SessionEvent,
   {
-    type:
-      | 'phase:start'
-      | 'phase:end'
-      | 'iteration:start'
-      | 'iteration:end'
-      | 'correction:cycle';
+    type: 'phase:start' | 'phase:end' | 'iteration:start' | 'iteration:end' | 'correction:cycle';
   }
 >;
 

@@ -14,7 +14,10 @@ export function accumulate(current: number | null, delta: number | undefined): n
 }
 
 /** Fold the event's token/cost fields into a phase or story entry. */
-export function accumulateUsage<T extends SessionUsageSnapshot>(target: T, event: MetricsUpdateEvent): T {
+export function accumulateUsage<T extends SessionUsageSnapshot>(
+  target: T,
+  event: MetricsUpdateEvent,
+): T {
   return {
     ...target,
     inputTokens: accumulate(target.inputTokens, event.inputTokens),
