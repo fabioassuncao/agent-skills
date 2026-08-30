@@ -1,7 +1,4 @@
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { platform } from 'node:os';
-import { dirname, join } from 'node:path';
 import { installHint } from './agents/availability.js';
 import { setTrackedOrigins } from './agents/origins.js';
 import { runnerFor } from './agents/registry.js';
@@ -38,11 +35,7 @@ import {
   type WebConfig,
   webConfigSchema,
 } from './schemas.js';
-import { getGlobalRoot } from './storage/paths.js';
-import { resolveIssuePaths } from './storage/resolve.js';
 import {
-  type GlobalConfig,
-  globalConfigSchema,
   type ResilienceConfig,
   type ResilienceRetryConfig,
   resilienceConfigSchema,
@@ -50,93 +43,36 @@ import {
   telemetryConfigInputSchema,
 } from './storage/schemas.js';
 import { DEFAULT_TELEMETRY_CONFIG, type TelemetryConfig } from './telemetry/types.js';
-import type { EngineConfig, ResolvedPaths } from './types.js';
 import { printWarning } from './ui/logger.js';
-import { getProjectRoot } from './utils/git.js';
 import { run } from './utils/shell.js';
+import { DEFAULTS, createConfig, resolvePaths } from './config/engine.js';
+import {
+  type ConfigLayers,
+  dropNullish,
+  mergeConfigLayers,
+  parseBooleanEnv,
+  readNumberEnv,
+} from './config/layers.js';
+import {
+  GLOBAL_CONFIG_FILENAME,
+  type LoadGlobalConfigOptions,
+  PROJECT_CONFIG_FILENAME,
+  loadGlobalConfig,
+  readProjectConfigFile,
+} from './config/sources.js';
 
-/**
- * Default configuration values — matching the Bash script exactly.
- */
-export const DEFAULTS = {
-  retryLimit: 10,
-  retryForever: false,
-  backoffBaseSeconds: 30,
-  backoffMaxSeconds: 900,
-} as const;
+export { DEFAULTS, createConfig, resolvePaths };
+export type { ConfigLayers };
+export { mergeConfigLayers };
+export {
+  GLOBAL_CONFIG_FILENAME,
+  type LoadGlobalConfigOptions,
+  PROJECT_CONFIG_FILENAME,
+  loadGlobalConfig,
+};
 
-/**
- * Create a EngineConfig with defaults merged with provided options.
- */
-export function createConfig(options: Partial<EngineConfig>): EngineConfig {
-  return {
-    issueNumber: options.issueNumber,
-    maxIterations: options.maxIterations,
-    retryLimit: options.retryLimit ?? DEFAULTS.retryLimit,
-    retryForever: options.retryForever ?? DEFAULTS.retryForever,
-    backoffBaseSeconds: options.backoffBaseSeconds ?? DEFAULTS.backoffBaseSeconds,
-    backoffMaxSeconds: options.backoffMaxSeconds ?? DEFAULTS.backoffMaxSeconds,
-    // Left absent (rather than defaulted to an empty string) so the execute
-    // prompt keeps its historical commit format unless a queue asks otherwise.
-    ...(options.commitScope === undefined ? {} : { commitScope: options.commitScope }),
-    storiesPerIteration: options.storiesPerIteration ?? 1,
-  };
-}
-
-/**
- * Resolve file paths based on issue number and project root.
- *
- * With --issue N, every artifact comes from the global storage layer via
- * `resolveIssuePaths()`, which also migrates the legacy `<projectRoot>/issues/`
- * tree on first read:
- *   prdFile = ~/.issue-flow/projects/{id}/issues/{N}/tasks.json
- *   progressFile = ~/.issue-flow/projects/{id}/issues/{N}/progress.txt
- *
- * Standalone:
- *   prdFile = {projectRoot}/prd.json
- *   progressFile = {projectRoot}/progress.txt
- *
- * Beware of the asymmetric mapping in the issue branch: `ResolvedPaths.prdFile`
- * is the engine's *task plan*, so it maps to `IssuePaths.tasksFile`
- * (`tasks.json`) and **not** to `IssuePaths.prdFile` (`prd.md`, the human-facing
- * document produced by the `prd` phase). The name predates the split and is kept
- * because standalone mode really does read a `prd.json`.
- *
- * `projectRoot` stays on the result either way: `core/engine.ts` uses it as the
- * cwd of its git operations, which the global storage does not replace.
- */
-export async function resolvePaths(
-  config: EngineConfig,
-  scriptDir?: string,
-): Promise<ResolvedPaths> {
-  const projectRoot = await getProjectRoot();
-
-  if (config.issueNumber) {
-    // projectRoot is forwarded so the resolver does not shell out to
-    // `git rev-parse --show-toplevel` a second time for the answer we just got.
-    const issuePaths = await resolveIssuePaths(config.issueNumber, { projectRoot });
-    return {
-      prdFile: issuePaths.tasksFile,
-      progressFile: issuePaths.progressFile,
-      archiveDir: issuePaths.archiveDir,
-      lastBranchFile: issuePaths.lastBranchFile,
-      projectRoot,
-    };
-  }
-
-  // Standalone mode — use scriptDir if available, otherwise projectRoot
-  const base = scriptDir ?? projectRoot;
-  const standalone = {
-    prdFile: join(base, 'prd.json'),
-    progressFile: join(base, 'progress.txt'),
-    archiveDir: join(base, 'archive'),
-    lastBranchFile: join(base, '.last-branch'),
-    projectRoot,
-  };
-  const { bindTelemetry } = await import('./telemetry/recorder.js');
-  bindTelemetry({ tasksPath: standalone.prdFile });
-  return standalone;
-}
+/** Historical alias kept for the web monitoring call sites. */
+export const WEB_CONFIG_FILENAME = PROJECT_CONFIG_FILENAME;
 
 /**
  * Return a platform-appropriate install hint for a given package.
@@ -195,213 +131,6 @@ export async function validateDependencies(): Promise<string[]> {
   return errors;
 }
 
-// ── Per-project configuration file ──────────────────────────────────────────
-
-/** Optional per-project configuration file, read from the project root. */
-export const PROJECT_CONFIG_FILENAME = '.issue-flow.json';
-
-/** Historical alias kept for the web monitoring call sites. */
-export const WEB_CONFIG_FILENAME = PROJECT_CONFIG_FILENAME;
-
-/**
- * Locate the project root without spawning `git`. Tests that mock `execa`
- * wholesale (execute-regression, executor) treat every spawn as the agent;
- * a `git rev-parse` here would steal that first call.
- */
-function findProjectRootFromCwd(start: string = process.cwd()): string | undefined {
-  let dir = start;
-  while (true) {
-    if (existsSync(join(dir, PROJECT_CONFIG_FILENAME)) || existsSync(join(dir, '.git'))) {
-      return dir;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
-}
-
-async function readProjectConfigFile(
-  projectRoot: string | undefined,
-  warn: (message: string) => void,
-): Promise<Record<string, unknown> | null> {
-  const root = projectRoot ?? findProjectRootFromCwd();
-  if (root === undefined) {
-    return null;
-  }
-
-  const filePath = join(root, PROJECT_CONFIG_FILENAME);
-  let raw: string;
-  try {
-    raw = await readFile(filePath, 'utf-8');
-  } catch {
-    // The file is entirely optional — absence is the common case.
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    warn(`Ignoring ${PROJECT_CONFIG_FILENAME}: invalid JSON.`);
-    return null;
-  }
-
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    warn(`Ignoring ${PROJECT_CONFIG_FILENAME}: expected a JSON object.`);
-    return null;
-  }
-
-  return parsed as Record<string, unknown>;
-}
-
-// ── Global configuration file ───────────────────────────────────────────────
-
-/** Machine-wide configuration file, read from the global storage root. */
-export const GLOBAL_CONFIG_FILENAME = 'config.json';
-
-export interface LoadGlobalConfigOptions {
-  /** Environment source, forwarded to getGlobalRoot(). Defaults to process.env. */
-  env?: NodeJS.ProcessEnv;
-  /** Directory holding config.json. Defaults to getGlobalRoot(). */
-  globalRoot?: string;
-  /** Warning sink. Defaults to printWarning. */
-  warn?: (message: string) => void;
-}
-
-/**
- * Read and parse `~/.issue-flow/config.json`, the preferences a user sets once
- * for every project.
- *
- * Never throws, exactly like readProjectConfigFile(): an absent file, an
- * unreadable path, invalid JSON, a non-object root or an invalid key all
- * degrade to "no global preference" so the caller falls back to the layers
- * below. Absence is silent — it is the common case; every other failure warns,
- * because a preference the user did write is being dropped.
- *
- * Validation happens key by key on purpose: a typo in `retry` must not cost the
- * user their `web` settings. Unknown keys are dropped without a warning, which
- * is what keeps a file written by a newer release readable here.
- */
-export async function loadGlobalConfig(
-  options: LoadGlobalConfigOptions = {},
-): Promise<GlobalConfig> {
-  const warn = options.warn ?? printWarning;
-
-  let root: string;
-  try {
-    root = options.globalRoot ?? getGlobalRoot({ env: options.env ?? process.env });
-  } catch (err: unknown) {
-    warn(`Ignoring ${GLOBAL_CONFIG_FILENAME}: ${(err as Error).message}`);
-    return {};
-  }
-
-  const filePath = join(root, GLOBAL_CONFIG_FILENAME);
-  let raw: string;
-  try {
-    raw = await readFile(filePath, 'utf-8');
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      warn(`Ignoring ${GLOBAL_CONFIG_FILENAME}: ${(err as Error).message}`);
-    }
-    return {};
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    warn(`Ignoring ${GLOBAL_CONFIG_FILENAME}: invalid JSON.`);
-    return {};
-  }
-
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    warn(`Ignoring ${GLOBAL_CONFIG_FILENAME}: expected a JSON object.`);
-    return {};
-  }
-
-  const config: GlobalConfig = {};
-  for (const [key, value] of Object.entries(parsed)) {
-    const result = globalConfigSchema.safeParse({ [key]: value });
-    if (!result.success) {
-      warn(
-        `Ignoring "${key}" key of ${GLOBAL_CONFIG_FILENAME}: ${result.error.issues[0]?.message ?? 'invalid value'}.`,
-      );
-      continue;
-    }
-    // An unknown key parses successfully into an empty object and disappears
-    // here, which is the retro-compatible behaviour we want.
-    Object.assign(config, result.data);
-  }
-
-  return config;
-}
-
-/**
- * The configuration sources of the engine, ordered from the lowest to the
- * highest precedence:
- *
- *   defaults < discovered < config.json (global) < .issue-flow.json (project)
- *     < env < CLI
- */
-export interface ConfigLayers<T extends object> {
-  /** Hard-coded fallbacks, e.g. DEFAULTS or the values baked into a schema. */
-  defaults?: Partial<T>;
-  /**
-   * Values read from the consumer repository itself — the policies discovered
-   * by `src/policy/`. They sit just above the defaults: a repository's own
-   * convention beats a fallback Issue Flow invented, and loses to anything the
-   * user explicitly configured.
-   */
-  discovered?: Partial<T>;
-  /** ~/.issue-flow/config.json, via loadGlobalConfig(). */
-  global?: Partial<T>;
-  /** The matching key of .issue-flow.json in the project root. */
-  project?: Partial<T>;
-  /** ISSUE_FLOW_* environment variables. */
-  env?: Partial<T>;
-  /** CLI flags. */
-  cli?: Partial<T>;
-}
-
-/**
- * Merge configuration layers following the documented precedence.
- *
- * Pure and shallow: a layer only participates with the keys it actually
- * carries, so an absent key never erases the layer below it. `undefined` counts
- * as absent — that is what lets a layer be built by assigning only the values
- * that were really provided.
- *
- * Because the merge is shallow, nested objects (`web`, `retry`) are replaced
- * whole rather than merged field by field; callers that need per-field
- * precedence inside a nested key must flatten it into its own merge.
- *
- * Caveat for the `project` layer: it must be the *raw* set of keys the user
- * wrote, not the output of a schema that materializes defaults. In zod 4 a
- * `.default()` survives `.partial()`, so parsing the project file with
- * `webConfigSchema.partial()` yields every default and would make the project
- * layer swallow the global one.
- */
-export function mergeConfigLayers<T extends object>(layers: ConfigLayers<T>): Partial<T> {
-  const merged: Record<string, unknown> = {};
-
-  for (const layer of [
-    layers.defaults,
-    layers.discovered,
-    layers.global,
-    layers.project,
-    layers.env,
-    layers.cli,
-  ]) {
-    for (const [key, value] of Object.entries(layer ?? {})) {
-      if (value !== undefined) {
-        merged[key] = value;
-      }
-    }
-  }
-
-  return merged as Partial<T>;
-}
-
 // ── Web monitoring configuration ────────────────────────────────────────────
 
 /**
@@ -423,29 +152,6 @@ export interface LoadWebConfigOptions {
   projectRoot?: string;
   /** Warning sink. Defaults to printWarning. */
   warn?: (message: string) => void;
-}
-
-const FALSY_ENV_VALUES = new Set(['', '0', 'false', 'no', 'off']);
-
-function parseBooleanEnv(value: string): boolean {
-  return !FALSY_ENV_VALUES.has(value.trim().toLowerCase());
-}
-
-function readNumberEnv(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  warn: (message: string) => void,
-): number | undefined {
-  const raw = env[name];
-  if (raw === undefined) {
-    return undefined;
-  }
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) {
-    warn(`Ignoring ${name}="${raw}": not a number.`);
-    return undefined;
-  }
-  return parsed;
 }
 
 function readWebConfigEnv(
@@ -677,23 +383,6 @@ export interface LoadPolicyConfigOptions {
   projectRoot?: string;
   /** Warning sink. Defaults to printWarning. */
   warn?: (message: string) => void;
-}
-
-/**
- * Drop the keys a layer left as `null` or `undefined`.
- *
- * `mergeConfigLayers` only treats `undefined` as "absent", and the input schema
- * accepts `null` as the natural way to write "I do not declare this" — without
- * this, a `"baseBranch": null` would win over the branch discovery found.
- */
-function dropNullish<T extends object>(layer: T | undefined): Partial<T> {
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(layer ?? {})) {
-    if (value !== undefined && value !== null) {
-      result[key] = value;
-    }
-  }
-  return result as Partial<T>;
 }
 
 function readPolicyConfigEnv(
@@ -1597,7 +1286,6 @@ export async function loadVerifyConfig(
   );
   return verifyConfigSchema.parse({});
 }
-
 let routingCliOverrides: Partial<RoutingConfig> = {};
 
 export function setRoutingCliOverrides(overrides: Partial<RoutingConfig>): void {
