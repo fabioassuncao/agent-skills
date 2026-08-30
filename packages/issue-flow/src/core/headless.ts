@@ -13,6 +13,7 @@ import type {
 import { getActiveResilienceConfig } from '../config.js';
 import { resolvePolicy } from '../resilience/policy.js';
 import { withRetry } from '../resilience/retry.js';
+import { writeDiagnostic } from '../storage/diagnostics.js';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
 import { DECOMPOSITION_THRESHOLDS, timeoutsByPhase } from './decompose.js';
 import { type ClaudeUsage, sumUsage } from './metrics.js';
@@ -58,6 +59,8 @@ export interface HeadlessOptions {
   forceProvider?: AgentProviderId;
   /** Telemetry purpose when it is not the phase name (`verify`). */
   purpose?: 'verify';
+  correctionCycle?: number;
+  storyIds?: string[];
 }
 
 export type HeadlessCost = ClaudeUsage;
@@ -150,6 +153,12 @@ async function invokeHeadlessAgent(
         reason: failure.message,
         kind: failure.kind,
       });
+      writeDiagnostic({
+        level: 'warning',
+        message: `Retrying ${invocation.phase} after ${failure.kind}`,
+        context: { attempt, delayMs, reason: failure.message },
+        fields: { phase: invocation.phase },
+      });
     },
   });
 
@@ -179,6 +188,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     permission = 'workspace',
     forceProvider,
     purpose,
+    correctionCycle,
+    storyIds,
   } = options;
   const timeout = await escalatedTimeout(configuredTimeout, options.timeoutHistory);
   const settings = await resolveAgentFor(phase);
@@ -210,6 +221,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
       allowedTools,
       ...(forceProvider === undefined ? {} : { forceProvider }),
       ...(purpose === undefined ? {} : { purpose }),
+      ...(correctionCycle === undefined ? {} : { correctionCycle }),
+      ...(storyIds === undefined ? {} : { storyIds }),
       onEvent: (event) => printAgentEvent(event, effectiveOnOutput),
     });
 
@@ -244,6 +257,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
       inactivityTimeoutMs: getInactivityTimeout(),
       ...(forceProvider === undefined ? {} : { forceProvider }),
       ...(purpose === undefined ? {} : { purpose }),
+      ...(correctionCycle === undefined ? {} : { correctionCycle }),
+      ...(storyIds === undefined ? {} : { storyIds }),
       onEvent: (event) => {
         if (event.kind === 'text') return;
         getSessionPublisher().publish({

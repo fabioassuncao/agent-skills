@@ -1,7 +1,7 @@
 # Web monitoring
 
 `run` and `execute` accept `--web`: a local HTTP server serves a self-contained,
-**read-only** dashboard showing live progress — current phase and activity, user
+dashboard showing live progress — current phase and activity, user
 stories, resilience state, commits, pull requests, logs, tokens, cost and time
 estimates. It is off by default, works offline (no CDN, no external resource),
 and polls the server at a configurable interval.
@@ -44,7 +44,8 @@ Below the header and the alerts, the panel is split into three tabs.
 **"Execução"** is the view above: progress, the *"Executando agora"* card, the
 live resilience projection (current attempt, provider/model, last failure kind,
 cooldown and last real agent activity), the phase list with per-phase tokens and
-cost, user stories, commits, pull requests and recent logs.
+cost, effective harness/model configuration, user stories, commits, pull
+requests and recent logs.
 
 The resilience card is where a provider migration shows up:
 
@@ -58,9 +59,12 @@ story's [`status`](storage.md#story-status), each column showing its own count:
 
 A story whose `status` is absent (an older `session.json`) or unrecognized falls
 into Backlog rather than disappearing, and every column renders even when empty.
-Clicking a card — or focusing it and pressing Enter — opens a **side drawer**
-with the story's full title, status, description, acceptance criteria, declared
-dependencies, and its duration and completion time when known. The drawer closes
+Clicking a Kanban card, story row or phase — or focusing it and pressing Enter —
+opens the same **side drawer**. It shows status and timing, effective
+harness/model, token/cache/cost telemetry per invocation, stage transitions,
+retries/fallbacks/corrections, and expandable process output and correlated
+global diagnostics. Story-specific content (description, acceptance criteria
+and dependencies) remains in that same component. The drawer closes
 on the overlay, the close button or `Esc`, and returns focus to the card that
 opened it. It issues **no** additional network requests: everything it shows
 already came with the snapshot.
@@ -73,6 +77,37 @@ exist, it renders an empty state.
 Switching tabs never interrupts polling: both views are re-rendered on every
 refresh, so the Kanban is already current the moment it is opened, and an open
 drawer stays open across refreshes, updating in place.
+
+## Light and dark theme
+
+The panel ships both themes and a **"Tema"** select next to the **"Atualizar"**
+control — in the dashboard header *and* in the detail header, mirrored, so
+changing it in one immediately reflects in the other. It has three states:
+
+| State | What it does |
+|-------|--------------|
+| **Sistema** (default) | Follows the operating system, live: switching the OS theme repaints the panel with no reload |
+| **Claro** | Forces the light theme, whatever the OS says |
+| **Escuro** | Forces the dark theme, whatever the OS says |
+
+The choice is stored in `localStorage` under `issue-flow:theme`, so it is **per
+browser** (per origin, in fact), not per session, per project or per machine:
+another browser — or the same browser on another device watching the same
+monitor over the network — keeps its own preference. There is no CLI flag, no
+environment variable and no `.issue-flow.json` key for it; it is a client-side
+display setting and never reaches the server.
+
+The stored theme is applied by a tiny inline script in the `<head>`, before the
+stylesheet loads, so a reload with a forced theme never flashes the opposite
+palette. With `localStorage` unavailable (a private window with storage
+blocked, a hardened profile) the panel still loads and the select still switches
+the theme for that tab — the choice just does not survive the reload.
+
+Both themes declare their own `color-scheme`, so `<select>`, `<progress>` and
+the scrollbars follow the **effective** theme rather than the OS one, and every
+text/background pair meets WCAG AA (4.5:1 for text, 3:1 for the focus ring).
+Nothing here is loaded from the network: the palette is plain CSS custom
+properties in `app.css`, and the panel remains offline-capable.
 
 ## Read-only by contract
 
@@ -137,6 +172,9 @@ local.
 | `GET /api/sessions` | Every active session, with the summary fields the dashboard cards need |
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
 | `GET /api/events?session=<id>` | Journal entries for that session |
+| `GET /api/config?session=<id>` | Captured effective configuration and its origin |
+| `GET /api/diagnostics?session=<id>` | Correlated records from the global diagnostic log |
+| `POST /api/config/agent` | Save a global provider/model preference for future runs; loopback only |
 
 `GET /api/sessions` exists so the client does not need N× `/api/status` fetches
 just to paint the list. `issueDescription` is a short whitespace-collapsed
@@ -176,6 +214,13 @@ it is unambiguous: with **exactly one** active session it answers that one; with
 generation, tolerating absent, partial or malformed lines, and returns `[]` when
 journaling is disabled.
 
+The configuration card renders the captured value, not a new resolution done by
+the browser, so a run keeps explaining exactly which layers determined it.
+Changing a provider/model writes only the global user preference and only when
+the monitor is bound to loopback; it never mutates an active run. On a LAN or
+Tailscale binding the route is absent from `/api/health.capabilities` and returns
+`403`.
+
 ETags are content-hashed (`sha1` of the serialized snapshot) rather than
 counter-based, so they work uniformly for both the directory-backed and the
 in-memory session sources.
@@ -213,8 +258,9 @@ issue-flow run 42 --web --host 100.101.102.103
 # then open http://100.101.102.103:3737 from any device in your tailnet
 ```
 
-The interface is strictly read-only, but prefer the Tailscale IP over `0.0.0.0`
-when possible.
+Execution state is always read-only. Global agent preferences are writable only
+on loopback; on a remote binding the entire interface is read-only. Prefer the
+Tailscale IP over `0.0.0.0` when remote monitoring is needed.
 
 ## Rebuilding the screenshots
 

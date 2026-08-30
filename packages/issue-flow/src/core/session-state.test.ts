@@ -557,6 +557,7 @@ describe('reduceSessionEvent', () => {
         stage: 'awaiting_review',
         stageSince: '2026-08-03T12:01:00Z',
         stageDetail: null,
+        history: [],
       },
       {
         id: 'US-002',
@@ -577,6 +578,7 @@ describe('reduceSessionEvent', () => {
         stage: 'pending',
         stageSince: '2026-08-03T12:01:00Z',
         stageDetail: null,
+        history: [],
       },
     ]);
     expect(snap.progress.storiesCompleted).toBe(1);
@@ -954,6 +956,77 @@ describe('reduceSessionEvent', () => {
     }
     expect(snap.errors).toEqual([]);
     expect(snap.warnings).toEqual([]);
+  });
+
+  it('projects per-invocation history and sanitized process output for detail views', () => {
+    let snap = startedSnapshot();
+    const execution = {
+      id: 'exec-1',
+      sessionId: 'abc',
+      purpose: 'execute' as const,
+      attempt: 1,
+      trigger: 'initial' as const,
+      triggerReason: null,
+      agent: {
+        harness: 'codex-cli',
+        provider: 'openai',
+        model: { requested: 'gpt-5', resolved: 'gpt-5', source: 'config' as const },
+        providerSessionId: null,
+      },
+      startedAt: '2026-08-03T12:01:00Z',
+      finishedAt: null,
+      durationMs: null,
+      usage: null,
+      cost: { status: 'unknown' as const, reason: 'not_reported' as const },
+      status: 'running' as const,
+      failure: null,
+      storyIds: ['US-001'],
+    };
+    snap = reduceSessionEvent(snap, {
+      type: 'execution:update',
+      at: execution.startedAt,
+      execution,
+    });
+    snap = reduceSessionEvent(
+      snap,
+      {
+        type: 'process:output',
+        at: '2026-08-03T12:01:01Z',
+        phase: 'execute',
+        executionId: execution.id,
+        provider: 'codex',
+        stream: 'combined',
+        message: '\u001b[32mrunning tests\u001b[0m',
+      },
+      { logLimit: 10 },
+    );
+    expect(snap.executions).toEqual([execution]);
+    expect(snap.processLogs).toEqual([
+      expect.objectContaining({ executionId: 'exec-1', message: 'running tests' }),
+    ]);
+  });
+
+  it('retains each real story stage transition in order', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'stories:update',
+      at: '2026-08-03T12:01:00Z',
+      stories: [makeStory()],
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'iteration:start',
+      at: '2026-08-03T12:02:00Z',
+      iteration: 1,
+      storyId: 'US-001',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'stories:update',
+      at: '2026-08-03T12:03:00Z',
+      stories: [makeStory({ passes: true })],
+    });
+    expect(snap.stories[0]?.history.map((entry) => entry.stage)).toEqual([
+      'executing',
+      'awaiting_review',
+    ]);
   });
 
   it('correction:cycle updates execution state', () => {

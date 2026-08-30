@@ -12,6 +12,9 @@ export const GLOBAL_ROOT_ENV = 'ISSUE_FLOW_HOME';
 /** Directory under the global root holding one folder per project. */
 export const PROJECTS_DIR_NAME = 'projects';
 
+/** Machine-wide structured diagnostic logs, independent of any project. */
+export const LOGS_DIR_NAME = 'logs';
+
 /** Directory under a project holding one folder per issue. */
 export const ISSUES_DIR_NAME = 'issues';
 
@@ -81,6 +84,10 @@ export function getGlobalRoot(options: GetGlobalRootOptions = {}): string {
   }
 
   return join(home, GLOBAL_DIR_NAME);
+}
+
+export function getDiagnosticsDir(options: GetGlobalRootOptions = {}): string {
+  return join(getGlobalRoot(options), LOGS_DIR_NAME);
 }
 
 /** Maximum length of the human-readable half of a project id. */

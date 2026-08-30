@@ -9,6 +9,12 @@
   const REFRESH_OPTIONS = [3, 5, 10, 30];
   const PAUSED = 0;
   const STORAGE_KEY = 'issue-flow:refresh-seconds';
+  const THEME_STORAGE_KEY = 'issue-flow:theme';
+  // Esta chave também é lida pelo <script> inline do <head>
+  // do index.html, que aplica o tema antes do primeiro paint. A duplicação
+  // é deliberada: aquele script roda antes deste arquivo existir na página e
+  // não pode depender de nenhum símbolo daqui. Mudou o formato do valor,
+  // mude nos dois lugares.
   const MAX_BACKOFF_MS = 60000;
   const ALERT_PREVIEW = 3;
   const DESCRIPTION_PREVIEW = 140;
@@ -71,6 +77,8 @@
     estimate: document.getElementById('estimate'),
     refreshSelect: document.getElementById('refresh-select'),
     refreshSelectDashboard: document.getElementById('refresh-select-dashboard'),
+    themeSelect: document.getElementById('theme-select'),
+    themeSelectDashboard: document.getElementById('theme-select-dashboard'),
     alerts: document.getElementById('alerts'),
     alertsBody: document.getElementById('alerts-body'),
     issueSummary: document.getElementById('issue-summary'),
@@ -80,6 +88,7 @@
     progressCounters: document.getElementById('progress-counters'),
     now: document.getElementById('now'),
     resilience: document.getElementById('resilience'),
+    configuration: document.getElementById('configuration'),
     phases: document.getElementById('phases'),
     nextSteps: document.getElementById('next-steps'),
     stories: document.getElementById('stories'),
@@ -108,11 +117,16 @@
     polling: false,
     logFilter: 'all',
     activeTab: 'tab-execution',
+    // 'system' | 'light' | 'dark'. Valor inicial em initTheme(), lido da
+    // preferência guardada em localStorage por readStoredTheme().
+    theme: 'system',
     historyFilter: 'all',
     events: [],
+    diagnostics: [],
     // Só o id: o card que abriu o drawer é destruído no próximo render, então
     // guardar o nó levaria a uma referência morta.
-    selectedStoryId: null,
+    selectedDetail: null,
+    configWritable: false,
     // Multi-sessão (#35): lista de /api/sessions e seleção explícita do usuário.
     // selectedSessionId null = modo automático (1 sessão → detalhe; 2+ → dashboard).
     sessions: [],
@@ -192,8 +206,9 @@
   }
 
   // Custos abaixo de um centavo perderiam todo o significado com 2 casas.
-  function formatCost(value) {
-    return '~$' + (Math.abs(value) < 0.01 ? value.toFixed(4) : value.toFixed(2));
+  function formatCost(value, approximate) {
+    const prefix = approximate === false ? '$' : '~$';
+    return prefix + (Math.abs(value) < 0.01 ? value.toFixed(4) : value.toFixed(2));
   }
 
   // Ex.: '12.4k in / 3.1k out · 88.0k cache · ~$0.42'. Segmentos sem dado são
@@ -307,6 +322,88 @@
     }
   }
 
+  // ---- Tema ------------------------------------------------------------------
+  // Três estados: 'system' segue o SO (o @media decide), 'light'/'dark' forçam.
+  // Quem pinta é o CSS; aqui só se define (ou remove) o data-theme da raiz.
+
+  // Par ler/gravar tolerante a exceção, na mesma forma de readStoredRefresh()
+  // e storeRefresh(): armazenamento bloqueado (janela privada, cookies de
+  // terceiros desligados) não pode derrubar o painel.
+  function readStoredTheme() {
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(THEME_STORAGE_KEY);
+    } catch (err) {
+      // localStorage indisponível (ex.: bloqueado) — segue no modo sistema.
+    }
+    return raw === 'light' || raw === 'dark' ? raw : 'system';
+  }
+
+  function storeTheme(value) {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, value);
+    } catch (err) {
+      // Persistência é conveniência; falha é ignorada. Sem gravar, a escolha
+      // continua valendo nesta aba — só não sobrevive ao reload.
+    }
+  }
+
+  function applyTheme(theme) {
+    // 'system' **remove** o atributo em vez de gravar 'system': é a ausência
+    // do data-theme que devolve a decisão ao @media (prefers-color-scheme).
+    if (theme === 'light' || theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', theme);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }
+
+  // Os dois headers têm o seu seletor; mudar num precisa refletir no outro.
+  // As três opções são estáticas no HTML — aqui só se sincroniza o .value.
+  function syncThemeSelects() {
+    if (els.themeSelect) els.themeSelect.value = state.theme;
+    if (els.themeSelectDashboard) els.themeSelectDashboard.value = state.theme;
+  }
+
+  // Preferência do SO. Só se observa no modo 'system': é ali que a troca de
+  // claro para escuro no SO precisa chegar ao painel com a página aberta.
+  const systemThemeQuery =
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
+
+  function onSystemThemeChange() {
+    // Sincroniza o lado JS do tema com a preferência nova do SO: a raiz (que
+    // no modo sistema segue sem data-theme, para o @media decidir) e o .value
+    // dos dois seletores. O repaint das cores é do próprio @media, que o
+    // navegador reavalia sozinho — por isso não há nada a pintar aqui.
+    applyTheme(state.theme);
+    syncThemeSelects();
+  }
+
+  // Anexa no modo 'system' e desanexa nos modos forçados: com tema forçado a
+  // preferência do SO não vale, e continuar ouvindo seria ruído.
+  function watchSystemTheme(enabled) {
+    if (!systemThemeQuery) return;
+    if (enabled) systemThemeQuery.addEventListener('change', onSystemThemeChange);
+    else systemThemeQuery.removeEventListener('change', onSystemThemeChange);
+  }
+
+  function setTheme(theme) {
+    state.theme = theme === 'light' || theme === 'dark' ? theme : 'system';
+    applyTheme(state.theme);
+    syncThemeSelects();
+    watchSystemTheme(state.theme === 'system');
+  }
+
+  function initTheme() {
+    // O <script> inline do <head> já leu a mesma chave e aplicou o tema antes
+    // do primeiro paint; esta é a segunda metade da duplicação deliberada
+    // documentada em THEME_STORAGE_KEY — traz a preferência para o state e,
+    // com ela, para os dois seletores.
+    setTheme(readStoredTheme());
+  }
+
   // ---- Polling: intervalo configurável, aba oculta e backoff ----------------
 
   function readStoredRefresh() {
@@ -390,6 +487,10 @@
       return { mode: 'detail', session: null };
     }
 
+    if (sessions.length === 1) {
+      return { mode: 'detail', session: sessions[0] };
+    }
+
     return { mode: 'dashboard', session: null };
   }
 
@@ -401,7 +502,7 @@
     const showBack =
       mode === 'detail' && state.selectedSessionId !== null && state.sessions.length >= 1;
     els.backToDashboard.hidden = !showBack;
-    if (mode === 'dashboard' && state.selectedStoryId !== null) {
+    if (mode === 'dashboard' && state.selectedDetail !== null) {
       closeDrawer();
     }
   }
@@ -423,6 +524,7 @@
     state.snapshot = null;
     state.detailSessionId = null;
     state.events = [];
+    state.diagnostics = [];
     state.eventsUrl = null;
   }
 
@@ -528,7 +630,15 @@
         if (!eventsRes.ok) throw new Error('HTTP ' + eventsRes.status);
         const entries = await eventsRes.json();
         state.events = Array.isArray(entries) ? entries : [];
+        const diagnosticUrl =
+          'api/diagnostics?session=' + encodeURIComponent(state.detailSessionId || '');
+        const diagnosticsRes = await fetch(diagnosticUrl, { cache: 'no-store' });
+        if (diagnosticsRes.ok) {
+          const diagnostics = await diagnosticsRes.json();
+          state.diagnostics = Array.isArray(diagnostics) ? diagnostics : [];
+        }
         renderHistory();
+        renderDrawer(state.snapshot);
       }
       setViewMode('detail');
       state.failures = 0;
@@ -689,6 +799,7 @@
     renderProgress(snapshot);
     renderNow(snapshot);
     renderResilience(snapshot);
+    renderConfiguration(snapshot);
     renderPhases(snapshot);
     renderNextSteps(snapshot);
     renderStories(snapshot);
@@ -724,7 +835,15 @@
 
     const branch = snapshot.git.branch;
     const base = snapshot.git.baseBranch;
-    els.branchLine.textContent = branch ? (base ? branch + ' ← ' + base : branch) : '';
+    const branchMode =
+      snapshot.git.branchCreated === false
+        ? 'branch atual · não criada pelo Issue Flow'
+        : snapshot.git.branchCreated === true
+          ? 'criada pelo Issue Flow'
+          : 'origem da branch não informada';
+    els.branchLine.textContent = branch
+      ? (base ? branch + ' ← ' + base : branch) + ' · ' + branchMode
+      : '';
 
     els.statusBadge.textContent = STATUS_LABELS[snapshot.status] || snapshot.status;
     els.statusBadge.className = 'badge status-' + snapshot.status;
@@ -899,6 +1018,105 @@
     els.resilience.appendChild(grid);
   }
 
+  function configSourceLabel(source) {
+    const labels = {
+      default: 'default do Issue Flow',
+      global: 'configuração global',
+      project: 'configuração do projeto',
+      env: 'variável de ambiente',
+      cli: 'override da execução',
+      fallback: 'fallback',
+    };
+    return labels[source] || source || 'não informado';
+  }
+
+  function renderConfiguration(snapshot) {
+    clear(els.configuration);
+    const config = snapshot.configuration;
+    if (!config) {
+      els.configuration.appendChild(el('p', 'empty', 'Configuração não capturada nesta execução.'));
+      return;
+    }
+
+    const summary = el('dl', 'now-grid');
+    nowRow(
+      summary,
+      'Harness padrão',
+      (config.defaultProvider.value || '—') + ' · ' + configSourceLabel(config.defaultProvider.source),
+    );
+    nowRow(
+      summary,
+      'Modelo padrão',
+      (config.defaultModel.value || 'default do provider') +
+        ' · ' +
+        configSourceLabel(config.defaultModel.source),
+    );
+    nowRow(summary, 'Fallbacks', list(config.fallbacks).join(' → ') || 'nenhum configurado');
+    nowRow(summary, 'Precedência', list(config.precedence).join(' → '));
+    els.configuration.appendChild(summary);
+
+    const phases = el('div', 'config-phase-grid');
+    for (const phase of list(config.phases)) {
+      const row = el('button', 'config-phase-row');
+      row.type = 'button';
+      row.appendChild(el('span', 'mono', phase.phase));
+      row.appendChild(el('span', null, phase.provider.value || '—'));
+      row.appendChild(el('span', null, phase.model.value || 'default do provider'));
+      row.appendChild(
+        el(
+          'span',
+          'muted',
+          configSourceLabel(phase.provider.source) + ' / ' + configSourceLabel(phase.model.source),
+        ),
+      );
+      row.addEventListener('click', () => openDrawer('phase', phase.phase));
+      phases.appendChild(row);
+    }
+    els.configuration.appendChild(phases);
+
+    const form = el('form', 'config-form');
+    const provider = el('select');
+    provider.setAttribute('aria-label', 'Harness padrão para execuções futuras');
+    for (const id of ['claude', 'codex', 'cursor', 'antigravity']) {
+      const option = el('option', null, id);
+      option.value = id;
+      provider.appendChild(option);
+    }
+    provider.value = config.defaultProvider.value || 'claude';
+    const model = el('input');
+    model.type = 'text';
+    model.placeholder = 'modelo (vazio = default)';
+    model.value = config.defaultModel.value || '';
+    const save = el('button', 'config-save', 'Salvar preferência global');
+    save.type = 'submit';
+    const feedback = el('span', 'muted');
+    form.appendChild(provider);
+    form.appendChild(model);
+    form.appendChild(save);
+    form.appendChild(feedback);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      save.disabled = true;
+      feedback.textContent = 'salvando…';
+      try {
+        const response = await fetch('api/config/agent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: provider.value, model: model.value }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'falha ao salvar');
+        feedback.textContent = 'salvo para execuções futuras';
+      } catch (error) {
+        feedback.textContent = error.message || 'falha ao salvar';
+      } finally {
+        save.disabled = false;
+      }
+    });
+    form.hidden = !state.configWritable;
+    els.configuration.appendChild(form);
+  }
+
   function renderPhases(snapshot) {
     clear(els.phases);
     if (snapshot.phases.length === 0) {
@@ -907,6 +1125,7 @@
     }
     for (const phase of snapshot.phases) {
       const item = el('li');
+      item.className = 'detail-row';
       item.appendChild(el('span', 'item-icon icon-' + phase.status, PHASE_ICONS[phase.status] || '○'));
       const main = el('div', 'item-main');
       main.appendChild(el('div', 'item-title', phase.name));
@@ -918,6 +1137,12 @@
         formatUsage(phase),
       ]);
       if (side) item.appendChild(el('span', 'item-side', side));
+      item.tabIndex = 0;
+      item.setAttribute('role', 'button');
+      item.addEventListener('click', () => openDrawer('phase', phase.name));
+      item.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') openDrawer('phase', phase.name);
+      });
       els.phases.appendChild(item);
     }
   }
@@ -948,6 +1173,7 @@
       // antes da issue 38 pode chegar sem ele.
       const storyStage = story.stage !== null && story.stage !== undefined ? story.stage : 'pending';
       const item = el('li', storyStage === 'executing' ? 'story-executing' : null);
+      item.classList.add('detail-row');
       const status = story.passes ? 'completed' : 'pending';
       item.appendChild(el('span', 'item-icon icon-' + status, story.passes ? '✓' : '○'));
       const main = el('div', 'item-main');
@@ -982,6 +1208,12 @@
         formatUsage(story),
       ]);
       if (side) item.appendChild(el('span', 'item-side', side));
+      item.tabIndex = 0;
+      item.setAttribute('role', 'button');
+      item.addEventListener('click', () => openDrawer('story', story.id));
+      item.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') openDrawer('story', story.id);
+      });
       els.stories.appendChild(item);
     }
   }
@@ -1008,7 +1240,7 @@
     card.appendChild(
       el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
     );
-    card.addEventListener('click', () => openDrawer(story.id));
+    card.addEventListener('click', () => openDrawer('story', story.id));
     return card;
   }
 
@@ -1039,18 +1271,145 @@
     if (event.key === 'Escape') closeDrawer();
   }
 
-  // Reidrata a partir do id a cada render: o drawer aberto sobrevive ao poll.
+  function executionsFor(snapshot, kind, id) {
+    return list(snapshot.executions).filter((execution) => {
+      if (kind === 'phase') return execution.purpose === id;
+      return list(execution.storyIds).includes(id);
+    });
+  }
+
+  function executionCost(execution) {
+    const cost = execution.cost || {};
+    if (cost.status === 'reported' || cost.status === 'estimated') {
+      return formatCost(cost.amount, cost.status === 'estimated');
+    }
+    return cost.reason ? 'não informado (' + cost.reason + ')' : 'não informado';
+  }
+
+  function renderExecutionHistory(snapshot, executions) {
+    drawerSection('Tentativas, revisões e correções', (body) => {
+      if (executions.length === 0) {
+        body.appendChild(el('p', 'empty', 'Nenhuma invocação associada.'));
+        return;
+      }
+      const timeline = el('ol', 'execution-timeline');
+      for (const execution of executions.slice().reverse()) {
+        const item = el('li', 'execution-entry');
+        const title = el('div', 'execution-entry-head');
+        title.appendChild(
+          el(
+            'span',
+            'badge status-' + (execution.status === 'completed' ? 'completed' : execution.status),
+            execution.status,
+          ),
+        );
+        title.appendChild(
+          el(
+            'strong',
+            null,
+            execution.purpose + ' · tentativa ' + execution.attempt + ' · ' + execution.trigger,
+          ),
+        );
+        item.appendChild(title);
+        const grid = el('dl', 'now-grid execution-grid');
+        nowRow(grid, 'Harness', execution.agent?.harness || '—');
+        nowRow(grid, 'Modelo', execution.agent?.model?.resolved || execution.agent?.model?.requested || '—');
+        nowRow(grid, 'Início', formatClock(execution.startedAt));
+        nowRow(grid, 'Fim', execution.finishedAt ? formatClock(execution.finishedAt) : 'em andamento');
+        nowRow(grid, 'Duração', metric(execution.durationMs) !== null ? formatDuration(execution.durationMs / 1000) : '—');
+        nowRow(grid, 'Tokens', formatUsage(execution.usage || {}) || '—');
+        nowRow(grid, 'Custo', executionCost(execution));
+        if (execution.correctionCycle) nowRow(grid, 'Correção', 'ciclo ' + execution.correctionCycle);
+        if (execution.verdict?.status) nowRow(grid, 'Veredito', execution.verdict.status);
+        item.appendChild(grid);
+        if (execution.failure?.message) item.appendChild(el('p', 'item-error', execution.failure.message));
+        timeline.appendChild(item);
+      }
+      body.appendChild(timeline);
+    });
+  }
+
+  function renderProcessLogs(snapshot, executions, phase) {
+    const ids = new Set(executions.map((execution) => execution.id));
+    const logs = list(snapshot.processLogs).filter(
+      (entry) => ids.has(entry.executionId) || (ids.size === 0 && entry.phase === phase),
+    );
+    drawerSection('Saída do processo', (body) => {
+      const details = el('details', 'process-output');
+      const summary = el('summary', null, logs.length + ' linha(s) sanitizada(s)');
+      details.appendChild(summary);
+      if (logs.length === 0) {
+        details.appendChild(el('p', 'empty', 'Nenhuma saída capturada.'));
+      } else {
+        const output = el('pre', 'process-output-body');
+        output.textContent = logs
+          .slice(-200)
+          .map((entry) => formatClock(entry.at) + ' ' + entry.message)
+          .join('\n');
+        details.appendChild(output);
+      }
+      body.appendChild(details);
+    });
+  }
+
+  function renderGlobalDiagnostics(kind, id, executions) {
+    const ids = new Set(executions.map((execution) => execution.id));
+    const entries = state.diagnostics.filter((entry) => {
+      if (ids.has(entry.executionId)) return true;
+      if (kind === 'phase') return entry.phase === id;
+      return typeof entry.story === 'string' && entry.story.split(',').includes(id);
+    });
+    if (entries.length === 0) return;
+    drawerSection('Diagnóstico global persistente', (body) => {
+      const details = el('details', 'process-output');
+      details.appendChild(el('summary', null, entries.length + ' registro(s) em ~/.issue-flow/logs'));
+      const output = el('pre', 'process-output-body');
+      output.textContent = entries
+        .slice(0, 200)
+        .map((entry) => formatClock(entry.timestamp) + ' ' + entry.level + ' ' + entry.message)
+        .join('\n');
+      details.appendChild(output);
+      body.appendChild(details);
+    });
+  }
+
+  // Reidrata a partir de kind/id a cada render: o drawer sobrevive ao poll.
   function renderDrawer(snapshot) {
-    if (state.selectedStoryId === null) return;
-    const story = getStoryById(snapshot, state.selectedStoryId);
-    // A story saiu do plano: manter o drawer aberto exibiria dados obsoletos.
-    if (story === null) {
+    if (state.selectedDetail === null) return;
+    const kind = state.selectedDetail.kind;
+    const id = state.selectedDetail.id;
+    const story = kind === 'story' ? getStoryById(snapshot, id) : null;
+    const phase = kind === 'phase' ? list(snapshot.phases).find((entry) => entry.name === id) : null;
+    if ((kind === 'story' && story === null) || (kind === 'phase' && !phase)) {
       closeDrawer();
       return;
     }
-    els.drawerTitle.textContent = story.id + ' · ' + story.title;
 
     clear(els.drawerBody);
+    if (kind === 'phase') {
+      els.drawerTitle.textContent = 'Fase · ' + phase.name;
+      els.drawerBody.appendChild(el('span', 'badge status-' + phase.status, phase.status));
+      const grid = el('dl', 'now-grid drawer-summary-grid');
+      nowRow(grid, 'Início', phase.startedAt ? formatClock(phase.startedAt) : '—');
+      nowRow(grid, 'Fim', phase.endedAt ? formatClock(phase.endedAt) : '—');
+      nowRow(grid, 'Duração', metric(phase.durationSeconds) !== null ? formatDuration(phase.durationSeconds) : '—');
+      nowRow(grid, 'Uso total', formatUsage(phase) || '—');
+      const configured = list(snapshot.configuration?.phases).find((entry) => entry.phase === phase.name);
+      if (configured) {
+        nowRow(grid, 'Harness efetivo', configured.provider.value || '—');
+        nowRow(grid, 'Origem', configSourceLabel(configured.provider.source));
+        nowRow(grid, 'Modelo efetivo', configured.model.value || 'default do provider');
+      }
+      els.drawerBody.appendChild(grid);
+      if (phase.error) els.drawerBody.appendChild(el('p', 'item-error', phase.error));
+      const executions = executionsFor(snapshot, kind, id);
+      renderExecutionHistory(snapshot, executions);
+      renderProcessLogs(snapshot, executions, phase.name);
+      renderGlobalDiagnostics(kind, id, executions);
+      return;
+    }
+
+    els.drawerTitle.textContent = story.id + ' · ' + story.title;
     els.drawerBody.appendChild(
       el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
     );
@@ -1100,12 +1459,21 @@
         for (const entry of history) {
           const item = el('li');
           if (entry.at) item.appendChild(el('span', 'log-time', formatClock(entry.at)));
-          item.appendChild(document.createTextNode(text(entry.message)));
+          item.appendChild(
+            document.createTextNode(
+              (STORY_STAGE_LABELS[entry.stage] || entry.stage || '') +
+                (entry.detail ? ' · ' + entry.detail : ''),
+            ),
+          );
           entries.appendChild(item);
         }
         body.appendChild(entries);
       });
     }
+    const executions = executionsFor(snapshot, kind, id);
+    renderExecutionHistory(snapshot, executions);
+    renderProcessLogs(snapshot, executions, 'execute');
+    renderGlobalDiagnostics(kind, id, executions);
   }
 
   function drawerSection(title, fill) {
@@ -1115,8 +1483,8 @@
     els.drawerBody.appendChild(section);
   }
 
-  function openDrawer(id) {
-    state.selectedStoryId = id;
+  function openDrawer(kind, id) {
+    state.selectedDetail = { kind, id };
     els.drawer.hidden = false;
     els.drawerOverlay.hidden = false;
     document.addEventListener('keydown', onDrawerKeydown);
@@ -1125,15 +1493,18 @@
   }
 
   function closeDrawer() {
-    const id = state.selectedStoryId;
-    state.selectedStoryId = null;
+    const selected = state.selectedDetail;
+    state.selectedDetail = null;
     els.drawer.hidden = true;
     els.drawerOverlay.hidden = true;
     document.removeEventListener('keydown', onDrawerKeydown);
     clear(els.drawerBody);
     // O card é recriado a cada render, então o foco volta pelo id, não por uma
     // referência guardada na abertura.
-    const card = id ? els.kanban.querySelector('[data-story-id="' + id + '"]') : null;
+    const card =
+      selected && selected.kind === 'story'
+        ? els.kanban.querySelector('[data-story-id="' + selected.id + '"]')
+        : null;
     if (card) card.focus();
   }
 
@@ -1151,6 +1522,11 @@
           : el('span', 'mono commit-hash', commit.hash);
         item.appendChild(hash);
         const subject = el('div', 'item-main item-title', commit.subject);
+        const meta = itemSideText([
+          commit.storyId || '',
+          commit.committedAt ? formatClock(commit.committedAt) : '',
+        ]);
+        if (meta) subject.appendChild(el('span', 'muted commit-meta', meta));
         item.appendChild(subject);
         els.commits.appendChild(item);
       }
@@ -1290,6 +1666,11 @@
 
   // ---- Inicialização --------------------------------------------------------
 
+  function onThemeChange(select) {
+    setTheme(select.value);
+    storeTheme(state.theme);
+  }
+
   function onRefreshChange(select) {
     state.refreshSeconds = Number(select.value);
     storeRefresh(state.refreshSeconds);
@@ -1315,6 +1696,14 @@
       );
     }
 
+    els.themeSelect.addEventListener('change', () => onThemeChange(els.themeSelect));
+    if (els.themeSelectDashboard) {
+      els.themeSelectDashboard.addEventListener('change', () =>
+        onThemeChange(els.themeSelectDashboard),
+      );
+    }
+    initTheme();
+
     els.logFilter.addEventListener('change', () => {
       state.logFilter = els.logFilter.value;
       if (state.snapshot) renderLogs(state.snapshot);
@@ -1337,6 +1726,7 @@
     } else {
       try {
         const health = await fetch('api/health', { cache: 'no-store' }).then((r) => r.json());
+        state.configWritable = list(health.capabilities).includes('config:agent:write');
         const suggested = Number(health.refreshSeconds);
         if (Number.isFinite(suggested) && suggested > 0) state.refreshSeconds = suggested;
       } catch (err) {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -272,6 +272,29 @@ describe('startWebServer', () => {
     expect(typeof health.uptime).toBe('number');
     expect(health.version).toBe('9.9.9');
     expect(health.refreshSeconds).toBe(10);
+    expect(health.capabilities).toContain('config:agent:write');
+  });
+
+  it('writes a validated global harness preference only on loopback', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-web-config-'));
+    tmpDirs.push(dir);
+    const previous = process.env.ISSUE_FLOW_HOME;
+    process.env.ISSUE_FLOW_HOME = dir;
+    try {
+      const handle = await start();
+      const response = await fetch(`${handle.url}/api/config/agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'codex', model: 'gpt-5.6' }),
+      });
+      expect(response.status).toBe(200);
+      expect(JSON.parse(await readFile(join(dir, 'config.json'), 'utf-8'))).toMatchObject({
+        agent: { provider: 'codex', model: 'gpt-5.6' },
+      });
+    } finally {
+      if (previous === undefined) delete process.env.ISSUE_FLOW_HOME;
+      else process.env.ISSUE_FLOW_HOME = previous;
+    }
   });
 
   it('serves static assets from the public directory', async () => {

@@ -68,7 +68,7 @@ which is what matters here more than sub-second latency.
 
 ## `server.ts`: one `SessionSource`, two backends
 
-Every route (`/api/status`, `/api/sessions`, `/api/events`) is written against a small
+Session routes (`/api/status`, `/api/sessions`, `/api/events`) are written against a small
 `SessionSource` interface (`list()` / `get(sessionId)` / `events(sessionId)`), never against a
 publisher or the session directory directly:
 
@@ -83,6 +83,12 @@ single active session when there is exactly one (pre-multi-session
 behavior), and answers `404`/`409` when there are zero/several — genuinely
 ambiguous without an id. `GET /api/sessions` always lists every entry
 `SessionSource.list()` returns, `[]` when there are none.
+
+`GET /api/config` returns the configuration captured in the requested snapshot;
+`GET /api/diagnostics` filters the machine-wide JSONL log by session. The only
+write route, `POST /api/config/agent`, delegates to the canonical agent
+preference writer and is advertised/enabled only for loopback bindings. Remote
+monitoring must never expose configuration mutation.
 
 `GET /api/events?session=<id>` reads the rotated journal first and the current
 generation second. Missing files and partial/malformed lines are empty/skipped,

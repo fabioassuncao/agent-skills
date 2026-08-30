@@ -280,6 +280,7 @@ export const executionRecordSchema = z.object({
     .nullable()
     .optional(),
   iteration: z.number().int().optional(),
+  correctionCycle: z.number().int().min(0).optional(),
   storyIds: z.array(z.string()).optional(),
   owner: z.object({ pid: z.number().int(), host: z.string() }).nullable().optional(),
   routingDecision: z
@@ -409,7 +410,36 @@ const sessionStorySchema = z.object({
   stage: storyStageSchema.default('pending'),
   stageSince: z.string().nullable().default(null),
   stageDetail: z.string().nullable().default(null),
+  history: z
+    .array(
+      z.object({
+        at: z.string(),
+        stage: storyStageSchema,
+        detail: z.string().nullable(),
+      }),
+    )
+    .default([]),
   ...sessionUsageShape,
+});
+
+const sessionConfigurationValueSchema = z.object({
+  value: z.string().nullable(),
+  source: z.enum(['default', 'global', 'project', 'env', 'cli', 'fallback']),
+});
+
+const sessionConfigurationSchema = z.object({
+  precedence: z.array(z.string()),
+  defaultProvider: sessionConfigurationValueSchema,
+  defaultModel: sessionConfigurationValueSchema,
+  phases: z.array(
+    z.object({
+      phase: z.string(),
+      provider: sessionConfigurationValueSchema,
+      model: sessionConfigurationValueSchema,
+    }),
+  ),
+  fallbacks: z.array(z.string()),
+  overrides: z.array(z.string()),
 });
 
 /**
@@ -480,6 +510,20 @@ export const sessionSnapshotSchema = z.object({
     correctionCycle: z.number(),
     maxCorrectionCycles: z.number().nullable(),
   }),
+  executions: z.array(executionRecordSchema).default([]),
+  processLogs: z
+    .array(
+      z.object({
+        at: z.string(),
+        phase: z.string(),
+        executionId: z.string().nullable(),
+        provider: z.string(),
+        stream: z.enum(['stdout', 'stderr', 'combined']),
+        message: z.string(),
+      }),
+    )
+    .default([]),
+  configuration: sessionConfigurationSchema.nullable().default(null),
   // Additive resilience projection. Every field defaults so session.json from
   // before provider failover/observability remains readable without a schema
   // version bump.
@@ -519,7 +563,16 @@ export const sessionSnapshotSchema = z.object({
   git: z.object({
     branch: z.string().nullable(),
     baseBranch: z.string().nullable(),
-    commits: z.array(z.object({ hash: z.string(), subject: z.string() })),
+    branchCreated: z.boolean().nullable().default(null),
+    startCommit: z.string().nullable().default(null),
+    commits: z.array(
+      z.object({
+        hash: z.string(),
+        subject: z.string(),
+        committedAt: z.string().nullable().default(null),
+        storyId: z.string().nullable().default(null),
+      }),
+    ),
   }),
   // Additive like the metrics aggregate: a session.json written before the
   // repository section existed parses into the same all-null object

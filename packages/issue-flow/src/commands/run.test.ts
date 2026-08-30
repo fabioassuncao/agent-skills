@@ -487,6 +487,29 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     });
   });
 
+  it('--no-branch mantém a branch atual no plano e a marca como não criada', async () => {
+    mockBranch.current = 'develop';
+    let gitAtExecute: SessionSnapshot['git'] | null = null;
+    vi.mocked(runExecute).mockImplementationOnce(async () => {
+      gitAtExecute = getSessionPublisher().snapshot().git;
+      return 0;
+    });
+
+    try {
+      const code = await runPipeline('42', 'auto', undefined, true);
+
+      expect(code).toBe(0);
+      expect(vi.mocked(runPlan)).toHaveBeenCalledWith('42', expect.anything(), {
+        continueFlag: undefined,
+        startUs: undefined,
+        branchName: 'develop',
+      });
+      expect(gitAtExecute).toMatchObject({ branch: 'develop', branchCreated: false });
+    } finally {
+      mockBranch.current = '';
+    }
+  });
+
   it('não passa orçamento de retry à fase execute quando as flags estão ausentes', async () => {
     // The non-regression half of US-012: `run` without the new flags must hand
     // `runExecute` exactly what it handed before they existed, so `createConfig`

@@ -1,46 +1,135 @@
 /* Interface do monitoramento web do issue-flow.
    Autocontida: sem fontes externas, sem CDN — funciona offline. */
 
+/* ---- Paleta ----
+
+   Tokens nomeados por papel (superfície, texto, borda, acento, estado, foco),
+   nunca por local de uso: mexer na hierarquia visual não exige inventar uma cor
+   por componente. `:root` carrega a paleta clara **inteira** — nenhum token
+   pode ter sua única definição dentro de um `@media` ou de um `[data-theme]`,
+   ou o tema oposto fica sem ele. */
+
 :root {
-  --bg: #f4f5f7;
-  --card: #ffffff;
-  --fg: #1a1f27;
-  --muted: #6b7280;
+  /* Esquema dos controles nativos. Os blocos de tema escuro abaixo o
+     sobrescrevem. */
+  color-scheme: light;
+
+  /* Superfície: página, cartão elevado e recesso neutro. */
+  --surface-page: #f4f5f7;
+  --surface: #ffffff;
+  --surface-sunken: #e5e7eb;
+
+  /* Texto. `--text-subtle` está reservado para uma terceira hierarquia
+     (legendas, metadados) que o painel ainda não usa — mas já cumpre 4,5:1
+     sobre as três superfícies, para poder ser usado sem nova auditoria.
+     Os três são medidos contra a superfície mais escura do tema claro
+     (`--surface-sunken`); ver a tabela de contraste em `web/AGENTS.md`. */
+  --text: #1a1f27;
+  --text-muted: #4b5563;
+  --text-subtle: #5f6773;
+
+  /* Borda. `--border-strong` está reservado para separadores que precisem
+     vencer o ruído de uma lista densa; hoje nenhum precisa. */
   --border: #e2e5ea;
+  --border-strong: #c7ccd4;
+
+  /* Acento. `--accent-text` é o texto sobre um preenchimento sólido de acento
+     ou de estado (hoje: o banner de desconexão). */
   --accent: #4f46e5;
-  --ok: #16a34a;
-  --warn: #b45309;
-  --warn-bg: #fef3c7;
-  --err: #dc2626;
-  --err-bg: #fee2e2;
-  --run: #2563eb;
-  --run-bg: #dbeafe;
-  --ok-bg: #dcfce7;
-  --idle-bg: #e5e7eb;
+  --accent-text: #ffffff;
+
+  /* Estado: a cor do texto/ícone e a superfície que a acompanha no badge.
+     No tema claro as quatro cores ficam no nível 700 da escala — é o mais
+     claro que atende 4,5:1 sobre a própria superfície do badge. O limiar é
+     4,5:1 e não 3:1 porque `.badge` é 0.78rem/600, abaixo de texto grande. */
+  --state-ok: #15803d;
+  --state-ok-surface: #dcfce7;
+  --state-run: #1d4ed8;
+  --state-run-surface: #dbeafe;
+  --state-warn: #b45309;
+  --state-warn-surface: #fef3c7;
+  --state-error: #b91c1c;
+  --state-error-surface: #fee2e2;
+
+  /* Foco por teclado: o anel de `:focus-visible`. Precisa de 3:1 contra o que
+     estiver adjacente (a superfície ao redor do anel), não de 4,5:1 — é um
+     componente gráfico, não texto. */
+  --focus-ring: #4f46e5;
+
   --shadow: 0 1px 2px rgb(0 0 0 / 0.06);
   --overlay: rgb(0 0 0 / 0.45);
 }
 
+/* ---- Tema escuro ----
+
+   Dois blocos gêmeos: o do sistema e o forçado pelo controle do painel.
+   **Os dois carregam exatamente a mesma lista de overrides e precisam mudar
+   juntos** — mexeu em um, mexa no outro. Só entram aqui os tokens cujo valor
+   muda; o que é igual nos dois temas fica só em `:root`.
+
+   O guarda `:not([data-theme='light'])` é o que faz a escolha manual vencer o
+   sistema: com o SO em escuro e o tema forçado em claro, o `@media` não
+   sobrescreve nada.
+
+   `color-scheme` vai dentro de cada bloco (e não no `<html>` nem num `<meta>`)
+   porque é ele que manda nos controles nativos — `<select>`, `<progress>`,
+   barras de rolagem — e precisa acompanhar o tema efetivo, não o do SO. */
+
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1218;
-    --card: #171c24;
-    --fg: #e5e9f0;
-    --muted: #8b93a1;
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --surface-page: #0f1218;
+    --surface: #171c24;
+    --surface-sunken: #262d38;
+    --text: #e5e9f0;
+    --text-muted: #9aa1ad;
+    --text-subtle: #8f97a5;
     --border: #262d38;
     --accent: #818cf8;
-    --ok: #4ade80;
-    --warn: #fbbf24;
-    --warn-bg: #3a2d10;
-    --err: #f87171;
-    --err-bg: #3b1a1a;
-    --run: #60a5fa;
-    --run-bg: #172a45;
-    --ok-bg: #14301f;
-    --idle-bg: #262d38;
+    /* No escuro os preenchimentos sólidos (acento e estado) são claros, então
+       o texto sobre eles inverte — branco sobre `--state-error` daria 2,98:1
+       no banner de desconexão. */
+    --accent-text: #0f1218;
+    --state-ok: #4ade80;
+    --state-ok-surface: #14301f;
+    --state-run: #60a5fa;
+    --state-run-surface: #172a45;
+    --state-warn: #fbbf24;
+    --state-warn-surface: #3a2d10;
+    --state-error: #f87171;
+    --state-error-surface: #3b1a1a;
+    --focus-ring: #818cf8;
     --shadow: none;
     --overlay: rgb(0 0 0 / 0.65);
   }
+}
+
+/* Gêmeo do bloco acima — mesma lista de overrides, mudam juntos. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-page: #0f1218;
+  --surface: #171c24;
+  --surface-sunken: #262d38;
+  --text: #e5e9f0;
+  --text-muted: #9aa1ad;
+  --text-subtle: #8f97a5;
+  --border: #262d38;
+  --accent: #818cf8;
+  /* Ver o comentário do bloco gêmeo acima. */
+  --accent-text: #0f1218;
+  --state-ok: #4ade80;
+  --state-ok-surface: #14301f;
+  --state-run: #60a5fa;
+  --state-run-surface: #172a45;
+  --state-warn: #fbbf24;
+  --state-warn-surface: #3a2d10;
+  --state-error: #f87171;
+  --state-error-surface: #3b1a1a;
+  --focus-ring: #818cf8;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
 }
 
 * {
@@ -53,8 +142,8 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--surface-page);
+  color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -79,11 +168,11 @@ main > *,
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .card {
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;
@@ -104,7 +193,7 @@ h2 {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 a {
@@ -133,14 +222,14 @@ a:hover {
   padding: 8px 14px;
   font: inherit;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--text-muted);
   cursor: pointer;
   border-radius: 6px 6px 0 0;
 }
 
 .tab:hover {
-  color: var(--fg);
-  background: var(--card);
+  color: var(--text);
+  background: var(--surface);
 }
 
 .tab.is-active {
@@ -199,17 +288,18 @@ a:hover {
 }
 
 .refresh-control,
+.theme-control,
 .log-filter-control {
   font-size: 0.82rem;
-  color: var(--muted);
+  color: var(--text-muted);
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
 select {
-  background: var(--card);
-  color: var(--fg);
+  background: var(--surface);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 3px 6px;
@@ -230,23 +320,23 @@ select {
 }
 
 .status-idle {
-  background: var(--idle-bg);
-  color: var(--muted);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
 }
 
 .status-running {
-  background: var(--run-bg);
-  color: var(--run);
+  background: var(--state-run-surface);
+  color: var(--state-run);
 }
 
 .status-completed {
-  background: var(--ok-bg);
-  color: var(--ok);
+  background: var(--state-ok-surface);
+  color: var(--state-ok);
 }
 
 .status-failed {
-  background: var(--err-bg);
-  color: var(--err);
+  background: var(--state-error-surface);
+  color: var(--state-error);
 }
 
 /* ---- Banner de desconexão ---- */
@@ -255,8 +345,8 @@ select {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--err);
-  color: #fff;
+  background: var(--state-error);
+  color: var(--accent-text);
   text-align: center;
   padding: 8px 16px;
   font-weight: 600;
@@ -265,25 +355,25 @@ select {
 /* ---- Erros e avisos em destaque ---- */
 
 .alerts {
-  border-color: var(--err);
+  border-color: var(--state-error);
 }
 
 .alert-entry {
-  border-left: 3px solid var(--err);
+  border-left: 3px solid var(--state-error);
   padding: 4px 10px;
   margin: 6px 0;
   border-radius: 0 6px 6px 0;
-  background: var(--err-bg);
+  background: var(--state-error-surface);
 }
 
 .alert-entry.level-warn {
-  border-left-color: var(--warn);
-  background: var(--warn-bg);
+  border-left-color: var(--state-warn);
+  background: var(--state-warn-surface);
 }
 
 .alert-count {
   font-size: 0.82rem;
-  color: var(--muted);
+  color: var(--text-muted);
   margin: 0 0 4px;
 }
 
@@ -310,26 +400,26 @@ select {
 }
 
 .label-badge {
-  background: var(--idle-bg);
-  color: var(--fg);
+  background: var(--surface-sunken);
+  color: var(--text);
   text-transform: none;
   font-weight: 500;
   letter-spacing: normal;
 }
 
 .state-open {
-  background: var(--run-bg);
-  color: var(--run);
+  background: var(--state-run-surface);
+  color: var(--state-run);
 }
 
 .state-closed {
-  background: var(--ok-bg);
-  color: var(--ok);
+  background: var(--state-ok-surface);
+  color: var(--state-ok);
 }
 
 .state-unknown {
-  background: var(--idle-bg);
-  color: var(--muted);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
 }
 
 .issue-description {
@@ -351,23 +441,23 @@ select {
 }
 
 .story-status-backlog {
-  background: var(--idle-bg);
-  color: var(--muted);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
 }
 
 .story-status-in_progress {
-  background: var(--run-bg);
-  color: var(--run);
+  background: var(--state-run-surface);
+  color: var(--state-run);
 }
 
 .story-status-in_review {
-  background: var(--warn-bg);
-  color: var(--warn);
+  background: var(--state-warn-surface);
+  color: var(--state-warn);
 }
 
 .story-status-done {
-  background: var(--ok-bg);
-  color: var(--ok);
+  background: var(--state-ok-surface);
+  color: var(--state-ok);
 }
 
 .story-deps {
@@ -409,7 +499,7 @@ progress {
 }
 
 .now-grid dt {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.86rem;
 }
 
@@ -425,7 +515,7 @@ progress {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--run);
+  background: var(--state-run);
   margin-right: 6px;
   animation: pulse 1.4s ease-in-out infinite;
 }
@@ -464,7 +554,7 @@ progress {
 
 .history-type {
   flex: 0 0 9rem;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .history-message {
@@ -501,26 +591,26 @@ progress {
    "User stories". A borda esquerda usa box-shadow (não border) para não
    deslocar o conteúdo do item ao ganhar/perder a classe. */
 .story-executing {
-  background: var(--run-bg);
+  background: var(--state-run-surface);
   border-radius: 6px;
-  box-shadow: inset 3px 0 0 0 var(--run);
+  box-shadow: inset 3px 0 0 0 var(--state-run);
   padding-left: 9px;
 }
 
 .icon-completed {
-  color: var(--ok);
+  color: var(--state-ok);
 }
 
 .icon-running {
-  color: var(--run);
+  color: var(--state-run);
 }
 
 .icon-failed {
-  color: var(--err);
+  color: var(--state-error);
 }
 
 .icon-pending {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .item-main {
@@ -535,7 +625,7 @@ progress {
 }
 
 .item-error {
-  color: var(--err);
+  color: var(--state-error);
   font-size: 0.85rem;
   white-space: pre-wrap;
   word-break: break-word;
@@ -543,7 +633,7 @@ progress {
 
 .item-side {
   flex: none;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.84rem;
   font-variant-numeric: tabular-nums;
   /* Com duração + tokens + custo o slot fica bem mais largo; alinhar à
@@ -597,7 +687,7 @@ progress {
 
 .log-time {
   flex: none;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .log-level {
@@ -607,15 +697,15 @@ progress {
 }
 
 .level-info .log-level {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .level-warn .log-level {
-  color: var(--warn);
+  color: var(--state-warn);
 }
 
 .level-error .log-level {
-  color: var(--err);
+  color: var(--state-error);
 }
 
 .log-message {
@@ -635,7 +725,7 @@ progress {
 }
 
 .kanban-column {
-  background: var(--bg);
+  background: var(--surface-page);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
@@ -657,13 +747,13 @@ progress {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .kanban-column-count {
   flex: none;
-  background: var(--idle-bg);
-  color: var(--muted);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
   border-radius: 999px;
   padding: 0 7px;
   font-size: 0.74rem;
@@ -677,7 +767,7 @@ progress {
   justify-items: start;
   width: 100%;
   text-align: left;
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
@@ -695,7 +785,7 @@ progress {
   display: flex;
   align-items: center;
   gap: 2px;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.8rem;
 }
 
@@ -710,7 +800,7 @@ progress {
    continua no DOM para leitores de tela e para o drawer. */
 .kanban-card-desc {
   margin: 0;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.84rem;
   line-height: 1.4;
   overflow: hidden;
@@ -750,7 +840,7 @@ progress {
   z-index: 21;
   display: flex;
   flex-direction: column;
-  background: var(--card);
+  background: var(--surface);
   border-left: 1px solid var(--border);
   padding: 16px;
   gap: 12px;
@@ -775,7 +865,7 @@ progress {
   font-size: 0.95rem;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--fg);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
@@ -786,14 +876,14 @@ progress {
   border: none;
   padding: 2px 6px;
   font: inherit;
-  color: var(--muted);
+  color: var(--text-muted);
   cursor: pointer;
   border-radius: 6px;
 }
 
 .drawer-close:hover {
-  color: var(--fg);
-  background: var(--idle-bg);
+  color: var(--text);
+  background: var(--surface-sunken);
 }
 
 /* A rolagem vive aqui, não na página: o drawer é fixo e ocupa a altura toda. */
@@ -822,7 +912,7 @@ progress {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .drawer-text {
@@ -842,10 +932,147 @@ progress {
   overflow-wrap: anywhere;
 }
 
+.detail-row {
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.detail-row:hover {
+  background: var(--surface-sunken);
+}
+
+.detail-row:focus-visible,
+.config-phase-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.config-phase-grid {
+  display: grid;
+  gap: 1px;
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.config-phase-row {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.7fr) minmax(6rem, 1fr) minmax(8rem, 1.4fr) minmax(10rem, 1.4fr);
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0.8rem;
+  border: 0;
+  color: var(--text);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.config-phase-row:hover {
+  background: var(--surface-sunken);
+}
+
+.config-form {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.7fr) minmax(12rem, 1fr) auto minmax(10rem, 1fr);
+  gap: 0.65rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.config-form[hidden] {
+  display: none;
+}
+
+.config-form select,
+.config-form input,
+.config-save {
+  min-height: 2.25rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 0.4rem 0.65rem;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.config-save {
+  color: var(--accent-text);
+  border-color: var(--accent);
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.execution-timeline {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.execution-entry {
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-sunken);
+}
+
+.execution-entry-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+
+.execution-grid,
+.drawer-summary-grid {
+  margin-top: 0.75rem;
+}
+
+.process-output summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.process-output-body {
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.8rem;
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface-sunken);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.commit-meta {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.76rem;
+  font-weight: 400;
+}
+
+@media (max-width: 720px) {
+  .config-phase-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .config-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---- Diversos ---- */
 
 .empty {
-  color: var(--muted);
+  color: var(--text-muted);
   font-style: italic;
   margin: 0;
 }
@@ -927,7 +1154,7 @@ progress {
 .dashboard-card {
   appearance: none;
   text-align: left;
-  background: var(--card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;
@@ -946,14 +1173,20 @@ progress {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.dashboard-card:hover,
-.dashboard-card:focus-visible {
+/* Hover e foco por teclado precisam ser distinguíveis: o hover só acende a
+   borda; o foco desenha um anel de `--focus-ring` destacado do cartão, que é
+   visível mesmo em cima do hover. Era aqui que o `outline` estava suprimido. */
+.dashboard-card:hover {
   border-color: var(--accent);
-  outline: none;
+}
+
+.dashboard-card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .dashboard-card.is-live {
-  border-color: var(--run);
+  border-color: var(--state-run);
 }
 
 .dashboard-card-head {
@@ -966,7 +1199,7 @@ progress {
 .dashboard-project {
   font-size: 0.82rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--text-muted);
   overflow-wrap: anywhere;
 }
 
@@ -1004,14 +1237,14 @@ progress {
   flex-wrap: wrap;
   gap: 10px;
   font-size: 0.82rem;
-  color: var(--muted);
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .dashboard-progress {
   display: block;
   height: 6px;
-  background: var(--idle-bg);
+  background: var(--surface-sunken);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -1019,7 +1252,7 @@ progress {
 .dashboard-progress-bar {
   display: block;
   height: 100%;
-  background: var(--run);
+  background: var(--state-run);
   border-radius: 999px;
   transition: width 0.3s ease;
 }
@@ -1027,7 +1260,7 @@ progress {
 .dashboard-live-dot {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--run);
+  color: var(--state-run);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1039,7 +1272,7 @@ progress {
   height: 7px;
   margin-right: 6px;
   border-radius: 50%;
-  background: var(--run);
+  background: var(--state-run);
   vertical-align: middle;
   animation: dashboard-pulse 1.4s ease-in-out infinite;
 }

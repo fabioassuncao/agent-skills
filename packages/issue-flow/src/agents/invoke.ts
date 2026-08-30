@@ -9,8 +9,10 @@ import { isoNow } from '../core/state-manager.js';
 import { type ClassifiedFailure, classify, type FailureKind } from '../resilience/errors.js';
 import { evaluateCeilings } from '../routing/budget.js';
 import { decideRouting } from '../routing/decide.js';
+import { bindDiagnosticContext, writeDiagnostic } from '../storage/diagnostics.js';
 import type { ProviderHealthRecord } from '../storage/schemas.js';
 import { beginExecution, endExecution } from '../telemetry/recorder.js';
+import { redactSecrets } from '../telemetry/redact.js';
 import type { ExecutionPurpose, ExecutionRecord, ExecutionTrigger } from '../telemetry/types.js';
 import { resolveAntigravityTimeoutMs } from './antigravity.js';
 import { peekHarnessVersion } from './claude.js';
@@ -66,9 +68,14 @@ export function declaredAgentIdentity(provider: AgentProviderId): {
   }
 }
 
-function triggerOf(selection: AgentSelection, attempt: number): ExecutionTrigger {
+function triggerOf(
+  selection: AgentSelection,
+  attempt: number,
+  correctionCycle = 0,
+): ExecutionTrigger {
   if (selection.failover) return 'fallback';
   if (attempt > 1) return 'retry';
+  if (correctionCycle > 0) return 'correction';
   return 'initial';
 }
 
@@ -122,6 +129,16 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       reason: selection.reason,
       cooldownUntil: selection.cooldownUntil,
     });
+    writeDiagnostic({
+      level: 'warning',
+      message: `Agent failover from ${selection.primary} to ${selection.provider}`,
+      context: { reason: selection.reason, cooldownUntil: selection.cooldownUntil },
+      fields: {
+        phase: invocation.phase,
+        harness: selection.provider,
+        model: selection.settings.model,
+      },
+    });
   }
 
   const identity = declaredAgentIdentity(selection.provider);
@@ -139,7 +156,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
   const executionId = await beginExecution({
     purpose: (invocation.purpose ?? invocation.phase) as ExecutionPurpose,
     attempt,
-    trigger: triggerOf(selection, attempt),
+    trigger: triggerOf(selection, attempt, invocation.correctionCycle),
     triggerReason: selection.failover
       ? selection.reason
       : attempt > 1
@@ -151,9 +168,21 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     modelRequested: requested,
     modelResolved: null,
     modelSource: requested ? 'config' : 'unavailable',
+    ...(invocation.iteration === undefined ? {} : { iteration: invocation.iteration }),
+    ...(invocation.correctionCycle === undefined
+      ? {}
+      : { correctionCycle: invocation.correctionCycle }),
+    ...(invocation.storyIds === undefined ? {} : { storyIds: invocation.storyIds }),
     ...(routingDecision === null
       ? {}
       : { routingDecision: routingDecision as unknown as ExecutionRecord['routingDecision'] }),
+  });
+  bindDiagnosticContext({
+    executionId,
+    phase: invocation.phase,
+    harness: identity.harness,
+    model: requested,
+    story: invocation.storyIds?.join(',') ?? null,
   });
 
   const runner = runnerFor(selection.provider);
@@ -255,17 +284,52 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       {
         ...invocation,
         onLine: (line) => {
+          const sanitized = redactSecrets(line).slice(0, 4_000);
           publisher.publish({
             type: 'agent:activity',
             at: isoNow(),
             provider: selection.provider,
           });
+          if (sanitized.trim() !== '') {
+            publisher.publish({
+              type: 'process:output',
+              at: isoNow(),
+              phase: invocation.phase,
+              executionId,
+              provider: selection.provider,
+              stream: 'combined',
+              message: sanitized,
+            });
+            writeDiagnostic({
+              level: 'debug',
+              message: sanitized,
+              fields: {
+                executionId,
+                phase: invocation.phase,
+                harness: identity.harness,
+                model: selection.settings.model,
+              },
+            });
+          }
           invocation.onLine?.(line);
         },
       },
       selection.settings,
     );
   } catch (err) {
+    writeDiagnostic({
+      level: 'error',
+      message: `Agent invocation threw before producing a result: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+      exception: err,
+      fields: {
+        executionId,
+        phase: invocation.phase,
+        harness: identity.harness,
+        model: selection.settings.model,
+      },
+    });
     if (executionId !== null) {
       await endExecution({
         id: executionId,
@@ -290,6 +354,25 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
           exitCode: run.exitCode,
           stdout: run.rawOutput || run.error || '',
         });
+  writeDiagnostic({
+    level: failure === null ? 'info' : 'error',
+    message:
+      failure === null
+        ? `Agent invocation completed with ${selection.provider}`
+        : `Agent invocation failed with ${selection.provider}: ${failure.message}`,
+    context: {
+      attempt,
+      exitCode: run.exitCode,
+      failureKind: failure?.kind ?? null,
+      trigger: triggerOf(selection, attempt, invocation.correctionCycle),
+    },
+    fields: {
+      executionId,
+      phase: invocation.phase,
+      harness: identity.harness,
+      model: run.agent.model,
+    },
+  });
 
   if (executionId !== null) {
     await endExecution({
@@ -308,6 +391,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
           : 'unavailable',
       harnessVersion: run.harnessVersion ?? peekHarnessVersion(selection.provider) ?? null,
       providerSessionId: run.sessionId ?? null,
+      storyIds: invocation.storyIds,
     });
   }
 

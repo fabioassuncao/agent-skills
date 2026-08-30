@@ -3,10 +3,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light dark" />
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" href="data:," />
   <title>issue-flow</title>
+  <script>
+    // Aplica o tema antes do primeiro paint: sem isto o painel pintaria a
+    // paleta do SO e só trocaria quando o app.js rodasse — o flash da paleta
+    // oposta a cada reload. Roda antes do <link> do app.css de propósito.
+    // A leitura de 'issue-flow:theme' é deliberadamente duplicada aqui e no
+    // app.js (readStoredTheme): este script não pode depender do app.js, que
+    // carrega no fim do <body>. Mudou o formato do valor, mude nos dois.
+    // 'system', ausente ou desconhecido não define data-theme — é a ausência
+    // do atributo que deixa o @media (prefers-color-scheme) decidir.
+    (function () {
+      try {
+        var theme = window.localStorage.getItem('issue-flow:theme');
+        if (theme === 'light' || theme === 'dark') {
+          document.documentElement.setAttribute('data-theme', theme);
+        }
+      } catch (err) {
+        // localStorage bloqueado (ex.: janela privada) — segue no modo sistema.
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
@@ -25,6 +44,14 @@
           <label class="refresh-control">
             Atualizar
             <select id="refresh-select-dashboard" aria-label="Intervalo de atualização"></select>
+          </label>
+          <label class="theme-control">
+            Tema
+            <select id="theme-select-dashboard" aria-label="Tema do painel">
+              <option value="system">Sistema</option>
+              <option value="light">Claro</option>
+              <option value="dark">Escuro</option>
+            </select>
           </label>
         </div>
       </header>
@@ -55,6 +82,14 @@
         <label class="refresh-control">
           Atualizar
           <select id="refresh-select" aria-label="Intervalo de atualização"></select>
+        </label>
+        <label class="theme-control">
+          Tema
+          <select id="theme-select" aria-label="Tema do painel">
+            <option value="system">Sistema</option>
+            <option value="light">Claro</option>
+            <option value="dark">Escuro</option>
+          </select>
         </label>
       </div>
     </header>
@@ -102,6 +137,14 @@
     <section class="card" aria-live="polite">
       <h2>Resiliência</h2>
       <div id="resilience"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Harnesses e configuração efetiva</h2>
+        <span class="muted">preferências futuras e overrides desta execução</span>
+      </div>
+      <div id="configuration"></div>
     </section>
 
     <div class="columns">

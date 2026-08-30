@@ -37,6 +37,8 @@ export interface RunRetryAttempt {
 }
 
 export interface RunOptions extends ExecaOptions {
+  /** Skip global diagnostics when a non-zero exit is an expected probe result. */
+  diagnostics?: boolean;
   /**
    * Opt in to retrying this invocation.
    *
@@ -75,6 +77,22 @@ const SOURCE_BY_COMMAND: Readonly<Record<string, FailureSource>> = {
 
 function inferSource(command: string): FailureSource {
   return SOURCE_BY_COMMAND[basename(command)] ?? 'internal';
+}
+
+function diagnoseCommandFailure(command: string, args: string[], result: ExecResult): void {
+  if (result.exitCode === 0) return;
+  void import('../storage/diagnostics.js').then(({ writeDiagnostic }) => {
+    writeDiagnostic({
+      level: 'warning',
+      message: `Command failed: ${basename(command)}`,
+      context: {
+        command: basename(command),
+        args,
+        exitCode: result.exitCode,
+        stderr: result.stderr.slice(0, 4_000),
+      },
+    });
+  });
 }
 
 /* ── git invocations that are never repeated ────────────────────────────── */
@@ -253,10 +271,19 @@ export async function run(
   args: string[] = [],
   options?: RunOptions,
 ): Promise<ExecResult> {
-  const { retry, source, retrySignal, onRetryAttempt, ...execaOptions } = options ?? {};
+  const {
+    retry,
+    source,
+    retrySignal,
+    onRetryAttempt,
+    diagnostics = true,
+    ...execaOptions
+  } = options ?? {};
 
   if (retry === undefined || !isRetryableInvocation(command, args)) {
-    return (await execOnce(command, args, execaOptions)).result;
+    const result = (await execOnce(command, args, execaOptions)).result;
+    if (diagnostics) diagnoseCommandFailure(command, args, result);
+    return result;
   }
 
   const failureSource = source ?? inferSource(command);
@@ -287,9 +314,11 @@ export async function run(
     },
   );
 
-  return {
+  const result = {
     ...outcome.value.result,
     attempts: outcome.attempts,
     ...(outcome.failure === null ? {} : { failure: outcome.failure }),
   };
+  if (diagnostics) diagnoseCommandFailure(command, args, result);
+  return result;
 }

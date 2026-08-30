@@ -154,8 +154,12 @@ export async function publishGitState(
   try {
     const branch = await src.currentBranch();
     const baseBranch = await src.baseBranch();
+    const commitBaseline =
+      publisher.snapshot().git.branchCreated === false
+        ? (publisher.snapshot().git.startCommit ?? baseBranch)
+        : baseBranch;
     const [commits, pullRequests, remoteUrl, headCommit, repositoryRoot] = await Promise.all([
-      src.commitsSince(baseBranch),
+      src.commitsSince(commitBaseline),
       src.pullRequests(branch),
       collect(() => src.remoteUrl()),
       collect(() => src.headCommit()),

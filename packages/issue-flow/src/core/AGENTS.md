@@ -49,6 +49,12 @@ never had them must not gain artificial nulls on a round trip.
   overwrites it — that is why they go through `reported()` instead of `??`.
   New repository data belongs on this event, not on a second one, or the two
   sections drift apart on `branch`.
+- `execution:update` projects the canonical `tasks.json.executions` row into
+  the live snapshot; it must upsert by execution id so begin/end publications
+  describe one invocation, not two. `process:output` is a bounded redacted tail,
+  while durable diagnostics belong to `storage/diagnostics.ts`.
+- Story `history` is append-only for real stage changes. Repeating the current
+  stage does not add an event; `stories:update` must preserve existing history.
 - Derived fields (`errors`, `warnings`, `nextSteps`, `estimatedRemainingSeconds`
   and each story's `status`) are recomputed in `reduceSessionEvent` **after**
   `applyEvent`, never accumulated inside a case. A new derived field belongs

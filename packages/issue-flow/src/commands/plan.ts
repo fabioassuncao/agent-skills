@@ -28,6 +28,8 @@ import { isTransientFailure } from '../utils/retry.js';
 export interface PlanUserStoryNumberingOptions {
   continueFlag?: boolean;
   startUs?: number;
+  /** Current checkout in --no-branch mode; prevents the plan from inventing a branch. */
+  branchName?: string;
 }
 
 export async function runPlan(
@@ -92,7 +94,9 @@ export async function runPlan(
     convention: policy.git.branchConvention ?? DEFAULT_BRANCH_CONVENTION,
   });
   const resolvedBranch =
-    persistedBranch !== null && persistedBranch !== '' ? persistedBranch : computedBranch;
+    persistedBranch !== null && persistedBranch !== ''
+      ? persistedBranch
+      : (numbering?.branchName ?? computedBranch);
   printInfo(
     `Branch: ${resolvedBranch} (type ${change.type} from ${change.source}${
       persistedBranch !== null && persistedBranch !== '' ? ', persisted' : ''
@@ -191,7 +195,9 @@ export async function runPlan(
   const plan = await loadTaskPlan(tasksPath);
   plan.pipeline.jsonCompleted = true;
   plan.branchName =
-    persistedBranch !== null && persistedBranch !== '' ? persistedBranch : computedBranch;
+    persistedBranch !== null && persistedBranch !== ''
+      ? persistedBranch
+      : (numbering?.branchName ?? computedBranch);
   await saveTaskPlan(tasksPath, plan);
 
   // The numbering is a prompt instruction, not a programmatic rewrite, so the

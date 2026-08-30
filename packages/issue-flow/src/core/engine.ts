@@ -466,7 +466,12 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
         // Execute Claude
         const startedAtMs = Date.now();
-        const result = await executeClaude(prompt, inactivityOptions());
+        const result = await executeClaude(prompt, {
+          ...inactivityOptions(),
+          iteration: i,
+          correctionCycle: plan.correctionCycle,
+          ...(activeStoryId === undefined ? {} : { storyIds: [activeStoryId] }),
+        });
         const seconds = elapsedSecondsSince(startedAtMs);
 
         if (result.exitCode !== 0) {

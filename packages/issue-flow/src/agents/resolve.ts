@@ -191,7 +191,15 @@ export interface RunAgentSummary {
   label: AgentProviderId | 'misto';
   defaultProvider: AgentProviderId;
   defaultModel: string | null;
-  byPhase: Record<AgentPhase, { provider: AgentProviderId; model: string | null }>;
+  defaultOrigin: { provider: AgentOrigin; model: AgentOrigin };
+  byPhase: Record<
+    AgentPhase,
+    {
+      provider: AgentProviderId;
+      model: string | null;
+      origin: { provider: AgentOrigin; model: AgentOrigin };
+    }
+  >;
 }
 
 export async function describeRunAgents(
@@ -205,7 +213,11 @@ export async function describeRunAgents(
 
   for (const phase of target) {
     const settings = await resolveAgentFor(phase);
-    byPhase[phase] = { provider: settings.provider, model: settings.model };
+    byPhase[phase] = {
+      provider: settings.provider,
+      model: settings.model,
+      origin: settings.origin,
+    };
     providers.add(settings.provider);
     if (phase === target[0]) {
       defaultProvider = settings.provider;
@@ -218,11 +230,16 @@ export async function describeRunAgents(
   const config = await loadAgentConfig();
   defaultProvider = config.provider;
   defaultModel = config.model;
+  const tracked = getTrackedOrigins();
 
   return {
     label: providers.size > 1 ? 'misto' : (providers.values().next().value ?? defaultProvider),
     defaultProvider,
     defaultModel,
+    defaultOrigin: {
+      provider: tracked?.provider ?? (defaultProvider === 'claude' ? 'default' : 'project'),
+      model: tracked?.model ?? (defaultModel === null ? 'default' : 'project'),
+    },
     byPhase,
   };
 }
