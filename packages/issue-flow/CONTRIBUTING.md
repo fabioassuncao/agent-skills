@@ -53,7 +53,9 @@ scripts/git-version.mjs   # preversion/postversion hooks: release commit + tag
 ```
 
 Invariants live next to the code: each of those directories has an `AGENTS.md`.
-The index is the repository [`AGENTS.md`](../../AGENTS.md). Session and plan
+The index is the repository [`AGENTS.md`](../../AGENTS.md). Where a new file
+belongs — and when an existing one is already too large — is in
+[`docs/code-organization.md`](../../docs/code-organization.md). Session and plan
 artifacts live in the [global storage](../../docs/storage.md)
 (`~/.issue-flow/projects/<id>/issues/<N>/`), not under `<repo>/issues/`.
 
@@ -74,11 +76,17 @@ npm run dev
 # Type checking (without emitting files)
 npm run typecheck
 
-# Lint (Biome)
+# Lint (Biome, read-only — covers src/, web/public/, scripts/, *.config.ts)
 npm run lint
 
-# Lint + typecheck (Biome write + tsc)
+# Gate local idêntico ao CI: biome check (não muta) + tsc
 npm run check
+
+# Aplica correções do Biome e depois typecheck (muta a árvore)
+npm run fix
+
+# Só formatação
+npm run format
 
 # Unit tests (single run)
 npm test

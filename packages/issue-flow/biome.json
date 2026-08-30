@@ -37,7 +37,25 @@
     }
   },
   "files": {
-    "includes": ["src/**/*.ts"],
-    "experimentalScannerIgnores": ["dist/**", "node_modules/**"]
-  }
+    "includes": [
+      "src/**/*.ts",
+      "web/public/**/*.js",
+      "scripts/**/*.mjs",
+      "*.config.ts",
+      "!!**/dist/**",
+      "!!**/node_modules/**"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": ["web/public/**/*.js"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNodejsImportProtocol": "off"
+          }
+        }
+      }
+    }
+  ]
 }

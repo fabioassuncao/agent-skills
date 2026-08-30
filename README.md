@@ -361,7 +361,8 @@ npm run build          # tsup → dist/
 npm run typecheck
 npm test
 npm run smoke          # end-to-end, against deterministic stand-ins for claude and gh
-npm run check          # biome + typecheck
+npm run check          # biome (read-only) + typecheck — gate local do CI
+npm run fix            # biome --write + typecheck (muta arquivos)
 ```
 
 `npm run smoke` builds the CLI and drives it inside throwaway git repositories
