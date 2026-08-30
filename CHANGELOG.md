@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions refer to the `issue-flow` npm package (`packages/issue-flow`). Releases
 that were tagged but never published to the registry are marked as such.
 
+Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
+the fact, so they list what changed rather than explaining why. Everything from
+0.9.0 onwards was written at release time.
+
 ## [Unreleased]
 
 ## [0.11.0] - 2026-08-29
@@ -260,6 +264,211 @@ intentional exception is label creation, above.
 - A queue that already completed is reported and left untouched, instead of
   being re-planned and overwriting its recorded Pull Request.
 
+## [0.8.0] - 2026-08-04
+
+### Added
+
+- Kanban view of the user stories in the web monitor (issue #31, PR #47)
+
+## [0.7.7] - 2026-08-04
+
+### Added
+
+- US-007 - Cobertura de testes dos cenarios de instancia unica
+- US-002/US-003/US-004/US-005/US-006 - Servidor web desacoplado, multi-sessao e modo legado
+- US-001 - Lock/PID file com detecção de instância viva
+
+### Fixed
+
+- OnSignal deve chamar handle.close para incluir cleanup de lock/poller
+
+### Changed
+
+- US-008 - Atualizar Web Monitoring com o modelo de instancia unica
+
+## [0.7.6] - 2026-08-04
+
+### Added
+
+- US-003 - Estender card de User Stories com status, progresso e dependencias
+- US-002 - Adicionar card Repositorio ao painel
+- US-001 - Adicionar card Resumo da Issue ao painel
+
+### Fixed
+
+- Usar checagem explícita de null/undefined para story.status
+
+### Changed
+
+- US-004 - Atualizar Web Monitoring com os novos cards do painel
+
+## [0.7.5] - 2026-08-04
+
+### Added
+
+- US-006 - Documentacao do formato do snapshot e nao-regressao
+- US-005 - Publicar a secao repository no snapshot
+- US-004 - Publicar a secao issue enriquecida no snapshot
+- US-003 - Semear as user stories do tasks.json existente no inicio da sessao
+- US-002 - Expor status e dependencies no SessionStorySnapshot com derivacao no reducer
+- US-001 - Estender o schema de user story com status e dependencies
+
+### Fixed
+
+- Strip embedded credentials from published repository.remoteUrl
+
+## [0.7.4] - 2026-08-04
+
+### Fixed
+
+- Update @biomejs/biome version in package.json and package-lock.json to 2.4.10 and 0.27.7 respectively
+
+## [0.7.3] - 2026-08-04
+
+### Added
+
+- US-012 - Retrocompatibilidade e não-regressão
+- US-011 - Documentação dos novos campos e limitações
+- US-010 - Tokens e tempo no painel web
+- US-009 - Tokens e custo no terminal
+- US-008 - Métricas por story persistidas em tasks.json
+- US-007 - Métricas por iteração e por story na fase execute
+- US-006 - Fases de invocação única publicam suas métricas
+- US-004 - Evento metrics:update e sua redução
+- US-005 - Campos de métricas no SessionSnapshot e schema em lockstep
+- US-003 - Instrumentar executor.ts (fase execute)
+- US-002 - headless.ts passa a capturar métricas corretamente
+- US-001 - Parser único de métricas do CLI (core/metrics.ts)
+
+### Changed
+
+- Update README and CLAUDE.md to clarify per-story attribution and usage counters
+- CLAUDE.md de src/core com contratos do redutor e do executor
+
+## [0.7.2] - 2026-08-04
+
+### Added
+
+- US-011 - Documentação e .gitignore
+- US-010 - Suíte de testes no novo layout, incluindo cenário real de migração
+- US-009 - Eliminar getIssueDir() e travar a regra por teste
+- US-008 - Migrar LocalFileIssueProvider
+- US-007 - Migrar resolvePaths() / execute
+- US-006 - Migrar run e o FilePublisher
+- US-005 - Migrar review, pr e pr-review
+- US-004 - Migrar analyze, prd e plan
+- US-003 - Fases headless conseguem escrever fora do repositório
+- US-002 - Aviso de migração visível ao usuário
+- US-001 - Resolver central de paths de issue com migração automática
+
+### Fixed
+
+- LocalFileIssueProvider.isAvailable() não deve criar diretório global
+
+## [0.7.1] - 2026-08-04
+
+### Added
+
+- US-009 - Implementa correção de revisão e persistência de resultados
+- US-008 - Documentacao da nova estrutura
+- US-007 - Compatibilidade e migracao nao destrutiva
+- US-006 - loadGlobalConfig() e precedencia documentada
+- US-005 - Schemas Zod de storage
+- US-004 - Resolucao centralizada de paths de issue
+- US-003 - Geracao deterministica de project-id
+- US-002 - Leitura normalizada do remote git
+- US-001 - Resolucao do diretorio global com override por env var
+
+### Fixed
+
+- Elimina segunda chamada a getRemoteUrl em migrateLegacyStorage
+
+### Changed
+
+- Atualiza plano e progresso da issue 32 (US-002)
+
+## [0.7.0] - 2026-08-03
+
+### Added
+
+- US-014 - Documentacao e validacao final
+- US-013 - Skill review-pr e registro no agente
+- US-012 - Configuracao prReview em .issue-flow.json
+- US-011 - Superficies de UI e monitoramento
+- US-010 - Correcao do gh pr list --head vazio
+- US-009 - Integracao com o comando run
+- US-008 - Registro na CLI
+- US-007 - Comando issue-flow pr-review [pr]
+- US-006 - Prompt pr-review.md
+- US-005 - Parser, relatorio e indice estruturado
+- US-004 - Descoberta automatica do Pull Request
+- US-003 - A fase pr persiste o Pull Request criado
+- US-002 - Estado retrocompativel em tasks.json
+- US-001 - Conjunto de fases da pipeline com pr-review
+
+### Changed
+
+- Update .gitignore to exclude issues and node_modules directories
+- Remove obsolete results.json file from vitest directory
+- Clarify read-only nature of PR review phase and update documentation
+- Remove arquivos obsoletos da issue 25, incluindo .last-branch, prd.md, progress.txt e tasks.json
+- Marca fase review como concluida na issue 25
+- Marca US-013 como concluida e registra progresso
+- Marca US-012 como concluida e registra progresso
+- Marca US-011 como concluida e registra progresso
+- Consolida padroes de teste e narrowing no progresso da issue 25
+- Marca US-008 como concluida e registra progresso
+- Marca US-006 como concluida e registra progresso
+- Marca US-004 como concluida e registra progresso
+- Marca US-003 como concluida e registra progresso
+- Marca US-002 como concluida e registra progresso
+- Marca US-001 como concluida e registra progresso
+- Unify issue directory resolution across commands
+
+## [0.6.0] - 2026-08-03
+
+### Added
+
+- US-015 - Documentacao e validacao final
+- US-014 - Prova executavel de extensibilidade
+- US-013 - Skill generate-local-issue
+- US-012 - generate multi-destino
+- US-011 - init nao bloqueia quando a origem e local
+- US-008 - Migracao atomica dos cinco templates de prompt
+- US-010 - run resolve uma vez e delega fechamento ao provider
+- US-009 - Comandos da pipeline consomem resolveIssue
+- US-007 - IssueResolver com matriz de cenarios
+- US-006 - Configuracao de providers em .issue-flow.json
+- US-005 - LocalFileIssueProvider
+- US-004 - GitHubIssueProvider
+- US-003 - Interface IssueProvider e registry
+- US-002 - Schema de metadados e afrouxamento do taskPlanSchema
+- US-001 - Modelo de dominio Issue e hash de conteudo
+
+### Changed
+
+- Remove deprecated files and finalize issue 23
+- Marca review da issue 23 como concluido
+- Consolida padroes da issue 23 (skills e flags de CLI)
+- Atualiza plano e progresso da issue 23 (US-008/009/010)
+
+## [0.5.2] - 2026-08-03
+
+### Fixed
+
+- Expõe monitor --web em 0.0.0.0 e adiciona retry às fases do pipeline
+
+### Changed
+
+- Delete obsolete files related to issue #22
+
+## [0.5.1] - 2026-08-03
+
+### Changed
+
+- Version-only release: the tag carries nothing but the manifest bump. It exists
+  because the 0.5.0 publish had already been made and the version had to move on.
+
 ## [0.5.0] - 2026-08-03
 
 ### Added
@@ -429,6 +638,18 @@ First release published to npm under the `issue-flow` name.
 [0.11.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.0
 [0.10.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.10.0
 [0.9.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.9.0
+[0.8.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.8.0
+[0.7.7]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.7.7
+[0.7.6]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.7.6
+[0.7.5]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.7.5
+[0.7.4]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.7.4
+[0.7.3]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.7.3
+[0.7.2]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.7.2
+[0.7.1]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.7.1
+[0.7.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.7.0
+[0.6.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.6.0
+[0.5.2]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.5.2
+[0.5.1]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.5.1
 [0.5.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.5.0
 [0.4.4]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.4.4
 [0.4.3]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.4.3
