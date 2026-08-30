@@ -384,9 +384,18 @@ neutral defaults (`null`, `[]`) rather than rejected.
   },
   "errors": [], "warnings": [], "lastError": null,
   "nextSteps": ["review", "pr"],
-  "environment": { "node": "v22.0.0", "platform": "darwin", "agent": "claude", "model": null }
+  "environment": {
+    "node": "v22.0.0", "platform": "darwin", "agent": "claude", "model": null,
+    "cliVersion": "0.16.0"
+  }
 }
 ```
+
+`environment.cliVersion` is the version of the `issue-flow` package that produced
+the run — additive like `agent` and `model`, so a snapshot written before it
+existed parses as `null`. It is what the terminal headline and the dashboard
+name, and it is **not** necessarily the version of the monitor serving that
+dashboard; see [Web monitoring → version on screen](web-monitor.md#which-version-is-on-screen).
 
 ### `issue` and `repository`
 
