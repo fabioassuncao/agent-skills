@@ -1,12 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { mkdir, readFile } from 'node:fs/promises';
+import { basename, dirname } from 'node:path';
 import type { SessionEvent, SessionSnapshot } from '../../core/session-state.js';
+import type { ExecutionPlan } from '../../execution/types.js';
 import { taskPlanSchema } from '../../schemas.js';
 import type { ExecutionRecord } from '../../telemetry/types.js';
 import type { TaskPlan } from '../../types.js';
 import { writeFileAtomic } from '../../utils/fs.js';
-import type { ProviderHealthRecord, ProvidersHealth } from '../schemas.js';
+import type {
+  ProviderHealthRecord,
+  ProvidersHealth,
+  UserStoryNumberingDecision,
+} from '../schemas.js';
 import { type OpenIssueFlowDatabaseOptions, openIssueFlowDatabase } from './index.js';
 
 /** Identity needed to address one plan in the shared SQLite database. */
@@ -17,12 +22,30 @@ export interface PlanRepositoryContext {
   projectRoot: string;
   /** Test/embedding seam for a non-default Issue Flow home. */
   databaseOptions?: OpenIssueFlowDatabaseOptions;
+  /** Explicit row retention. Omitted values retain history indefinitely. */
+  retention?: StoredRetentionPolicy;
+}
+
+export interface StoredRetentionPolicy {
+  executions?: number;
+  events?: number;
+  snapshots?: number;
+}
+
+/** Identity for one multi-issue queue projection in the shared database. */
+export interface QueueRepositoryContext {
+  planFile: string;
+  projectId: string;
+  projectRoot: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+  retention?: StoredRetentionPolicy;
 }
 
 const contexts = new Map<string, PlanRepositoryContext>();
 const providerHealthContexts = new Map<string, PlanRepositoryContext>();
 const verificationContexts = new Map<string, PlanRepositoryContext>();
 const lastBranchContexts = new Map<string, PlanRepositoryContext>();
+const queueContexts = new Map<string, QueueRepositoryContext>();
 const agentProjectionWindows = new Set<string>();
 
 /** Keep the tolerant US-NNN interpretation next to the indexed representation. */
@@ -40,6 +63,15 @@ export function registerPlanRepository(context: PlanRepositoryContext): void {
 
 export function getPlanRepository(path: string): PlanRepositoryContext | undefined {
   return contexts.get(path);
+}
+
+/** Register the JSON compatibility projection for a multi-issue queue. */
+export function registerQueueRepository(context: QueueRepositoryContext): void {
+  queueContexts.set(context.planFile, context);
+}
+
+export function getQueueRepository(path: string): QueueRepositoryContext | undefined {
+  return queueContexts.get(path);
 }
 
 /** Register project- and issue-level compatibility projections with their canonical store. */
@@ -100,7 +132,32 @@ export function resetPlanRepositories(): void {
   providerHealthContexts.clear();
   verificationContexts.clear();
   lastBranchContexts.clear();
+  queueContexts.clear();
   agentProjectionWindows.clear();
+}
+
+/** Apply only an explicitly configured, positive row limit for one project. */
+function applyStoredRetention(
+  database: Awaited<ReturnType<typeof openIssueFlowDatabase>>,
+  projectId: string,
+  retention: StoredRetentionPolicy | undefined,
+): void {
+  const trim = (table: 'executions' | 'events' | 'snapshots', limit: number | undefined) => {
+    if (limit === undefined || limit === 0) return;
+    const timestamp =
+      table === 'executions' ? 'started_at' : table === 'events' ? 'occurred_at' : 'updated_at';
+    database
+      .prepare(
+        `DELETE FROM ${table} WHERE id IN (
+           SELECT id FROM ${table} WHERE project_id = ?
+           ORDER BY ${timestamp} DESC, rowid DESC LIMIT -1 OFFSET ?
+         )`,
+      )
+      .run(projectId, limit);
+  };
+  trim('executions', retention?.executions);
+  trim('events', retention?.events);
+  trim('snapshots', retention?.snapshots);
 }
 
 function ensureStoredProject(
@@ -467,6 +524,125 @@ export async function materializePlan(
   await writeFileAtomic(context.tasksPath, `${JSON.stringify(projection, null, 2)}\n`);
 }
 
+/** Persist a queue's coordination state before refreshing its readable projection. */
+export async function saveStoredQueue(
+  context: QueueRepositoryContext,
+  plan: ExecutionPlan,
+): Promise<void> {
+  await withDatabase(
+    (database) =>
+      database.transaction(() => {
+        ensureStoredProject(
+          database,
+          {
+            tasksPath: '',
+            projectId: context.projectId,
+            issueId: '',
+            projectRoot: context.projectRoot,
+          },
+          plan.updatedAt,
+        );
+        database
+          .prepare(
+            `INSERT INTO queues (id, project_id, status, payload_json, created_at, updated_at,
+              requested_json, branch_name, no_branch, pr_review, truncated)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET status = excluded.status, payload_json = excluded.payload_json,
+               updated_at = excluded.updated_at, requested_json = excluded.requested_json,
+               branch_name = excluded.branch_name, no_branch = excluded.no_branch,
+               pr_review = excluded.pr_review, truncated = excluded.truncated`,
+          )
+          .run(
+            plan.id,
+            context.projectId,
+            plan.status,
+            JSON.stringify(plan),
+            plan.createdAt,
+            plan.updatedAt,
+            JSON.stringify(plan.requested),
+            plan.branchName,
+            plan.noBranch ? 1 : 0,
+            plan.prReview ? 1 : 0,
+            plan.truncated ? 1 : 0,
+          );
+        database.prepare('DELETE FROM queue_dependencies WHERE queue_id = ?').run(plan.id);
+        database.prepare('DELETE FROM queue_issues WHERE queue_id = ?').run(plan.id);
+        for (const entry of plan.issues) {
+          database
+            .prepare(
+              `INSERT INTO issues (project_id, id, title, status, branch_name, created_at, updated_at)
+               VALUES (?, ?, ?, ?, NULL, ?, ?)
+               ON CONFLICT(project_id, id) DO UPDATE SET title = excluded.title, status = excluded.status,
+                 updated_at = excluded.updated_at`,
+            )
+            .run(
+              context.projectId,
+              entry.id,
+              entry.title,
+              entry.status,
+              plan.createdAt,
+              plan.updatedAt,
+            );
+          database
+            .prepare(
+              `INSERT INTO queue_issues (queue_id, project_id, issue_id, position, status, number, title, url,
+                source, origin, role, priority, heuristic, failed_phase, last_error_category,
+                last_error_message, last_error_at, attempts, blocked_reason, started_at, completed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              plan.id,
+              context.projectId,
+              entry.id,
+              entry.position,
+              entry.status,
+              entry.number,
+              entry.title,
+              entry.url,
+              entry.source,
+              entry.origin,
+              entry.role,
+              entry.priority,
+              entry.heuristic ? 1 : 0,
+              entry.failedPhase,
+              entry.lastError?.category ?? null,
+              entry.lastError?.message ?? null,
+              entry.lastError?.at ?? null,
+              entry.attempts,
+              entry.blockedReason,
+              entry.startedAt,
+              entry.completedAt,
+            );
+          for (const dependency of entry.dependsOn) {
+            database
+              .prepare(
+                'INSERT INTO queue_dependencies (queue_id, issue_id, depends_on_issue_id) VALUES (?, ?, ?)',
+              )
+              .run(plan.id, entry.id, dependency);
+          }
+        }
+      }),
+    context.databaseOptions,
+  );
+  await mkdir(dirname(context.planFile), { recursive: true });
+  await writeFileAtomic(context.planFile, `${JSON.stringify(plan, null, 2)}\n`);
+}
+
+/** Load the canonical queue. The projection remains only for older JSON mode callers. */
+export async function loadStoredQueue(
+  context: QueueRepositoryContext,
+): Promise<ExecutionPlan | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare('SELECT payload_json FROM queues WHERE id = ? AND project_id = ?')
+      .get<{ payload_json: string }>(
+        context.planFile === '' ? '' : basename(dirname(context.planFile)),
+        context.projectId,
+      );
+    return row === undefined ? null : (JSON.parse(row.payload_json) as ExecutionPlan);
+  }, context.databaseOptions);
+}
+
 /**
  * Reingest only the fields an execution agent is allowed to change. This is a
  * deliberate merge, not a file import: telemetry and pipeline updates made
@@ -569,6 +745,7 @@ export async function saveExecution(
         (model?.resolved as string | null | undefined) ?? null,
         execution.id,
       );
+    applyStoredRetention(database, context.projectId, context.retention);
   });
   // Direct library consumers historically read the projection themselves.
   // Keep that contract only for their synthetic context; real issue paths
@@ -737,6 +914,34 @@ export async function saveStoredLastBranch(
   }, context.databaseOptions);
 }
 
+/** Store the project-wide numbering audit beside the indexed story history. */
+export async function saveStoredUserStoryNumbering(
+  context: Pick<PlanRepositoryContext, 'projectId' | 'projectRoot' | 'databaseOptions'>,
+  decision: UserStoryNumberingDecision,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      ensureStoredProject(database, { ...context, tasksPath: '', issueId: '' }, decision.decidedAt);
+      database
+        .prepare(
+          `INSERT INTO user_story_numbering (project_id, next_number, source, issue_id, decided_at, detail)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(project_id) DO UPDATE SET next_number = excluded.next_number,
+             source = excluded.source, issue_id = excluded.issue_id, decided_at = excluded.decided_at,
+             detail = excluded.detail`,
+        )
+        .run(
+          context.projectId,
+          decision.nextNumber,
+          decision.source,
+          decision.issueNumber,
+          decision.decidedAt,
+          decision.detail ?? null,
+        );
+    });
+  }, context.databaseOptions);
+}
+
 /** A current session snapshot and its indexed identity for monitor readers. */
 export interface StoredSession {
   projectId: string;
@@ -824,6 +1029,7 @@ export async function saveSessionEvent(
             input.sessionId,
             updatedAt,
           );
+        applyStoredRetention(database, context.projectId, context.retention);
       }),
     context.databaseOptions,
   );
@@ -1011,7 +1217,9 @@ export async function findHighestStoredUserStoryNumber(input: {
 }
 
 /** A stable, JSON-friendly diagnostic export that never exposes SQL to callers. */
-export async function exportStoredState(): Promise<Record<string, unknown>> {
+export async function exportStoredState(
+  options: OpenIssueFlowDatabaseOptions = {},
+): Promise<Record<string, unknown>> {
   return withDatabase((database) => {
     const tables = [
       'projects',
@@ -1030,11 +1238,14 @@ export async function exportStoredState(): Promise<Record<string, unknown>> {
       'provider_health',
       'queues',
       'queue_issues',
+      'queue_dependencies',
+      'user_story_numbering',
+      'provider_health_failures',
       'migrated_artifacts',
       'audit_log',
     ];
     return Object.fromEntries(
       tables.map((table) => [table, database.prepare(`SELECT * FROM ${table}`).all()]),
     );
-  });
+  }, options);
 }

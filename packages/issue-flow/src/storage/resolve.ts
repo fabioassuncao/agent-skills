@@ -13,8 +13,10 @@ import { importProjectArtifacts } from './db/import.js';
 import { getDatabasePath } from './db/index.js';
 import {
   registerPlanRepository,
+  registerQueueRepository,
   registerStorageProjections,
   resetPlanRepositories,
+  type StoredRetentionPolicy,
 } from './db/repository.js';
 import {
   type GetGlobalRootOptions,
@@ -61,11 +63,13 @@ interface ProjectResolution {
   legacyDir: string;
   /** JSON remains active after a failed import or an explicit compatibility setting. */
   driver: 'sqlite' | 'json';
+  retention?: StoredRetentionPolicy;
 }
 
 interface StorageResolutionConfig {
   driver: 'sqlite' | 'json';
   backupRetention?: number;
+  retention?: StoredRetentionPolicy & { backups?: number };
 }
 
 /** Resolve only the storage knobs; invalid project input safely uses defaults. */
@@ -88,6 +92,9 @@ async function loadStorageResolutionConfig(
     backupRetention:
       (parsedProject.success ? parsedProject.data.backupRetention : undefined) ??
       global.storage?.backupRetention,
+    retention:
+      (parsedProject.success ? parsedProject.data.retention : undefined) ??
+      global.storage?.retention,
   };
 }
 
@@ -191,9 +198,10 @@ async function resolveProject(
           projectDir: status.globalDir,
           projectRoot,
           remoteUrl: status.remoteUrl,
-          ...(storage.backupRetention === undefined
+          ...((storage.retention?.backups ?? storage.backupRetention) === undefined
             ? {}
-            : { backupRetention: storage.backupRetention }),
+            : { backupRetention: storage.retention?.backups ?? storage.backupRetention }),
+          ...(storage.retention === undefined ? {} : { retention: storage.retention }),
           onWarning: printInfo,
         })
       : null;
@@ -214,6 +222,7 @@ async function resolveProject(
     // compatibility path. Do not subsequently register a SQLite repository,
     // or telemetry would create a fresh empty database and hide the fallback.
     driver: imported?.failed === true ? 'json' : storage.driver,
+    retention: storage.retention,
   };
 }
 
@@ -242,6 +251,8 @@ function getProjectResolution(
 export interface ProjectStoragePaths {
   /** Deterministic id derived from the repository's remote (or its path). */
   projectId: string;
+  /** Active structured-state driver after migration/recovery resolution. */
+  storageDriver: 'sqlite' | 'json';
   /** `<globalRoot>/projects/<projectId>`. */
   projectDir: string;
   /** `<projectDir>/issues` — the parent of every issue directory. */
@@ -286,6 +297,7 @@ export async function resolveProjectPaths(
         projectId: project.projectId,
         issueId: '',
         projectRoot,
+        retention: project.retention,
       },
       providersHealthFile,
     });
@@ -293,6 +305,7 @@ export async function resolveProjectPaths(
 
   return {
     projectId: project.projectId,
+    storageDriver: project.driver,
     projectDir,
     issuesDir: join(projectDir, ISSUES_DIR_NAME),
     runLockFile: join(projectDir, RUN_LOCK_FILENAME),
@@ -315,7 +328,16 @@ export async function resolveQueuePaths(
   const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
 
   const project = await getProjectResolution(projectRoot, rootOptions);
-  return getQueuePaths(project.projectId, queueId, rootOptions);
+  const paths = getQueuePaths(project.projectId, queueId, rootOptions);
+  if (project.driver === 'sqlite') {
+    registerQueueRepository({
+      planFile: paths.planFile,
+      projectId: project.projectId,
+      projectRoot,
+      retention: project.retention,
+    });
+  }
+  return paths;
 }
 
 /**
@@ -364,6 +386,7 @@ export async function resolveIssuePaths(
       projectId: project.projectId,
       issueId: basename(paths.issueDir),
       projectRoot,
+      retention: project.retention,
     };
     registerPlanRepository(context);
     registerStorageProjections({

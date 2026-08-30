@@ -473,15 +473,22 @@ describe('queue of several issues', () => {
       .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
 
     vi.mocked(runExecute).mockClear();
+    const secondHome = await mkdtemp(join(tmpdir(), 'issue-flow-queue-home-'));
     resetStorageResolutionCache();
-    await rm((await resolveQueuePaths('50')).queueDir, { recursive: true, force: true });
+    process.env[GLOBAL_ROOT_ENV] = secondHome;
 
-    expect(await run(['50', '51'], { only: true })).toBe(0);
-    const second = vi
-      .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+    try {
+      expect(await run(['50', '51'], { only: true })).toBe(0);
+      const second = vi
+        .mocked(runExecute)
+        .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
 
-    expect(second).toEqual(first);
+      expect(second).toEqual(first);
+    } finally {
+      resetStorageResolutionCache();
+      process.env[GLOBAL_ROOT_ENV] = globalHome;
+      await rm(secondHome, { recursive: true, force: true });
+    }
   });
 });
 

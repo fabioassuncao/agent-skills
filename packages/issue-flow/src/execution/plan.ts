@@ -4,6 +4,7 @@ import { ZodError } from 'zod';
 import { isoNow } from '../core/state-manager.js';
 import type { DependencyGraph } from '../issues/graph.js';
 import type { Issue } from '../issues/types.js';
+import { getQueueRepository, loadStoredQueue, saveStoredQueue } from '../storage/db/repository.js';
 import { executionPlanSchema } from '../storage/schemas.js';
 import type { LastError, PullRequestRef } from '../types.js';
 import { writeFileAtomic } from '../utils/fs.js';
@@ -155,6 +156,11 @@ export function buildExecutionPlan(input: BuildExecutionPlanInput): ExecutionPla
 
 /** Read a persisted plan. Throws with the offending fields on invalid content. */
 export async function loadExecutionPlan(path: string): Promise<ExecutionPlan> {
+  const repository = getQueueRepository(path);
+  if (repository !== undefined) {
+    const stored = await loadStoredQueue(repository);
+    if (stored !== null) return stored;
+  }
   const raw: unknown = JSON.parse(await readFile(path, 'utf-8'));
 
   try {
@@ -180,8 +186,13 @@ export async function saveExecutionPlan(
   plan: ExecutionPlan,
   now: () => string = isoNow,
 ): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
   const stamped: ExecutionPlan = { ...plan, updatedAt: now() };
+  const repository = getQueueRepository(path);
+  if (repository !== undefined) {
+    await saveStoredQueue(repository, stamped);
+    return;
+  }
+  await mkdir(dirname(path), { recursive: true });
   await writeFileAtomic(path, `${JSON.stringify(stamped, null, 2)}\n`);
 }
 

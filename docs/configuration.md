@@ -307,7 +307,7 @@ indistinguishable from a value you actually wrote.
 |-----|---------|
 | `schemaVersion` | Format version of the file |
 | `storageDir` | Alternative directory holding `projects/` |
-| `storage` | Structured-state driver (`sqlite` by default; `json` keeps the compatibility path active), pre-migration backup retention (5 by default), and optional explicit row retention. A `retention` value of `0` retains all rows. |
+| `storage` | Structured-state driver (`sqlite` by default; `json` keeps the compatibility path active), pre-migration backup retention (5 by default), and optional explicit row retention. A positive `retention.executions`, `events` or `snapshots` limit is enforced transactionally on writes and imports; `0` retains all rows. `retention.backups` overrides `backupRetention` when both are set. |
 | `web` | Machine-wide web defaults. Deliberately a subset of the project key: `enabled` and `includeLogs` stay a per-project decision |
 | `retry` | Retry and backoff preferences, mirroring the engine defaults |
 | `commit` | Commit preferences. `signoff` is consumed by `commitMessage()` |

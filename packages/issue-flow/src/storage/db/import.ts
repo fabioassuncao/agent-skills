@@ -39,6 +39,12 @@ export interface ImportProjectOptions extends OpenIssueFlowDatabaseOptions {
   remoteUrl: string | null;
   /** Number of pre-migration backups to retain. Defaults to five. */
   backupRetention?: number;
+  /** Explicit database history retention. Omitted values retain every row. */
+  retention?: {
+    executions?: number;
+    events?: number;
+    snapshots?: number;
+  };
   onWarning?: (message: string) => void;
 }
 
@@ -369,6 +375,30 @@ async function retainBackups(directory: string, retention: number): Promise<void
   }
 }
 
+/** Trim only explicitly limited project history; zero means retain all rows. */
+function applyRetention(
+  database: Awaited<ReturnType<typeof openIssueFlowDatabase>>,
+  projectId: string,
+  retention: ImportProjectOptions['retention'],
+): void {
+  const trim = (table: 'executions' | 'events' | 'snapshots', limit: number | undefined) => {
+    if (limit === undefined || limit === 0) return;
+    const timestamp =
+      table === 'executions' ? 'started_at' : table === 'events' ? 'occurred_at' : 'updated_at';
+    database
+      .prepare(
+        `DELETE FROM ${table} WHERE id IN (
+           SELECT id FROM ${table} WHERE project_id = ?
+           ORDER BY ${timestamp} DESC, rowid DESC LIMIT -1 OFFSET ?
+         )`,
+      )
+      .run(projectId, limit);
+  };
+  trim('executions', retention?.executions);
+  trim('events', retention?.events);
+  trim('snapshots', retention?.snapshots);
+}
+
 export const DEFAULT_BACKUP_RETENTION = 5;
 
 async function prepareDatabase(options: ImportProjectOptions): Promise<void> {
@@ -392,15 +422,12 @@ async function prepareDatabase(options: ImportProjectOptions): Promise<void> {
     // A database upgrade is destructive enough to deserve a recovery point
     // even when there are no JSON artifacts to import. An empty project may
     // still contain the only copy of its SQLite state.
+    const backupDirectory = join(getDatabasePath(options).replace(/[/\\][^/\\]+$/, ''), 'backups');
     if (version < CURRENT_SCHEMA_VERSION) {
-      const backupDirectory = join(
-        getDatabasePath(options).replace(/[/\\][^/\\]+$/, ''),
-        'backups',
-      );
       const backup = join(backupDirectory, `issue-flow-${Date.now()}.db`);
       raw.backup(backup);
-      await retainBackups(backupDirectory, options.backupRetention ?? DEFAULT_BACKUP_RETENTION);
     }
+    await retainBackups(backupDirectory, options.backupRetention ?? DEFAULT_BACKUP_RETENTION);
   } finally {
     try {
       raw.close();
@@ -480,6 +507,7 @@ export async function importProjectArtifacts(
             .run(artifact.path, artifact.sha256, new Date().toISOString(), JSON.stringify(counts));
           imported++;
         }
+        applyRetention(database, options.projectId, options.retention);
       });
       return { imported, skipped, tableCounts: counts, failed: false };
     } finally {

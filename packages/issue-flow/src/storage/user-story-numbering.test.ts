@@ -243,6 +243,13 @@ describe('determineUserStoryNumbering', () => {
       source: 'history',
       issueNumber: '42',
     });
+    const { exportStoredState } = await import('./db/repository.js');
+    const { projectId } = await resolveProjectPaths({ projectRoot, env });
+    await expect(exportStoredState({ env })).resolves.toMatchObject({
+      user_story_numbering: expect.arrayContaining([
+        expect.objectContaining({ project_id: projectId, next_number: 16, issue_id: '42' }),
+      ]),
+    });
   });
 
   it('keeps createdAt across two decisions for the same project', async () => {

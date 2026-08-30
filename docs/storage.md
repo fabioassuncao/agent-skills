@@ -643,6 +643,10 @@ preserved artifacts.
 Execution, event and snapshot history is retained indefinitely by default.
 Any cleanup must be declared explicitly through `storage.retention`; journal
 rotation is likewise opt-in, so no historical event is silently discarded.
+Positive execution, event and snapshot limits are applied in the same
+transaction as the relevant write (and during import); `0` means unlimited.
+Backup retention is applied whenever storage resolves an existing database;
+`storage.retention.backups` takes precedence over `storage.backupRetention`.
 
 It is **non-destructive by construction**: `<projectRoot>/issues/` is never
 modified, renamed or removed — there is no removal option, not even opt-in.
