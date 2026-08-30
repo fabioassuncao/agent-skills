@@ -187,13 +187,13 @@ named, so the difference is visible rather than inferred.
 |---|---|---|
 | Terminal headline | `Issue Flow v0.16.0 · #42 · …` | `session.json` → `environment.cliVersion` |
 | `run` / `execute` first line | `Issue Flow v0.16.0 · starting pipeline for issue #42 …` | the running package |
-| Dashboard header | `issue-flow v0.16.0` | `GET /api/health` → `version` |
+| Panel header (version chip) | `v0.16.0` | `GET /api/health` → `version` |
 | Configuration card | both, side by side | the snapshot and `/api/health` |
 | `--version` | the running package | the manifest |
 
 The terminal reads the version from the snapshot, not from the manifest, so a
-resumed or replayed session keeps naming the build that produced it. The
-dashboard header names the **monitor**, because the monitor is what served the
+resumed or replayed session keeps naming the build that produced it. The chip in
+the panel header names the **monitor**, because the monitor is what served the
 page you are looking at.
 
 When the two differ, both surfaces say so: the CLI warns while reusing an

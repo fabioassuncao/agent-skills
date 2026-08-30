@@ -203,12 +203,12 @@ main > *,
   box-shadow: var(--shadow);
 }
 
+/* Fluxo inline, não flex: o número da issue e o título dela são uma frase só,
+   e o título quebra em várias linhas sem empurrar o número para cima. */
 h1 {
   margin: 0;
   font-size: var(--font-size-xl);
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-8);
+  line-height: 1.35;
 }
 
 h2 {
@@ -350,8 +350,11 @@ a:hover {
   gap: var(--space-12);
 }
 
-.brand {
-  font-weight: 700;
+/* O h1 é o título da issue e pode ter várias linhas: o lado esquerdo encolhe e
+   quebra em vez de empurrar status, tempo e controles para uma linha própria. */
+.header-main {
+  flex: 1 1 320px;
+  min-width: 0;
 }
 
 /* Versão do processo que serve o painel. Par medido: --text-muted sobre
@@ -364,15 +367,25 @@ a:hover {
   border-radius: var(--radius-pill);
   background: var(--surface-sunken);
   color: var(--text-muted);
-  vertical-align: middle;
 }
 
 .issue-link {
   font-weight: 600;
 }
 
-#branch-line {
+/* Linha secundária do header: branch (detalhe) ou resumo das execuções
+   (dashboard), com o chip de versão do monitor à direita do texto. */
+.header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
   margin: var(--space-4) 0 0;
+}
+
+/* Sem branch informada o span some, senão o gap abriria um vão antes do chip. */
+.header-meta > span:empty {
+  display: none;
 }
 
 .header-side {
@@ -479,11 +492,6 @@ select {
 }
 
 /* ---- Resumo da issue ---- */
-
-.issue-summary-title {
-  margin: 0 0 var(--space-8);
-  font-weight: 600;
-}
 
 .issue-summary-meta {
   display: flex;

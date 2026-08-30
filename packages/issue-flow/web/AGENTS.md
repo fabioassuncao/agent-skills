@@ -75,6 +75,27 @@ grid`/`flex` da regra base vence o atributo `hidden`. E o overlay/drawer ficam
 em `z-index` 20/21 para cobrir o `.banner` de desconexão, que é `sticky` com
 `z-index: 10`.
 
+## Header: informação, não marca
+
+O `h1` das duas views **não** carrega o nome do produto — a marca vive só no
+`<title>` do documento, que `renderTitle()`/`renderDashboard()` mantêm no
+formato `<contexto> · issue-flow`. No detalhe o `h1` é a execução (`#N` como
+link para a issue, seguido do título dela); no dashboard é "Execuções ativas".
+Não devolva "issue-flow" para dentro do `h1`: a linha mais visível da tela é
+para o que está acontecendo.
+
+O resto da identidade da execução fica ao redor do `h1`: branch e chip de
+versão na `.header-meta` logo abaixo, status, tempo decorrido e estimativa no
+`.header-side`. O título da issue aparece **uma vez só** — por isso
+`renderIssueSummary()` não repete número nem título no bloco "Contexto",
+deixando ali estado, labels e descrição.
+
+Layout: `.header-main` é `flex: 1 1 320px` e o `.header-side` fica com o
+`flex` padrão (`0 1 auto`). O `.header-side` **precisa** poder encolher — os
+timers são largos e, fixados em `flex: 0 0 auto`, estouram a largura em 360px.
+O `h1` é fluxo inline (não flex), senão um título longo empurra o `#N` para
+uma linha sozinha.
+
 ## Blocos da aba Execução
 
 A aba "Execução" tem **quatro** cartões, nesta ordem, e a ordem é a hierarquia:

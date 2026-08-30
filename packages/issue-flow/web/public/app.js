@@ -24,6 +24,16 @@
     failed: 'falhou',
   };
 
+  // O resumo do dashboard conta *execuções* (feminino), então não reaproveita
+  // STATUS_LABELS, que qualifica a execução no masculino usado pelo badge.
+  const SUMMARY_STATUS_ORDER = ['running', 'idle', 'completed', 'failed'];
+  const SUMMARY_STATUS_LABELS = {
+    running: ['em execução', 'em execução'],
+    idle: ['aguardando', 'aguardando'],
+    completed: ['concluída', 'concluídas'],
+    failed: ['com falha', 'com falha'],
+  };
+
   const PHASE_ICONS = {
     pending: '○',
     running: '●',
@@ -69,6 +79,7 @@
     dashboardMeta: document.getElementById('dashboard-meta'),
     backToDashboard: document.getElementById('back-to-dashboard'),
     issueLink: document.getElementById('issue-link'),
+    issueHeadline: document.getElementById('issue-headline'),
     branchLine: document.getElementById('branch-line'),
     statusBadge: document.getElementById('status-badge'),
     elapsed: document.getElementById('elapsed'),
@@ -89,6 +100,7 @@
     configuration: document.getElementById('configuration'),
     appVersion: document.getElementById('app-version'),
     appVersionDashboard: document.getElementById('app-version-dashboard'),
+    dashboardSummary: document.getElementById('dashboard-summary'),
     phases: document.getElementById('phases'),
     nextSteps: document.getElementById('next-steps'),
     stories: document.getElementById('stories'),
@@ -701,6 +713,9 @@
   function renderEmptyDetail() {
     if (state.snapshot) return;
     document.title = 'issue-flow';
+    els.issueLink.hidden = true;
+    els.issueHeadline.textContent = 'Nenhuma execução ativa';
+    els.branchLine.textContent = '';
     els.statusBadge.textContent = STATUS_LABELS.idle;
     els.statusBadge.className = 'badge status-idle';
     els.elapsed.textContent = '—';
@@ -715,6 +730,25 @@
     return normalized.slice(0, max - 1).trimEnd() + '…';
   }
 
+  // Linha secundária do header do dashboard: quantas execuções e em que
+  // estado. Substitui a legenda estática que só repetia o h1.
+  function renderDashboardSummary(sessions) {
+    const counts = {};
+    for (const session of sessions) {
+      const status = session.status || 'idle';
+      counts[status] = (counts[status] || 0) + 1;
+    }
+    const parts = [];
+    for (const status of SUMMARY_STATUS_ORDER) {
+      const count = counts[status];
+      if (!count) continue;
+      const label = SUMMARY_STATUS_LABELS[status];
+      parts.push(count + ' ' + (count === 1 ? label[0] : label[1]));
+    }
+    const total = sessions.length + (sessions.length === 1 ? ' execução' : ' execuções');
+    els.dashboardSummary.textContent = parts.length > 0 ? total + ' · ' + parts.join(' · ') : total;
+  }
+
   function renderDashboard(sessions) {
     const active = document.activeElement;
     const focusedId =
@@ -727,9 +761,12 @@
     if (sessions.length === 0) {
       els.dashboard.appendChild(el('p', 'empty', 'Nenhuma execução ativa.'));
       els.dashboardMeta.textContent = '0 execuções';
+      els.dashboardSummary.textContent = 'Nenhuma execução ativa';
       document.title = 'issue-flow';
       return;
     }
+
+    renderDashboardSummary(sessions);
 
     for (const session of sessions) {
       // <button> só aceita phrasing content — mesmos spans do Kanban.
@@ -856,8 +893,11 @@
     document.title = (prefix + issue + ' · issue-flow').replace(/^ · /, '');
   }
 
+  // O h1 é a execução — número, título, e ao lado status, tempo decorrido e
+  // branch. A marca do produto vive só no <title> do documento.
   function renderHeader(snapshot) {
-    if (snapshot.issue.number !== null) {
+    const hasIssue = snapshot.issue.number !== null && snapshot.issue.number !== undefined;
+    if (hasIssue) {
       els.issueLink.hidden = false;
       els.issueLink.textContent = '#' + snapshot.issue.number;
       if (snapshot.issue.url) els.issueLink.href = snapshot.issue.url;
@@ -865,6 +905,10 @@
     } else {
       els.issueLink.hidden = true;
     }
+
+    // session.json antigo pode não ter título; sem issue vinculada, nem número.
+    els.issueHeadline.textContent =
+      snapshot.issue.title || (hasIssue ? 'Sem título' : 'Execução sem issue vinculada');
 
     const branch = snapshot.git.branch;
     const base = snapshot.git.baseBranch;
@@ -925,17 +969,8 @@
     clear(els.issueSummary);
     const issue = snapshot.issue || {};
 
-    const heading = el('p', 'issue-summary-title');
-    heading.appendChild(
-      el(
-        'span',
-        'mono',
-        issue.number !== null && issue.number !== undefined ? '#' + issue.number : '—',
-      ),
-    );
-    heading.appendChild(document.createTextNode(' ' + (issue.title || 'Sem título')));
-    els.issueSummary.appendChild(heading);
-
+    // Número e título saem no h1 do header (renderHeader); aqui fica só o que
+    // o header não carrega — estado, labels e descrição.
     const meta = el('div', 'issue-summary-meta');
     const state = issue.state || null;
     const stateClass =

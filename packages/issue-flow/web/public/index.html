@@ -37,11 +37,11 @@
     <div id="view-dashboard" class="view" hidden>
       <header class="card header">
         <div class="header-main">
-          <h1>
-            <span class="brand">issue-flow</span>
+          <h1>Execuções ativas</h1>
+          <p class="header-meta">
+            <span id="dashboard-summary" class="muted"></span>
             <span id="app-version-dashboard" class="app-version" hidden></span>
-          </h1>
-          <p class="muted">Execuções ativas</p>
+          </p>
         </div>
         <div class="header-side">
           <label class="refresh-control">
@@ -70,12 +70,16 @@
         <button type="button" id="back-to-dashboard" class="back-link" hidden>
           ← Todas as execuções
         </button>
+        <!-- A linha mais visível da tela é a execução, não a marca: o produto
+             identifica-se pelo <title> do documento. Ver web/AGENTS.md. -->
         <h1>
-          <span class="brand">issue-flow</span>
-          <span id="app-version" class="app-version" hidden></span>
           <a id="issue-link" class="issue-link" target="_blank" rel="noopener" hidden>#—</a>
+          <span id="issue-headline">Nenhuma execução ativa</span>
         </h1>
-        <p id="branch-line" class="muted mono"></p>
+        <p class="header-meta">
+          <span id="branch-line" class="muted mono"></span>
+          <span id="app-version" class="app-version" hidden></span>
+        </p>
       </div>
       <div class="header-side">
         <span id="status-badge" class="badge status-idle">aguardando</span>
