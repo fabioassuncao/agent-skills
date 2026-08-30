@@ -69,6 +69,8 @@
               aria-controls="panel-execution" aria-selected="true">Execução</button>
       <button type="button" class="tab" role="tab" id="tab-kanban"
               aria-controls="panel-kanban" aria-selected="false">Kanban</button>
+      <button type="button" class="tab" role="tab" id="tab-history"
+              aria-controls="panel-history" aria-selected="false">Histórico</button>
     </div>
 
     <div class="tab-panel" id="panel-execution" role="tabpanel" aria-labelledby="tab-execution" tabindex="0">
@@ -95,6 +97,11 @@
     <section class="card" aria-live="polite">
       <h2>Executando agora</h2>
       <div id="now"></div>
+    </section>
+
+    <section class="card" aria-live="polite">
+      <h2>Resiliência</h2>
+      <div id="resilience"></div>
     </section>
 
     <div class="columns">
@@ -145,6 +152,23 @@
       <section class="card">
         <h2>Kanban de user stories</h2>
         <div id="kanban" class="kanban"></div>
+      </section>
+    </div>
+
+    <div class="tab-panel" id="panel-history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
+      <section class="card">
+        <div class="section-head">
+          <h2>Histórico da execução</h2>
+          <label class="log-filter-control">
+            Evento
+            <select id="history-filter" aria-label="Filtro do histórico">
+              <option value="all">todos</option>
+              <option value="resilience">resiliência</option>
+              <option value="pipeline">pipeline</option>
+            </select>
+          </label>
+        </div>
+        <ol id="history" class="plain-list history"></ol>
       </section>
     </div>
 

@@ -10,7 +10,7 @@ import type { TaskPlan } from '../types.js';
 // with the temporary repo root, a stable remote and a fixed branch name.
 const mockRepo = vi.hoisted(() => ({ root: '', remote: 'https://github.com/acme/widgets.git' }));
 /** What `gh pr list --head <branch> --state open` answers. Empty by default. */
-const mockOpenPrs = vi.hoisted(() => ({ json: '[]' }));
+const mockOpenPrs = vi.hoisted(() => ({ json: '[]', sequence: [] as string[] }));
 vi.mock('execa', () => ({
   execa: vi.fn(async (file: string, args: string[] = []) => {
     if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
@@ -23,7 +23,7 @@ vi.mock('execa', () => ({
       return { stdout: 'issue/42-sample', exitCode: 0 };
     }
     if (file === 'gh' && args[0] === 'pr' && args[1] === 'list') {
-      return { stdout: mockOpenPrs.json, exitCode: 0 };
+      return { stdout: mockOpenPrs.sequence.shift() ?? mockOpenPrs.json, exitCode: 0 };
     }
     return { stdout: '', exitCode: 0 };
   }),
@@ -114,6 +114,7 @@ describe('runPr — persisted Pull Request', () => {
     resetStorageResolutionCache();
     headlessOptions.last = null;
     mockOpenPrs.json = '[]';
+    mockOpenPrs.sequence = [];
 
     const paths = await resolveIssuePaths('42');
     issueDir = paths.issueDir;
@@ -152,7 +153,7 @@ describe('runPr — persisted Pull Request', () => {
     });
   });
 
-  it('leaves pullRequest absent when no URL can be parsed', async () => {
+  it('leaves pullRequest absent when neither output nor GitHub identifies it', async () => {
     headlessOutput.current = 'Pull request opened, but I forgot to print the link.';
 
     const code = await runPr('42', makeResolved());
@@ -162,6 +163,26 @@ describe('runPr — persisted Pull Request', () => {
     expect(plan.pipeline.prCreated).toBe(true);
     expect(plan.pullRequest).toBeUndefined();
     expect(Object.hasOwn(plan, 'pullRequest')).toBe(false);
+  });
+
+  it('requeries GitHub and records the created PR when the output URL is unparseable', async () => {
+    headlessOutput.current = 'Pull request opened, but I forgot to print the link.';
+    mockOpenPrs.sequence = [
+      '[]',
+      JSON.stringify([
+        { number: 129, url: 'https://github.com/acme/repo/pull/129', title: 'Sample issue' },
+      ]),
+    ];
+
+    const code = await runPr('42', makeResolved());
+
+    expect(code).toBe(0);
+    const persisted = await readPlan();
+    expect(persisted.pullRequest).toMatchObject({
+      number: 129,
+      url: 'https://github.com/acme/repo/pull/129',
+      headBranch: 'issue/42-sample',
+    });
   });
 
   it('does not fail the phase when tasks.json is missing', async () => {
@@ -274,6 +295,23 @@ describe('issueClosesLines', () => {
     ).toBe('Closes #52');
   });
 
+  it('uses Refs for a container whose children did not all complete', () => {
+    expect(
+      issueClosesLines([
+        {
+          id: '87',
+          number: 87,
+          title: 'Epic',
+          url: 'u',
+          source: 'github',
+          role: 'container',
+          complete: false,
+        },
+        { id: '62', number: 62, title: 'Agents', url: 'u', source: 'github', complete: true },
+      ]),
+    ).toBe('Refs #87\nCloses #62');
+  });
+
   it('is empty when no issue of the queue is hosted on GitHub', () => {
     expect(
       issueClosesLines([{ id: 'a', number: null, title: '', url: null, source: 'local' }]),
@@ -328,6 +366,7 @@ describe('runPr — an open Pull Request is adopted, never duplicated (US-021)',
     resetStorageResolutionCache();
     vi.clearAllMocks();
     mockOpenPrs.json = '[]';
+    mockOpenPrs.sequence = [];
     headlessOptions.last = null;
     headlessOutput.current = '';
 

@@ -56,7 +56,10 @@ file `FilePublisher` already writes) on a configurable interval (default
 and keeps a `sessionId → ActiveSession` map. A file that fails validation
 (corrupted, mid-write, incompatible schema) is skipped, never crashes the
 scan; a session whose file has gone `DEFAULT_STALE_AFTER_MS` without an
-update is dropped from the map on the next scan.
+update is dropped from the map on the next scan. `FilePublisher` keeps that
+mtime alive with a 10s `utimes` heartbeat which does not rewrite content or
+invalidate the content-derived ETag; the 90s stale window tolerates three
+missed beats plus scheduler and filesystem delays.
 
 Polling rather than `fs.watch` is deliberate: `fs.watch`'s `recursive` option
 is only reliably supported on macOS and Windows, while the `~/.issue-flow`
@@ -65,8 +68,8 @@ which is what matters here more than sub-second latency.
 
 ## `server.ts`: one `SessionSource`, two backends
 
-Every route (`/api/status`, `/api/sessions`) is written against a small
-`SessionSource` interface (`list()` / `get(sessionId)`), never against a
+Every route (`/api/status`, `/api/sessions`, `/api/events`) is written against a small
+`SessionSource` interface (`list()` / `get(sessionId)` / `events(sessionId)`), never against a
 publisher or the session directory directly:
 
 - `directorySessionSource()` wraps a `SessionDirectoryHandle` — the normal
@@ -80,6 +83,11 @@ single active session when there is exactly one (pre-multi-session
 behavior), and answers `404`/`409` when there are zero/several — genuinely
 ambiguous without an id. `GET /api/sessions` always lists every entry
 `SessionSource.list()` returns, `[]` when there are none.
+
+`GET /api/events?session=<id>` reads the rotated journal first and the current
+generation second. Missing files and partial/malformed lines are empty/skipped,
+never request failures; the publisher-backed legacy source returns an empty
+history because it has no durable journal path.
 
 ETags are content-hashed (`sha1` of the serialized snapshot) rather than
 counter-based: a directory-backed session has no in-process publisher to hand

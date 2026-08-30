@@ -37,6 +37,9 @@ export type QueueStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 /** Why an Issue is part of the queue. */
 export type QueueIssueOrigin = 'requested' | 'discovered';
 
+/** What the queue does with this entry. */
+export type QueueIssueRole = 'executable' | 'container';
+
 export interface ExecutionPlanIssue {
   /** Provider-scoped identifier, the same string `Issue.id` carries. */
   id: string;
@@ -50,6 +53,13 @@ export interface ExecutionPlanIssue {
   position: number;
   status: QueueIssueStatus;
   origin: QueueIssueOrigin;
+  /**
+   * `container` names the branch and the PR and never runs a phase.
+   * Default `executable` so a plan written before this field stays runnable.
+   */
+  role: QueueIssueRole;
+  /** Blockers discovered in the graph but left out of this queue. */
+  externalDependencies: string[];
   /** Ids inside the queue this one must wait for. */
   dependsOn: string[];
   /** Parent Issue in the hierarchy, informative. */

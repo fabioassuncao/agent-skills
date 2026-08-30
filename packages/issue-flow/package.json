@@ -1,7 +1,7 @@
 {
   "name": "issue-flow",
-  "version": "0.12.0",
-  "description": "Unified CLI for orchestrating the full issue-flow pipeline via Claude Code Headless",
+  "version": "0.13.0",
+  "description": "Unified CLI for orchestrating the full issue-flow pipeline via Claude Code, Codex CLI, Cursor CLI or Antigravity CLI",
   "type": "module",
   "bin": {
     "issue-flow": "./dist/cli.js"
@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "smoke": "bash scripts/smoke-issue-providers.sh",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
@@ -34,6 +35,9 @@
     "ai",
     "agent",
     "claude",
+    "codex",
+    "cursor",
+    "antigravity",
     "automation",
     "cli",
     "pipeline",

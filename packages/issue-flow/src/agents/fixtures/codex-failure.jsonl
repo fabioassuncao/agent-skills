@@ -1,0 +1,2 @@
+{"type":"error","message":"{\"type\":\"error\",\"status\":400,\"error\":{\"message\":\"The 'nao-existe-xyz' model is not supported\"}}"}
+{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"status\":400}"}}

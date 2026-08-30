@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('execa', () => ({ execa: vi.fn() }));
 
 import { execa } from 'execa';
-import { runInit } from './init.js';
+import { runInit, summarizePreflight } from './init.js';
 
 type GhState = 'ok' | 'missing' | 'failed' | 'unauthenticated';
 
@@ -185,9 +185,36 @@ describe('runInit — origem registrada por um provider novo (US-014)', () => {
   });
 });
 
+describe('summarizePreflight', () => {
+  it('collapses checks and conventions into one clean line', () => {
+    expect(
+      summarizePreflight([{ passed: true }, { passed: true }], {
+        actions: [{ kind: 'keep' }, { kind: 'keep' }, { kind: 'keep' }],
+      }),
+    ).toBe('Preflight: environment ok · 3 conventions kept · nothing to create');
+  });
+});
+
 describe('runInit — a metade de convenções', () => {
   beforeEach(() => {
     mockEnv();
+  });
+
+  it('em compact resume o preflight numa linha e não despeja o relatório', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+
+    try {
+      const code = await runInit('github', { compact: true });
+      const text = lines.join('\n');
+      expect(code).toBe(0);
+      expect(text).not.toContain('Repository conventions');
+      expect(text).not.toContain('Checking prerequisites');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('reporta as convenções por padrão, sem escrever nada', async () => {

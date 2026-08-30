@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { divideUsage, formatTokens, hasUsageData, parseUsage, sumUsage } from './metrics.js';
+import {
+  divideUsage,
+  formatTokens,
+  hasUsageData,
+  parseCodexUsage,
+  parseUsage,
+  sumUsage,
+} from './metrics.js';
 
 /** Shape emitted by `claude --output-format json` (CLI 2.1.220), trimmed. */
 const CURRENT_CLI_PAYLOAD = {
@@ -36,6 +43,8 @@ describe('parseUsage', () => {
       cacheReadTokens: 15_000,
       cacheCreationTokens: 500,
       costUsd: 0.16072345,
+      cliDurationMs: 8123,
+      numTurns: 3,
     });
   });
 
@@ -57,6 +66,25 @@ describe('parseUsage', () => {
     });
 
     expect(usage).toEqual({ inputTokens: 7, outputTokens: 8, costUsd: 0.9 });
+  });
+
+  it('reads envelope timing without inventing zeros when they are absent', () => {
+    expect(
+      parseUsage({
+        duration_ms: 1948,
+        duration_api_ms: 1810,
+        ttft_ms: 2100,
+        num_turns: 1,
+        usage: { input_tokens: 2 },
+      }),
+    ).toEqual({
+      inputTokens: 2,
+      cliDurationMs: 1948,
+      apiDurationMs: 1810,
+      ttftMs: 2100,
+      numTurns: 1,
+    });
+    expect(parseUsage({ usage: { input_tokens: 2 } })).toEqual({ inputTokens: 2 });
   });
 
   it('returns a partial object when only some fields exist', () => {
@@ -85,6 +113,30 @@ describe('parseUsage', () => {
 
   it('keeps explicit zeros, which are reported values rather than absences', () => {
     expect(parseUsage({ usage: { input_tokens: 0 } })).toEqual({ inputTokens: 0 });
+  });
+});
+
+describe('parseCodexUsage', () => {
+  it('subtracts cached tokens from input and never reports cost', () => {
+    expect(
+      parseCodexUsage({
+        input_tokens: 21924,
+        cached_input_tokens: 11008,
+        cache_write_input_tokens: 4,
+        output_tokens: 194,
+        reasoning_output_tokens: 10,
+      }),
+    ).toEqual({
+      inputTokens: 21924 - 11008,
+      outputTokens: 194,
+      cacheReadTokens: 11008,
+      cacheCreationTokens: 4,
+    });
+  });
+
+  it('returns null when usage is absent, never zeros', () => {
+    expect(parseCodexUsage(null)).toBeNull();
+    expect(parseCodexUsage({})).toBeNull();
   });
 });
 

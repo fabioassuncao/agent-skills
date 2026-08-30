@@ -1,20 +1,23 @@
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { resolveAgentFor } from '../agents/resolve.js';
+import { getActiveResilienceConfig, loadGlobalConfig } from '../config.js';
+import { archiveFolderName, type ChangeType, commitMessage } from '../conventions/git/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { classify } from '../resilience/errors.js';
 import type { RetryPolicy } from '../resilience/policy.js';
+import { resolvePolicy } from '../resilience/policy.js';
 import { fixedBackoffPolicy, withRetry } from '../resilience/retry.js';
 import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
 import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
 import { committedStoryIds, getBaseBranch, isWorkingTreeClean } from '../utils/git.js';
-import { sleep } from '../utils/retry.js';
+import { applyAcceptanceToPlan, resolveIssueDir, runAcceptanceGate } from '../verify/gate.js';
 import { executeClaude } from './executor.js';
 import { divideUsage } from './metrics.js';
 import { applyPlaceholders, loadPrompt } from './prompt-resolver.js';
-import { publishGitState } from './session-git.js';
 import {
   EXECUTE_PHASE,
   elapsedSecondsSince,
@@ -104,34 +107,70 @@ function newlyCompletedStoryIds(before: UserStory[], after: UserStory[]): string
     .map((story) => story.id);
 }
 
+export interface CommitPlaceholderOptions {
+  issueNumber?: string | number | null;
+  signoff?: boolean;
+  type?: ChangeType;
+}
+
+function numericIssue(value: string | number | null | undefined): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 /**
  * Commit message formats handed to the execute prompt.
  *
- * Without a scope they are byte-for-byte what the prompt has always spelled
- * out, so a single-issue run produces the same history it always did. With one
- * — the only case being several issues sharing a branch — the issue becomes a
- * conventional-commit scope, which is what makes `git log` on the shared branch
- * readable per issue.
- *
- * `convention` is the repository's own commit convention, when it declares one.
- * The hard-coded `feat` is wrong for most stories under Conventional Commits: a
- * bug fix committed as `feat:` corrupts a changelog and a semver bump computed
- * from the history. So a repository that declared a convention gets a `<type>`
- * placeholder and the instruction to choose; one that declared none keeps the
- * exact string it always had.
+ * Built by `commitMessage()` so Conventional Commits is the default even when
+ * the repository declared nothing. A scope is the issue id of a queue, which
+ * is what makes `git log` on the shared branch readable per issue.
  */
 export function commitPlaceholders(
   scope?: string,
   convention?: string | null,
+  options?: CommitPlaceholderOptions,
 ): Record<string, string> {
-  const suffix = scope === undefined || scope === '' ? '' : `(${scope})`;
   const declared = convention !== undefined && convention !== null && convention !== '';
+  const type = options?.type ?? 'feat';
+  const issueNumber = numericIssue(options?.issueNumber);
+  const resolvedScope = scope === undefined || scope === '' ? undefined : scope;
+
+  if (declared && options?.type === undefined) {
+    const suffix = resolvedScope === undefined ? '' : `(${resolvedScope})`;
+    return {
+      __COMMIT_MESSAGE__: commitMessage({
+        type,
+        scope: resolvedScope,
+        subject: '[Story ID] - [Story Title]',
+        issueNumber,
+        signoff: options?.signoff,
+      }).replace(`${type}${suffix}:`, `<type>${suffix}:`),
+      __FIX_COMMIT_MESSAGE__: commitMessage({
+        type: 'fix',
+        scope: resolvedScope,
+        subject: 'address review findings',
+        issueNumber,
+        signoff: options?.signoff,
+      }),
+    };
+  }
 
   return {
-    __COMMIT_MESSAGE__: declared
-      ? `<type>${suffix}: [Story ID] - [Story Title]`
-      : `feat${suffix}: [Story ID] - [Story Title]`,
-    __FIX_COMMIT_MESSAGE__: `fix${suffix}: address review findings`,
+    __COMMIT_MESSAGE__: commitMessage({
+      type,
+      scope: resolvedScope,
+      subject: '[Story ID] - [Story Title]',
+      issueNumber,
+      signoff: options?.signoff,
+    }),
+    __FIX_COMMIT_MESSAGE__: commitMessage({
+      type: 'fix',
+      scope: resolvedScope,
+      subject: 'address review findings',
+      issueNumber,
+      signoff: options?.signoff,
+    }),
   };
 }
 
@@ -216,7 +255,7 @@ async function archiveIfBranchChanged(plan: TaskPlan, paths: ResolvedPaths): Pro
 
   if (currentBranch && lastBranch && currentBranch !== lastBranch) {
     const dateStr = new Date().toISOString().split('T')[0];
-    const folderName = lastBranch.replace(/^issue\//, '').replace(/[<>:"|?*\\]/g, '_');
+    const folderName = archiveFolderName(lastBranch);
     const archiveFolder = join(archiveDir, `${dateStr}-${folderName}`);
 
     printInfo(`Archiving previous run: ${lastBranch}`);
@@ -304,7 +343,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     emitLog('All user stories already pass. Marking issue as completed.');
     plan = markIssueCompleted(plan);
     await saveTaskPlan(paths.prdFile, plan);
-    return 0;
+    return finishWithAcceptance(config, paths, plan);
   }
 
   // Archive previous run if branch changed
@@ -324,9 +363,14 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // The repository's own conventions, resolved once for the whole loop: they
   // cannot change mid-run, and every iteration renders the same projection.
   const policy = await resolvePolicyPlaceholders({ root: paths.projectRoot });
+  const signoff = (await loadGlobalConfig()).commit?.signoff === true;
 
-  // Print startup header
-  printStartupHeader(config, plan);
+  const executeAgent = await resolveAgentFor('execute');
+  printStartupHeader(config, plan, {
+    provider: executeAgent.provider,
+    model: executeAgent.model,
+    ...(executeAgent.codex.reasoningEffort ? { detail: executeAgent.codex.reasoningEffort } : {}),
+  });
 
   const startTime = Date.now();
   let i = 0;
@@ -371,6 +415,16 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       async () => {
         // Re-read plan to get latest state
         plan = await loadTaskPlan(paths.prdFile);
+        // Publish the plan before naming its active story. This covers direct
+        // `issue-flow execute` runs and resumes that never pass through the
+        // plan runner, while retaining the empty-plan no-op contract.
+        if (plan.userStories.length > 0) {
+          getSessionPublisher().publish({
+            type: 'stories:update',
+            at: isoNow(),
+            stories: plan.userStories,
+          });
+        }
         // Baseline for story attribution: whatever was still pending before the
         // agent ran is what this iteration can claim credit for.
         const storiesBefore = plan.userStories;
@@ -399,7 +453,11 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
           ...policy,
           // The convention comes off the projection above rather than from a second
           // discovery: one resolution per run is the whole point of the cache.
-          ...commitPlaceholders(config.commitScope, policy.__COMMIT_CONVENTION__),
+          ...commitPlaceholders(config.commitScope, policy.__COMMIT_CONVENTION__, {
+            issueNumber: plan.issueNumber,
+            signoff,
+          }),
+          __STORIES_PER_ITERATION__: String(config.storiesPerIteration ?? 1),
         });
 
         const startedAt = isoNow();
@@ -440,6 +498,19 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
           if (!failure.retryable) {
             plan = await loadTaskPlan(paths.prdFile);
             plan = setLastError(plan, 'fatal_claude_failure', errorMessage);
+            if (resolvePolicy(failure.kind, getActiveResilienceConfig()).onExhausted === 'block') {
+              plan = {
+                ...plan,
+                runState: {
+                  currentPhase: 'execute',
+                  attempt,
+                  owner: plan.runState?.owner ?? null,
+                  status: 'blocked',
+                  blockedReason: errorMessage,
+                  lastHeartbeatAt: isoNow(),
+                },
+              };
+            }
             await saveTaskPlan(paths.prdFile, plan);
             return;
           }
@@ -539,9 +610,6 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
     getSessionPublisher().publish({ type: 'iteration:end', at: isoNow(), iteration: i });
     publishIterationMetrics(i, result.cost, iterationSeconds);
-    // Low-frequency commit/PR enrichment: iteration end is one of the only
-    // two sanctioned points (the other is phase boundaries in run.ts).
-    await publishGitState(getSessionPublisher());
 
     // Check for completion signal
     if (result.output.includes('<promise>COMPLETE</promise>')) {
@@ -560,7 +628,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
           undefined,
           getPhaseUsageTotals(EXECUTE_PHASE),
         );
-        return 0;
+        return finishWithAcceptance(config, paths, plan);
       }
 
       plan = setLastError(
@@ -583,7 +651,6 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     if (isVerbose()) {
       printSuccess(`Iteration ${i} complete. Continuing...`);
     }
-    await sleep(2);
   }
 
   // Reached max iterations
@@ -599,4 +666,24 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     getPhaseUsageTotals(EXECUTE_PHASE),
   );
   return 1;
+}
+
+async function finishWithAcceptance(
+  config: EngineConfig,
+  paths: ResolvedPaths,
+  plan: TaskPlan,
+): Promise<number> {
+  const issueDir = resolveIssueDir(config, paths);
+  const outcome = await runAcceptanceGate({
+    issueDir,
+    cwd: paths.projectRoot,
+    addDirs: config.issueNumber === undefined ? undefined : [issueDir],
+    skipReviewer: true,
+  });
+  const applied = applyAcceptanceToPlan(plan, outcome);
+  if (applied.failed) {
+    await saveTaskPlan(paths.prdFile, applied.plan);
+    return 1;
+  }
+  return 0;
 }

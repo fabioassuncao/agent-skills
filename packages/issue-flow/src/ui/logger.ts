@@ -34,6 +34,7 @@ export interface Icons {
   notReached: string;
   tool: string;
   connector: string;
+  info: string;
 }
 
 export function getIcons(): Icons {
@@ -49,6 +50,7 @@ export function getIcons(): Icons {
       notReached: '\u25CB',
       tool: '\u25B8',
       connector: '\u2502',
+      info: '\u00B7',
     };
   }
   return {
@@ -62,6 +64,7 @@ export function getIcons(): Icons {
     notReached: '[ ]',
     tool: '>',
     connector: '|',
+    info: '-',
   };
 }
 
@@ -128,9 +131,9 @@ export function printRetry(message: string): void {
 export function printInfo(message: string): void {
   const icons = getIcons();
   if (useColor()) {
-    emit(chalk.blue(`${icons.start} ${message}`));
+    emit(chalk.blue(`${icons.info} ${message}`));
   } else {
-    emit(`${icons.start} ${message}`);
+    emit(`${icons.info} ${message}`);
   }
 }
 

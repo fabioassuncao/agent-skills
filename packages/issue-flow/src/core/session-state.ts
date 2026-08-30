@@ -1,7 +1,8 @@
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, rename, utimes, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { FailureKind } from '../resilience/errors.js';
+import { setTelemetrySessionId } from '../telemetry/session-id.js';
 import type { StoryStage, UserStory, UserStoryStatus } from '../types.js';
 
 /**
@@ -25,6 +26,9 @@ export const DEFAULT_LOG_LIMIT = 200;
 
 /** Default minimum interval between FilePublisher disk writes. */
 export const DEFAULT_THROTTLE_MS = 1000;
+
+/** Default interval for touching a live session file without rewriting it. */
+export const DEFAULT_SESSION_HEARTBEAT_MS = 10_000;
 
 export type SessionEvent =
   | {
@@ -57,7 +61,19 @@ export type SessionEvent =
       state: string | null;
     }
   | { type: 'phase:start'; at: string; phase: string }
-  | { type: 'phase:end'; at: string; phase: string; success: boolean; error?: string }
+  | {
+      type: 'phase:end';
+      at: string;
+      phase: string;
+      success: boolean;
+      error?: string;
+      harnessExecutionMs?: number | null;
+      orchestrationOverheadMs?: number | null;
+      harnessStartupMs?: number | null;
+      ttftMs?: number | null;
+      attemptCount?: number | null;
+      retryDurationMs?: number | null;
+    }
   | {
       type: 'iteration:start';
       at: string;
@@ -85,6 +101,31 @@ export type SessionEvent =
        */
       kind?: FailureKind;
     }
+  | {
+      type: 'agent:attempt';
+      at: string;
+      attempt: number;
+      provider: string;
+      model?: string | null;
+      primaryProvider: string;
+    }
+  | {
+      type: 'failover';
+      at: string;
+      from: string;
+      to: string;
+      reason: FailureKind | null;
+      cooldownUntil?: string | null;
+    }
+  | {
+      type: 'agent:result';
+      at: string;
+      provider: string;
+      success: boolean;
+      failureKind?: FailureKind;
+      cooldownUntil?: string | null;
+    }
+  | { type: 'agent:activity'; at: string; provider: string }
   | { type: 'stories:update'; at: string; stories: UserStory[] }
   | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }
@@ -133,11 +174,23 @@ export type SessionEvent =
       headCommit?: string | null;
       repositoryRoot?: string | null;
     }
-  | { type: 'session:end'; at: string; status: 'completed' | 'failed'; error?: string };
+  | { type: 'session:end'; at: string; status: 'completed' | 'failed'; error?: string }
+  | {
+      type: 'verify:end';
+      at: string;
+      verdict: 'passed' | 'failed' | 'unverified';
+      level: string;
+      independence: string | null;
+      executionId: string | null;
+    };
 
 export interface SessionEnvironment {
   node: string;
   platform: string;
+  /** Winning agent provider for the run. `null` on snapshots from earlier releases. */
+  agent: string | null;
+  /** Winning model for the run. `null` when unset or on older snapshots. */
+  model: string | null;
 }
 
 export interface SessionLogEntry {
@@ -177,6 +230,16 @@ export interface SessionPhaseSnapshot extends SessionUsageSnapshot {
   endedAt: string | null;
   durationSeconds: number | null;
   error: string | null;
+  /** Sum of invocation walls for this phase. */
+  harnessExecutionMs: number | null;
+  /** Phase wall minus harnessExecutionMs, when both are known. */
+  orchestrationOverheadMs: number | null;
+  /** Wall clock − CLI `duration_ms`. */
+  harnessStartupMs: number | null;
+  /** Time to first output, when the harness reports it. */
+  ttftMs: number | null;
+  attemptCount: number | null;
+  retryDurationMs: number | null;
 }
 
 export interface SessionStorySnapshot extends SessionUsageSnapshot {
@@ -223,6 +286,16 @@ export interface SessionActivity {
   tool: string | null;
   detail: string | null;
   since: string;
+}
+
+/** Live resilience state for the current agent invocation. */
+export interface SessionResilienceSnapshot {
+  attempt: number;
+  provider: string | null;
+  model: string | null;
+  lastFailureKind: FailureKind | null;
+  cooldownUntil: string | null;
+  lastActivityAt: string | null;
 }
 
 export interface SessionCommit {
@@ -304,6 +377,7 @@ export interface SessionSnapshot {
     correctionCycle: number;
     maxCorrectionCycles: number | null;
   };
+  resilience: SessionResilienceSnapshot;
   git: { branch: string | null; baseBranch: string | null; commits: SessionCommit[] };
   repository: SessionRepositorySnapshot;
   pullRequests: SessionPullRequest[];
@@ -313,6 +387,12 @@ export interface SessionSnapshot {
   lastError: { message: string; at: string } | null;
   nextSteps: string[];
   environment: SessionEnvironment | null;
+  /** Acceptance-contract verdict. `null` until a contract has run. */
+  verification: {
+    verdict: 'passed' | 'failed' | 'unverified' | null;
+    level: string | null;
+    independence: string | null;
+  } | null;
 }
 
 export interface SessionReducerOptions {
@@ -328,6 +408,25 @@ function emptyUsage(): SessionUsageSnapshot {
     cacheReadTokens: null,
     cacheCreationTokens: null,
     costUsd: null,
+  };
+}
+
+function emptyPhaseTiming(): Pick<
+  SessionPhaseSnapshot,
+  | 'harnessExecutionMs'
+  | 'orchestrationOverheadMs'
+  | 'harnessStartupMs'
+  | 'ttftMs'
+  | 'attemptCount'
+  | 'retryDurationMs'
+> {
+  return {
+    harnessExecutionMs: null,
+    orchestrationOverheadMs: null,
+    harnessStartupMs: null,
+    ttftMs: null,
+    attemptCount: null,
+    retryDurationMs: null,
   };
 }
 
@@ -367,6 +466,14 @@ export function createInitialSnapshot(): SessionSnapshot {
     stories: [],
     metrics: emptyMetrics(),
     execution: { iteration: 0, retries: 0, correctionCycle: 0, maxCorrectionCycles: null },
+    resilience: {
+      attempt: 0,
+      provider: null,
+      model: null,
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: null,
+    },
     git: { branch: null, baseBranch: null, commits: [] },
     repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
     pullRequests: [],
@@ -376,6 +483,7 @@ export function createInitialSnapshot(): SessionSnapshot {
     lastError: null,
     nextSteps: [],
     environment: null,
+    verification: null,
   };
 }
 
@@ -569,6 +677,7 @@ function applyEvent(
 ): SessionSnapshot {
   switch (event.type) {
     case 'session:start': {
+      setTelemetrySessionId(event.sessionId);
       const initial = createInitialSnapshot();
       return {
         ...initial,
@@ -587,6 +696,7 @@ function applyEvent(
           endedAt: null,
           durationSeconds: null,
           error: null,
+          ...emptyPhaseTiming(),
           ...emptyUsage(),
         })),
         git: { branch: event.branch ?? null, baseBranch: event.baseBranch ?? null, commits: [] },
@@ -595,7 +705,14 @@ function applyEvent(
         // keeps git.branch and repository.branch consistent for a poll that
         // lands before the first git:update.
         repository: { ...initial.repository, branch: event.branch ?? null },
-        environment: event.environment ?? null,
+        environment: event.environment
+          ? {
+              node: event.environment.node,
+              platform: event.environment.platform,
+              agent: event.environment.agent ?? null,
+              model: event.environment.model ?? null,
+            }
+          : null,
       };
     }
 
@@ -639,6 +756,7 @@ function applyEvent(
               endedAt: null,
               durationSeconds: null,
               error: null,
+              ...emptyPhaseTiming(),
               ...emptyUsage(),
             },
           ];
@@ -672,6 +790,12 @@ function applyEvent(
               endedAt: event.at,
               durationSeconds: secondsBetween(p.startedAt, event.at),
               error: event.error ? stripVTControlCharacters(event.error) : null,
+              harnessExecutionMs: event.harnessExecutionMs ?? p.harnessExecutionMs,
+              orchestrationOverheadMs: event.orchestrationOverheadMs ?? p.orchestrationOverheadMs,
+              harnessStartupMs: event.harnessStartupMs ?? p.harnessStartupMs,
+              ttftMs: event.ttftMs ?? p.ttftMs,
+              attemptCount: event.attemptCount ?? p.attemptCount,
+              retryDurationMs: event.retryDurationMs ?? p.retryDurationMs,
             }
           : p,
       );
@@ -754,6 +878,52 @@ function applyEvent(
         execution: { ...snapshot.execution, retries: snapshot.execution.retries + 1 },
       };
 
+    case 'agent:attempt':
+      return {
+        ...snapshot,
+        resilience: {
+          ...snapshot.resilience,
+          attempt: event.attempt,
+          provider: event.provider,
+          model: event.model ?? null,
+          lastActivityAt: event.at,
+        },
+      };
+
+    case 'failover':
+      return {
+        ...snapshot,
+        resilience: {
+          ...snapshot.resilience,
+          provider: event.to,
+          lastFailureKind: event.reason,
+          cooldownUntil: event.cooldownUntil ?? null,
+          lastActivityAt: event.at,
+        },
+      };
+
+    case 'agent:result':
+      return {
+        ...snapshot,
+        resilience: {
+          ...snapshot.resilience,
+          provider: event.provider,
+          lastFailureKind: event.failureKind ?? snapshot.resilience.lastFailureKind,
+          cooldownUntil: event.cooldownUntil ?? null,
+          lastActivityAt: event.at,
+        },
+      };
+
+    case 'agent:activity':
+      return {
+        ...snapshot,
+        resilience: {
+          ...snapshot.resilience,
+          provider: event.provider,
+          lastActivityAt: event.at,
+        },
+      };
+
     case 'stories:update': {
       const previous = new Map(snapshot.stories.map((story) => [story.id, story]));
       const stories = event.stories.map((story) => {
@@ -814,7 +984,11 @@ function applyEvent(
         current && current.story === story && current.tool === tool && current.detail === detail
           ? current.since
           : event.at;
-      return { ...snapshot, currentActivity: { story, tool, detail, since } };
+      return {
+        ...snapshot,
+        currentActivity: { story, tool, detail, since },
+        resilience: { ...snapshot.resilience, lastActivityAt: event.at },
+      };
     }
 
     case 'log': {
@@ -918,6 +1092,16 @@ function applyEvent(
         },
       };
     }
+
+    case 'verify:end':
+      return {
+        ...snapshot,
+        verification: {
+          verdict: event.verdict,
+          level: event.level,
+          independence: event.independence,
+        },
+      };
 
     case 'session:end':
       return {
@@ -1055,6 +1239,8 @@ export class MemoryPublisher implements SessionPublisher {
 export interface FilePublisherOptions extends MemoryPublisherOptions {
   /** Minimum interval between disk writes (ms). Default 1000. */
   throttleMs?: number;
+  /** Interval between mtime-only heartbeats (ms). Zero disables it. Default 10000. */
+  heartbeatMs?: number;
 }
 
 /**
@@ -1068,6 +1254,7 @@ export class FilePublisher extends MemoryPublisher {
   private readonly filePath: string;
   private readonly throttleMs: number;
   private timer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
   private lastWriteStartedAt = 0;
   private lastWrittenVersion = 0;
   private writeChain: Promise<void> = Promise.resolve();
@@ -1077,11 +1264,17 @@ export class FilePublisher extends MemoryPublisher {
     super(options);
     this.filePath = filePath;
     this.throttleMs = options.throttleMs ?? DEFAULT_THROTTLE_MS;
+    const heartbeatMs = options.heartbeatMs ?? DEFAULT_SESSION_HEARTBEAT_MS;
+    if (heartbeatMs > 0) {
+      this.heartbeatTimer = setInterval(() => this.enqueueHeartbeat(), heartbeatMs);
+      this.heartbeatTimer.unref();
+    }
   }
 
   protected override afterPublish(event: SessionEvent): void {
     if (this.closed) return;
-    const terminal = event.type === 'phase:end' || event.type === 'session:end';
+    const terminal =
+      event.type === 'phase:end' || event.type === 'session:end' || event.type === 'verify:end';
     this.scheduleWrite(terminal);
   }
 
@@ -1122,6 +1315,25 @@ export class FilePublisher extends MemoryPublisher {
     });
   }
 
+  /**
+   * Keep directory-based discovery alive without changing snapshot content or
+   * its content-derived ETag. The write chain serializes the touch with atomic
+   * snapshot replacement, and no heartbeat is attempted before the first file
+   * has been written successfully.
+   */
+  private enqueueHeartbeat(): void {
+    if (this.closed) return;
+    this.writeChain = this.writeChain.then(async () => {
+      if (this.closed || this.lastWrittenVersion === 0) return;
+      const now = new Date();
+      try {
+        await utimes(this.filePath, now, now);
+      } catch (err) {
+        this.warnOnce(err);
+      }
+    });
+  }
+
   override async flush(): Promise<void> {
     if (this.timer !== null) {
       clearTimeout(this.timer);
@@ -1134,8 +1346,12 @@ export class FilePublisher extends MemoryPublisher {
   }
 
   override async close(): Promise<void> {
-    await this.flush();
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     this.closed = true;
+    await this.flush();
   }
 }
 

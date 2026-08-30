@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentConfigInputSchema } from '../agents/schemas.js';
 import type { ExecutionPlan } from '../execution/types.js';
 import type {
   ExhaustedAction,
@@ -184,8 +185,74 @@ export const resilienceProvidersConfigSchema = z
     failover: z.boolean(),
     chain: z.array(z.string().min(1)),
     cooldownMs: z.number().nonnegative(),
+    maxCooldownMs: z.number().nonnegative(),
+    failureWindowMs: z.number().positive(),
+    failuresToTrip: z.number().int().positive(),
   })
   .partial();
+
+export const providerHealthStatusSchema = z.enum([
+  'healthy',
+  'degraded',
+  'unavailable',
+  'rate_limited',
+  'auth_failed',
+  'half_open',
+]);
+
+export const providerHealthRecordSchema = z.object({
+  status: providerHealthStatusSchema.default('healthy'),
+  failures: z
+    .array(
+      z.object({
+        at: z.string(),
+        kind: z.enum([
+          'network',
+          'timeout',
+          'stalled',
+          'rate_limit',
+          'provider_down',
+          'provider_crash',
+          'authentication',
+          'configuration',
+          'repository_state',
+          'task_execution',
+          'internal',
+          'unknown',
+        ]),
+      }),
+    )
+    .default([]),
+  consecutiveFailures: z.number().int().nonnegative().default(0),
+  cooldownLevel: z.number().int().nonnegative().default(0),
+  cooldownUntil: z.string().nullable().default(null),
+  lastFailureKind: z
+    .enum([
+      'network',
+      'timeout',
+      'stalled',
+      'rate_limit',
+      'provider_down',
+      'provider_crash',
+      'authentication',
+      'configuration',
+      'repository_state',
+      'task_execution',
+      'internal',
+      'unknown',
+    ])
+    .nullable()
+    .default(null),
+  lastFailureAt: z.string().nullable().default(null),
+  lastSuccessAt: z.string().nullable().default(null),
+  probeInFlight: z.boolean().default(false),
+  probeStartedAt: z.string().nullable().default(null),
+});
+
+export const providersHealthSchema = z.object({
+  schemaVersion: z.literal(1).default(1),
+  providers: z.record(z.string(), providerHealthRecordSchema).default({}),
+});
 
 /** `resilience.queue` — what a failing issue does to the rest of them (US-027). */
 export const resilienceQueueConfigSchema = z
@@ -231,7 +298,33 @@ export const resilienceConfigSchema = z
   })
   .partial();
 
-/** Global commit preferences. Consumed by later issues, not by this release. */
+/**
+ * Intermediate `telemetry` key. Every field optional, no `.default()` — this
+ * file is a middle rung of the config ladder.
+ */
+export const telemetryPricingOverrideSchema = z
+  .object({
+    inputPerMillion: z.number(),
+    outputPerMillion: z.number(),
+    cacheReadPerMillion: z.number(),
+    cacheWritePerMillion: z.number(),
+  })
+  .partial();
+
+export const telemetryConfigInputSchema = z
+  .object({
+    enabled: z.boolean(),
+    maxExecutions: z.number().int().positive(),
+    pricing: z
+      .object({
+        estimate: z.boolean(),
+        overrides: z.record(z.string(), telemetryPricingOverrideSchema),
+      })
+      .partial(),
+  })
+  .partial();
+
+/** Global commit preferences. `signoff` is consumed by `commitMessage()`. */
 export const globalCommitConfigSchema = z
   .object({
     signoff: z.boolean(),
@@ -259,6 +352,8 @@ export const globalConfigSchema = z
     retry: globalRetryConfigSchema,
     commit: globalCommitConfigSchema,
     resilience: resilienceConfigSchema,
+    agent: agentConfigInputSchema,
+    telemetry: telemetryConfigInputSchema,
   })
   .partial();
 
@@ -296,6 +391,8 @@ export const runLockSchema = z.object({
   target: z.string().min(1),
   startedAt: z.string().min(1),
   lastHeartbeatAt: z.string().min(1),
+  /** Absent on a foreground run written before this field existed. */
+  detached: z.boolean().optional(),
 });
 
 /**
@@ -323,6 +420,8 @@ export const executionPlanIssueSchema = z.object({
   // carry one, and a reader that does not know them was never given one.
   status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'blocked', 'skipped']),
   origin: z.enum(['requested', 'discovered']),
+  role: z.enum(['executable', 'container']).default('executable'),
+  externalDependencies: z.array(z.string()).default([]),
   dependsOn: z.array(z.string()).default([]),
   parent: z.string().nullable().default(null),
   priority: z.enum(['high', 'medium', 'low']).nullable().default(null),
@@ -376,12 +475,16 @@ export type GlobalRetryConfig = z.infer<typeof globalRetryConfigSchema>;
 export type GlobalCommitConfig = z.infer<typeof globalCommitConfigSchema>;
 export type ResilienceRetryConfig = z.infer<typeof resilienceRetryConfigSchema>;
 export type ResilienceProvidersConfig = z.infer<typeof resilienceProvidersConfigSchema>;
+export type ProviderHealthStatus = z.infer<typeof providerHealthStatusSchema>;
+export type ProviderHealthRecord = z.infer<typeof providerHealthRecordSchema>;
+export type ProvidersHealth = z.infer<typeof providersHealthSchema>;
 export type ResilienceQueueConfig = z.infer<typeof resilienceQueueConfigSchema>;
 export type ResilienceWatchdogConfig = z.infer<typeof resilienceWatchdogConfigSchema>;
 export type ResilienceJournalConfig = z.infer<typeof resilienceJournalConfigSchema>;
 export type ResilienceDecomposeConfig = z.infer<typeof resilienceDecomposeConfigSchema>;
 export type ResilienceConfig = z.infer<typeof resilienceConfigSchema>;
 export type GlobalConfig = z.infer<typeof globalConfigSchema>;
+export type TelemetryConfigInput = z.infer<typeof telemetryConfigInputSchema>;
 
 /**
  * The file format is a *superset* of what `resolvePolicy()` reads: it also

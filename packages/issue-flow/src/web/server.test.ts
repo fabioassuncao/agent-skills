@@ -309,6 +309,7 @@ describe('startWebServer', () => {
 
     const css = await fetch(`${handle.url}/app.css`);
     expect(css.status).toBe(200);
+    expect(await css.text()).toContain('[hidden] {\n  display: none !important;\n}');
 
     const js = await fetch(`${handle.url}/app.js`);
     expect(js.status).toBe(200);
@@ -317,6 +318,8 @@ describe('startWebServer', () => {
     expect(jsText).toContain('api/sessions');
     expect(jsText).toContain('renderDashboard');
     expect(jsText).toContain('pollAgain');
+    expect(jsText).toContain('state.sessions.length >= 1');
+    expect(jsText).not.toContain('Seleção explícita deixa de fazer sentido com uma única sessão');
     expect(jsText).toContain("el('span', 'dashboard-card-head'");
     expect(jsText).not.toContain("el('div', 'dashboard-card-head'");
   });
@@ -417,6 +420,8 @@ function fakeSessionDirectory(snapshots: SessionSnapshot[]): SessionDirectoryHan
   return {
     sessions: () => sessions,
     getSession: (sessionId) => sessions.find((s) => s.snapshot.sessionId === sessionId),
+    events: async (sessionId) =>
+      sessions.some((s) => s.snapshot.sessionId === sessionId) ? [] : undefined,
     refresh: async () => {},
     close: () => {},
   };
@@ -471,6 +476,31 @@ describe('startWebServer — multi-session mode (directory-backed)', () => {
     const payload = await res.json();
     expect(payload.sessionId).toBe('sess-b');
     expect(payload.issue.number).toBe(2);
+  });
+
+  it('GET /api/events?session=<id> exposes the session journal', async () => {
+    const snapshots = [makeSnapshot('sess-a', 1)];
+    const directory = fakeSessionDirectory(snapshots);
+    directory.events = async (sessionId) =>
+      sessionId === 'sess-a'
+        ? [{ seq: 1, event: { type: 'retry', at: '2026-08-30T10:00:00Z', attempt: 1 } }]
+        : undefined;
+    const handle = await startWebServer({
+      sessions: directory,
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+
+    const res = await fetch(`${handle.url}/api/events?session=sess-a`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      { seq: 1, event: { type: 'retry', at: '2026-08-30T10:00:00Z', attempt: 1 } },
+    ]);
+    expect((await fetch(`${handle.url}/api/events?session=missing`)).status).toBe(404);
   });
 
   it('GET /api/status?session=<unknown> answers 404', async () => {

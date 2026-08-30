@@ -10,7 +10,7 @@ You are an autonomous coding agent working on a software project.
 4. Treat the issue as unresolved if **any** `userStories[].passes` is `false`, **or** if the PRD's top-level `lastReviewFindings` is non-null — that second condition holds even when every story already passes (see "Correction Findings from a Failed Review" below).
 5. If `lastReviewFindings` is non-null, address it first (see below); otherwise pick the **highest priority** user story where `passes: false`
 6. Implement that single user story
-7. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
+7. Run the quality checks that cover the files you changed (typecheck/lint/test for those paths). The orchestrator runs the full suite at the end of execute and again in review.
 8. Update CLAUDE.md files if you discover reusable patterns (see below)
 9. If checks pass, commit ALL changes with message: `__COMMIT_MESSAGE__`
 10. Update the PRD to set `passes: true` for the completed story
@@ -35,14 +35,14 @@ APPEND to `__PROGRESS_FILE__` (never replace, always append):
 ## [Date/Time] - [Story ID]
 - What was implemented
 - Files changed
-- **Learnings for future iterations:**
+- **Learnings for future iterations:** (omit this block when the iteration discovered nothing reusable)
   - Patterns discovered (e.g., "this codebase uses X for Y")
   - Gotchas encountered (e.g., "don't forget to update Z when changing W")
   - Useful context (e.g., "the evaluation panel is in component X")
 ---
 ```
 
-The learnings section is critical - it helps future iterations avoid repeating mistakes and understand the codebase better.
+The learnings section is required only when the iteration discovered something reusable. Do not invent patterns.
 
 ## Consolidate Patterns
 
@@ -130,7 +130,7 @@ If you need to stop for user guidance or another non-transient blocker, record i
 
 ## Important
 
-- Work on ONE story per iteration
+- Work on ONE story per iteration unless `__STORIES_PER_ITERATION__` is greater than 1, in which case you may close that many related stories that touch the same files, in one session. The default is 1.
 - Commit frequently
 - Keep CI green
 - Read the Codebase Patterns section in `__PROGRESS_FILE__` before starting
@@ -157,8 +157,7 @@ a decision depends on what they say.
 
 This repository declares: __COMMIT_CONVENTION__
 
-`<type>` in the commit message above is for you to choose, and it must match the
-**nature of the change** — `fix` for a bug fix, `docs` for documentation, `test`,
-`refactor`, `chore`, `feat` for a new capability. Committing a bug fix as `feat`
-corrupts the changelog and any version bump computed from the history.
+The commit message above is already in the resolved format. If you must pick a
+`<type>` inside that format, choose from the repository's vocabulary and match
+the **nature of this commit** — never invent a type outside it.
 <!-- /if -->

@@ -45,20 +45,26 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
         prompt,
         maxTurns: 25,
         timeout: getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS,
+        timeoutHistory: {
+          phase: 'prd',
+          journalFiles: [paths.rotatedEventsFile, paths.eventsFile],
+        },
         // json (not text) so the CLI reports usage: the envelope's `result`
         // field carries the same assistant text this phase already consumed.
         outputFormat: 'json',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
         addDirs: [paths.issueDir],
         statusMessage: `Generating PRD for issue #${issueNumber}...`,
+        phase: 'prd',
+        permission: 'workspace',
       });
       // One event per attempt; the reducer sums them into the phase total.
-      publishPhaseMetrics('prd', result.cost, startedAtMs);
+      publishPhaseMetrics('prd', result.cost, startedAtMs, result.agent?.provider);
 
       if (!result.success) {
         return {
           ok: false,
-          transient: isTransientFailure(1, result.error ?? ''),
+          transient: result.retryExhausted !== true && isTransientFailure(1, result.error ?? ''),
           error: `PRD generation failed: ${result.error}`,
         };
       }

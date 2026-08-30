@@ -123,7 +123,7 @@ describe('prompt templates consume the resolved Issue', () => {
   it('pr.md defers the "Closes #N" reference to the placeholder', async () => {
     const content = await readPrompt('pr.md');
 
-    expect(content).toContain('__ISSUE_CLOSES__');
+    expect(content).toContain('__ISSUE_REFERENCE__');
     expect(content).not.toContain('Closes #__ISSUE_NUMBER__');
   });
 });

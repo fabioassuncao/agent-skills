@@ -7,6 +7,7 @@ import { getStoryStageCallback } from '../core/verbose.js';
 import type { TaskPlan } from '../types.js';
 import {
   createActiveStoryTracker,
+  executeExpandsStories,
   phaseLabel,
   runPipelineWithRenderer,
   storySubtaskTitle,
@@ -120,6 +121,13 @@ describe('createActiveStoryTracker', () => {
       tracker.setActive('US-001');
       tracker.clear();
     }).not.toThrow();
+  });
+});
+
+describe('executeExpandsStories', () => {
+  it('keeps one line per story only under --verbose', () => {
+    expect(executeExpandsStories(false)).toBe(false);
+    expect(executeExpandsStories(true)).toBe(true);
   });
 });
 

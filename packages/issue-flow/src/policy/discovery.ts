@@ -2,6 +2,17 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { run } from '../utils/shell.js';
 import { classifyDocument, extractReferencedDocuments } from './parsers/docs.js';
+import {
+  COMMITLINT_FILE_NAMES,
+  type DiscoveredGitConventions,
+  parseChangesetConfig,
+  parseCommitlintText,
+  parseHuskyCommitMsg,
+  parsePackageJsonCommitlint,
+  parseReleasePlease,
+  parseSemanticPullRequestWorkflow,
+  parseSemanticRelease,
+} from './parsers/git.js';
 import { parseIssueTypes, parseLabels } from './parsers/labels.js';
 import {
   parseIssueTemplateFile,
@@ -414,6 +425,110 @@ export async function discoverDocuments(
 }
 
 // ── git ─────────────────────────────────────────────────────────────────────
+
+export interface GitConventionDiscovery {
+  commitConvention: string | null;
+  pullRequestTitleConvention: string | null;
+  allowedTypes: string[] | null;
+  scopes: string[] | null;
+  sources: PolicySource[];
+}
+
+function asPolicySources(discovered: DiscoveredGitConventions): PolicySource[] {
+  return discovered.sources.map((entry) => ({
+    kind: 'git-conventions' as const,
+    origin: 'filesystem' as const,
+    path: entry.path,
+    status: 'found' as const,
+    detail: entry.detail,
+  }));
+}
+
+/**
+ * Discover commit/PR conventions the repository already declares.
+ *
+ * Declarative files are parsed; `.js`/`.ts` configs are read as text only.
+ */
+export async function discoverGitConventions(root: string): Promise<GitConventionDiscovery> {
+  let merged: DiscoveredGitConventions = {
+    commitConvention: null,
+    pullRequestTitleConvention: null,
+    allowedTypes: null,
+    scopes: null,
+    sources: [],
+  };
+
+  const take = (extra: DiscoveredGitConventions | null): void => {
+    if (extra === null) return;
+    merged = {
+      commitConvention: merged.commitConvention ?? extra.commitConvention,
+      pullRequestTitleConvention:
+        merged.pullRequestTitleConvention ?? extra.pullRequestTitleConvention,
+      allowedTypes: merged.allowedTypes ?? extra.allowedTypes,
+      scopes: merged.scopes ?? extra.scopes,
+      sources: [...merged.sources, ...extra.sources],
+    };
+  };
+
+  const pkg = await readCapped(join(root, 'package.json'));
+  if (pkg !== null) {
+    take(parsePackageJsonCommitlint(pkg.content));
+  }
+
+  for (const name of COMMITLINT_FILE_NAMES) {
+    const found = await findFile(root, [name]);
+    if (found === null) continue;
+    const file = await readCapped(join(root, found));
+    if (file === null) continue;
+    take(parseCommitlintText(file.content, found));
+  }
+
+  for (const name of ['release-please-config.json', '.release-please-manifest.json']) {
+    const found = await findFile(root, [name]);
+    if (found === null) continue;
+    const file = await readCapped(join(root, found));
+    if (file === null) continue;
+    take(parseReleasePlease(file.content, found));
+  }
+
+  for (const name of [
+    '.releaserc',
+    '.releaserc.json',
+    '.releaserc.yaml',
+    '.releaserc.yml',
+    'release.config.js',
+  ]) {
+    const found = await findFile(root, [name]);
+    if (found === null) continue;
+    take(parseSemanticRelease(found));
+  }
+
+  const changeset = await findFile(join(root, '.changeset'), ['config.json']);
+  if (changeset !== null) {
+    take(parseChangesetConfig(`.changeset/${changeset}`));
+  }
+
+  const husky = await findFile(join(root, '.husky'), ['commit-msg']);
+  if (husky !== null) {
+    take(parseHuskyCommitMsg(`.husky/${husky}`));
+  }
+
+  const workflowDir = join(root, '.github', 'workflows');
+  for (const name of await listDirectory(workflowDir)) {
+    if (!/\.ya?ml$/i.test(name)) continue;
+    const file = await readCapped(join(workflowDir, name));
+    if (file === null) continue;
+    take(parseSemanticPullRequestWorkflow(file.content, `.github/workflows/${name}`));
+  }
+
+  return {
+    commitConvention: merged.commitConvention,
+    pullRequestTitleConvention: merged.pullRequestTitleConvention,
+    allowedTypes: merged.allowedTypes,
+    scopes: merged.scopes,
+    sources: asPolicySources(merged),
+  };
+}
 
 export interface BaseBranchDiscovery {
   baseBranch: string | null;

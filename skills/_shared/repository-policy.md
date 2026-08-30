@@ -70,7 +70,15 @@ ignore the rest. `schemaVersion` only changes when a reader would have to.
     "baseBranch": "develop",
     "titleConvention": null
   },
-  "git": { "branchConvention": null, "commitConvention": null },
+  "git": {
+    "branchConvention": null,
+    "commitConvention": null,
+    "pullRequestTitleConvention": null,
+    "issueReference": null,
+    "typeMap": null,
+    "allowedTypes": null,
+    "scopes": null
+  },
   "docs": [ /* path, kind, scope, referencedFrom, content */ ],
   "codeowners": "…",
   "sources": [ /* provenance of every value above */ ]
@@ -98,8 +106,9 @@ ignore the rest. `schemaVersion` only changes when a reader would have to.
   repository based on `develop`, `main` usually exists too, so assuming it does
   not fail — it silently produces the wrong diff.
 - **Branch and commits** — follow `git.branchConvention` and
-  `git.commitConvention` when declared. A branch that does not match is worth a
-  warning, never a stop.
+  `git.commitConvention` when declared. When they are empty, use
+  `issue-flow conventions` (see `docs/git-conventions.md`). A branch that does
+  not match is worth a warning, never a stop.
 - **Pull Request body** — when `pullRequests.template` is present, keep every one
   of its headings and answer the sections that do not apply with one line saying
   why. Deleting a section is what makes automated review read it as unanswered.

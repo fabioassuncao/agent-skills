@@ -1,4 +1,5 @@
 import { loadPolicyConfig } from '../config.js';
+import { DEFAULT_BRANCH_CONVENTION } from '../conventions/git/index.js';
 import { getBaseBranch } from '../utils/git.js';
 import { loadRepositoryPolicy } from './resolve.js';
 import type { IssueTemplate, PolicyDocument, RepositoryPolicy } from './types.js';
@@ -89,6 +90,12 @@ function renderConventions(policy: RepositoryPolicy): string {
   }
   if (policy.git.commitConvention !== null) {
     rows.push(`- Commit: ${policy.git.commitConvention}`);
+  }
+  if (policy.git.pullRequestTitleConvention !== null) {
+    rows.push(`- Pull Request title: ${policy.git.pullRequestTitleConvention}`);
+  }
+  if (policy.git.allowedTypes !== null && policy.git.allowedTypes.length > 0) {
+    rows.push(`- Allowed types: ${policy.git.allowedTypes.join(', ')}`);
   }
   return rows.join('\n');
 }
@@ -265,8 +272,7 @@ export const DEFAULT_POLICY_CONTEXT_BUDGET = 1500;
 
 // ── Conventions that always have a value ────────────────────────────────────
 
-/** Branch naming Issue Flow has always used, when the repository declares none. */
-export const DEFAULT_BRANCH_CONVENTION = 'issue/{N}-{slug}';
+export { DEFAULT_BRANCH_CONVENTION } from '../conventions/git/index.js';
 
 /**
  * Placeholders that must **never** render empty, because a prompt puts them

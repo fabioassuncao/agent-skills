@@ -1,12 +1,15 @@
 import { Listr, type ListrTask, PRESET_TIMER, PRESET_TIMESTAMP } from 'listr2';
 import type { PipelinePhase } from '../core/pipeline.js';
+import { getSessionPublisher } from '../core/session-publisher.js';
 import { loadTaskPlan } from '../core/state-manager.js';
 import {
+  setActivityCallback,
   setOutputCallback,
   setStoryStageCallback,
   setStoryUpdateCallback,
 } from '../core/verbose.js';
 import type { UserStory } from '../types.js';
+import { renderExecuteFocus } from './status-view.js';
 
 /** Minimal interface for the listr2 task wrapper properties we use. */
 interface TaskContext {
@@ -38,6 +41,8 @@ export interface PipelineRendererOptions {
   runners: Record<string, () => Promise<void>>;
   /** Path to tasks.json — enables execute-phase subtask progress when set */
   tasksPath?: string;
+  /** Suffix per phase when its agent differs from the run default (e.g. `codex`). */
+  phaseSuffixes?: Record<string, string>;
 }
 
 /**
@@ -153,6 +158,20 @@ export function createActiveStoryTracker(
 }
 
 /**
+ * Clean mode never expands one line per story. The phase title carries
+ * `N/M` and the output bar carries the active story plus the current tool,
+ * both read from the same snapshot the dashboard uses.
+ */
+export function executeExpandsStories(verbose: boolean): boolean {
+  return verbose;
+}
+
+function paintExecuteFocus(task: TaskContext): void {
+  const lines = renderExecuteFocus(getSessionPublisher().snapshot());
+  if (lines.length > 0) task.output = lines.join('\n');
+}
+
+/**
  * Build the execute phase task with dynamic subtasks for each user story.
  *
  * Stories that already pass are displayed as skipped. Pending stories wait for
@@ -181,6 +200,32 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
     const totalStories = stories.length;
     const initialPassed = stories.filter((s) => s.passes).length;
     task.title = `Execute (${initialPassed}/${totalStories} stories passing)`;
+
+    if (!executeExpandsStories(verbose)) {
+      setStoryUpdateCallback((updatedStories: UserStory[]) => {
+        const passed = updatedStories.filter((s) => s.passes).length;
+        task.title = `Execute (${passed}/${totalStories} stories passing)`;
+        paintExecuteFocus(task);
+      });
+      setStoryStageCallback(() => {
+        paintExecuteFocus(task);
+      });
+      setActivityCallback(() => {
+        paintExecuteFocus(task);
+      });
+      setOutputCallback((line: string) => {
+        task.output = line;
+      });
+      try {
+        await runner();
+      } finally {
+        setOutputCallback(undefined);
+        setStoryUpdateCallback(undefined);
+        setStoryStageCallback(undefined);
+        setActivityCallback(undefined);
+      }
+      return;
+    }
 
     // Create promise resolvers for pending stories
     const resolvers = new Map<string, { resolve: () => void; reject: (err: Error) => void }>();
@@ -296,7 +341,7 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
 export async function runPipelineWithRenderer(
   options: PipelineRendererOptions,
 ): Promise<PipelineResult> {
-  const { phases, startIndex, verbose, runners, tasksPath } = options;
+  const { phases, startIndex, verbose, runners, tasksPath, phaseSuffixes } = options;
   const overallStart = Date.now();
   let currentPhase: string | undefined;
   const renderer = selectRenderer(verbose);
@@ -304,7 +349,9 @@ export async function runPipelineWithRenderer(
 
   const tasks = new Listr(
     phases.map((phase, index) => {
-      const label = phaseLabel(phase);
+      const label = phaseSuffixes?.[phase]
+        ? `${phaseLabel(phase)} (${phaseSuffixes[phase]})`
+        : phaseLabel(phase);
       const isExecutePhase = phase === 'execute' && tasksPath;
 
       return {
@@ -364,6 +411,7 @@ export async function runPipelineWithRenderer(
     setOutputCallback(undefined);
     setStoryUpdateCallback(undefined);
     setStoryStageCallback(undefined);
+    setActivityCallback(undefined);
   }
 
   const overallElapsedSeconds = Math.floor((Date.now() - overallStart) / 1000);

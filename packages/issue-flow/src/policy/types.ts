@@ -22,7 +22,8 @@ export type PolicySourceKind =
   | 'pull-request-template'
   | 'base-branch'
   | 'docs'
-  | 'codeowners';
+  | 'codeowners'
+  | 'git-conventions';
 
 /** Where a {@link PolicySource} came from. */
 export type PolicySourceOrigin = 'filesystem' | 'gh' | 'git' | 'config' | 'env' | 'cli';
@@ -136,7 +137,22 @@ export interface PolicyPullRequests {
 export interface PolicyGit {
   branchConvention: string | null;
   commitConvention: string | null;
+  pullRequestTitleConvention: string | null;
+  issueReference: string | null;
+  typeMap: Record<string, string> | null;
+  allowedTypes: string[] | null;
+  scopes: string[] | null;
 }
+
+export const EMPTY_POLICY_GIT: PolicyGit = {
+  branchConvention: null,
+  commitConvention: null,
+  pullRequestTitleConvention: null,
+  issueReference: null,
+  typeMap: null,
+  allowedTypes: null,
+  scopes: null,
+};
 
 /** The resolved policy of a repository, at a given scope. */
 export interface RepositoryPolicy {

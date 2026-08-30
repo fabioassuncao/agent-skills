@@ -79,7 +79,7 @@ If both exist and their content differs, show both to the user and ask which one
 
 **Before anything else**, check if there's already work in progress for this issue:
 
-1. **Check current branch**: Run `git branch --show-current`. If it carries the issue number (under the repository's branch convention, or Issue Flow's `issue/{N}-{slug}` default), work may already be in progress.
+1. **Check current branch**: Run `git branch --show-current`. If it carries the issue number (under the repository's branch convention — see `docs/git-conventions.md`), work may already be in progress.
 2. **Check for existing task files**:
    - `issues/{ISSUE_NUMBER}/prd.md`
    - `issues/{ISSUE_NUMBER}/tasks.json`
@@ -100,7 +100,7 @@ If both exist and their content differs, show both to the user and ask which one
    **In `manual` mode**: Report status and ask the user:
    ```
    Found existing work for issue #{ISSUE_NUMBER}:
-   - Branch: per the repository's convention (default `issue/{ISSUE_NUMBER}-{slug}`)
+   - Branch: per `docs/git-conventions.md` (or `issue-flow conventions branch --issue {ISSUE_NUMBER}`)
    - Issue status: pending | in_progress | completed
    - Progress: X of Y user stories completed
    - Last commit: [commit message]
@@ -135,17 +135,10 @@ ISSUE_TITLE=$(gh issue view {ISSUE_NUMBER} --json title -q '.title')
 ```
 
 ```bash
-SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g' | cut -c1-50)
-
-# The repository's own conventions, not Issue Flow's assumptions:
-# CONVENTION is git.branchConvention and BASE is pullRequests.baseBranch, both
-# from skills/_shared/repository-policy.md. Defaults when nothing is declared:
-CONVENTION=${CONVENTION:-"issue/{N}-{slug}"}
+# The CLI computes the branch. Without the binary, follow docs/git-conventions.md.
+BRANCH_NAME=$(issue-flow conventions branch --issue {ISSUE_NUMBER} 2>/dev/null)
 BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}
 BASE=${BASE:-main}
-
-# Apply the convention: {N} is the issue number, {slug} the slug above.
-BRANCH_NAME=$(echo "$CONVENTION" | sed "s|{N}|{ISSUE_NUMBER}|g; s|{slug}|${SLUG}|g")
 
 git checkout "$BASE"
 git pull
@@ -213,7 +206,7 @@ Planning complete for issue #{ISSUE_NUMBER}.
 Artifacts generated:
   - issues/{ISSUE_NUMBER}/prd.md
   - issues/{ISSUE_NUMBER}/tasks.json
-  - Branch: issue/{ISSUE_NUMBER}-{slug}
+  - Branch: (see `issue-flow conventions branch --issue {ISSUE_NUMBER}`)
 
 User stories ({N} total):
   US-001: [title]

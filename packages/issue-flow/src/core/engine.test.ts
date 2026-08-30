@@ -404,7 +404,7 @@ describe('runEngine — execute-phase metrics', () => {
     expect(snapshot.stories.map((s) => s.inputTokens)).toEqual([5, 5]);
   });
 
-  it('publishes story metrics after stories:update and before iteration:end', async () => {
+  it('publishes the plan before iteration:start and story metrics after the final update', async () => {
     await writePlan(pendingPlan(makeStory('US-001', 1, false)));
     agentCompleting(['US-001'], '<promise>COMPLETE</promise>', { inputTokens: 8 });
 
@@ -412,10 +412,14 @@ describe('runEngine — execute-phase metrics', () => {
 
     const order = publisher.events
       .filter((e) =>
-        ['stories:update', 'metrics:update', 'iteration:end'].includes(e.type as string),
+        ['stories:update', 'iteration:start', 'metrics:update', 'iteration:end'].includes(
+          e.type as string,
+        ),
       )
       .map((e) => (e.type === 'metrics:update' ? `metrics:${e.scope}` : e.type));
     expect(order).toEqual([
+      'stories:update',
+      'iteration:start',
       'stories:update',
       'metrics:story',
       'iteration:end',

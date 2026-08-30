@@ -103,12 +103,29 @@ describe('resolveRunPhaseFlags', () => {
 
 describe('resolveQueueScopeFlags', () => {
   it('leaves both undefined when neither flag is passed', () => {
-    expect(resolveQueueScopeFlags({})).toEqual({ yes: undefined, only: undefined });
+    expect(resolveQueueScopeFlags({})).toEqual({
+      yes: undefined,
+      only: undefined,
+      cascade: undefined,
+    });
   });
 
   it('reports each flag on its own', () => {
-    expect(resolveQueueScopeFlags({ yes: true })).toEqual({ yes: true, only: undefined });
-    expect(resolveQueueScopeFlags({ only: true })).toEqual({ yes: undefined, only: true });
+    expect(resolveQueueScopeFlags({ yes: true })).toEqual({
+      yes: true,
+      only: undefined,
+      cascade: undefined,
+    });
+    expect(resolveQueueScopeFlags({ only: true })).toEqual({
+      yes: undefined,
+      only: true,
+      cascade: undefined,
+    });
+    expect(resolveQueueScopeFlags({ cascade: true })).toEqual({
+      yes: undefined,
+      only: undefined,
+      cascade: true,
+    });
   });
 
   it('rejects the combination that answers the same question twice', () => {

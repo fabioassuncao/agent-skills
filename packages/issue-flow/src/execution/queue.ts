@@ -1,6 +1,7 @@
 import type { Issue, IssueSource } from '../issues/types.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 import { type ConfirmQueueOptions, confirmQueue, QueueConfirmationError } from './confirm.js';
+import { collectCascadeIds } from './containers.js';
 import { discoverIssueGraph, supportsRelations } from './discovery.js';
 import { computeExecutionOrder, describeCycles } from './order.js';
 import {
@@ -43,6 +44,16 @@ export interface PlanQueueInput {
   confirm?: ConfirmQueueOptions;
   info?: (message: string) => void;
   warn?: (message: string) => void;
+}
+
+/** `--only` / "just this issue" implements a requested container on purpose. */
+function forceRequestedExecutable(plan: ExecutionPlan): ExecutionPlan {
+  return {
+    ...plan,
+    issues: plan.issues.map((entry) =>
+      plan.requested.includes(entry.id) ? { ...entry, role: 'executable' as const } : entry,
+    ),
+  };
 }
 
 /** A persisted queue that matches this invocation, or `null`. */
@@ -159,7 +170,7 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
     prReview: input.prReview,
   });
 
-  let choice: 'all' | 'requested' | 'cancel';
+  let choice: 'all' | 'requested' | 'cascade' | 'cancel';
   try {
     choice = await confirmQueue(suggestedPlan, requestedCount, {
       ...(input.confirm ?? {}),
@@ -179,7 +190,33 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
   }
 
   let plan = suggestedPlan;
-  if (choice === 'requested') {
+  if (choice === 'cascade') {
+    const include = collectCascadeIds(graph, input.requested);
+    const cascadeOrder = computeExecutionOrder(graph, { include });
+    if (!cascadeOrder.ok) {
+      warn(`Dependency cycle between issues: ${describeCycles(cascadeOrder.cycles)}.`);
+      return { kind: 'stop', code: 1 };
+    }
+    if (
+      cascadeOrder.order.filter(
+        (id) => suggestedPlan.issues.find((entry) => entry.id === id)?.role !== 'container',
+      ).length === 0
+    ) {
+      warn(
+        `Issue #${input.requested[0]} is a container with no executable children in scope. ` +
+          'Re-run with --only if you really want to implement it.',
+      );
+      return { kind: 'stop', code: 1 };
+    }
+    plan = buildExecutionPlan({
+      projectId: input.projectId,
+      requested: input.requested,
+      graph,
+      order: cascadeOrder.order,
+      noBranch: input.noBranch,
+      prReview: input.prReview,
+    });
+  } else if (choice === 'requested') {
     if (!requestedOrder.ok) {
       warn(
         `Dependency cycle between the issues you informed: ${describeCycles(requestedOrder.cycles)}.`,
@@ -204,14 +241,16 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
       }
       return { kind: 'single' };
     }
-    plan = buildExecutionPlan({
-      projectId: input.projectId,
-      requested: input.requested,
-      graph,
-      order: requestedOrder.order,
-      noBranch: input.noBranch,
-      prReview: input.prReview,
-    });
+    plan = forceRequestedExecutable(
+      buildExecutionPlan({
+        projectId: input.projectId,
+        requested: input.requested,
+        graph,
+        order: requestedOrder.order,
+        noBranch: input.noBranch,
+        prReview: input.prReview,
+      }),
+    );
   }
 
   await saveExecutionPlan(input.planFile, plan);

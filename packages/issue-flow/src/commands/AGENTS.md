@@ -1,6 +1,24 @@
 # src/commands
 
+`usage` is a reader, like `status` / `runs` / `logs`: it only aggregates
+`tasks.json.executions`. It never writes an `executionSummary`.
+
+`bench` measures the #79 corpus. `synthetic` is free and what CI runs.
+`real` spends money, requires confirmation or `--yes`, isolates
+`ISSUE_FLOW_HOME`, and is refused under `npm test`. Rules live in
+`src/benchmark/AGENTS.md`.
+
+`run` always installs a `MemoryPublisher`. Disk surfaces (`FilePublisher`,
+`JournalPublisher`) stay opt-in. `activity` events are published in every
+mode so the clean terminal and the dashboard share `currentActivity`;
+`FilePublisher` already throttles the write that would otherwise bust the
+`/api/status` ETag on every tool call.
+
 ## Contract of a single-invocation phase
+
+`review` runs the acceptance contract (`src/verify/`) **before** its
+`runHeadless` call. A fatal red check is `task_execution` and skips the
+LLM. `unverified` continues, labelled.
 
 `analyze`, `generate`, `prd`, `plan`, `review`, `pr` and `pr-review` each own
 one `runHeadless` call. Anything that has to be derived from that call belongs
@@ -15,10 +33,11 @@ Concretely, a new phase command must:
   `cost: null` outside verbose mode, so no metric is ever captured. The
   envelope's `result` field carries the same assistant text, so every parser
   built on `result.result` keeps working;
-- call `publishPhaseMetrics('<phase>', result.cost, startedAtMs)` (from
-  `core/session-metrics.js`) **before** the `result.success` check — the tokens
-  were spent whether or not the phase succeeded. The helper is a no-op when the
-  CLI reported nothing, and can never change an exit code;
+- call `publishPhaseMetrics('<phase>', result.cost, startedAtMs, result.agent?.provider)`
+  (from `core/session-metrics.js`) **before** the `result.success` check — the
+  tokens were spent whether or not the phase succeeded. The helper is a no-op
+  when the CLI reported nothing, and can never change an exit code. The fourth
+  argument labels usage by the agent that actually ran (`AgentRunResult.agent`);
 - publish once per invocation when it retries (inside the `attempt` callback of
   `runPhaseWithRetry`), letting the reducer sum the attempts.
 
@@ -106,6 +125,13 @@ common case and the one every older test covers:
 - **A queue is only ever a queue with more than one issue.** Discovery finding
   nothing, `--only` on a single issue, a scope trimmed back to one issue: all of
   them fall back to `{ kind: 'single' }` and create no `execution-plan.json`.
+- **A container is not implemented.** A node with children (or, when configured,
+  an Epic type / `epic` label / `[Epic]` prefix) gets `role: 'container'`: it
+  names the branch and the PR, `nextQueueIssue` never hands it out, and it
+  completes when every child in the queue completes. `--yes` on a container
+  means `--cascade`. Non-interactive without a flag **fails** rather than
+  running the umbrella alone. `Closes` becomes `Refs` when a child is still
+  pending — the verb follows the plan, not the issue type (#77 / #74).
 - **Per-issue runs differ from a standalone run in exactly four ways**: the `pr`
   (and `pr-review`) phase leaves the per-issue phase list, the branch of the
   queue is written over the plan's own `branchName` after the `plan` phase,

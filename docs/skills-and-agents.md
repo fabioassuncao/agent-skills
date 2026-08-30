@@ -2,21 +2,43 @@
 
 Issue Flow can also be used interactively within [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via **skills** and the **`resolve-issue` sub-agent**. This document covers that usage model.
 
-> For the CLI-first approach, see the [main README](../README.md).
+> For the CLI-first approach, see the [main README](../README.md) and the
+> [command reference](commands.md).
 
 ## Architecture
 
 Issue Flow uses a **sub-agent + skills** architecture:
 
-- **`resolve-issue`** is a Claude Code **sub-agent** (`.claude/agents/resolve-issue.md`) that orchestrates the full pipeline
+- **`resolve-issue`** is a Claude Code **sub-agent** ([`agents/resolve-issue.md`](../agents/resolve-issue.md)) that orchestrates the full pipeline
 - All other components are **skills** preloaded into the sub-agent, callable without nesting
 - Two execution modes: `auto` (no stops), `manual` (artifacts only)
 - Auto-correction loop: review finds issues -> fix -> re-review (up to 3 cycles)
 - Pipeline state tracking enables resumption from any phase
 
+### Where the artifacts go
+
+**This is the one place the two surfaces genuinely differ.** The skills and the
+sub-agent write to `<projectRoot>/issues/{N}/` — inside the repository, where the
+session that invoked them is already working. The CLI writes to
+`~/.issue-flow/projects/<project-id>/issues/{N}/` (see
+[Storage](storage.md)) and treats a repository-level `issues/` tree as a legacy
+directory it copies from and never writes to.
+
+The consequence is worth stating plainly: **artifacts produced by the skills are
+not the ones the CLI reads, and vice versa.** A run started interactively does
+not resume with `issue-flow resume`, and an `issue-flow run` cannot be picked up
+by `@resolve-issue`. Pick one surface per issue. Add `/issues` to `.gitignore`
+unless you deliberately want the interactive artifacts committed.
+
 ### Issue sources
 
-The issue can live on GitHub or in the repository itself (`issues/<N>/issue.md` + `issues/<N>/metadata.json`). Both `generate-issue` / `generate-local-issue` and the `resolve-issue` sub-agent work with either origin: when `issues/{N}/issue.md` exists, it is the statement to work from and `gh` is not needed. The CLI implements the same idea as a provider layer with conflict resolution -- see [Issue Sources](../README.md#issue-sources-providers) for the file format, the flags, and the `issues` key of `.issue-flow.json`.
+The issue can live on GitHub or in the repository itself (`issues/<N>/issue.md` +
+`issues/<N>/metadata.json`). Both `generate-issue` / `generate-local-issue` and the
+`resolve-issue` sub-agent work with either origin: when `issues/{N}/issue.md`
+exists, it is the statement to work from and `gh` is not needed. The CLI
+implements the same idea as a provider layer with conflict resolution -- see
+[Issue sources](issues.md) for the file format, the flags, and the `issues` key of
+`.issue-flow.json`.
 
 ### Skills vs Sub-agent: how they are invoked
 
@@ -36,7 +58,7 @@ Skills and sub-agents are invoked differently in Claude Code:
 
 | Component | Type | Description |
 |-----------|------|-------------|
-| [`resolve-issue`](../.claude/agents/resolve-issue.md) | **Sub-agent** | Orchestrates the full pipeline end-to-end with mode support and auto-correction loop. |
+| [`resolve-issue`](../agents/resolve-issue.md) | **Sub-agent** | Orchestrates the full pipeline end-to-end with mode support and auto-correction loop. |
 | [`init-repository`](../skills/init-repository/) | Skill | Analyzes what a repository already declares and fills only the gaps — Issue Forms, PR template, `AGENTS.md`, `CLAUDE.md`, conventions. Incremental, non-destructive and idempotent. |
 | [`generate-issue`](../skills/generate-issue/) | Skill | Generates architect-quality GitHub issues from short instructions with duplicate detection and label management. |
 | [`generate-local-issue`](../skills/generate-local-issue/) | Skill | Generates architect-quality issues as local files (`issues/<N>/issue.md` + `metadata.json`) with no GitHub involved. |
@@ -77,7 +99,7 @@ than stopping at it**. The full policy, and what does not belong in an
 
 ## Resuming an interrupted run
 
-The CLI has an explicit command for it -- [`issue-flow resume`](../README.md#resume----continue-an-interrupted-pipeline)
+The CLI has an explicit command for it -- [`issue-flow resume`](commands.md#resume--continue-an-interrupted-pipeline)
 -- and the sub-agent does not need one: `@resolve-issue` re-invoked on the same
 issue reads the same `tasks.json` and continues from the first incomplete phase,
 which is exactly what `resume` computes.
@@ -241,7 +263,7 @@ With no GitHub access (offline, no remote, or a demand that is not public yet), 
 
 **Planning phases (automatic):**
 1. Check for existing work and pipeline state in `issues/{N}/`
-2. Create the working branch `issue/{N}-{slug}`
+2. Create the working branch (`issue-flow conventions branch`, see [`docs/git-conventions.md`](git-conventions.md))
 3. Generate PRD with `generate-prd` -> `issues/{N}/prd.md`
 4. Convert to task plan with `convert-prd-to-json` -> `issues/{N}/tasks.json`
 
@@ -335,7 +357,7 @@ issues/42/pr-review/          # issues/pr-184/pr-review/ when there is no associ
 
 A malformed verdict is never coerced into `APPROVE`: it fails with `1` and the raw output is preserved in the report. `--fail-on <level>` shifts the threshold (`suggestions` also fails on `APPROVE_WITH_SUGGESTIONS`, `none` never fails on a verdict), but it never suppresses code `1`.
 
-The review is **intended to be read-only** on both surfaces: Write/Edit are not allowed, and the prompt forbids edits, commits and `gh pr review|comment|merge` (Bash remains available for inspection). On `REQUEST_CHANGES`, the sub-agent and `run` leave the issue open (and do not mark the local plan completed) and report the blockers with the report path; `run` itself still exits `0`. See [the CLI reference](../README.md#pr-review----review-a-pull-request) for the flags and the `prReview` key of `.issue-flow.json`.
+The review is **intended to be read-only** on both surfaces: Write/Edit are not allowed, and the prompt forbids edits, commits and `gh pr review|comment|merge` (Bash remains available for inspection). On `REQUEST_CHANGES`, the sub-agent and `run` leave the issue open (and do not mark the local plan completed) and report the blockers with the report path; `run` itself still exits `0`. See [the CLI reference](commands.md#pr-review--reviewing-a-pull-request-as-a-whole) for the flags and the [`prReview` key](configuration.md#prreview) of `.issue-flow.json`.
 
 ## Installation (Claude Code)
 
@@ -343,7 +365,7 @@ Issue Flow has two types of components with different installation methods:
 
 | Component | Type | Portable | Claude Code required |
 |-----------|------|----------|---------------------|
-| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `review-pr`, `generate-issue`, `generate-local-issue` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
+| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `review-pr`, `generate-issue`, `generate-local-issue`, `init-repository` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
 | `resolve-issue` (orchestrator) | Sub-agent (`agents/`) | **No** -- exclusive to Claude Code | **Yes** |
 
 ### Full installation (sub-agent + all skills)

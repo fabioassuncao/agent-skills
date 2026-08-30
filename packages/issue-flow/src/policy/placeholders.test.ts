@@ -10,7 +10,7 @@ import {
   policyPlaceholders,
   renderPolicySummary,
 } from './placeholders.js';
-import { POLICY_SCHEMA_VERSION, type RepositoryPolicy } from './types.js';
+import { EMPTY_POLICY_GIT, POLICY_SCHEMA_VERSION, type RepositoryPolicy } from './types.js';
 
 function makePolicy(overrides: Partial<RepositoryPolicy> = {}): RepositoryPolicy {
   return {
@@ -20,7 +20,7 @@ function makePolicy(overrides: Partial<RepositoryPolicy> = {}): RepositoryPolicy
     enabled: true,
     issues: { templates: [], types: [], labels: [], titleConvention: null },
     pullRequests: { template: null, templates: [], baseBranch: null, titleConvention: null },
-    git: { branchConvention: null, commitConvention: null },
+    git: EMPTY_POLICY_GIT,
     docs: [],
     codeowners: null,
     sources: [],
@@ -63,7 +63,7 @@ const richPolicy = makePolicy({
     baseBranch: 'develop',
     titleConvention: 'type(scope): subject',
   },
-  git: { branchConvention: 'feat/{slug}', commitConvention: 'conventional' },
+  git: { ...EMPTY_POLICY_GIT, branchConvention: 'feat/{slug}', commitConvention: 'conventional' },
   docs: [
     { path: 'AGENTS.md', kind: 'agents', scope: '', referencedFrom: null, content: '# Agents' },
     {
@@ -277,7 +277,7 @@ describe('conventionPlaceholders', () => {
 
   it("uses the repository's branch convention when declared", () => {
     const policy = makePolicy({
-      git: { branchConvention: 'feat/{slug}', commitConvention: null },
+      git: { ...EMPTY_POLICY_GIT, branchConvention: 'feat/{slug}', commitConvention: null },
     });
 
     expect(conventionPlaceholders(policy, 'main').__BRANCH_CONVENTION__).toBe('feat/{slug}');

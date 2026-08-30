@@ -30,7 +30,7 @@ Create a tasks.json file at __TASKS_PATH__ with this exact structure:
   "project": "<repo-name>",
   "issueNumber": __ISSUE_NUMBER__,
   "issueUrl": "__ISSUE_URL__",
-  "branchName": "<branch, following __BRANCH_CONVENTION__ with N=__ISSUE_NUMBER__>",
+  "branchName": "__BRANCH_NAME__",
   "description": "<brief description>",
   "issueStatus": "pending",
   "completedAt": null,
@@ -71,7 +71,7 @@ Rules:
   and never derive it yourself
 - Get the repo name from the repository itself (package name, directory name)
 - If __ISSUE_NUMBER__ is not a number, keep it as a JSON string in issueNumber
-- The branchName should use a short kebab-case slug derived from the issue title
+- branchName is already resolved: use __BRANCH_NAME__ verbatim. Do not invent a branch.
 
 IMPORTANT: You MUST write the tasks.json to the file path above. Do not just output it.
 
@@ -94,6 +94,5 @@ a decision depends on what they say.
 
 ## Branch naming
 
-`branchName` must follow `__BRANCH_CONVENTION__`, where `{N}` is the issue number
-and `{slug}` a short kebab-case summary of the issue title. A repository that
-declares its own convention above overrides this one.
+`branchName` is `__BRANCH_NAME__`. Copy it exactly. The CLI computed it from the
+repository convention; do not slugify the title yourself.

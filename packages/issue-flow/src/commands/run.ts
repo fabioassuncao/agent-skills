@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
+import { resetAgentInvocationState } from '../agents/invoke.js';
+import { describeRunAgents } from '../agents/resolve.js';
 import {
   getActiveResilienceConfig,
   initResilienceConfig,
@@ -29,11 +31,12 @@ import {
 } from '../core/pr-review/report.js';
 import { listPullRequests, publishGitState } from '../core/session-git.js';
 import { beginUsageScope, getRunUsageTotals } from '../core/session-metrics.js';
-import { setSessionPublisher } from '../core/session-publisher.js';
-import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
+import { getSessionPublisher, setSessionPublisher } from '../core/session-publisher.js';
+import { FilePublisher, MemoryPublisher, type SessionPublisher } from '../core/session-state.js';
 import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getInactivityTimeout, isVerbose, setInactivityTimeout } from '../core/verbose.js';
+import { backgroundRejection, spawnDetachedRun } from '../execution/detach.js';
 import {
   markQueueIssueBlocked,
   markQueueIssueCompleted,
@@ -55,6 +58,7 @@ import { acquireRunLock, describeRunLockOwner } from '../storage/lock.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
 import type { RunLock } from '../storage/schemas.js';
+import { formatPhaseLine, loadPhaseTiming, snapshotTimingFields } from '../telemetry/timing.js';
 import type { PullRequestRef, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
@@ -88,6 +92,45 @@ import { runReview } from './review.js';
 function toIssueNumber(id: string): number | null {
   const parsed = Number.parseInt(id, 10);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+async function publishInstrumentedPhaseEnd(
+  publisher: SessionPublisher,
+  phase: string,
+  issueNumber: string,
+  success: boolean,
+  error?: string,
+): Promise<void> {
+  const at = isoNow();
+  const startedAt = publisher.snapshot().phases.find((entry) => entry.name === phase)?.startedAt;
+  const wallMs =
+    startedAt === null || startedAt === undefined
+      ? null
+      : Math.max(0, Date.parse(at) - Date.parse(startedAt));
+  const timing = await loadPhaseTiming(phase, wallMs);
+  publisher.publish({
+    type: 'phase:end',
+    at,
+    phase,
+    success,
+    ...(error === undefined ? {} : { error }),
+    ...snapshotTimingFields(timing),
+  });
+  if (isVerbose()) {
+    printInfo(
+      formatPhaseLine({
+        issueNumber: toIssueNumber(issueNumber) ?? issueNumber,
+        phase,
+        iteration: timing.iteration,
+        wallMs,
+        cliDurationMs: timing.cliDurationMs,
+        harnessStartupMs: timing.harnessStartupMs,
+        ttftMs: timing.ttftMs,
+        numTurns: timing.numTurns,
+        outputTokens: timing.outputTokens,
+      }),
+    );
+  }
 }
 
 /**
@@ -161,6 +204,16 @@ const RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW: PipelinePhase[] = ['pr', 'pr-review'
  */
 type PrReviewOutcome = RunSummaryPrReview;
 
+function verificationForSummary(
+  value: {
+    verdict: 'passed' | 'failed' | 'unverified' | null;
+    level: string | null;
+  } | null,
+): { verdict: 'passed' | 'failed' | 'unverified'; level: string | null } | null {
+  if (value === null || value.verdict === null) return null;
+  return { verdict: value.verdict, level: value.level };
+}
+
 /**
  * Recover the verdict and the report path the `pr-review` phase produced.
  *
@@ -203,6 +256,12 @@ export interface RunPipelineOptions {
   yes?: boolean;
   /** `--only`: run just the issues informed, skipping discovery. */
   only?: boolean;
+  /** `--cascade`: hierarchy of a container, without implementing it. */
+  cascade?: boolean;
+  /** `--background`: parent process should detach after confirmation. */
+  background?: boolean;
+  /** Hidden: this process is the child of a `--background` spawn. */
+  detachedChild?: boolean;
   /** `--continue`: name the (automatic) User Story numbering continuity. */
   continueNumbering?: boolean;
   /** `--start-us <n>`: force the first plan of this run to start at `n`. */
@@ -295,10 +354,19 @@ export async function runPipeline(
     return 1;
   }
 
+  if (options.background === true && options.detachedChild !== true) {
+    const reason = backgroundRejection(mode);
+    if (reason !== null) {
+      printError(reason);
+      return 1;
+    }
+    return detachAfterConfirm(requested, noBranch, prReview, options);
+  }
+
   // Ownership of the run, for the whole invocation — a queue is one run, not
   // one per issue. Two invocations in the same repository share a working tree
   // and a branch, so "a different issue" is not a different lock.
-  const ownership = await claimRunOwnership(requested[0] as string);
+  const ownership = await claimRunOwnership(requested[0] as string, options.detachedChild === true);
   if (!ownership.ok) {
     printError(
       `Another issue-flow run owns this project: ${describeRunLockOwner(ownership.owner)}.`,
@@ -384,7 +452,7 @@ type RunOwnership =
  * exists to stop two runs from colliding, and it must never be the reason a
  * single run cannot start.
  */
-async function claimRunOwnership(target: string): Promise<RunOwnership> {
+async function claimRunOwnership(target: string, detached = false): Promise<RunOwnership> {
   let lockFile: string;
   try {
     lockFile = (await resolveProjectPaths()).runLockFile;
@@ -392,7 +460,7 @@ async function claimRunOwnership(target: string): Promise<RunOwnership> {
     return { ok: true, interruptedBy: null, release: async () => {} };
   }
 
-  const result = await acquireRunLock(lockFile, { target });
+  const result = await acquireRunLock(lockFile, { target, detached });
   if (!result.ok) return result;
 
   return {
@@ -430,6 +498,7 @@ async function runIssueSession(
   mode: string,
   input: IssueSessionInput,
 ): Promise<IssueRunResult> {
+  resetAgentInvocationState();
   // Resolved once, at the top: every phase that runs below shares the process
   // cache, so the git call and the legacy migration happen a single time for
   // the whole run instead of once per phase.
@@ -461,14 +530,15 @@ async function runIssueSession(
   // without `--web` is what an unattended run wants.
   const surfaces: SessionPublisher[] = [];
   const journalEnabled = resilience.journal?.enabled === true;
-  if (webConfig.enabled || journalEnabled) {
+  const persistSnapshot = webConfig.enabled || input.runOptions?.detachedChild === true;
+  if (persistSnapshot || journalEnabled) {
     // resolveIssuePaths never creates directories, and a run may well be the
     // first thing to touch this issue's global folder — so the writer creates
     // it. Only when a surface asked for it: with monitoring off and no journal
     // the pipeline still creates nothing at all (issue 25, US-009).
     await mkdir(paths.issueDir, { recursive: true });
   }
-  if (webConfig.enabled) {
+  if (persistSnapshot) {
     surfaces.push(
       new FilePublisher(paths.sessionFile, {
         logLimit: webConfig.logLimit,
@@ -489,9 +559,11 @@ async function runIssueSession(
   }
   // The snapshot writer stays the primary surface, so `snapshot()` and
   // `version()` keep answering exactly what the dashboard answered before.
+  // With no disk surface the reducer still runs in memory: the terminal
+  // renders that snapshot, and US-009 is preserved because nothing is written.
   const publisher: SessionPublisher =
     surfaces.length === 0
-      ? new NullPublisher()
+      ? new MemoryPublisher()
       : surfaces.length === 1
         ? (surfaces[0] as SessionPublisher)
         : new MultiPublisher(surfaces);
@@ -802,11 +874,23 @@ async function runPipelinePhases(
       issueUrl: info?.issueUrl,
       branch: info?.branch,
       phases: [...phases],
-      environment: { node: process.version, platform: process.platform },
+      environment: {
+        node: process.version,
+        platform: process.platform,
+        agent: agentSummary.defaultProvider,
+        model: agentSummary.defaultModel,
+      },
     });
   };
 
-  printInfo(`Starting pipeline for issue #${issueNumber} (mode: ${mode})`);
+  const agentSummary = await describeRunAgents(
+    prReview
+      ? ['prd', 'plan', 'execute', 'review', 'pr', 'pr-review']
+      : ['prd', 'plan', 'execute', 'review', 'pr'],
+  );
+  printInfo(
+    `Starting pipeline for issue #${issueNumber} (mode: ${mode}, agent: ${agentSummary.label})`,
+  );
 
   // Loaded before the checks so init knows which origin the user is heading
   // for: with a local one, a missing gh must not fail the environment.
@@ -817,8 +901,10 @@ async function runPipelinePhases(
   // published, keeping every issue's session shape identical.
   const sessionStartedAt = isoNow();
   if (queue?.preChecked !== true) {
-    printInfo('Running prerequisite checks...');
-    const initCode = await runInit(issuesConfig.preferredProvider);
+    if (isVerbose()) {
+      printInfo('Running prerequisite checks...');
+    }
+    const initCode = await runInit(issuesConfig.preferredProvider, { compact: !isVerbose() });
     if (initCode !== 0) {
       publishSessionStart(PIPELINE_PHASES, sessionStartedAt);
       publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });
@@ -1064,20 +1150,21 @@ async function runPipelinePhases(
         () => runPlan(issueNumber, resolvedIssue, { continueFlag: continueNumbering, startUs }),
         'plan',
       )();
-      // Persist the phase-selection modes into the newly created tasks.json
-      if (effectiveNoBranch || effectivePrReview) {
-        try {
-          const plan = await loadTaskPlan(tasksPath);
-          if (effectiveNoBranch) {
-            plan.noBranch = true;
-          }
+      // Read the newly-created plan once: publish its stories immediately so
+      // the first execute iteration never points at a story absent from the
+      // snapshot, and persist phase-selection modes from the same object.
+      try {
+        const plan = await loadTaskPlan(tasksPath);
+        publishStorySeed(publisher, plan.userStories, isoNow());
+        if (effectiveNoBranch || effectivePrReview) {
+          if (effectiveNoBranch) plan.noBranch = true;
           if (effectivePrReview) {
             plan.prReview = { ...plan.prReview, enabled: true, rounds: plan.prReview?.rounds ?? 0 };
           }
           await saveTaskPlan(tasksPath, plan);
-        } catch {
-          /* non-critical: tasks.json may not exist yet if plan phase didn't create it */
         }
+      } catch {
+        /* non-critical: tasks.json may not exist yet if plan phase didn't create it */
       }
       // A queue shares one branch: the first issue's plan decides it, every
       // later issue has it written over whatever slug the agent derived from
@@ -1184,16 +1271,16 @@ async function runPipelinePhases(
         try {
           await fn();
           await publishGitState(publisher);
-          publisher.publish({ type: 'phase:end', at: isoNow(), phase, success: true });
+          await publishInstrumentedPhaseEnd(publisher, phase, issueNumber, true);
         } catch (err) {
           await publishGitState(publisher);
-          publisher.publish({
-            type: 'phase:end',
-            at: isoNow(),
+          await publishInstrumentedPhaseEnd(
+            publisher,
             phase,
-            success: false,
-            error: err instanceof Error ? err.message : String(err),
-          });
+            issueNumber,
+            false,
+            err instanceof Error ? err.message : String(err),
+          );
           throw err;
         }
       },
@@ -1201,12 +1288,22 @@ async function runPipelinePhases(
   );
 
   // Run pipeline with listr2 renderer — startup header printed above, summary below
+  const phaseSuffixes: Record<string, string> = {};
+  for (const [phase, resolved] of Object.entries(agentSummary.byPhase)) {
+    if (resolved.provider !== agentSummary.defaultProvider) {
+      phaseSuffixes[phase] = resolved.model
+        ? `${resolved.provider} · ${resolved.model}`
+        : resolved.provider;
+    }
+  }
+
   const result = await runPipelineWithRenderer({
     phases: phaseOrder,
     startIndex: startIdx,
     verbose: isVerbose(),
     runners: instrumentedRunners,
     tasksPath,
+    phaseSuffixes,
   });
 
   if (!result.success) {
@@ -1319,6 +1416,7 @@ async function runPipelinePhases(
     // Process-owned counters: the session snapshot is empty whenever web
     // monitoring is off, so it cannot be the source of these totals.
     usage: getRunUsageTotals(),
+    verification: verificationForSummary(getSessionPublisher().snapshot().verification),
   });
 
   return {
@@ -1347,6 +1445,49 @@ interface DecideQueueInput {
  * pipeline. With several issues informed there is nothing to degrade to: the
  * user asked for a queue, so the error is reported and the run stops.
  */
+/**
+ * Confirm the queue (if needed) and spawn the same command without `--background`.
+ * The child acquires the lock with `detached: true` and writes `run.log`.
+ */
+async function detachAfterConfirm(
+  requested: string[],
+  noBranch: boolean | undefined,
+  prReview: boolean | undefined,
+  options: RunPipelineOptions,
+): Promise<number> {
+  const childFlags = [...process.argv.slice(2)];
+  if (options.yes !== true && options.only !== true) {
+    try {
+      const issuesConfig = await loadIssuesConfig();
+      const resolution = await resolveCommandIssue(requested[0] as string, undefined, {
+        config: issuesConfig,
+      });
+      if (resolution.ok) {
+        const decision = await decideQueue({
+          requested,
+          resolved: resolution.resolved,
+          noBranch: noBranch ?? false,
+          prReview: prReview ?? false,
+          runOptions: options,
+        });
+        if (decision.kind === 'stop') return decision.code;
+        if (decision.kind === 'queue' && !childFlags.includes('--yes')) childFlags.push('--yes');
+        if (decision.kind === 'single' && !childFlags.includes('--only')) childFlags.push('--only');
+      }
+    } catch {
+      // Discovery is an enrichment; a detach still starts the run that was asked for.
+    }
+  }
+
+  const paths = await resolveIssuePaths(requested[0] as string);
+  const { pid, logFile } = await spawnDetachedRun({ paths, argv: childFlags });
+  printSuccess(`Detached run started (pid ${pid}).`);
+  printInfo(`Log: ${logFile}`);
+  printInfo('Follow with: issue-flow ps');
+  printInfo(`Stop with: kill ${pid}`);
+  return 0;
+}
+
 async function decideQueue(input: DecideQueueInput): Promise<QueueDecision> {
   const primary = input.requested[0] as string;
   const single = input.requested.length === 1;
@@ -1369,7 +1510,11 @@ async function decideQueue(input: DecideQueueInput): Promise<QueueDecision> {
       planFile: queuePaths.planFile,
       noBranch: input.noBranch,
       prReview: input.prReview,
-      confirm: { yes: input.runOptions.yes, only: input.runOptions.only },
+      confirm: {
+        yes: input.runOptions.yes,
+        only: input.runOptions.only,
+        cascade: input.runOptions.cascade,
+      },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1690,6 +1835,9 @@ async function buildPrQueueContext(plan: ExecutionPlan): Promise<PrQueueContext>
       title: entry.title,
       url: entry.url,
       source: entry.source,
+      parent: entry.parent,
+      role: entry.role,
+      complete: entry.status === 'completed',
     })),
     excluded: plan.excluded.map((entry) => ({
       id: entry.id,

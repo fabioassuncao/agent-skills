@@ -45,9 +45,11 @@ export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): 
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
     addDirs: [paths.issueDir],
     statusMessage: `Analyzing issue #${issueNumber}...`,
+    phase: 'analyze',
+    permission: 'read-only',
   });
   // Before the success check: the tokens were spent either way.
-  publishPhaseMetrics('analyze', result.cost, startedAtMs);
+  publishPhaseMetrics('analyze', result.cost, startedAtMs, result.agent?.provider);
 
   if (!result.success) {
     printError(`Analysis failed: ${result.error}`);

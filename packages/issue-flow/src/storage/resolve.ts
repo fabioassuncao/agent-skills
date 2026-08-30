@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import { bindTelemetry } from '../telemetry/recorder.js';
 import { printInfo } from '../ui/logger.js';
 import { getProjectRoot } from '../utils/git.js';
 import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
@@ -11,6 +12,7 @@ import {
   getQueuePaths,
   ISSUES_DIR_NAME,
   type IssuePaths,
+  PROVIDERS_HEALTH_FILENAME,
   type QueuePaths,
   RUN_LOCK_FILENAME,
 } from './paths.js';
@@ -176,6 +178,8 @@ export interface ProjectStoragePaths {
    * different lock.
    */
   runLockFile: string;
+  /** `<projectDir>/providers.json` — persisted health/cooldown per agent provider. */
+  providersHealthFile: string;
 }
 
 /**
@@ -204,6 +208,7 @@ export async function resolveProjectPaths(
     projectDir,
     issuesDir: join(projectDir, ISSUES_DIR_NAME),
     runLockFile: join(projectDir, RUN_LOCK_FILENAME),
+    providersHealthFile: join(projectDir, PROVIDERS_HEALTH_FILENAME),
   };
 }
 
@@ -265,5 +270,6 @@ export async function resolveIssuePaths(
     checkedIssues.add(paths.issueDir);
   }
 
+  bindTelemetry({ tasksPath: paths.tasksFile });
   return paths;
 }

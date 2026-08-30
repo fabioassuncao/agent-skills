@@ -1,6 +1,6 @@
 // Interface do monitoramento web do issue-flow.
 // JS puro, sem framework e sem recursos externos — funciona offline.
-// Consome GET api/sessions, GET api/status (ETag/304) e GET api/health;
+// Consome GET api/sessions, GET api/status (ETag/304), GET api/events e GET api/health;
 // todo texto dinâmico entra via textContent (nunca innerHTML com dados
 // do snapshot).
 (() => {
@@ -79,6 +79,7 @@
     progressPercent: document.getElementById('progress-percent'),
     progressCounters: document.getElementById('progress-counters'),
     now: document.getElementById('now'),
+    resilience: document.getElementById('resilience'),
     phases: document.getElementById('phases'),
     nextSteps: document.getElementById('next-steps'),
     stories: document.getElementById('stories'),
@@ -86,6 +87,8 @@
     pullRequests: document.getElementById('pull-requests'),
     logFilter: document.getElementById('log-filter'),
     logs: document.getElementById('logs'),
+    historyFilter: document.getElementById('history-filter'),
+    history: document.getElementById('history'),
     sessionMeta: document.getElementById('session-meta'),
     tabs: Array.prototype.slice.call(document.querySelectorAll('[role="tab"]')),
     kanban: document.getElementById('kanban'),
@@ -105,6 +108,8 @@
     polling: false,
     logFilter: 'all',
     activeTab: 'tab-execution',
+    historyFilter: 'all',
+    events: [],
     // Só o id: o card que abriu o drawer é destruído no próximo render, então
     // guardar o nó levaria a uma referência morta.
     selectedStoryId: null,
@@ -116,6 +121,7 @@
     detailSessionId: null,
     viewMode: 'detail', // 'detail' | 'dashboard'
     statusUrl: 'api/status',
+    eventsUrl: null,
     // Se selectSession/clearSessionSelection chega durante um poll, reexecuta.
     pollAgain: false,
   };
@@ -372,9 +378,6 @@
       if (!stillThere) {
         state.selectedSessionId = null;
         state.etag = null;
-      } else if (sessions.length === 1) {
-        // Seleção explícita deixa de fazer sentido com uma única sessão.
-        state.selectedSessionId = null;
       }
     }
 
@@ -387,10 +390,6 @@
       return { mode: 'detail', session: null };
     }
 
-    if (sessions.length === 1) {
-      return { mode: 'detail', session: sessions[0] };
-    }
-
     return { mode: 'dashboard', session: null };
   }
 
@@ -398,9 +397,9 @@
     state.viewMode = mode;
     els.viewDashboard.hidden = mode !== 'dashboard';
     els.viewDetail.hidden = mode !== 'detail';
-    // Back só quando o usuário escolheu um card e ainda há dashboard para voltar.
+    // Back quando o usuário escolheu um card e existe uma lista para voltar.
     const showBack =
-      mode === 'detail' && state.selectedSessionId !== null && state.sessions.length >= 2;
+      mode === 'detail' && state.selectedSessionId !== null && state.sessions.length >= 1;
     els.backToDashboard.hidden = !showBack;
     if (mode === 'dashboard' && state.selectedStoryId !== null) {
       closeDrawer();
@@ -414,10 +413,17 @@
     return session.statusUrl.replace(/^\//, '');
   }
 
+  function eventsUrlFor(session) {
+    if (!session || !session.eventsUrl) return null;
+    return session.eventsUrl.replace(/^\//, '');
+  }
+
   function clearDetailState() {
     state.etag = null;
     state.snapshot = null;
     state.detailSessionId = null;
+    state.events = [];
+    state.eventsUrl = null;
   }
 
   function requestPoll() {
@@ -491,6 +497,7 @@
         state.statusUrl = nextUrl;
         state.etag = null;
       }
+      state.eventsUrl = eventsUrlFor(resolved.session);
 
       // Evita flash da sessão anterior enquanto o status novo carrega.
       if (sessionChanged || !state.snapshot) {
@@ -515,6 +522,13 @@
         state.etag = res.headers.get('ETag');
         state.snapshot = await res.json();
         render();
+      }
+      if (state.eventsUrl) {
+        const eventsRes = await fetch(state.eventsUrl, { cache: 'no-store' });
+        if (!eventsRes.ok) throw new Error('HTTP ' + eventsRes.status);
+        const entries = await eventsRes.json();
+        state.events = Array.isArray(entries) ? entries : [];
+        renderHistory();
       }
       setViewMode('detail');
       state.failures = 0;
@@ -624,7 +638,13 @@
         meta.appendChild(el('span', null, 'correção ' + session.correctionCycle));
       }
       if (session.updatedAt) {
-        meta.appendChild(el('span', null, 'atividade ' + formatAgo(session.updatedAt)));
+        meta.appendChild(
+          el('span', null, 'atividade ' + formatAgo(session.lastActivityAt || session.updatedAt)),
+        );
+      }
+      if (session.provider) meta.appendChild(el('span', null, 'provider ' + session.provider));
+      if (typeof session.attempt === 'number' && session.attempt > 0) {
+        meta.appendChild(el('span', null, 'tentativa ' + session.attempt));
       }
       card.appendChild(meta);
 
@@ -668,6 +688,7 @@
     renderRepository(snapshot);
     renderProgress(snapshot);
     renderNow(snapshot);
+    renderResilience(snapshot);
     renderPhases(snapshot);
     renderNextSteps(snapshot);
     renderStories(snapshot);
@@ -676,6 +697,7 @@
     renderDrawer(snapshot);
     renderGit(snapshot);
     renderLogs(snapshot);
+    renderHistory();
     renderMeta(snapshot);
     renderTimers();
     renderTitle(snapshot);
@@ -855,6 +877,26 @@
       grid.appendChild(since);
     }
     els.now.appendChild(grid);
+  }
+
+  function renderResilience(snapshot) {
+    clear(els.resilience);
+    const resilience = snapshot.resilience || {};
+    const grid = el('dl', 'now-grid');
+    nowRow(grid, 'Tentativa', resilience.attempt > 0 ? String(resilience.attempt) : '—');
+    nowRow(grid, 'Provider', resilience.provider || '—');
+    nowRow(grid, 'Modelo', resilience.model || '—');
+    nowRow(grid, 'Última falha', resilience.lastFailureKind || '—');
+    nowRow(
+      grid,
+      'Cooldown',
+      resilience.cooldownUntil ? formatClock(resilience.cooldownUntil) : '—',
+    );
+    const activity = resilience.lastActivityAt
+      ? formatClock(resilience.lastActivityAt) + ' (' + formatAgo(resilience.lastActivityAt) + ')'
+      : '—';
+    nowRow(grid, 'Última atividade', activity);
+    els.resilience.appendChild(grid);
   }
 
   function renderPhases(snapshot) {
@@ -1147,6 +1189,70 @@
     }
   }
 
+  const RESILIENCE_EVENTS = new Set([
+    'retry',
+    'agent:attempt',
+    'agent:activity',
+    'agent:result',
+    'failover',
+  ]);
+
+  function historyMessage(event) {
+    switch (event.type) {
+      case 'session:start':
+        return 'Sessão iniciada';
+      case 'session:end':
+        return 'Sessão encerrada: ' + event.status;
+      case 'phase:start':
+        return 'Fase iniciada: ' + event.phase;
+      case 'phase:end':
+        return 'Fase encerrada: ' + event.phase + (event.success ? ' (ok)' : ' (falhou)');
+      case 'iteration:start':
+        return 'Iteração ' + event.iteration + ' iniciada';
+      case 'iteration:end':
+        return 'Iteração ' + event.iteration + ' encerrada';
+      case 'retry':
+        return 'Retry ' + event.attempt + (event.kind ? ': ' + event.kind : '');
+      case 'agent:attempt':
+        return 'Tentativa ' + event.attempt + ' com ' + event.provider;
+      case 'agent:activity':
+        return 'Atividade recebida de ' + event.provider;
+      case 'agent:result':
+        return event.provider + (event.success ? ' concluiu a tentativa' : ' falhou: ' + (event.failureKind || 'desconhecida'));
+      case 'failover':
+        return 'Failover de ' + event.from + ' para ' + event.to + (event.reason ? ': ' + event.reason : '');
+      case 'correction:cycle':
+        return 'Ciclo de correção ' + event.cycle + '/' + event.maxCycles;
+      case 'log':
+        return event.message;
+      default:
+        return event.type;
+    }
+  }
+
+  function renderHistory() {
+    clear(els.history);
+    const entries = state.events.filter((entry) => {
+      const type = entry && entry.event && entry.event.type;
+      if (!type) return false;
+      if (state.historyFilter === 'resilience') return RESILIENCE_EVENTS.has(type);
+      if (state.historyFilter === 'pipeline') return !RESILIENCE_EVENTS.has(type);
+      return true;
+    });
+    if (entries.length === 0) {
+      els.history.appendChild(el('p', 'empty', 'Nenhum evento para exibir.'));
+      return;
+    }
+    for (const entry of entries.slice().reverse()) {
+      const event = entry.event;
+      const item = el('li', 'history-entry');
+      item.appendChild(el('span', 'log-time', formatClock(event.at)));
+      item.appendChild(el('span', 'history-type mono', event.type));
+      item.appendChild(el('span', 'history-message', historyMessage(event)));
+      els.history.appendChild(item);
+    }
+  }
+
   function renderMeta(snapshot) {
     const parts = [];
     if (snapshot.sessionId) parts.push('sessão ' + snapshot.sessionId);
@@ -1212,6 +1318,10 @@
     els.logFilter.addEventListener('change', () => {
       state.logFilter = els.logFilter.value;
       if (state.snapshot) renderLogs(state.snapshot);
+    });
+    els.historyFilter.addEventListener('change', () => {
+      state.historyFilter = els.historyFilter.value;
+      renderHistory();
     });
 
     document.addEventListener('visibilitychange', () => {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ClaudeUsage } from './core/metrics.js';
 import type { SessionSnapshot } from './core/session-state.js';
 import type { IssueMetadata, IssuesConfig } from './issues/types.js';
+import type { ExecutionRecord } from './telemetry/types.js';
 
 /**
  * Zod schemas for validating tasks.json structure, Issue metadata, headless
@@ -167,6 +168,140 @@ export const issueRunStateSchema = z.object({
   owner: runOwnerSchema.nullable().default(null),
 });
 
+const failureKindSchema = z.enum([
+  'network',
+  'timeout',
+  'stalled',
+  'rate_limit',
+  'provider_down',
+  'provider_crash',
+  'authentication',
+  'configuration',
+  'repository_state',
+  'task_execution',
+  'internal',
+  'unknown',
+]);
+
+const normalizedUsageSchema = z.object({
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  cacheReadTokens: z.number().optional(),
+  cacheCreationTokens: z.number().optional(),
+  reasoningTokens: z.number().optional(),
+  details: z.record(z.string(), z.number()).optional(),
+  source: z.enum(['provider', 'unavailable']),
+});
+
+const pricingSnapshotSchema = z.object({
+  tableVersion: z.string(),
+  modelKey: z.string(),
+  inputPerMillion: z.number(),
+  outputPerMillion: z.number(),
+  cacheReadPerMillion: z.number().optional(),
+  cacheWritePerMillion: z.number().optional(),
+  capturedAt: z.string(),
+});
+
+const costRecordSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('reported'), amount: z.number(), currency: z.literal('USD') }),
+  z.object({
+    status: z.literal('estimated'),
+    amount: z.number(),
+    currency: z.literal('USD'),
+    pricing: pricingSnapshotSchema,
+  }),
+  z.object({
+    status: z.literal('unknown'),
+    reason: z.enum(['not_reported', 'no_pricing', 'unknown_model', 'subscription', 'zero_rated']),
+  }),
+]);
+
+/**
+ * One agent invocation. Optional on the plan and without a default array:
+ * a plan that never recorded executions must not gain `[]` on rewrite.
+ */
+export const executionRecordSchema = z.object({
+  id: z.string(),
+  sessionId: z.string().nullable(),
+  purpose: z.enum([
+    'analyze',
+    'generate',
+    'prd',
+    'plan',
+    'execute',
+    'review',
+    'pr',
+    'pr-review',
+    'verify',
+  ]),
+  attempt: z.number().int().positive(),
+  trigger: z.enum(['initial', 'retry', 'fallback', 'correction', 'escalation']),
+  triggerReason: failureKindSchema.nullable(),
+  agent: z.object({
+    harness: z.string(),
+    provider: z.string().nullable(),
+    harnessVersion: z.string().nullable().optional(),
+    model: z.object({
+      requested: z.string().nullable(),
+      resolved: z.string().nullable(),
+      source: z.enum(['provider', 'config', 'unavailable']),
+    }),
+    providerSessionId: z.string().nullable(),
+  }),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  durationMs: z.number().nullable(),
+  cliDurationMs: z.number().nullable().optional(),
+  harnessStartupMs: z.number().nullable().optional(),
+  apiDurationMs: z.number().nullable().optional(),
+  ttftMs: z.number().nullable().optional(),
+  numTurns: z.number().nullable().optional(),
+  usage: normalizedUsageSchema.nullable(),
+  cost: costRecordSchema,
+  status: z.enum(['running', 'completed', 'failed', 'timeout', 'cancelled', 'interrupted']),
+  failure: z
+    .object({
+      kind: failureKindSchema,
+      message: z.string(),
+      exitCode: z.number().nullable(),
+    })
+    .nullable(),
+  stopReason: z
+    .enum([
+      'completed',
+      'failed',
+      'timeout',
+      'cancelled',
+      'max_attempts',
+      'max_cost',
+      'max_duration',
+    ])
+    .nullable()
+    .optional(),
+  iteration: z.number().int().optional(),
+  storyIds: z.array(z.string()).optional(),
+  owner: z.object({ pid: z.number().int(), host: z.string() }).nullable().optional(),
+  routingDecision: z
+    .object({
+      selected: z.string(),
+      actual: z.string().optional(),
+      candidates: z.array(z.unknown()).optional(),
+      reasonCodes: z.array(z.string()).optional(),
+    })
+    .passthrough()
+    .nullable()
+    .optional(),
+  verdict: z
+    .object({
+      status: z.enum(['passed', 'failed', 'unverified']),
+      level: z.string().nullable().optional(),
+      independence: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+}) satisfies z.ZodType<ExecutionRecord>;
+
 export const taskPlanSchema = z.object({
   project: z.string(),
   issueNumber: z.union([z.number().int().positive(), z.string().min(1)]),
@@ -197,6 +332,11 @@ export const taskPlanSchema = z.object({
   pullRequest: pullRequestRefSchema.optional(),
   prReview: prReviewStateSchema.optional(),
   userStories: z.array(userStorySchema),
+  /**
+   * Per-invocation history. `.optional()` and no `.default([])`: a plan that
+   * predates the field must not grow an empty array just because it was saved.
+   */
+  executions: z.array(executionRecordSchema).optional(),
 });
 
 export const headlessResultSchema = z.object({
@@ -236,6 +376,12 @@ const sessionPhaseSchema = z.object({
   endedAt: z.string().nullable(),
   durationSeconds: z.number().nullable(),
   error: z.string().nullable(),
+  harnessExecutionMs: z.number().nullable().default(null),
+  orchestrationOverheadMs: z.number().nullable().default(null),
+  harnessStartupMs: z.number().nullable().default(null),
+  ttftMs: z.number().nullable().default(null),
+  attemptCount: z.number().nullable().default(null),
+  retryDurationMs: z.number().nullable().default(null),
   ...sessionUsageShape,
 });
 
@@ -334,6 +480,42 @@ export const sessionSnapshotSchema = z.object({
     correctionCycle: z.number(),
     maxCorrectionCycles: z.number().nullable(),
   }),
+  // Additive resilience projection. Every field defaults so session.json from
+  // before provider failover/observability remains readable without a schema
+  // version bump.
+  resilience: z
+    .object({
+      attempt: z.number().int().nonnegative().default(0),
+      provider: z.string().nullable().default(null),
+      model: z.string().nullable().default(null),
+      lastFailureKind: z
+        .enum([
+          'network',
+          'timeout',
+          'stalled',
+          'rate_limit',
+          'provider_down',
+          'provider_crash',
+          'authentication',
+          'configuration',
+          'repository_state',
+          'task_execution',
+          'internal',
+          'unknown',
+        ])
+        .nullable()
+        .default(null),
+      cooldownUntil: z.string().nullable().default(null),
+      lastActivityAt: z.string().nullable().default(null),
+    })
+    .default({
+      attempt: 0,
+      provider: null,
+      model: null,
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: null,
+    }),
   git: z.object({
     branch: z.string().nullable(),
     baseBranch: z.string().nullable(),
@@ -357,7 +539,24 @@ export const sessionSnapshotSchema = z.object({
   warnings: z.array(sessionLogEntrySchema),
   lastError: z.object({ message: z.string(), at: z.string() }).nullable(),
   nextSteps: z.array(z.string()),
-  environment: z.object({ node: z.string(), platform: z.string() }).nullable(),
+  environment: z
+    .object({
+      node: z.string(),
+      platform: z.string(),
+      agent: z.string().nullable().default(null),
+      model: z.string().nullable().default(null),
+    })
+    .nullable(),
+  // Additive: a session.json written before the acceptance contract existed
+  // parses as "not reported". schemaVersion stays 1.
+  verification: z
+    .object({
+      verdict: z.enum(['passed', 'failed', 'unverified']).nullable(),
+      level: z.string().nullable(),
+      independence: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
 }) satisfies z.ZodType<SessionSnapshot>;
 
 /**
@@ -419,5 +618,55 @@ export type ValidatedTaskPlan = z.infer<typeof taskPlanSchema>;
 export type ValidatedIssueMetadata = z.infer<typeof issueMetadataSchema>;
 export type ValidatedHeadlessResult = z.infer<typeof headlessResultSchema>;
 export type ValidatedSessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
+export const verifyCheckSchema = z.object({
+  id: z.string().min(1),
+  run: z.string().optional(),
+  expectFiles: z.array(z.string()).optional(),
+  fatal: z.boolean().optional(),
+});
+
+export const verifyConfigSchema = z.object({
+  level: z.enum(['L0', 'L1', 'L2', 'L3', 'L5']).default('L1'),
+  triggers: z.array(z.string()).default([]),
+  pairings: z.record(z.string(), z.string()).default({}),
+  contract: z.array(verifyCheckSchema).optional(),
+  crossVerify: z.boolean().default(true),
+});
+
 export type WebConfig = z.infer<typeof webConfigSchema>;
 export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
+export const routingConfigSchema = z.object({
+  mode: z.enum(['off', 'shadow', 'recommend', 'active']).default('shadow'),
+  profile: z.enum(['economy', 'balanced', 'quality', 'speed']).default('balanced'),
+  escalation: z
+    .object({
+      enabled: z.boolean().default(false),
+      minAttemptsBeforeEscalation: z.number().int().positive().default(2),
+      maxEscalations: z.number().int().nonnegative().default(2),
+      maxRungs: z
+        .array(z.enum(['effort', 'model', 'harness', 'review', 'decompose']))
+        .default(['effort', 'model', 'harness']),
+    })
+    .default({
+      enabled: false,
+      minAttemptsBeforeEscalation: 2,
+      maxEscalations: 2,
+      maxRungs: ['effort', 'model', 'harness'],
+    }),
+  ceilings: z
+    .object({
+      maxCostUsdPerIssue: z.number().nonnegative().nullable().default(null),
+      maxDurationMsPerIssue: z.number().nonnegative().nullable().default(null),
+      maxExecutionsPerIssue: z.number().int().nonnegative().nullable().default(null),
+      onCeiling: z.literal('block').default('block'),
+    })
+    .default({
+      maxCostUsdPerIssue: null,
+      maxDurationMsPerIssue: null,
+      maxExecutionsPerIssue: null,
+      onCeiling: 'block',
+    }),
+});
+
+export type VerifyConfig = z.infer<typeof verifyConfigSchema>;
+export type RoutingConfig = z.infer<typeof routingConfigSchema>;

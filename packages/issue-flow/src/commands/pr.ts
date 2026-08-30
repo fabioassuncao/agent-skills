@@ -1,4 +1,9 @@
 import { execa } from 'execa';
+import {
+  issueReferenceLines,
+  pullRequestTitle,
+  resolveChangeType,
+} from '../conventions/git/index.js';
 import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
 import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
@@ -8,6 +13,7 @@ import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
@@ -35,11 +41,15 @@ function parsePrNumber(url: string): number | null {
  * counterpart: GitHub only understands the reference for Issues it hosts, and
  * an invented `#N` would silently point at an unrelated Issue.
  */
-function issueClosesLine(issue: Issue, fallbackId: string): string {
+function issueClosesLine(issue: Issue, fallbackId: string, complete: boolean): string {
   if (issue.remoteRef === null) {
     return '';
   }
-  return `Closes #${issue.number ?? fallbackId}`;
+  const number = issue.number ?? (/^\d+$/.test(fallbackId) ? Number(fallbackId) : null);
+  if (number === null) {
+    return '';
+  }
+  return issueReferenceLines({ references: [{ number, complete }] });
 }
 
 /** One Issue of a queue, as the consolidated Pull Request has to describe it. */
@@ -51,6 +61,10 @@ export interface PrQueueIssue {
   url: string | null;
   /** Origin the Issue came from; `github` is what GitHub can close. */
   source: IssueSource;
+  parent?: string | null;
+  role?: 'executable' | 'container';
+  /** When false, the body uses `Refs` instead of `Closes`. */
+  complete?: boolean;
 }
 
 /**
@@ -92,10 +106,14 @@ function issueRef(entry: { id: string; number: number | null }): string {
  * out of the very body that is supposed to reference it.
  */
 export function issueClosesLines(issues: readonly PrQueueIssue[]): string {
-  return issues
-    .filter((entry) => entry.source === 'github' && entry.number !== null)
-    .map((entry) => `Closes #${entry.number}`)
-    .join('\n');
+  return issueReferenceLines({
+    references: issues
+      .filter((entry) => entry.source === 'github' && entry.number !== null)
+      .map((entry) => ({
+        number: entry.number as number,
+        complete: entry.complete !== false,
+      })),
+  });
 }
 
 /**
@@ -111,10 +129,24 @@ export function multiIssueContext(queue: PrQueueContext | undefined): string {
     return '';
   }
 
+  const byId = new Map(queue.issues.map((entry) => [entry.id, entry]));
+  const depthOf = (entry: PrQueueIssue): number => {
+    let depth = 0;
+    let parent = entry.parent ?? null;
+    const seen = new Set<string>();
+    while (parent !== null && !seen.has(parent)) {
+      seen.add(parent);
+      depth += 1;
+      parent = byId.get(parent)?.parent ?? null;
+    }
+    return depth;
+  };
   const order = queue.issues
-    .map(
-      (entry, index) => `${index + 1}. ${issueRef(entry)}${entry.title ? ` — ${entry.title}` : ''}`,
-    )
+    .map((entry, index) => {
+      const indent = '  '.repeat(depthOf(entry));
+      const role = entry.role === 'container' ? ' (container)' : '';
+      return `${index + 1}. ${indent}${issueRef(entry)}${entry.title ? ` — ${entry.title}` : ''}${role}`;
+    })
     .join('\n');
 
   const pending = [
@@ -233,6 +265,28 @@ export async function runPr(
   const queue = options.queue;
   const consolidating = queue !== undefined && queue.issues.length > 1;
 
+  let planComplete = false;
+  try {
+    const existing = await loadTaskPlan(tasksPath);
+    planComplete =
+      existing.userStories.every((story) => story.passes) &&
+      (existing.lastReviewFindings === null || existing.lastReviewFindings === '');
+  } catch {
+    planComplete = false;
+  }
+
+  const policy = await loadRepositoryPolicy();
+  const change = resolveChangeType({
+    labels: resolution.resolved.issue.labels,
+    title: resolution.resolved.issue.title,
+    titleConvention: policy.issues.titleConvention,
+    typeMap: policy.git.typeMap,
+  });
+  const prTitle = pullRequestTitle({
+    type: change.type,
+    subject: resolution.resolved.issue.title.replace(/^\s*\[[^\]]+\]\s*/, ''),
+  });
+
   const template = await loadPrompt('pr');
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
@@ -241,9 +295,10 @@ export async function runPr(
     __ISSUE_NUMBER__: issueNumber,
     __BRANCH_NAME__: branchName,
     __TASKS_PATH__: tasksPath,
-    __ISSUE_CLOSES__: consolidating
+    __PR_TITLE_CONVENTION__: prTitle,
+    __ISSUE_REFERENCE__: consolidating
       ? issueClosesLines(queue.issues)
-      : issueClosesLine(resolution.resolved.issue, issueNumber),
+      : issueClosesLine(resolution.resolved.issue, issueNumber, planComplete),
     __MULTI_ISSUE_CONTEXT__: multiIssueContext(queue),
     ...issuePlaceholders(resolution.resolved),
   });
@@ -258,20 +313,26 @@ export async function runPr(
         prompt,
         maxTurns: 15,
         timeout: getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS,
+        timeoutHistory: {
+          phase: 'pr',
+          journalFiles: [paths.rotatedEventsFile, paths.eventsFile],
+        },
         // json (not text) so the CLI reports usage: the envelope's `result`
         // field carries the same assistant text parsePrUrl() already consumed.
         outputFormat: 'json',
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
         addDirs: [paths.issueDir],
         statusMessage: `Creating PR for issue #${issueNumber}...`,
+        phase: 'pr',
+        permission: 'workspace',
       });
       // One event per attempt; the reducer sums them into the phase total.
-      publishPhaseMetrics('pr', result.cost, startedAtMs);
+      publishPhaseMetrics('pr', result.cost, startedAtMs, result.agent?.provider);
 
       if (!result.success) {
         return {
           ok: false,
-          transient: isTransientFailure(1, result.error ?? ''),
+          transient: result.retryExhausted !== true && isTransientFailure(1, result.error ?? ''),
           error: `PR creation failed: ${result.error}`,
         };
       }
@@ -287,19 +348,34 @@ export async function runPr(
   }
 
   const prUrl = parsePrUrl(headlessOutput);
+  const parsedPrNumber = prUrl === null ? null : parsePrNumber(prUrl);
+  let pullRequest =
+    prUrl === null || parsedPrNumber === null ? null : { number: parsedPrNumber, url: prUrl };
+
+  // The agent may create the Pull Request successfully but omit (or mangle)
+  // its URL in the final answer. Ask GitHub again after the side effect so the
+  // durable plan never loses a trustworthy PR that now exists for this branch.
+  if (pullRequest === null) {
+    try {
+      const [discovered] = await listPullRequests(branchName, { state: 'open' });
+      if (discovered !== undefined) {
+        pullRequest = { number: discovered.number, url: discovered.url };
+      }
+    } catch {
+      // With no trustworthy answer, keep the historical successful-but-unlinked state.
+    }
+  }
 
   // Update pipeline state
   try {
     const plan = await loadTaskPlan(tasksPath);
     plan.pipeline.prCreated = true;
-    const prNumber = prUrl === null ? null : parsePrNumber(prUrl);
-    // Without a URL the PR is still assumed created (the phase succeeded), but
-    // there is nothing trustworthy to record: an invented number would send
-    // `pr-review` at an unrelated Pull Request.
-    if (prUrl !== null && prNumber !== null) {
+    // Without an output URL or a post-create GitHub match the PR is still
+    // assumed created (the phase succeeded), but no number is invented.
+    if (pullRequest !== null) {
       plan.pullRequest = {
-        number: prNumber,
-        url: prUrl,
+        number: pullRequest.number,
+        url: pullRequest.url,
         headBranch: branchName,
         createdAt: isoNow(),
       };
@@ -309,8 +385,8 @@ export async function runPr(
     // tasks.json may not exist
   }
 
-  if (prUrl) {
-    printSuccess(`PR created: ${prUrl}`);
+  if (pullRequest !== null) {
+    printSuccess(`PR created: ${pullRequest.url}`);
   } else {
     printSuccess('PR creation completed');
   }

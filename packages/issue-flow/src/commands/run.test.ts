@@ -149,6 +149,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 import { execa } from 'execa';
 import { parseJournal } from '../core/journal.js';
 import { listPullRequests } from '../core/session-git.js';
+import { getSessionPublisher } from '../core/session-publisher.js';
 import { MemoryPublisher, NullPublisher, type SessionSnapshot } from '../core/session-state.js';
 import { beginShutdown, resetShutdownState } from '../core/shutdown.js';
 import type { IssueProvider } from '../issues/provider.js';
@@ -326,6 +327,21 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(existsSync(join(tmp, 'issues'))).toBe(false);
   });
 
+  it('sem --web o reducer roda em memória e o disco continua intocado', async () => {
+    let publisherName = '';
+    vi.mocked(runExecute).mockImplementationOnce(async () => {
+      publisherName = getSessionPublisher().constructor.name;
+      return 0;
+    });
+
+    const { code } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(publisherName).toBe('MemoryPublisher');
+    expect(existsSync((await globalPaths()).sessionFile)).toBe(false);
+    expect(existsSync((await globalPaths()).issueDir)).toBe(false);
+  });
+
   it('saída do terminal é idêntica com e sem --web (exceto a URL do servidor)', async () => {
     const { code: offCode, lines: offLines } = await runCaptured();
     expect(offCode).toBe(0);
@@ -379,6 +395,32 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(snapshot.phases.every((p) => p.status === 'completed')).toBe(true);
     // Nada foi escrito na árvore de trabalho: o artefato de runtime saiu do repo.
     expect(existsSync(join(tmp, 'issues'))).toBe(false);
+  });
+
+  it('publica as stories assim que plan termina, antes de execute começar', async () => {
+    setWebCliOverrides({ enabled: true, port: await getFreePort() });
+    vi.mocked(runPlan).mockImplementationOnce(async () => {
+      const paths = await globalPaths();
+      await mkdir(paths.issueDir, { recursive: true });
+      await writeFile(
+        paths.tasksFile,
+        JSON.stringify(makePlan({ userStories: [makeStory()] }), null, 2),
+        'utf-8',
+      );
+      return 0;
+    });
+    let storiesAtExecuteStart: string[] = [];
+    vi.mocked(runExecute).mockImplementationOnce(async () => {
+      storiesAtExecuteStart = getSessionPublisher()
+        .snapshot()
+        .stories.map((story) => story.id);
+      return 0;
+    });
+
+    const { code } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(storiesAtExecuteStart).toEqual(['US-001']);
   });
 
   it('matar o servidor durante a execução não afeta o pipeline', async () => {
@@ -544,11 +586,27 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(snapshot.issue.number).toBeNull();
   });
 
+  it('recusa --background com --mode manual sem destacar nada', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    try {
+      const code = await runPipeline('42', 'manual', undefined, undefined, undefined, {
+        background: true,
+      });
+      expect(code).toBe(1);
+      expect(lines.join('\n')).toMatch(/manual/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('sem flags, a checagem de pré-requisitos roda com a origem github', async () => {
     const { code } = await runCaptured();
 
     expect(code).toBe(0);
-    expect(vi.mocked(runInit)).toHaveBeenCalledWith('github');
+    expect(vi.mocked(runInit)).toHaveBeenCalledWith('github', { compact: true });
   });
 
   it('com --local, a checagem de pré-requisitos roda com a origem local (US-011)', async () => {
@@ -557,7 +615,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     const { code } = await runCaptured();
 
     expect(code).toBe(0);
-    expect(vi.mocked(runInit)).toHaveBeenCalledWith('local');
+    expect(vi.mocked(runInit)).toHaveBeenCalledWith('local', { compact: true });
   });
 });
 

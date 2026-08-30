@@ -318,7 +318,7 @@ describe('sessionSnapshotSchema', () => {
       branch: 'issue/22-test',
       baseBranch: 'main',
       phases: ['init', 'prd', 'execute'],
-      environment: { node: 'v22.0.0', platform: 'darwin' },
+      environment: { node: 'v22.0.0', platform: 'darwin', agent: null, model: null },
     });
     snap = reduceSessionEvent(snap, {
       type: 'phase:start',
@@ -446,6 +446,12 @@ describe('backwards compatibility with pre-metrics artifacts', () => {
       costUsd: null,
       // The pre-existing fields are untouched.
       durationSeconds: 1800,
+      harnessExecutionMs: null,
+      orchestrationOverheadMs: null,
+      harnessStartupMs: null,
+      ttftMs: null,
+      attemptCount: null,
+      retryDurationMs: null,
     });
     expect(snapshot.stories[0]).toMatchObject({
       durationSeconds: null,
@@ -477,6 +483,19 @@ describe('backwards compatibility with pre-metrics artifacts', () => {
       branch: null,
       headCommit: null,
       root: null,
+    });
+  });
+
+  it('fills the absent resilience projection of an older session.json', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    expect(snapshot.resilience).toEqual({
+      attempt: 0,
+      provider: null,
+      model: null,
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: null,
     });
   });
 

@@ -29,8 +29,14 @@ never had them must not gain artificial nulls on a round trip.
   publish. Anything accumulated per story by other events (`completedAt`,
   metrics) must be copied over from the `previous` map, or the next update
   wipes it.
+- `verification` on the snapshot is additive (`verify:end`). Absent
+  session.json parses as `null` (`.default(null)`). `unverified` is a
+  first-class verdict, never presented as verified success.
 - A phase's `durationSeconds` comes only from `phase:start`/`phase:end`. Other
-  events carrying a duration must not write it.
+  events carrying a duration must not write it. Additive timing on the same
+  event (`harnessExecutionMs`, `orchestrationOverheadMs`, `harnessStartupMs`,
+  `ttftMs`, `attemptCount`, `retryDurationMs`) is optional: absent stays
+  `null` (`.default(null)` in `src/schemas.ts`). `schemaVersion` stays `1`.
 - `issue:update` **merges** over the `issue` section: `number` and `url` fall
   back to what `session:start` published (`event.x ?? snapshot.issue.x`), so an
   origin with no remote never erases an identifier the run already knew. The
@@ -76,6 +82,10 @@ never had them must not gain artificial nulls on a round trip.
   for a dashboard and useless for an audit — after a six-hour run, "what
   happened at 3am" has no answer. The journal writes the events themselves, one
   JSON line each, in order, with a monotonic `seq`.
+- **Agent output is activity, not a heartbeat guess.** `agent:activity` is
+  published from each runner `onLine` callback and feeds
+  `snapshot.resilience.lastActivityAt`; filesystem mtime and `updatedAt` are
+  transport/projection timestamps and must not replace it in the dashboard.
 - **It sits *beside* `FilePublisher`, never in its place.** `MultiPublisher`
   holds both and fans one event stream out; `snapshot()` and `version()` answer
   from the first member, so the dashboard reads exactly what it always read.
@@ -164,6 +174,12 @@ and the working tree is **clean**.
   only dependency shape derivable from the plan alone; anything more would be a
   guess dressed as a plan.
 
+`runHeadless` and `executeClaude` stay the facades seven commands and the
+engine talk to. Argv and stream parsing live in `src/agents/` — see
+[`src/agents/AGENTS.md`](../agents/AGENTS.md). The default agent is Claude,
+and an unconfigured invocation produces the same argv this project has always
+used (`workspace` for `runHeadless`, `autonomous` for `executeClaude`).
+
 ## executor.ts output contract
 
 On the happy path (`exitCode === 0` and parseable JSON envelope),
@@ -242,11 +258,20 @@ and the README documented a third number. The execute loop is the deliberate
 exception, running with `timeout: 0` (`executor.ts`) because its iteration
 budget is what bounds it.
 
+Before decomposition, `runHeadless` reads the issue journal for the phase's
+timeout history. Two recorded timeouts widen that shared/user-provided ceiling
+to **2×**, never more: the multiplier is capped, not compounded, and
+`--timeout 0` remains the off switch. The phase and journal paths arrive via
+`HeadlessOptions.timeoutHistory`; inferring either from prompt text or an
+`addDirs` entry would couple execution policy to presentation/path ordering.
+
 ## Parsing CLI metrics
 
 All token/cost parsing goes through `core/metrics.ts` (`parseUsage`,
 `sumUsage`, `formatTokens`). Do not read `total_cost_usd` / `usage.*` directly
 from a call site — that is exactly how the three call sites diverged before.
+Per-invocation history lives in `src/telemetry/` and is written only by
+`recorder.ts`; see that module's `AGENTS.md`.
 
 `runHeadless` only ever returns a non-null `cost` when it can see the CLI's
 JSON: `outputFormat: 'json'`, or the verbose path (`stream-json`).
@@ -268,10 +293,12 @@ the phase total.
 
 `session-metrics.ts` also keeps process-owned counters (`getRunUsageTotals`,
 `getPhaseUsageTotals`), fed by the same `publishPhaseMetrics` /
-`publishIterationMetrics` calls. The session snapshot cannot be the source for
-anything printed to the terminal: with web monitoring off the publisher is a
-`NullPublisher` and its snapshot stays empty, so the numbers would vanish
-exactly in the default mode. Story-scoped usage is deliberately **not**
+`publishIterationMetrics` calls. The session snapshot is what the clean terminal view renders
+(`src/ui/status-view.ts`), because `run` now installs a `MemoryPublisher` even
+when `--web` is off. Cost totals in the end-of-run summary box still come from
+the process-owned counters: they predate the always-on reducer and stay the
+source of `printSummaryBox` so a standalone phase command without a publisher
+does not print zeros. Story-scoped usage is deliberately **not**
 recorded there — it is a rateio of an iteration already counted, same
 anti-double-counting rule as the reducer.
 
@@ -325,7 +352,7 @@ which is what the retry backoff waits on since the loop delegated to
 `resilience/retry.ts:withRetry`.
 
 Both artifacts are user-facing contracts: any new field on `SessionSnapshot` or
-`UserStory` also belongs in the root `README.md` (`Web Monitoring →
-session.json` for the snapshot, `Pipeline State & File Structure` for
-`tasks.json`), which documents each field's meaning and states that `null` /
-absent means "not reported", never zero.
+`UserStory` also belongs in [`docs/storage.md`](../../../../docs/storage.md)
+(`session.json` for the snapshot, `tasks.json` for the plan), which documents
+each field's meaning and states that `null` / absent means "not reported",
+never zero.

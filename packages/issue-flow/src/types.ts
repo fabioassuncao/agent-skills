@@ -4,6 +4,7 @@
  */
 
 import type { ClaudeUsage } from './core/metrics.js';
+import type { ExecutionRecord } from './telemetry/types.js';
 
 /**
  * Granular lifecycle state of a story, for consumers that need more than the
@@ -217,6 +218,11 @@ export interface TaskPlan {
   /** Written by the `pr-review` phase; absent while the phase never ran. */
   prReview?: PrReviewState;
   userStories: UserStory[];
+  /**
+   * One row per agent invocation. Additive and optional: a plan written
+   * before this field has none, and absent is not the same as `[]`.
+   */
+  executions?: ExecutionRecord[];
 }
 
 export interface EngineConfig {
@@ -235,6 +241,11 @@ export interface EngineConfig {
    * Absent means the historical format, `feat: [Story ID] - [Story Title]`.
    */
   commitScope?: string;
+  /**
+   * How many related stories the execute agent may close in one session.
+   * Default `1` is the historical "ONE story per iteration".
+   */
+  storiesPerIteration?: number;
 }
 
 export interface ResolvedPaths {

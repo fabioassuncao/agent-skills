@@ -30,6 +30,11 @@ export interface Issue {
   title: string;
   body: string;
   labels: string[];
+  /**
+   * GitHub Issue Type (`Epic`, `Feature`, …), when the origin reports one.
+   * Absent means "not reported", never a default.
+   */
+  type?: string | null;
   state: IssueState;
   source: IssueSource;
   /** Remote reference (URL for GitHub), `null` when the Issue has no remote. */

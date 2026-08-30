@@ -21,11 +21,9 @@ export function elapsedSecondsSince(startedAtMs: number): number {
 /**
  * Process-owned totals, accumulated alongside every published event.
  *
- * The session snapshot cannot be the source of the terminal summary: with web
- * monitoring off the publisher is a `NullPublisher` and its snapshot stays
- * empty, so the numbers would silently vanish exactly in the default mode.
- * These counters live in the process and are therefore independent of any
- * publisher.
+ * The session snapshot now stays populated without `--web` (`MemoryPublisher`),
+ * but the end-of-run summary box still reads these process-owned counters so a
+ * standalone phase command (no publisher installed) does not print zeros.
  *
  * Only phase- and iteration-scoped usage is recorded. Story metrics are a
  * rateio of an iteration already counted here — adding them would double the
@@ -34,10 +32,11 @@ export function elapsedSecondsSince(startedAtMs: number): number {
 interface UsageAccumulator {
   all: ClaudeUsage;
   byPhase: Map<string, ClaudeUsage>;
+  byAgent: Map<string, ClaudeUsage>;
 }
 
 function createAccumulator(): UsageAccumulator {
-  return { all: {}, byPhase: new Map() };
+  return { all: {}, byPhase: new Map(), byAgent: new Map() };
 }
 
 /**
@@ -59,10 +58,12 @@ function current(): UsageAccumulator {
   return scopes[scopes.length - 1] as UsageAccumulator;
 }
 
-function recordRunUsage(phase: string, usage: ClaudeUsage): void {
+function recordRunUsage(phase: string, usage: ClaudeUsage, providerId?: string): void {
   for (const scope of scopes) {
     scope.all = sumUsage(scope.all, usage);
     scope.byPhase.set(phase, sumUsage(scope.byPhase.get(phase), usage));
+    const agent = providerId ?? 'claude';
+    scope.byAgent.set(agent, sumUsage(scope.byAgent.get(agent), usage));
   }
 }
 
@@ -139,10 +140,11 @@ export function publishPhaseMetrics(
   phase: string,
   usage: ClaudeUsage | null | undefined,
   startedAtMs?: number,
+  providerId?: string,
 ): void {
   if (usage == null || !hasUsageData(usage)) return;
 
-  recordRunUsage(phase, usage);
+  recordRunUsage(phase, usage, providerId);
 
   getSessionPublisher().publish({
     type: 'metrics:update',
@@ -173,10 +175,11 @@ export function publishIterationMetrics(
   iteration: number,
   usage: ClaudeUsage | null | undefined,
   durationSeconds?: number,
+  providerId?: string,
 ): void {
   if (usage == null || !hasUsageData(usage)) return;
 
-  recordRunUsage(EXECUTE_PHASE, usage);
+  recordRunUsage(EXECUTE_PHASE, usage, providerId);
 
   getSessionPublisher().publish({
     type: 'metrics:update',

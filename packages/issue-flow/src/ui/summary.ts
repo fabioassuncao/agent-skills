@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { type ClaudeUsage, formatTokens } from '../core/metrics.js';
+import { groupBy, summarize } from '../telemetry/aggregate.js';
 import type { EngineConfig, PrReviewRecommendation, TaskPlan } from '../types.js';
 import {
   formatDuration,
@@ -82,7 +83,17 @@ export function printBox(lines: string[]): void {
 /**
  * Print the startup header box showing engine configuration.
  */
-export function printStartupHeader(config: EngineConfig, plan: TaskPlan): void {
+export interface StartupAgentInfo {
+  provider: string;
+  model?: string | null;
+  detail?: string;
+}
+
+export function printStartupHeader(
+  config: EngineConfig,
+  plan: TaskPlan,
+  agent?: StartupAgentInfo,
+): void {
   const icons = getIcons();
 
   const storiesTotal = plan.userStories.length;
@@ -98,7 +109,7 @@ export function printStartupHeader(config: EngineConfig, plan: TaskPlan): void {
     ? 'unlimited retries'
     : `${config.retryLimit} consecutive retries`;
 
-  printBox([
+  const lines = [
     `${icons.start} Issue Flow`,
     '---',
     `Issue:       ${issueLabel}`,
@@ -106,11 +117,22 @@ export function printStartupHeader(config: EngineConfig, plan: TaskPlan): void {
     `Stories:     ${storiesPassing}/${storiesTotal} passing`,
     `Iterations:  ${maxIterLabel}`,
     `Retries:     ${retryLabel}`,
-  ]);
+  ];
+  const remaining = storiesTotal - storiesPassing;
+  if (remaining > 0) {
+    // p50 of execute on the #79 baseline (US-009/US-010 mean, single observation).
+    const p50ExecuteSeconds = 518;
+    lines.push(
+      `Estimate:    ~${formatDuration(remaining * p50ExecuteSeconds)} (${remaining} × p50 execute)`,
+    );
+  }
+  if (agent) {
+    const model = agent.model ? ` · ${agent.model}` : '';
+    const detail = agent.detail ? ` (${agent.detail})` : '';
+    lines.push(`Agent:       ${agent.provider}${model}${detail}`);
+  }
+  printBox(lines);
 }
-
-// Re-export formatDuration from logger to maintain backwards compatibility
-export { formatDuration } from './logger.js';
 
 /**
  * Print the final summary box.
@@ -129,6 +151,7 @@ export function printSummaryBox(
    * empty means "the CLI reported nothing", and the line is skipped entirely.
    */
   usage?: ClaudeUsage | null,
+  usageByAgent?: Record<string, ClaudeUsage>,
 ): void {
   const icons = getIcons();
 
@@ -163,10 +186,8 @@ export function printSummaryBox(
     `Duration:    ${duration}`,
   ];
 
-  const tokens = formatTokens(usage);
-  if (tokens !== '') {
-    boxLines.push(`Tokens:      ${tokens}`);
-  }
+  boxLines.push(...tokenBoxLines(usage, usageByAgent));
+  boxLines.push(...executionCostLines(plan));
 
   boxLines.push(`Retries:     ${totalRetries}`);
 
@@ -210,6 +231,79 @@ export interface RunSummaryInfo {
    * `core/session-metrics.ts`. Absent or empty omits the line.
    */
   usage?: ClaudeUsage | null;
+  /** When more than one agent ran, the summary prints one Tokens line each. */
+  usageByAgent?: Record<string, ClaudeUsage>;
+  /** Acceptance-contract verdict. Absent when the contract never ran. */
+  verification?: { verdict: 'passed' | 'failed' | 'unverified'; level?: string | null } | null;
+}
+
+function executionCostLines(plan: TaskPlan, prefix = 'Cost:        '): string[] {
+  const records = plan.executions ?? [];
+  if (records.length === 0) return [];
+  const lines: string[] = [];
+  const groups = groupBy(records, 'harness');
+  let index = 0;
+  const pad = ' '.repeat(prefix.length);
+  for (const [harness, summary] of groups) {
+    const parts: string[] = [];
+    if (summary.totalCost.reported > 0) {
+      parts.push(`$${summary.totalCost.reported.toFixed(4)} reported`);
+    }
+    if (summary.totalCost.estimated > 0) {
+      parts.push(`$${summary.totalCost.estimated.toFixed(4)} estimated`);
+    }
+    if (summary.totalCost.unknownExecutions > 0) {
+      parts.push(`${summary.totalCost.unknownExecutions} unknown`);
+    }
+    if (parts.length === 0) {
+      const totals = summarize(records).totalCost;
+      if (totals.reported === 0 && totals.estimated === 0) {
+        parts.push('not reported');
+      }
+    }
+    if (parts.length === 0) continue;
+    lines.push(`${index === 0 ? prefix : pad}${harness} · ${parts.join(' · ')}`);
+    index += 1;
+  }
+  return lines;
+}
+
+function tokenBoxLines(
+  usage?: ClaudeUsage | null,
+  usageByAgent?: Record<string, ClaudeUsage>,
+): string[] {
+  const agents = usageByAgent ? Object.keys(usageByAgent) : [];
+  if (agents.length > 1) {
+    const lines: string[] = [];
+    for (const [index, id] of agents.entries()) {
+      const tokens = formatTokens(usageByAgent?.[id]);
+      if (tokens === '') continue;
+      lines.push(index === 0 ? `Tokens:      ${id} · ${tokens}` : `             ${id} · ${tokens}`);
+    }
+    return lines;
+  }
+  const tokens = formatTokens(usage);
+  return tokens === '' ? [] : [`Tokens:      ${tokens}`];
+}
+
+function tokenSummaryLines(
+  usage?: ClaudeUsage | null,
+  usageByAgent?: Record<string, ClaudeUsage>,
+  prefix = '  Tokens:   ',
+): string[] {
+  const agents = usageByAgent ? Object.keys(usageByAgent) : [];
+  if (agents.length > 1) {
+    const pad = ' '.repeat(prefix.length);
+    const lines: string[] = [];
+    for (const [index, id] of agents.entries()) {
+      const tokens = formatTokens(usageByAgent?.[id]);
+      if (tokens === '') continue;
+      lines.push(`${index === 0 ? prefix : pad}${id} · ${tokens}`);
+    }
+    return lines;
+  }
+  const tokens = formatTokens(usage);
+  return tokens === '' ? [] : [`${prefix}${tokens}`];
 }
 
 /**
@@ -226,15 +320,20 @@ export function buildRunSummaryLines(info: RunSummaryInfo): string[] {
     `  Duration: ${formatDuration(info.elapsedSeconds)}`,
   ];
 
-  // Skipped altogether when the CLI reported nothing — better no line than
-  // "0 in / 0 out" or "~$NaN".
-  const tokens = formatTokens(info.usage);
-  if (tokens !== '') {
-    lines.push(`  Tokens:   ${tokens}`);
-  }
+  lines.push(...tokenSummaryLines(info.usage, info.usageByAgent));
 
   if (!info.noBranch) {
     lines.push(`  PR:       ${info.prUrl}`);
+  }
+
+  if (info.verification != null) {
+    const label =
+      info.verification.verdict === 'passed'
+        ? 'passed'
+        : info.verification.verdict === 'failed'
+          ? 'failed'
+          : 'unverified';
+    lines.push(`  Contract: ${label}`);
   }
 
   const review = info.prReview;
@@ -350,6 +449,14 @@ export function printRunSummary(info: RunSummaryInfo): void {
   if (info.prReview?.requestedChanges) {
     printWarning(
       `Pipeline finished for issue #${info.issueNumber}, but the PR review requested changes.`,
+    );
+  } else if (info.verification?.verdict === 'unverified') {
+    printWarning(
+      `Pipeline finished for issue #${info.issueNumber}, but the acceptance contract is unverified.`,
+    );
+  } else if (info.verification?.verdict === 'failed') {
+    printWarning(
+      `Pipeline finished for issue #${info.issueNumber}, but the acceptance contract failed.`,
     );
   } else {
     printSuccess(`Pipeline complete for issue #${info.issueNumber}!`);

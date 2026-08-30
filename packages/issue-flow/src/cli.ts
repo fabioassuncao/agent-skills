@@ -1,12 +1,21 @@
 import { createRequire } from 'node:module';
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, InvalidArgumentError, Option } from 'commander';
+import { parseAgentPhaseFlag } from './agents/resolve.js';
+import { type AgentCliOverrides, isAgentProviderId } from './agents/types.js';
 import {
   CliFlagError,
   resolveQueueScopeFlags,
   resolveRunPhaseFlags,
   resolveUserStoryNumberingFlags,
 } from './cli-options.js';
-import { setIssuesCliOverrides, setResilienceCliOverrides, setWebCliOverrides } from './config.js';
+import {
+  setAgentCliOverrides,
+  setIssuesCliOverrides,
+  setResilienceCliOverrides,
+  setRoutingCliOverrides,
+  setVerifyCliOverrides,
+  setWebCliOverrides,
+} from './config.js';
 import { installShutdownHandlers } from './core/shutdown.js';
 import { setGlobalTimeout, setInactivityTimeout, setVerbose } from './core/verbose.js';
 import {
@@ -16,7 +25,7 @@ import {
 } from './issues/cli-flags.js';
 import type { IssueGenerateTarget } from './issues/types.js';
 import { resolveResilienceOverrides } from './resilience/cli-flags.js';
-import type { WebConfig } from './schemas.js';
+import type { RoutingConfig, WebConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
 
 const require = createRequire(import.meta.url);
@@ -31,6 +40,18 @@ function parseInteger(value: string): number {
     throw new InvalidArgumentError('Must be a non-negative integer.');
   }
   return parsed;
+}
+
+function parseUsd(value: string): number {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new InvalidArgumentError('Must be a non-negative number.');
+  }
+  return parsed;
+}
+
+function collectString(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
 
 /** Parse `--on-issue-failure <mode>`, rejecting anything but the three modes. */
@@ -71,7 +92,7 @@ function withUserStoryNumberingOptions(cmd: Command): Command {
 function withGlobalOptions(cmd: Command): Command {
   return (
     cmd
-      .option('-v, --verbose', 'Show Claude progress output in real time')
+      .option('-v, --verbose', 'Show agent progress output in real time')
       .option(
         '-t, --timeout <seconds>',
         'Override headless timeout in seconds (0 = no limit)',
@@ -84,7 +105,86 @@ function withGlobalOptions(cmd: Command): Command {
         'Stop the agent after this many seconds with no output (0 = no watchdog)',
         parseInteger,
       )
+      .option(
+        '--agent <provider>',
+        'Run every phase on this agent (claude|codex|cursor|antigravity)',
+      )
+      .option('--agent-model <model>', 'Override the model for every phase')
+      .option(
+        '--agent-phase <phase>=<provider>[:<model>]',
+        'Override one phase (repeatable)',
+        collectAgentPhase,
+        {} as AgentCliOverrides['phases'],
+      )
+      .option('--verify-level <level>', 'Acceptance-contract level: L0 | L1 | L2 | L3 | L5')
+      .option('--no-cross-verify', 'Keep L2 off even when a trigger would fire')
+      .option('--no-escalation', 'Keep routing.escalation.enabled off')
+      .option('--max-cost <usd>', 'Issue cost ceiling in USD (Issue Flow enforces it)', parseUsd)
+      .option('--max-duration <seconds>', 'Issue duration ceiling in seconds', parseInteger)
   );
+}
+
+function collectAgentPhase(
+  value: string,
+  previous: NonNullable<AgentCliOverrides['phases']> | undefined,
+): NonNullable<AgentCliOverrides['phases']> {
+  const parsed = parseAgentPhaseFlag(value);
+  return { ...previous, [parsed.phase]: parsed.block };
+}
+
+function resolveAgentOverrides(opts: Record<string, unknown>): AgentCliOverrides {
+  const overrides: AgentCliOverrides = {};
+  if (typeof opts.agent === 'string') {
+    if (!isAgentProviderId(opts.agent)) {
+      throw new InvalidArgumentError('Must be one of: claude, codex, cursor, antigravity.');
+    }
+    overrides.forceProvider = opts.agent;
+  }
+  if (typeof opts.agentModel === 'string') {
+    overrides.forceModel = opts.agentModel;
+  }
+  if (opts.agentPhase && typeof opts.agentPhase === 'object') {
+    overrides.phases = opts.agentPhase as AgentCliOverrides['phases'];
+  }
+  return overrides;
+}
+
+const VERIFY_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L5'] as const;
+
+function resolveVerifyOverrides(opts: Record<string, unknown>): {
+  level?: (typeof VERIFY_LEVELS)[number];
+  crossVerify?: boolean;
+} {
+  const overrides: { level?: (typeof VERIFY_LEVELS)[number]; crossVerify?: boolean } = {};
+  if (typeof opts.verifyLevel === 'string') {
+    if (!VERIFY_LEVELS.includes(opts.verifyLevel as (typeof VERIFY_LEVELS)[number])) {
+      throw new InvalidArgumentError('Must be one of: L0, L1, L2, L3, L5.');
+    }
+    overrides.level = opts.verifyLevel as (typeof VERIFY_LEVELS)[number];
+  }
+  if (opts.crossVerify === false) overrides.crossVerify = false;
+  return overrides;
+}
+
+function resolveRoutingOverrides(opts: Record<string, unknown>): Partial<RoutingConfig> {
+  const overrides: Partial<RoutingConfig> = {};
+  if (opts.escalation === false) {
+    overrides.escalation = {
+      enabled: false,
+      minAttemptsBeforeEscalation: 2,
+      maxEscalations: 2,
+      maxRungs: ['effort', 'model', 'harness'],
+    };
+  }
+  if (typeof opts.maxCost === 'number' || typeof opts.maxDuration === 'number') {
+    overrides.ceilings = {
+      maxCostUsdPerIssue: typeof opts.maxCost === 'number' ? opts.maxCost : null,
+      maxDurationMsPerIssue: typeof opts.maxDuration === 'number' ? opts.maxDuration * 1000 : null,
+      maxExecutionsPerIssue: null,
+      onCeiling: 'block',
+    };
+  }
+  return overrides;
 }
 
 /**
@@ -165,7 +265,7 @@ const program = new Command();
 program
   .name('issue-flow')
   .description(
-    'Unified CLI for orchestrating the full issue-flow pipeline via Claude Code Headless.',
+    'Unified CLI for orchestrating the full issue-flow pipeline via Claude Code, Codex CLI, Cursor CLI or Antigravity CLI.',
   )
   .version(version);
 
@@ -186,6 +286,17 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
     setInactivityTimeout(opts.inactivityTimeout * 1000);
   }
   setWebCliOverrides(resolveWebOverrides(opts));
+  try {
+    setVerifyCliOverrides(resolveVerifyOverrides(opts));
+    setAgentCliOverrides(resolveAgentOverrides(opts));
+    setRoutingCliOverrides(resolveRoutingOverrides(opts));
+  } catch (error) {
+    if (error instanceof InvalidArgumentError) {
+      printError(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
   // The CLI rung of the `resilience` ladder. `--continuous` expands here into
   // the settings it implies, with every granular flag applied on top of it.
   setResilienceCliOverrides(
@@ -220,14 +331,24 @@ withIssueOptions(
       .option('--apply', 'Create the missing files instead of only reporting them')
       .option('--json', 'Emit the plan as JSON')
       .option('--scope <dir>', 'Resolve the conventions for a subdirectory (monorepo)')
-      .option('--check-only', 'Only verify prerequisites, as earlier releases did'),
+      .option('--check-only', 'Only verify prerequisites, as earlier releases did')
+      .option('--no-agent-prompt', 'Skip the first-run agent choice'),
   ),
 ).action(
-  async (options: { apply?: boolean; json?: boolean; scope?: string; checkOnly?: boolean }) => {
+  async (options: {
+    apply?: boolean;
+    json?: boolean;
+    scope?: string;
+    checkOnly?: boolean;
+    agentPrompt?: boolean;
+  }) => {
     const { loadIssuesConfig } = await import('./config.js');
     const { runInit } = await import('./commands/init.js');
     const { preferredProvider } = await loadIssuesConfig();
-    const code = await runInit(preferredProvider, options);
+    const code = await runInit(preferredProvider, {
+      ...options,
+      noAgentPrompt: options.agentPrompt === false,
+    });
     process.exit(code);
   },
 );
@@ -236,7 +357,7 @@ withIssueOptions(
 withGlobalOptions(
   program
     .command('generate')
-    .description('Draft an issue via Claude Code Headless and create it')
+    .description('Draft an issue with the configured agent and create it')
     .requiredOption('--prompt <text>', 'Issue description text')
     .option('--github', 'Create the issue on GitHub')
     .option('--local', 'Create the issue under issues/<n>/ only')
@@ -278,6 +399,7 @@ withUserStoryNumberingOptions(
             )
             .option('--pr-review', 'Review the created Pull Request after the pr phase')
             .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
+            .option('--cascade', 'Run the children of a container, without implementing it')
             .option('--only', 'Run just the issues informed, without their hierarchy')
             // Same two flags `execute` has always had, forwarded to the execute
             // phase of the pipeline: a `run` is the only way most users reach that
@@ -294,7 +416,9 @@ withUserStoryNumberingOptions(
               '--on-issue-failure <mode>',
               'In a queue, on a failing issue: stop | skip | block',
               parseQueueFailureMode,
-            ),
+            )
+            .option('-d, --background', 'Detach after confirmation and return the terminal')
+            .addOption(new Option('--detached-child').hideHelp()),
         ),
       ),
     ),
@@ -314,6 +438,8 @@ withUserStoryNumberingOptions(
       retryLimit?: number;
       retryForever?: boolean;
       onIssueFailure?: 'stop' | 'skip' | 'block';
+      background?: boolean;
+      detachedChild?: boolean;
     },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
@@ -341,11 +467,14 @@ withUserStoryNumberingOptions(
       {
         yes: scope.yes,
         only: scope.only,
+        cascade: scope.cascade,
         continueNumbering: numbering.continueFlag,
         startUs: numbering.startUs,
         retryLimit: options.retryLimit,
         retryForever: options.retryForever,
         onIssueFailure: options.onIssueFailure,
+        background: options.background,
+        detachedChild: options.detachedChild,
       },
     );
     process.exit(code);
@@ -386,6 +515,47 @@ withGlobalOptions(
   process.exit(
     await runStatus(issue, { ...(options.json === undefined ? {} : { json: options.json }) }),
   );
+});
+
+withGlobalOptions(
+  program
+    .command('usage')
+    .description('Aggregate execution telemetry from tasks.json')
+    .argument('[issue]', 'Restrict the report to one issue')
+    .option('--issue <issue>', 'Same as the positional argument')
+    .option('--since <date>', 'Only executions started on or after this ISO date')
+    .option('--by <key>', 'Group by harness, provider, model, purpose or status')
+    .option('--json', 'Emit the assembled totals as JSON'),
+).action(
+  async (
+    issue: string | undefined,
+    options: { issue?: string; since?: string; by?: string; json?: boolean },
+  ) => {
+    const { runUsage, USAGE_GROUP_KEYS } = await import('./commands/usage.js');
+    const by = options.by;
+    if (by !== undefined && !(USAGE_GROUP_KEYS as readonly string[]).includes(by)) {
+      printError('Must be one of: harness, provider, model, purpose, status.');
+      process.exit(1);
+    }
+    process.exit(
+      await runUsage(issue ?? options.issue, {
+        ...(options.since === undefined ? {} : { since: options.since }),
+        ...(by === undefined ? {} : { by: by as (typeof USAGE_GROUP_KEYS)[number] }),
+        ...(options.json === undefined ? {} : { json: options.json }),
+      }),
+    );
+  },
+);
+
+withGlobalOptions(
+  program
+    .command('ps')
+    .description('Every issue-flow run active on this machine')
+    .option('--json', 'Emit the listing as JSON')
+    .option('--watch', 'Refresh the listing until interrupted'),
+).action(async (options: { json?: boolean; watch?: boolean }) => {
+  const { runPs } = await import('./commands/ps.js');
+  process.exit(await runPs(options));
 });
 
 withGlobalOptions(
@@ -451,7 +621,7 @@ withIssueOptions(
   withGlobalOptions(
     program
       .command('analyze')
-      .description('Analyze an issue via Claude Code Headless')
+      .description('Analyze an issue with the configured agent')
       .argument('<issue>', 'Issue number'),
   ),
 ).action(async (issue: string) => {
@@ -465,7 +635,7 @@ withIssueOptions(
   withGlobalOptions(
     program
       .command('prd')
-      .description('Generate a PRD from an analyzed issue via Claude Code Headless')
+      .description('Generate a PRD from an analyzed issue with the configured agent')
       .argument('<issue>', 'Issue number'),
   ),
 ).action(async (issue: string) => {
@@ -480,7 +650,7 @@ withUserStoryNumberingOptions(
     withGlobalOptions(
       program
         .command('plan')
-        .description('Convert a PRD to a tasks.json task plan via Claude Code Headless')
+        .description('Convert a PRD to a tasks.json task plan with the configured agent')
         .argument('<issue>', 'Issue number'),
     ),
   ),
@@ -547,7 +717,7 @@ withIssueOptions(
   withGlobalOptions(
     program
       .command('review')
-      .description('Validate an issue resolution via Claude Code Headless')
+      .description('Validate an issue resolution with the configured agent')
       .argument('<issue>', 'Issue number'),
   ),
 ).action(async (issue: string) => {
@@ -561,7 +731,7 @@ withIssueOptions(
   withGlobalOptions(
     program
       .command('pr')
-      .description('Create a pull request via Claude Code Headless')
+      .description('Create a pull request with the configured agent')
       .argument('<issue>', 'Issue number'),
   ),
 ).action(async (issue: string) => {
@@ -613,11 +783,114 @@ withGlobalOptions(
   process.exit(code);
 });
 
+const routingCommand = withGlobalOptions(
+  program
+    .command('routing')
+    .description('Inspect the shadow router (records a recommendation, does not act)'),
+);
+routingCommand
+  .option('--json', 'Emit the resolved routing config as JSON')
+  .action(async (options: { json?: boolean }) => {
+    const { runRoutingInspect } = await import('./commands/routing.js');
+    process.exit(await runRoutingInspect(options));
+  });
+routingCommand
+  .command('report')
+  .description('Shadow agreement between selected and actual harness')
+  .option('--issue <n>', 'Issue number')
+  .option('--json', 'Emit JSON')
+  .action(async (options: { issue?: string; json?: boolean }) => {
+    const { runRoutingReport } = await import('./commands/routing.js');
+    process.exit(await runRoutingReport(options));
+  });
+
+const conventionsCommand = withGlobalOptions(
+  program
+    .command('conventions')
+    .description('Compute the repository Git convention (branch, commit, PR title)'),
+);
+conventionsCommand
+  .command('branch')
+  .description('Print the deterministic branch name for an issue')
+  .option('--issue <n>', 'Issue number')
+  .option('--title <text>', 'Issue title, when the issue cannot be resolved')
+  .option('--json', 'Emit JSON')
+  .action(async (options: { issue?: string; title?: string; json?: boolean }) => {
+    const { runConventionsBranch } = await import('./commands/conventions.js');
+    process.exit(await runConventionsBranch(options));
+  });
+conventionsCommand
+  .command('commit')
+  .description('Print a Conventional Commit message')
+  .requiredOption('--type <type>', 'Change type (feat, fix, docs, …)')
+  .option('--scope <scope>', 'Optional scope')
+  .requiredOption('--subject <text>', 'Commit subject')
+  .option('--issue <n>', 'Issue number for the Refs trailer')
+  .option('--story <id>', 'Story id (US-010)')
+  .option('--breaking <text>', 'Breaking change description')
+  .option('--json', 'Emit JSON')
+  .action(
+    async (options: {
+      type: string;
+      scope?: string;
+      subject: string;
+      issue?: string;
+      story?: string;
+      breaking?: string;
+      json?: boolean;
+    }) => {
+      const { runConventionsCommit } = await import('./commands/conventions.js');
+      process.exit(await runConventionsCommit(options));
+    },
+  );
+conventionsCommand
+  .command('pr-title')
+  .description('Print the Conventional Commit Pull Request title')
+  .option('--issue <n>', 'Issue number')
+  .option('--title <text>', 'Issue title, when the issue cannot be resolved')
+  .option('--json', 'Emit JSON')
+  .action(async (options: { issue?: string; title?: string; json?: boolean }) => {
+    const { runConventionsPrTitle } = await import('./commands/conventions.js');
+    process.exit(await runConventionsPrTitle(options));
+  });
+
+// ── agent ───────────────────────────────────────────────────────────────
+const agentCommand = withGlobalOptions(
+  program
+    .command('agent')
+    .description('Inspect the resolved agent and model for each phase')
+    .option('--json', 'Emit the resolved agent configuration as JSON'),
+);
+agentCommand.action(async (options: { json?: boolean }) => {
+  const { runAgent } = await import('./commands/agent.js');
+  const code = await runAgent(options);
+  process.exit(code);
+});
+
+agentCommand
+  .command('use')
+  .description('Write an agent preference to config.json or .issue-flow.json')
+  .argument('<provider>', 'claude, codex, cursor or antigravity')
+  .option('--model <model>', 'Model identifier for this preference')
+  .option('--global', 'Write to ~/.issue-flow/config.json (default)')
+  .option('--project', 'Write to .issue-flow.json in the repository')
+  .option('--phase <phase>', 'Write only the override for this phase')
+  .action(
+    async (
+      provider: string,
+      options: { model?: string; global?: boolean; project?: boolean; phase?: string },
+    ) => {
+      const { runAgentUse } = await import('./commands/agent.js');
+      const code = await runAgentUse(provider, options);
+      process.exit(code);
+    },
+  );
+
 // ── pr-review ───────────────────────────────────────────────────────────────
 withGlobalOptions(
   program
     .command('pr-review')
-    .description('Review a Pull Request as a whole via Claude Code Headless')
+    .description('Review a Pull Request as a whole with the configured agent')
     .argument('[pr]', 'Pull Request number (discovered from the session when omitted)')
     .option('--issue <n>', 'Issue the Pull Request belongs to')
     .option('--round <n>', 'Rewrite a specific review round instead of appending a new one')
@@ -636,5 +909,85 @@ withGlobalOptions(
     process.exit(code);
   },
 );
+
+// ── bench ───────────────────────────────────────────────────────────────────
+withGlobalOptions(
+  program
+    .command('bench')
+    .description('Measure the corpus: synthetic (CI) or real (paid, on demand)')
+    .option('--mode <mode>', 'synthetic (default, free) or real (fixtures + harness)')
+    .option(
+      '--task <class>',
+      'Corpus class (repeatable): trivial, small, medium, analysis',
+      collectString,
+      [],
+    )
+    .option('--arm <name>', 'Experiment arm (repeatable). Default: baseline', collectString, [])
+    .option('--repeats <n>', 'Repetitions per cell (default 5)', parseInteger)
+    // Campaign-wide ceilings, distinct from the per-issue `--max-cost` /
+    // `--max-duration` of `withGlobalOptions`: one campaign runs many issues,
+    // and the two budgets are not the same number. The names differ because
+    // the flags coexist on this command — and because the units differ too.
+    .option(
+      '--campaign-max-cost <usd>',
+      'Campaign cost ceiling in USD (evaluateCeilings)',
+      parseUsd,
+    )
+    .option(
+      '--campaign-max-duration <ms>',
+      'Campaign duration ceiling in milliseconds',
+      parseInteger,
+    )
+    .option('--out <path>', 'Write the markdown report to this path')
+    .option('--yes', 'Skip the paid-campaign confirmation')
+    .option('--repo <path>', 'Investigation escape; does not produce a publishable row')
+    .option('--json', 'Also emit the campaign JSON'),
+).action(
+  async (options: {
+    mode?: string;
+    task?: string[];
+    arm?: string[];
+    repeats?: number;
+    campaignMaxCost?: number;
+    campaignMaxDuration?: number;
+    out?: string;
+    yes?: boolean;
+    repo?: string;
+    json?: boolean;
+  }) => {
+    if (options.mode !== undefined && options.mode !== 'synthetic' && options.mode !== 'real') {
+      printError("Unknown bench mode. Use 'synthetic' or 'real'.");
+      process.exit(1);
+    }
+    const { runBench } = await import('./commands/bench.js');
+    process.exit(
+      await runBench({
+        ...(options.mode === undefined ? {} : { mode: options.mode }),
+        ...(options.task === undefined || options.task.length === 0 ? {} : { task: options.task }),
+        ...(options.arm === undefined || options.arm.length === 0 ? {} : { arm: options.arm }),
+        ...(options.repeats === undefined ? {} : { repeats: options.repeats }),
+        ...(options.campaignMaxCost === undefined ? {} : { maxCost: options.campaignMaxCost }),
+        ...(options.campaignMaxDuration === undefined
+          ? {}
+          : { maxDuration: options.campaignMaxDuration }),
+        ...(options.out === undefined ? {} : { out: options.out }),
+        ...(options.yes === undefined ? {} : { yes: options.yes }),
+        ...(options.repo === undefined ? {} : { repo: options.repo }),
+        ...(options.json === undefined ? {} : { json: options.json }),
+      }),
+    );
+  },
+);
+
+program.action(async () => {
+  const { listLiveRuns } = await import('./execution/registry.js');
+  const runs = await listLiveRuns();
+  if (runs.length === 0) {
+    program.help();
+    return;
+  }
+  const { runPs } = await import('./commands/ps.js');
+  process.exit(await runPs());
+});
 
 program.parse();

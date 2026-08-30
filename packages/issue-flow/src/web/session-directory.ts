@@ -1,13 +1,17 @@
-import { readdir, readFile, stat as statFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { type JournalEntry, parseJournal } from '../core/journal.js';
 import type { ValidatedSessionSnapshot } from '../schemas.js';
-import { sessionSnapshotSchema } from '../schemas.js';
 import {
+  EVENTS_FILENAME,
   type GetGlobalRootOptions,
   getGlobalRoot,
   ISSUES_DIR_NAME,
   PROJECTS_DIR_NAME,
+  ROTATED_EVENTS_FILENAME,
+  SESSION_FILENAME,
 } from '../storage/paths.js';
+import { readSessionFile } from '../storage/session-file.js';
 
 /**
  * Multi-session discovery for the web monitoring server (US-003).
@@ -33,12 +37,11 @@ export const DEFAULT_POLL_INTERVAL_MS = 3000;
 
 /**
  * A session stops being reported once its file has gone this long without an
- * update. `FilePublisher` throttles writes to ~1s and force-flushes on every
- * phase/session boundary, so a live run's file is never quiet for long; this
- * threshold only needs to be comfortably above one throttle window plus one
- * poll interval to avoid flapping a session in and out on timing alone.
+ * update. `FilePublisher` touches a live session every 10s without rewriting
+ * its content. Three missed heartbeats plus ample scheduling/filesystem slack
+ * avoid flapping while still removing an abruptly killed run promptly.
  */
-export const DEFAULT_STALE_AFTER_MS = 30_000;
+export const DEFAULT_STALE_AFTER_MS = 90_000;
 
 export interface ActiveSession {
   /** Directory the session.json was read from, one level up from the file. */
@@ -63,6 +66,8 @@ export interface SessionDirectoryHandle {
   sessions(): ActiveSession[];
   /** A single active session by id, or undefined. */
   getSession(sessionId: string): ActiveSession | undefined;
+  /** Journal entries for one active session, oldest generation first. */
+  events(sessionId: string): Promise<JournalEntry[] | undefined>;
   /** Force an immediate rescan instead of waiting for the next tick. Never throws. */
   refresh(): Promise<void>;
   /** Stop polling. Idempotent. */
@@ -92,42 +97,18 @@ async function discoverSessionFiles(root: string): Promise<string[]> {
     projectIds.map(async (projectId) => {
       const issuesDir = join(projectsDir, projectId, ISSUES_DIR_NAME);
       const issueIds = await listSubdirectories(issuesDir);
-      return issueIds.map((issueId) => join(issuesDir, issueId, 'session.json'));
+      return issueIds.map((issueId) => join(issuesDir, issueId, SESSION_FILENAME));
     }),
   );
 
   return perProject.flat();
 }
 
-interface ReadResult {
-  snapshot: ValidatedSessionSnapshot;
-  updatedAtMs: number;
-}
-
-/**
- * Read and validate one `session.json`. Anything short of a fully valid file
- * (missing, mid-write, corrupted, written by an incompatible future version)
- * reads as "not currently a session" — the directory scan must never fail
- * because one file is momentarily inconsistent (`FilePublisher` writes via a
- * temp file + rename, but a reader can still race a concurrent write).
- */
-async function readSessionFile(filePath: string): Promise<ReadResult | null> {
-  let raw: string;
-  let mtimeMs: number;
+async function readJournalFile(filePath: string): Promise<JournalEntry[]> {
   try {
-    const [content, stat] = await Promise.all([readFile(filePath, 'utf-8'), statFile(filePath)]);
-    raw = content;
-    mtimeMs = stat.mtimeMs;
+    return parseJournal(await readFile(filePath, 'utf-8'));
   } catch {
-    return null;
-  }
-
-  try {
-    const parsed = sessionSnapshotSchema.safeParse(JSON.parse(raw));
-    if (!parsed.success || parsed.data.sessionId === null) return null;
-    return { snapshot: parsed.data, updatedAtMs: mtimeMs };
-  } catch {
-    return null;
+    return [];
   }
 }
 
@@ -195,6 +176,15 @@ export function watchSessionDirectory(
   return {
     sessions: () => [...sessions.values()],
     getSession: (sessionId: string) => sessions.get(sessionId),
+    events: async (sessionId: string) => {
+      const session = sessions.get(sessionId);
+      if (session === undefined) return undefined;
+      const [rotated, current] = await Promise.all([
+        readJournalFile(join(session.issueDir, ROTATED_EVENTS_FILENAME)),
+        readJournalFile(join(session.issueDir, EVENTS_FILENAME)),
+      ]);
+      return [...rotated, ...current];
+    },
     refresh: scan,
     close: () => clearInterval(timer),
   };

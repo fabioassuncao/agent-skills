@@ -10,7 +10,7 @@ vitest. Toda verificação de mudança aqui é manual, no navegador.
 
 O painel consome `GET api/sessions` (lista enriquecida para o dashboard),
 `GET api/status` (o `SessionSnapshot` serializado, opcionalmente com
-`?session=<id>`) e `GET api/health`. Ele precisa renderizar **session.json de
+`?session=<id>`), `GET api/events?session=<id>` (journal) e `GET api/health`. Ele precisa renderizar **session.json de
 execuções antigas**, então todo campo pode chegar como `undefined` (não
 existia na versão que gravou o arquivo) além do `null` (existe, não
 informado). Os dois significam "não informado" e nunca podem virar `0`,
@@ -36,7 +36,7 @@ do snapshot.
 
 ## Abas, Kanban e drawer
 
-O painel tem duas abas ("Execução" e "Kanban") e um drawer de detalhes por
+O painel tem três abas ("Execução", "Kanban" e "Histórico") e um drawer de detalhes por
 story. Três regras seguram esse conjunto:
 
 - **Acesso a story sempre por `getStoryById()` / `getStories()`.** Elas são a
@@ -51,7 +51,7 @@ story. Três regras seguram esse conjunto:
   então uma referência guardada na abertura apontaria para um nó fora do
   documento. Pelo mesmo motivo o foco volta ao card via
   `[data-story-id="…"]` no momento de fechar.
-- **`renderKanban()` e `renderDrawer()` são chamadas incondicionalmente** dentro
+- **`renderKanban()`, `renderHistory()` e `renderDrawer()` são chamadas incondicionalmente** dentro
   de `render()`, não ao trocar de aba. Uma aba inativa não pode ficar defasada,
   e é o `renderDrawer()` de cada poll que mantém o drawer aberto em dia (e o
   fecha quando a story some do plano).

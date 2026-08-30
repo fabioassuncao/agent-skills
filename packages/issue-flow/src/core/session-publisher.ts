@@ -3,9 +3,10 @@ import { NullPublisher, type SessionPublisher } from './session-state.js';
 /**
  * Global slot for the active SessionPublisher, following the same pattern as
  * setVerbose in verbose.ts. Instrumentation points (logger, engine, headless)
- * read the slot via getSessionPublisher(); run.ts installs a FilePublisher
- * when web monitoring is enabled. The default NullPublisher makes every
- * instrumentation point a no-op when monitoring is off.
+ * read the slot via getSessionPublisher(); run.ts installs a MemoryPublisher
+ * for every run and a FilePublisher on top when web monitoring is enabled.
+ * The default NullPublisher makes every instrumentation point a no-op
+ * before a run (or a standalone command) installs a publisher.
  */
 
 const NULL_PUBLISHER = new NullPublisher();

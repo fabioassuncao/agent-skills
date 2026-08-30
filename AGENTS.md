@@ -1,7 +1,8 @@
 # Issue Flow
 
-CLI and Agent Skills that take a GitHub issue from statement to merged Pull
-Request, through Claude Code.
+CLI and Agent Skills that take an issue — from GitHub or from files — from
+statement to reviewed Pull Request, through Claude Code, Codex CLI, Cursor CLI
+or Antigravity CLI.
 
 This file is an **index**. It holds no rule, command or convention of its own —
 those live in the documents referenced below, which are the source of truth.
@@ -10,10 +11,28 @@ those live in the documents referenced below, which are the source of truth.
 
 ## Start here
 
-- [`README.md`](README.md) — what the tool does, every command, the file
-  structure, the configuration and the web monitor
+- [`README.md`](README.md) — what the tool does, how the pipeline works, and the
+  entry point to every other document
+- [`docs/commands.md`](docs/commands.md) — every command and flag, and the exit
+  codes
+- [`docs/configuration.md`](docs/configuration.md) — the precedence ladder,
+  `.issue-flow.json`, `~/.issue-flow/config.json` and every environment variable
+- [`docs/agents.md`](docs/agents.md) — Claude, Codex, Cursor and Antigravity:
+  selection by phase, authentication, permission, token economy, troubleshooting
+- [`docs/issues.md`](docs/issues.md) — GitHub and local providers, conflict
+  resolution, hierarchy discovery and multi-issue queues
+- [`docs/storage.md`](docs/storage.md) — the global tree, the project id,
+  `tasks.json`, `session.json`, telemetry and the legacy migration
+- [`docs/web-monitor.md`](docs/web-monitor.md) — the dashboard, its HTTP API and
+  the single-instance server
+- [`docs/resilience.md`](docs/resilience.md) — failure taxonomy, retry table,
+  failover, watchdog, journal and decomposition
+- [`docs/verification.md`](docs/verification.md) — the acceptance contract, the
+  independent reviewer, shadow routing and escalation
 - [`docs/conventions.md`](docs/conventions.md) — how conventions are discovered,
   the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
+- [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and
+  Pull Request titles; provider-independent by construction
 - [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
   usage model, and the parity contract between the skills and the CLI
 
@@ -27,6 +46,8 @@ decisions — never a source of truth for behaviour.
   — the multi-harness orchestration landscape, the gap between configurable and
   adaptive selection, and the target architecture behind the routing,
   verification and escalation issues
+- [`docs/research/2026-08-30-harness-baseline.md`](docs/research/2026-08-30-harness-baseline.md)
+  — latency baseline (before table) for instrumentation `#79`; phases 3–4 are `#89`
 
 ## Developing
 
@@ -41,13 +62,20 @@ the code, and was learned the hard way.
 
 | Area | Document |
 |---|---|
+| The agent layer (Claude / Codex / Cursor / Antigravity, selection by phase) | [`packages/issue-flow/src/agents/AGENTS.md`](packages/issue-flow/src/agents/AGENTS.md) |
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
+| Execution telemetry in `tasks.json` | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |
+| Git conventions (branch, commit, PR title) | [`docs/git-conventions.md`](docs/git-conventions.md) |
 | Failure taxonomy and retry policy | [`packages/issue-flow/src/resilience/AGENTS.md`](packages/issue-flow/src/resilience/AGENTS.md) |
 | Global storage and artifact paths | [`packages/issue-flow/src/storage/AGENTS.md`](packages/issue-flow/src/storage/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
+| Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |
+| Acceptance contract and independent review | [`packages/issue-flow/src/verify/AGENTS.md`](packages/issue-flow/src/verify/AGENTS.md) |
+| Shadow routing | [`packages/issue-flow/src/routing/AGENTS.md`](packages/issue-flow/src/routing/AGENTS.md) |
+| Real / synthetic benchmark | [`packages/issue-flow/src/benchmark/AGENTS.md`](packages/issue-flow/src/benchmark/AGENTS.md) |
 
 ## Agent entry points
 

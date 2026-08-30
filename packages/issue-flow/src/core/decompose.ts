@@ -59,8 +59,8 @@ export interface DecompositionAssessment {
 
 /* ── the signals ────────────────────────────────────────────────────────── */
 
-/** Timeouts per phase, read off the journal. */
-function timeoutsByPhase(journal: string): Map<string, number> {
+/** Timeouts per phase, read off the journal. Shared with timeout escalation. */
+export function timeoutsByPhase(journal: string): Map<string, number> {
   const counts = new Map<string, number>();
   let phase = '(unknown)';
 

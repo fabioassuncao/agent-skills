@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -72,6 +72,17 @@ describe('createInitialSnapshot', () => {
       totalCostUsd: null,
     });
   });
+
+  it('starts resilience observability with backward-compatible empty values', () => {
+    expect(createInitialSnapshot().resilience).toEqual({
+      attempt: 0,
+      provider: null,
+      model: null,
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: null,
+    });
+  });
 });
 
 describe('reduceSessionEvent', () => {
@@ -85,6 +96,55 @@ describe('reduceSessionEvent', () => {
       message: 'hello',
     });
     expect(before).toEqual(frozen);
+  });
+
+  it('projects agent attempts, failures, failover and streamed activity', () => {
+    let snap = startedSnapshot();
+    snap = reduceSessionEvent(snap, {
+      type: 'agent:attempt',
+      at: '2026-08-03T12:01:00Z',
+      attempt: 2,
+      provider: 'claude',
+      model: 'sonnet',
+      primaryProvider: 'claude',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'agent:result',
+      at: '2026-08-03T12:01:10Z',
+      provider: 'claude',
+      success: false,
+      failureKind: 'provider_down',
+      cooldownUntil: '2026-08-03T12:02:10Z',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'failover',
+      at: '2026-08-03T12:01:11Z',
+      from: 'claude',
+      to: 'codex',
+      reason: 'provider_down',
+      cooldownUntil: '2026-08-03T12:02:10Z',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'agent:activity',
+      at: '2026-08-03T12:01:12Z',
+      provider: 'codex',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'agent:result',
+      at: '2026-08-03T12:01:13Z',
+      provider: 'codex',
+      success: true,
+      cooldownUntil: null,
+    });
+
+    expect(snap.resilience).toEqual({
+      attempt: 2,
+      provider: 'codex',
+      model: 'sonnet',
+      lastFailureKind: 'provider_down',
+      cooldownUntil: null,
+      lastActivityAt: '2026-08-03T12:01:13Z',
+    });
   });
 
   it('session:start initializes session, issue, git and pending phases', () => {
@@ -241,9 +301,39 @@ describe('reduceSessionEvent', () => {
     const prd = snap.phases.find((p) => p.name === 'prd');
     expect(prd?.status).toBe('completed');
     expect(prd?.durationSeconds).toBe(30);
+    expect(prd?.harnessExecutionMs).toBeNull();
+    expect(prd?.orchestrationOverheadMs).toBeNull();
     expect(snap.currentPhase).toBeNull();
     expect(snap.progress.phasesCompleted).toBe(1);
     expect(snap.progress.percent).toBe(33);
+  });
+
+  it('phase:end records harness vs orchestration timing when published', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'phase:start',
+      at: '2026-08-03T12:00:05Z',
+      phase: 'execute',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'phase:end',
+      at: '2026-08-03T12:09:06Z',
+      phase: 'execute',
+      success: true,
+      harnessExecutionMs: 541_000,
+      orchestrationOverheadMs: 2000,
+      harnessStartupMs: 3600,
+      ttftMs: 2100,
+      attemptCount: 1,
+      retryDurationMs: null,
+    });
+    expect(snap.phases.find((p) => p.name === 'execute')).toMatchObject({
+      harnessExecutionMs: 541_000,
+      orchestrationOverheadMs: 2000,
+      harnessStartupMs: 3600,
+      ttftMs: 2100,
+      attemptCount: 1,
+      retryDurationMs: null,
+    });
   });
 
   it('phase:end with failure records the error without ANSI codes', () => {
@@ -1504,6 +1594,44 @@ describe('FilePublisher', () => {
       expect(warn).not.toHaveBeenCalled();
       const written = JSON.parse(await readFile(filePath, 'utf-8')) as SessionSnapshot;
       expect(written.sessionId).toBe('s');
+    });
+  });
+
+  it('touches the live file without changing content or version, then stops on close', async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, 'session.json');
+      const publisher = new FilePublisher(filePath, {
+        throttleMs: 0,
+        heartbeatMs: 10,
+        onWarn: () => {},
+      });
+      publisher.publish({
+        type: 'session:start',
+        at: '2026-08-03T12:00:00Z',
+        sessionId: 's',
+        issueNumber: 1,
+        phases: ['init'],
+      });
+      await publisher.flush();
+
+      const content = await readFile(filePath, 'utf-8');
+      const version = publisher.version();
+      const old = new Date('2000-01-01T00:00:00Z');
+      await utimes(filePath, old, old);
+
+      const deadline = Date.now() + 1000;
+      while ((await stat(filePath)).mtimeMs === old.getTime() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      expect((await stat(filePath)).mtimeMs).toBeGreaterThan(old.getTime());
+      expect(await readFile(filePath, 'utf-8')).toBe(content);
+      expect(publisher.version()).toBe(version);
+
+      await publisher.close();
+      await utimes(filePath, old, old);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect((await stat(filePath)).mtimeMs).toBe(old.getTime());
     });
   });
 

@@ -308,7 +308,20 @@ const TEXT_RULES: readonly { kind: FailureKind; patterns: readonly TextPattern[]
   },
   {
     kind: 'configuration',
-    patterns: ['command not found', 'unknown flag', 'unknown option', 'no such file or directory'],
+    patterns: [
+      'command not found',
+      'unknown flag',
+      'unknown option',
+      'no such file or directory',
+      'permission check failed',
+      'user denied permission',
+      'waiting for human input',
+      'status: waiting',
+      'below the minimum',
+      'prompt exceeds',
+      'nativetimeout',
+      'agy is not installed',
+    ],
   },
   {
     kind: 'task_execution',

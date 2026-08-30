@@ -66,6 +66,10 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   rungs of one ladder rather than two formats. Its enums are pinned to the types of
   `resilience/policy.ts` with `satisfies`, and `ResilienceConfigIsPolicyConfig` fails to compile if
   the file format ever stops being a superset of what `resolvePolicy()` reads.
+- **`TaskPlan.executions` is additive and optional, with no `.default([])`.**
+  A plan that predates the field must not gain an empty array on rewrite.
+  `schemaVersion` does not change. Reconciliation of orphan `running` rows
+  happens in `loadTaskPlan` via `telemetry/reconcile.ts`, using `isProcessAlive`.
 - **`TaskPlan.runState` and the queue's `attempts`/`blockedReason` are additive, and
   `schemaVersion` stays `1`.** `runState` is `.optional()` with **no** default at the top
   level — absent means "this plan predates the field", which is not the same statement as
@@ -85,6 +89,14 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   repository share a working tree and a branch, so "a different issue" is not a different
   lock. Re-entering from the same pid+host is not a conflict and its release is a no-op —
   a nested acquisition must never remove the file the outer one still owns.
+  `detached` is optional and additive: a lock written before it existed is a
+  foreground run. `run.log` / `run.log.1` live on `IssuePaths` and are owned
+  by `--background`; rotation is size-capped in `run-log.ts`.
+  `execution/registry.ts` is the only cross-project reader of `run.lock`.
+- **`providers.json` is project-level durable state.** Its path comes from
+  `resolveProjectPaths().providersHealthFile`; agent code never joins the name.
+  Writes are atomic, unknown provider keys stay readable, and cooldown survives
+  process restarts.
 - Schemas read from disk are never `.strict()`: a file written by a newer version must stay
   readable by an older one.
 - The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other
@@ -97,11 +109,12 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   never overwritten.** That is also what makes a failed run resumable — re-running it picks up
   where it stopped instead of clobbering what already crossed over.
 
-- The user-facing documentation of this layer is the `## Global Storage` section of the root
-  `README.md` (tree, project id derivation, `config.json` schema, precedence table,
-  `ISSUE_FLOW_HOME`, migration). Changing the layout, the id format or the precedence means
-  changing that section in the same commit — and `paths.test.ts` already fails on purpose when the
-  `## Pipeline State & File Structure` tree drifts from `getIssuePaths()`.
+- The user-facing documentation of this layer is [`docs/storage.md`](../../../../docs/storage.md)
+  (tree, project id derivation, `ISSUE_FLOW_HOME`, `tasks.json`, `session.json`, telemetry,
+  migration). Changing the layout, the id format or the precedence means changing that document in
+  the same commit — and `paths.test.ts` already fails on purpose when its `## One issue directory`
+  listing drifts from `getIssuePaths()`. That listing is the only place an issue artifact is named
+  in prose; the tree above it stops at `issues/42/` so there is nothing to keep in sync twice.
 
 ## Gotchas
 

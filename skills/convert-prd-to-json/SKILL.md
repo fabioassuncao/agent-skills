@@ -78,7 +78,7 @@ Read `issues/{ISSUE_NUMBER}/prd.md` and convert it to `issues/{ISSUE_NUMBER}/tas
 4. **All stories start with**: `"passes": false` and `"notes": ""`
 5. **branchName**: Use the branch created in Phase 2 of the main skill (current branch name).
    When creating one, follow `git.branchConvention` from [the shared block](../_shared/repository-policy.md)
-   rather than assuming Issue Flow's default of `issue/{N}-{slug}`.
+   rather than inventing a slug. Prefer `issue-flow conventions branch --issue N` (see `docs/git-conventions.md`).
 6. **Always verify**: Every story has "Typecheck passes" as the last acceptance criterion
 7. **Always verify**: UI stories have "Verify in browser using playwright-cli if available; otherwise use the playwright MCP/skill" as acceptance criterion
 8. **Initialize issue execution state**: `"issueStatus": "pending"`, `"completedAt": null`, `"lastAttemptAt": null`, `"lastError": null`

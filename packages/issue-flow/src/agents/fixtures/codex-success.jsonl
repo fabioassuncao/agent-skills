@@ -1,0 +1,10 @@
+{"type":"thread.started","thread_id":"01a05035-206b-7491-9ec1-dd19d317e9d5"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Skill descriptions were shortened"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"I'll create the requested file."}}
+{"type":"item.started","item":{"id":"item_2","type":"file_change","changes":[{"path":"/tmp/hi.txt","kind":"add"}],"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"file_change","changes":[{"path":"/tmp/hi.txt","kind":"add"}],"status":"completed"}}
+{"type":"item.started","item":{"id":"item_3","type":"command_execution","command":"/bin/zsh -lc 'ls -1'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_3","type":"command_execution","command":"/bin/zsh -lc 'ls -1'","aggregated_output":"hi.txt\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_4","type":"agent_message","text":"Created hi.txt containing hi."}}
+{"type":"turn.completed","usage":{"input_tokens":44734,"cached_input_tokens":22016,"cache_write_input_tokens":0,"output_tokens":194,"reasoning_output_tokens":0}}

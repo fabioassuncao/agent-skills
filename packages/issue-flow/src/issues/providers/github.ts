@@ -10,7 +10,7 @@ import { emptyRelations, mergeRelations, parseTextualRelations, uniqueIds } from
 import type { Issue, IssueDraft, IssueRelations, IssueState } from '../types.js';
 
 /** Fields requested from `gh issue view`, in the order the PRD specifies. */
-const VIEW_FIELDS = 'number,title,body,labels,state,url,createdAt,updatedAt';
+const VIEW_FIELDS = 'number,title,body,labels,state,url,createdAt,updatedAt,issueType';
 
 /** Timeout for the availability probes, matching the `init` prerequisite checks. */
 const PROBE_TIMEOUT_MS = 10_000;
@@ -83,6 +83,7 @@ interface GhIssuePayload {
   url?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
+  issueType?: unknown;
 }
 
 function normalizeState(state: unknown): IssueState {
@@ -96,11 +97,21 @@ function normalizeLabels(labels: unknown): string[] {
     .filter((name): name is string => typeof name === 'string' && name.length > 0);
 }
 
+function normalizeIssueType(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (value !== null && typeof value === 'object' && 'name' in value) {
+    const name = (value as { name: unknown }).name;
+    return typeof name === 'string' && name.length > 0 ? name : undefined;
+  }
+  return undefined;
+}
+
 function toIssue(payload: GhIssuePayload): Issue {
   const title = typeof payload.title === 'string' ? payload.title : '';
   const body = typeof payload.body === 'string' ? payload.body : '';
   const number = typeof payload.number === 'number' ? payload.number : null;
   const url = typeof payload.url === 'string' && payload.url.length > 0 ? payload.url : null;
+  const type = normalizeIssueType(payload.issueType);
 
   return {
     id: number === null ? '' : String(number),
@@ -108,6 +119,7 @@ function toIssue(payload: GhIssuePayload): Issue {
     title,
     body,
     labels: normalizeLabels(payload.labels),
+    ...(type === undefined ? {} : { type }),
     state: normalizeState(payload.state),
     source: 'github',
     remoteRef: url,

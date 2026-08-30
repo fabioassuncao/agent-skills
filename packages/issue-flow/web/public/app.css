@@ -47,6 +47,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -452,6 +456,34 @@ progress {
   gap: 8px;
   padding: 5px 0;
   border-bottom: 1px solid var(--border);
+}
+
+.plain-list .history-entry {
+  align-items: flex-start;
+}
+
+.history-type {
+  flex: 0 0 9rem;
+  color: var(--muted);
+}
+
+.history-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .plain-list .history-entry {
+    flex-wrap: wrap;
+  }
+
+  .history-type {
+    flex-basis: auto;
+  }
+
+  .history-message {
+    flex-basis: 100%;
+  }
 }
 
 .plain-list li:last-child {
@@ -904,6 +936,12 @@ progress {
   font: inherit;
   cursor: pointer;
   display: grid;
+  /* O grid externo estica os cards de uma linha para a mesma altura. Sem isto,
+     `align-content: stretch` distribui a sobra entre as faixas — inclusive a do
+     resumo — e a faixa fica mais alta que as 3 linhas do clamp, deixando vazar
+     uma 4ª linha cortada por baixo do reticente. Empacotar no topo manda a
+     sobra para o fim do card, que é onde ela não engana ninguém. */
+  align-content: start;
   gap: 10px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }

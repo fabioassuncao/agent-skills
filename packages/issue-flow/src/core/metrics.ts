@@ -13,6 +13,13 @@ export interface ClaudeUsage {
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
   costUsd?: number;
+  /** Envelope `duration_ms` — request onward, not process startup. */
+  cliDurationMs?: number;
+  /** Envelope `duration_api_ms` when the harness reports it. */
+  apiDurationMs?: number;
+  /** Time to first output, when the harness reports it. */
+  ttftMs?: number;
+  numTurns?: number;
 }
 
 /** Field names of {@link ClaudeUsage}, used by the summing helper. */
@@ -46,6 +53,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Returns null when the payload carries no recognizable field at all, and a
  * partial object when only some fields are present. Never throws.
  */
+/**
+ * Parse a Codex `turn.completed.usage` object.
+ *
+ * Codex reports `input_tokens` including the cache (Decision 6 of #62), so
+ * `inputTokens` is `input_tokens − cached_input_tokens`, clamped at 0. Codex
+ * never reports USD; `costUsd` stays absent — "not reported", never zero.
+ */
+export function parseCodexUsage(payload: unknown): ClaudeUsage | null {
+  if (!isRecord(payload)) return null;
+
+  const usage: ClaudeUsage = {};
+  const inputTokens = num(payload.input_tokens);
+  const cachedInput = num(payload.cached_input_tokens);
+  const cacheWrite = num(payload.cache_write_input_tokens);
+  const outputTokens = num(payload.output_tokens);
+
+  if (inputTokens !== undefined) {
+    usage.inputTokens =
+      cachedInput !== undefined ? Math.max(0, inputTokens - cachedInput) : inputTokens;
+  }
+  if (outputTokens !== undefined) usage.outputTokens = outputTokens;
+  if (cachedInput !== undefined) usage.cacheReadTokens = cachedInput;
+  if (cacheWrite !== undefined) usage.cacheCreationTokens = cacheWrite;
+
+  return Object.keys(usage).length > 0 ? usage : null;
+}
+
 export function parseUsage(payload: unknown): ClaudeUsage | null {
   if (!isRecord(payload)) return null;
 
@@ -73,6 +107,15 @@ export function parseUsage(payload: unknown): ClaudeUsage | null {
   if (cacheReadTokens !== undefined) usage.cacheReadTokens = cacheReadTokens;
   if (cacheCreationTokens !== undefined) usage.cacheCreationTokens = cacheCreationTokens;
   if (resolvedCost !== undefined) usage.costUsd = resolvedCost;
+
+  const cliDurationMs = num(payload.duration_ms);
+  const apiDurationMs = num(payload.duration_api_ms);
+  const ttftMs = num(payload.ttft_ms) ?? num(payload.time_to_first_token_ms);
+  const numTurns = num(payload.num_turns);
+  if (cliDurationMs !== undefined) usage.cliDurationMs = cliDurationMs;
+  if (apiDurationMs !== undefined) usage.apiDurationMs = apiDurationMs;
+  if (ttftMs !== undefined) usage.ttftMs = ttftMs;
+  if (numTurns !== undefined) usage.numTurns = numTurns;
 
   return Object.keys(usage).length > 0 ? usage : null;
 }

@@ -1,7 +1,12 @@
-import { createConfig, resolvePaths, validateDependencies } from '../config.js';
+import { randomUUID } from 'node:crypto';
+import { createConfig, loadWebConfig, resolvePaths, validateDependencies } from '../config.js';
 import { runEngine } from '../core/engine.js';
-import { allStoriesPass, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
+import { getSessionPublisher, setSessionPublisher } from '../core/session-publisher.js';
+import { FilePublisher, NullPublisher } from '../core/session-state.js';
+import { allStoriesPass, isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
+import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError } from '../ui/logger.js';
+import { ensureWebMonitor } from '../web/lock.js';
 
 export interface ExecuteOptions {
   issue?: string;
@@ -39,20 +44,78 @@ export async function runExecute(
   });
 
   const paths = await resolvePaths(config);
-  const exitCode = await runEngine(config, paths);
+  const webConfig = await loadWebConfig();
+  const inheritedPublisher = getSessionPublisher();
+  let standalonePublisher: FilePublisher | null = null;
 
-  // Update pipeline state if all stories pass
-  if (exitCode === 0 && config.issueNumber) {
-    try {
-      const plan = await loadTaskPlan(paths.prdFile);
-      if (allStoriesPass(plan)) {
-        plan.pipeline.executionCompleted = true;
-        await saveTaskPlan(paths.prdFile, plan);
-      }
-    } catch {
-      // Non-critical — engine already handled state
-    }
+  // `run` owns the publisher when it delegates to this command. A direct
+  // `execute --issue N --web` has no owner, so install the same file-backed
+  // surface here and tear down only what this invocation created.
+  if (
+    webConfig.enabled &&
+    config.issueNumber !== undefined &&
+    inheritedPublisher instanceof NullPublisher
+  ) {
+    const issuePaths = await resolveIssuePaths(config.issueNumber, {
+      projectRoot: paths.projectRoot,
+    });
+    standalonePublisher = new FilePublisher(issuePaths.sessionFile, {
+      logLimit: webConfig.logLimit,
+      includeLogs: webConfig.includeLogs,
+    });
+    setSessionPublisher(standalonePublisher);
+    const numericIssue = /^\d+$/.test(config.issueNumber) ? Number(config.issueNumber) : null;
+    standalonePublisher.publish({
+      type: 'session:start',
+      at: isoNow(),
+      sessionId: randomUUID(),
+      issueNumber: numericIssue,
+      phases: ['execute'],
+    });
+    standalonePublisher.publish({ type: 'phase:start', at: isoNow(), phase: 'execute' });
+    await ensureWebMonitor({
+      publisher: standalonePublisher,
+      port: webConfig.port,
+      host: webConfig.host,
+      refreshSeconds: webConfig.refreshSeconds,
+    });
   }
 
-  return exitCode;
+  let exitCode: number | null = null;
+  try {
+    exitCode = await runEngine(config, paths);
+
+    // Update pipeline state if all stories pass
+    if (exitCode === 0 && config.issueNumber) {
+      try {
+        const plan = await loadTaskPlan(paths.prdFile);
+        if (allStoriesPass(plan)) {
+          plan.pipeline.executionCompleted = true;
+          await saveTaskPlan(paths.prdFile, plan);
+        }
+      } catch {
+        // Non-critical — engine already handled state
+      }
+    }
+
+    return exitCode;
+  } finally {
+    if (standalonePublisher !== null) {
+      const success = exitCode === 0;
+      standalonePublisher.publish({
+        type: 'phase:end',
+        at: isoNow(),
+        phase: 'execute',
+        success,
+        ...(success ? {} : { error: 'Execute phase failed' }),
+      });
+      standalonePublisher.publish({
+        type: 'session:end',
+        at: isoNow(),
+        status: success ? 'completed' : 'failed',
+      });
+      await standalonePublisher.close();
+      setSessionPublisher(undefined);
+    }
+  }
 }

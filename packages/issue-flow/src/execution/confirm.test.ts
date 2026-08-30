@@ -2,6 +2,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildQueueSummaryLines,
+  buildScopeSummaryLine,
   confirmQueue,
   issueLabel,
   QueueConfirmationError,
@@ -21,9 +22,13 @@ function entry(id: string, overrides: Partial<ExecutionPlanIssue> = {}): Executi
     dependsOn: [],
     parent: null,
     priority: null,
+    role: 'executable',
+    externalDependencies: [],
     heuristic: false,
     failedPhase: null,
     lastError: null,
+    attempts: 0,
+    blockedReason: null,
     startedAt: null,
     completedAt: null,
     ...overrides,
@@ -71,6 +76,18 @@ describe('issueLabel', () => {
   it('uses the number when there is one and the id otherwise', () => {
     expect(issueLabel({ id: '50', number: 50 })).toBe('#50');
     expect(issueLabel({ id: 'auth-refactor', number: null })).toBe('auth-refactor');
+  });
+});
+
+describe('buildScopeSummaryLine', () => {
+  it('recaps the chosen scope in one line after the prompt', () => {
+    const two = plan([
+      entry('63', { position: 1, origin: 'requested' }),
+      entry('64', { position: 2 }),
+    ]);
+    expect(buildScopeSummaryLine(two, 'all')).toBe('Scope: 2 issues from the hierarchy of #63.');
+    expect(buildScopeSummaryLine(two, 'requested')).toBe('Scope: 1 requested issue(s).');
+    expect(buildScopeSummaryLine(two, 'cancel')).toBeNull();
   });
 });
 
@@ -166,6 +183,26 @@ describe('confirmQueue', () => {
       confirmQueue(twoIssues, 1, { interactive: true, stdin, stdout, warn }),
     ).resolves.toBe('cancel');
     expect(warn).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails a non-interactive container without a flag instead of running it alone', async () => {
+    const container = plan([
+      entry('87', { position: 1, origin: 'requested', role: 'container' }),
+      entry('62', { position: 2, parent: '87' }),
+    ]);
+    const { stdin, stdout } = streams([]);
+    await expect(
+      confirmQueue(container, 1, { interactive: false, singleRequest: true, stdin, stdout }),
+    ).rejects.toThrow(/--cascade/);
+  });
+
+  it('treats --yes on a container as --cascade', async () => {
+    const container = plan([
+      entry('87', { position: 1, origin: 'requested', role: 'container' }),
+      entry('62', { position: 2, parent: '87' }),
+    ]);
+    const { stdin, stdout } = streams([]);
+    await expect(confirmQueue(container, 1, { yes: true, stdin, stdout })).resolves.toBe('cascade');
   });
 
   it('treats an exhausted input as a cancellation, never as consent', async () => {

@@ -84,7 +84,8 @@ formats. The environment covers the scalar knobs one variable each
 `ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`,
 `ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`,
 `ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE`, and the rest listed in the
-[README](../README.md#issue-flowconfigjson)); the per-kind `retry` table is too
+[configuration reference](configuration.md#environment-variables)); the per-kind
+`retry` table is too
 shaped for a shell variable and travels whole as JSON in
 `ISSUE_FLOW_RESILIENCE_RETRY`.
 
@@ -135,6 +136,7 @@ original the moment either side is edited.
 | Agent instructions | `AGENTS.md` and `CLAUDE.md`, from the root down to the scope |
 | Governance | `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CODEOWNERS` |
 | Referenced documents | the markdown links of `AGENTS.md` and `CLAUDE.md`, followed one level |
+| Git conventions | `commitlint`, `release-please`, `semantic-release`, Changesets, `action-semantic-pull-request`, `.husky/commit-msg` — see [`docs/git-conventions.md`](git-conventions.md) |
 
 Everything is best-effort. A repository declaring none of it resolves to an empty
 policy, **without an error and without a warning**, and every flow keeps the
@@ -178,7 +180,11 @@ organization. The other three answer a question those cannot: *is this worth
 doing*, *what is the answer*, and *what is the umbrella*.
 
 **An open issue is not approved work.** `Idea`, `Research` and `Epic` record
-intent and never authorize an agent to start implementing.
+intent and never authorize an agent to start implementing. The multi-issue
+queue honours that: an Epic (or any issue with sub-issues) is a `container`
+— `issue-flow run <epic> --cascade` executes the children and never a phase
+for the umbrella. Without `--cascade` or `--only`, a non-interactive run
+of a container fails instead of implementing the document nobody approved.
 
 ### What is deliberately not a type
 
@@ -211,8 +217,14 @@ opts back in.
 
 ### Branches and commits
 
-- Branch: `issue/{N}-{slug}`
-- Commit: Conventional Commits, with the type matching the nature of the change
+Documented in [`docs/git-conventions.md`](git-conventions.md). Default branch:
+`{type}/{N}-{slug}`. Commits follow Conventional Commits.
+
+Git artefacts describe **what changed in the software**. Execution telemetry
+in `tasks.json` (`plan.executions`) describes **how the change was produced**.
+Provider, harness, model, tokens and cost never appear in a branch name, a
+commit message, a Pull Request body or a changelog. See
+[`src/telemetry/AGENTS.md`](../packages/issue-flow/src/telemetry/AGENTS.md).
 
 ## Agent entry points
 
@@ -224,6 +236,11 @@ CLAUDE.md  →  AGENTS.md  →  specialized documentation  →  single source of
 vendor — an [open convention](https://agents.md), where agents read the nearest
 file in the directory tree and the closest one wins. Issue Flow treats it as an
 **index**: it names the documents to read and holds no rule of its own.
+
+That neutrality is now load-bearing. The pipeline can run on Claude Code or
+Codex CLI (see [`docs/agents.md`](agents.md)); the same `AGENTS.md` is what both
+read. A convention written for one vendor would make the other produce a
+different result from the same repository.
 
 **`CLAUDE.md` is a bridge.** It exists only as the Claude Code integration and
 contains one line:

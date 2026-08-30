@@ -231,8 +231,9 @@ export const DEFAULT_BODY_SECTIONS: readonly string[] = [
   'References',
 ] as const;
 
-/** Branch naming Issue Flow has always used. */
-export const DEFAULT_BRANCH_CONVENTION = 'issue/{N}-{slug}';
+import { DEFAULT_BRANCH_CONVENTION } from './git/index.js';
+
+export { DEFAULT_BRANCH_CONVENTION };
 
 /**
  * Commit convention.

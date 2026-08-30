@@ -100,6 +100,10 @@ function render(policy: RepositoryPolicy): void {
   push('Git');
   push(`  branchConvention: ${policy.git.branchConvention ?? '(none)'}`);
   push(`  commitConvention: ${policy.git.commitConvention ?? '(none)'}`);
+  push(`  pullRequestTitleConvention: ${policy.git.pullRequestTitleConvention ?? '(none)'}`);
+  push(`  issueReference: ${policy.git.issueReference ?? '(none)'}`);
+  push(`  allowedTypes: ${policy.git.allowedTypes?.join(', ') ?? '(none)'}`);
+  push(`  scopes: ${policy.git.scopes?.join(', ') ?? '(none)'}`);
 
   push();
   push(`Documents: ${policy.docs.length}`);

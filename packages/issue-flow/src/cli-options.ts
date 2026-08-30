@@ -49,12 +49,14 @@ export interface RunPhaseFlags {
 export interface QueueScopeFlagOptions {
   yes?: boolean;
   only?: boolean;
+  cascade?: boolean;
 }
 
 /** Resolved scope answer; both absent means "ask, when the terminal allows it". */
 export interface QueueScopeFlags {
   yes: boolean | undefined;
   only: boolean | undefined;
+  cascade: boolean | undefined;
 }
 
 /**
@@ -73,10 +75,17 @@ export function resolveQueueScopeFlags(options: QueueScopeFlagOptions): QueueSco
         '--only runs just the issues you informed.',
     );
   }
+  if (options.cascade === true && options.only === true) {
+    throw new CliFlagError(
+      '--cascade cannot be combined with --only: --cascade runs the container hierarchy, ' +
+        '--only runs just the issues you informed.',
+    );
+  }
 
   return {
     yes: options.yes === true ? true : undefined,
     only: options.only === true ? true : undefined,
+    cascade: options.cascade === true ? true : undefined,
   };
 }
 

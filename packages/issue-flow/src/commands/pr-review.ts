@@ -236,9 +236,11 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
     // report destination and the tasks.json/prd.md the prompt points at.
     addDirs: issueDir === null ? [dir] : [issueDir],
     statusMessage: `Reviewing Pull Request #${target.number} (round ${round})...`,
+    phase: 'pr-review',
+    permission: 'read-only',
   });
   // Before the success check: the tokens were spent either way.
-  publishPhaseMetrics('pr-review', result.cost, startedAtMs);
+  publishPhaseMetrics('pr-review', result.cost, startedAtMs, result.agent?.provider);
 
   if (!result.success) {
     printError(`PR review failed: ${result.error}`);

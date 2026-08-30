@@ -7,7 +7,9 @@ import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
-import { printError, printSuccess } from '../ui/logger.js';
+import { printError, printSuccess, printWarning } from '../ui/logger.js';
+import { applyAcceptanceToPlan, runAcceptanceGate } from '../verify/gate.js';
+import { formatVerificationLine } from '../verify/present.js';
 
 export interface ReviewResult {
   status: 'PASS' | 'FAIL';
@@ -54,6 +56,40 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     return resolution.code;
   }
 
+  const acceptance = await runAcceptanceGate({
+    issueDir: paths.issueDir,
+    addDirs: [paths.issueDir],
+  });
+  if (acceptance.verdict === 'failed') {
+    try {
+      const plan = await loadTaskPlan(tasksPath);
+      const applied = applyAcceptanceToPlan(plan, acceptance);
+      await saveTaskPlan(tasksPath, applied.plan);
+    } catch {
+      printError(formatVerificationLine(acceptance.verdict, acceptance.level));
+    }
+    return 1;
+  }
+  if (acceptance.verdict === 'unverified') {
+    printWarning(formatVerificationLine(acceptance.verdict, acceptance.level));
+  } else {
+    printSuccess(formatVerificationLine(acceptance.verdict, acceptance.level));
+  }
+  if (acceptance.review?.status === 'failed') {
+    printError('Independent review failed');
+    try {
+      const plan = await loadTaskPlan(tasksPath);
+      plan.pipeline.reviewCompleted = false;
+      plan.lastReviewFindings = acceptance.review.findings
+        .map((finding) => finding.claim)
+        .join('\n');
+      await saveTaskPlan(tasksPath, plan);
+    } catch {
+      // tasks.json may not exist
+    }
+    return 1;
+  }
+
   const template = await loadPrompt('review');
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
@@ -75,10 +111,12 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
     addDirs: [paths.issueDir],
     statusMessage: `Reviewing issue #${issueNumber} resolution...`,
+    phase: 'review',
+    permission: 'read-only',
   });
   // Before the success check: the tokens were spent either way. A correction
   // cycle calls runReview() again and the reducer sums both invocations.
-  publishPhaseMetrics('review', result.cost, startedAtMs);
+  publishPhaseMetrics('review', result.cost, startedAtMs, result.agent?.provider);
 
   if (!result.success) {
     printError(`Review failed: ${result.error}`);

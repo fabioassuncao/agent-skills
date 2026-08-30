@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { ZodError } from 'zod';
 import { taskPlanSchema } from '../schemas.js';
+import { reconcileInterruptedExecutions } from '../telemetry/reconcile.js';
 import type { LastError, PipelineState, TaskPlan, UserStory } from '../types.js';
 import { writeFileAtomic } from '../utils/fs.js';
 import { type ClaudeUsage, sumUsage } from './metrics.js';
@@ -21,7 +22,17 @@ export async function loadTaskPlan(path: string): Promise<TaskPlan> {
   const raw = JSON.parse(content);
 
   try {
-    return taskPlanSchema.parse(raw) as TaskPlan;
+    const parsed = taskPlanSchema.parse(raw) as TaskPlan;
+    const reconciled = reconcileInterruptedExecutions(parsed);
+    if (reconciled !== parsed) {
+      try {
+        await saveTaskPlan(path, reconciled);
+      } catch {
+        // Observational: a failed persist of interrupted status still returns
+        // the reconciled plan to this reader.
+      }
+    }
+    return reconciled;
   } catch (err) {
     if (err instanceof ZodError) {
       const issues = err.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
