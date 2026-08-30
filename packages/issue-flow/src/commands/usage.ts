@@ -1,5 +1,7 @@
+import { readdir } from 'node:fs/promises';
+import { loadTaskPlan } from '../core/state-manager.js';
 import { listStoredExecutions } from '../storage/db/repository.js';
-import { resolveProjectPaths } from '../storage/resolve.js';
+import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import { type GroupKey, groupBy, summarize } from '../telemetry/aggregate.js';
 import { discardedExecutionCount } from '../telemetry/recorder.js';
 import type { ExecutionRecord, ExecutionSummary } from '../telemetry/types.js';
@@ -11,6 +13,7 @@ export const USAGE_GROUP_KEYS = [
   'provider',
   'model',
   'purpose',
+  'trigger',
   'status',
 ] as const satisfies readonly GroupKey[];
 
@@ -156,11 +159,29 @@ export async function runUsage(
 
   let records: ExecutionRecord[];
   try {
-    records = await listStoredExecutions({
-      projectId: project.projectId,
-      ...(requestedIssue === undefined ? {} : { issueId: requestedIssue }),
-      ...(options.since === undefined ? {} : { since: options.since }),
-    });
+    if (project.storageDriver === 'sqlite') {
+      records = await listStoredExecutions({
+        projectId: project.projectId,
+        ...(requestedIssue === undefined ? {} : { issueId: requestedIssue }),
+        ...(options.since === undefined ? {} : { since: options.since }),
+      });
+    } else {
+      const ids =
+        requestedIssue === undefined ? await readdir(project.issuesDir) : [requestedIssue];
+      const plans = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const paths = await resolveIssuePaths(id);
+            return await loadTaskPlan(paths.tasksFile);
+          } catch {
+            return null;
+          }
+        }),
+      );
+      records = plans.flatMap((plan) => plan?.executions ?? []);
+      const cutoff = sinceCutoff(options.since);
+      if (cutoff !== null) records = afterCutoff(records, cutoff);
+    }
   } catch (err) {
     printError(
       `Could not query execution telemetry: ${err instanceof Error ? err.message : String(err)}`,

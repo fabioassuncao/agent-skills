@@ -50,7 +50,7 @@ export function summarize(
   return summary;
 }
 
-export type GroupKey = 'harness' | 'provider' | 'model' | 'purpose' | 'status';
+export type GroupKey = 'harness' | 'provider' | 'model' | 'purpose' | 'trigger' | 'status';
 
 function keyOf(record: ExecutionRecord, key: GroupKey): string {
   switch (key) {
@@ -62,6 +62,8 @@ function keyOf(record: ExecutionRecord, key: GroupKey): string {
       return record.agent.model.resolved ?? record.agent.model.requested ?? 'unknown';
     case 'purpose':
       return record.purpose;
+    case 'trigger':
+      return record.trigger;
     case 'status':
       return record.status;
     default: {

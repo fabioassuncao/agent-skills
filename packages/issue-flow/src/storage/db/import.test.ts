@@ -98,10 +98,15 @@ describe('legacy JSON importer', () => {
     await mkdir(issueDir, { recursive: true });
     const taskFile = join(issueDir, 'tasks.json');
     const journalFile = join(issueDir, 'events.jsonl');
+    const rotatedJournalFile = join(issueDir, 'events.1.jsonl');
     await writeFile(taskFile, `${JSON.stringify(plan())}\n`);
     await writeFile(
       journalFile,
       `${JSON.stringify({ seq: 1, event: { type: 'phase:start', at: '2026-08-30T20:00:00Z' } })}\n`,
+    );
+    await writeFile(
+      rotatedJournalFile,
+      `${JSON.stringify({ seq: 1, event: { type: 'session:start', at: '2026-08-30T19:59:00Z' } })}\n`,
     );
     await writeFile(
       join(projectDir, 'providers.json'),
@@ -139,9 +144,11 @@ describe('legacy JSON importer', () => {
 
     const first = await importProjectArtifacts(options);
     expect(first.failed).toBe(false);
-    expect(first.imported).toBe(4);
+    expect(first.imported).toBe(3);
     const second = await importProjectArtifacts(options);
     expect(second).toMatchObject({ failed: false, imported: 0, skipped: 0 });
+    const events = await importProjectArtifacts({ ...options, withEvents: true });
+    expect(events).toMatchObject({ failed: false, imported: 2 });
     await expect(readFile(taskFile, 'utf-8')).resolves.toBe(taskBefore);
     await expect(readFile(journalFile, 'utf-8')).resolves.toBe(journalBefore);
 
@@ -161,7 +168,13 @@ describe('legacy JSON importer', () => {
       ).toBe(1);
       expect(
         database.prepare('SELECT COUNT(*) AS count FROM events').get<{ count: number }>()?.count,
-      ).toBe(1);
+      ).toBe(2);
+      expect(
+        database
+          .prepare('SELECT sequence FROM events ORDER BY sequence')
+          .all<{ sequence: number }>()
+          .map(({ sequence }) => sequence),
+      ).toEqual([1, 2]);
       expect(
         database
           .prepare(

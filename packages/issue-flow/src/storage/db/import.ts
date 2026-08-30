@@ -10,6 +10,7 @@ import {
   ISSUES_DIR_NAME,
   PROVIDERS_HEALTH_FILENAME,
   QUEUES_DIR_NAME,
+  ROTATED_EVENTS_FILENAME,
   VERIFY_FILENAME,
 } from '../paths.js';
 import { projectMetadataSchema, providersHealthSchema } from '../schemas.js';
@@ -45,6 +46,8 @@ export interface ImportProjectOptions extends OpenIssueFlowDatabaseOptions {
     events?: number;
     snapshots?: number;
   };
+  /** Import the potentially large legacy JSONL journal. Disabled by default. */
+  withEvents?: boolean;
   onWarning?: (message: string) => void;
 }
 
@@ -86,7 +89,7 @@ async function fileIfPresent(path: string): Promise<string | null> {
   }
 }
 
-async function collectArtifacts(projectDir: string): Promise<Artifact[]> {
+async function collectArtifacts(projectDir: string, withEvents: boolean): Promise<Artifact[]> {
   const artifacts: Artifact[] = [];
   const addJson = async (path: string, kind: Artifact['kind'], issueId?: string): Promise<void> => {
     const content = await fileIfPresent(path);
@@ -115,18 +118,20 @@ async function collectArtifacts(projectDir: string): Promise<Artifact[]> {
     const issueDir = join(issuesDir, issueId);
     await addJson(join(issueDir, 'tasks.json'), 'tasks', issueId);
     await addJson(join(issueDir, VERIFY_FILENAME), 'verify', issueId);
-    for (const name of [EVENTS_FILENAME, 'events.1.jsonl']) {
-      const path = join(issueDir, name);
-      const content = await fileIfPresent(path);
-      if (content !== null) {
-        artifacts.push({
-          path,
-          relativePath: relative(projectDir, path),
-          sha256: digest(content),
-          kind: 'events',
-          issueId,
-          value: parseJournal(content),
-        });
+    if (withEvents) {
+      for (const name of [ROTATED_EVENTS_FILENAME, EVENTS_FILENAME]) {
+        const path = join(issueDir, name);
+        const content = await fileIfPresent(path);
+        if (content !== null) {
+          artifacts.push({
+            path,
+            relativePath: relative(projectDir, path),
+            sha256: digest(content),
+            kind: 'events',
+            issueId,
+            value: parseJournal(content),
+          });
+        }
       }
     }
   }
@@ -292,21 +297,56 @@ function importArtifact(
     return;
   }
   if (artifact.kind === 'events') {
-    for (const entry of artifact.value as ReturnType<typeof parseJournal>) {
-      const id = stableId('event', `${artifact.relativePath}:${entry.seq}`);
+    const issueId = artifact.issueId ?? 'unknown';
+    const runId = `legacy:${projectId}:${issueId}`;
+    insertIssue(database, projectId, issueId, 'imported', null, null, fallback.timestamp, counts);
+    database
+      .prepare(
+        `INSERT INTO runs (id, project_id, issue_id, status, started_at, finished_at, session_id)
+         VALUES (?, ?, ?, 'imported', ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(runId, projectId, issueId, fallback.timestamp, fallback.timestamp, runId);
+    let nextSequence =
+      (database
+        .prepare('SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events WHERE run_id = ?')
+        .get<{ sequence: number }>(runId)?.sequence ?? 0) + 1;
+    for (const [index, entry] of (artifact.value as ReturnType<typeof parseJournal>).entries()) {
+      const id = stableId('event', `${artifact.relativePath}:${index}`);
       const event = entry.event as { at?: string; type: string };
       database
         .prepare(
-          `INSERT INTO events (id, project_id, occurred_at, kind, payload_json) VALUES (?, ?, ?, ?, ?)
+          `INSERT INTO events
+           (id, project_id, run_id, occurred_at, kind, payload_json, session_id, sequence)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET occurred_at = excluded.occurred_at, kind = excluded.kind,
            payload_json = excluded.payload_json`,
         )
-        .run(id, projectId, event.at ?? fallback.timestamp, event.type, JSON.stringify(entry));
+        .run(
+          id,
+          projectId,
+          runId,
+          event.at ?? fallback.timestamp,
+          event.type,
+          JSON.stringify(entry),
+          runId,
+          nextSequence++,
+        );
       increment(counts, 'events');
     }
     return;
   }
   if (artifact.kind === 'verify') {
+    insertIssue(
+      database,
+      projectId,
+      artifact.issueId ?? 'unknown',
+      'imported',
+      null,
+      null,
+      fallback.timestamp,
+      counts,
+    );
     const id = stableId('verify', artifact.relativePath);
     database
       .prepare(
@@ -476,9 +516,11 @@ export async function importProjectArtifacts(
         .get<{ project_id: string }>(options.projectId);
       // JSON becomes a compatibility projection after successful adoption;
       // never scan it again in a later process and overwrite canonical rows.
-      if (adopted !== undefined)
+      if (adopted !== undefined && options.withEvents !== true)
         return { imported: 0, skipped: 0, tableCounts: counts, failed: false };
-      const artifacts = await collectArtifacts(options.projectDir);
+      const artifacts = (
+        await collectArtifacts(options.projectDir, options.withEvents === true)
+      ).filter((artifact) => adopted === undefined || artifact.kind === 'events');
       let imported = 0;
       let skipped = 0;
       database.transaction(() => {
@@ -537,7 +579,10 @@ export async function importProjectArtifacts(
         }
         applyRetention(database, options.projectId, options.retention);
         database
-          .prepare('INSERT INTO project_imports (project_id, completed_at) VALUES (?, ?)')
+          .prepare(
+            `INSERT INTO project_imports (project_id, completed_at) VALUES (?, ?)
+             ON CONFLICT(project_id) DO NOTHING`,
+          )
           .run(options.projectId, new Date().toISOString());
       });
       return { imported, skipped, tableCounts: counts, failed: false };

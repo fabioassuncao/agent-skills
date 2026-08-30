@@ -500,7 +500,7 @@ withGlobalOptions(
     .argument('[issue]', 'Restrict the report to one issue')
     .option('--issue <issue>', 'Same as the positional argument')
     .option('--since <date>', 'Only executions started on or after this ISO date')
-    .option('--by <key>', 'Group by harness, provider, model, purpose or status')
+    .option('--by <key>', 'Group by harness, provider, model, purpose, trigger or status')
     .option('--json', 'Emit the assembled totals as JSON'),
 ).action(
   async (
@@ -510,7 +510,7 @@ withGlobalOptions(
     const { runUsage, USAGE_GROUP_KEYS } = await import('./commands/usage.js');
     const by = options.by;
     if (by !== undefined && !(USAGE_GROUP_KEYS as readonly string[]).includes(by)) {
-      printError('Must be one of: harness, provider, model, purpose, status.');
+      printError('Must be one of: harness, provider, model, purpose, trigger, status.');
       process.exit(1);
     }
     process.exit(
@@ -567,11 +567,37 @@ db.command('export')
     process.exit(await runDbExport(options.destination));
   });
 
+db.command('verify')
+  .description('Compare task and queue projections with canonical SQLite state')
+  .action(async () => {
+    const { runDbVerify } = await import('./commands/db.js');
+    process.exit(await runDbVerify());
+  });
+
+db.command('import')
+  .description('Import preserved compatibility artifacts')
+  .option('--with-events', 'Also import the potentially large JSONL journal')
+  .action(async (options: { withEvents?: boolean }) => {
+    const { runDbImport } = await import('./commands/db.js');
+    process.exit(await runDbImport(options));
+  });
+
 withGlobalOptions(
   program.command('runs').description('History of the runs of this project, with how each ended'),
 ).action(async () => {
   const { runRuns } = await import('./commands/operations.js');
   process.exit(await runRuns());
+});
+
+withGlobalOptions(
+  program
+    .command('history')
+    .description('Relational phase, invocation and verdict history for one issue')
+    .argument('<issue>', 'Issue identifier')
+    .option('--json', 'Emit the complete history as JSON'),
+).action(async (issue: string, options: { json?: boolean }) => {
+  const { runHistory } = await import('./commands/history.js');
+  process.exit(await runHistory(issue, options));
 });
 
 withGlobalOptions(
