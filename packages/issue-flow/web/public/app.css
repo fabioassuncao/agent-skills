@@ -275,6 +275,71 @@ a:hover {
   min-width: 0;
 }
 
+/* ---- Blocos da aba Execução ----
+
+   Um bloco é um cartão que reúne várias sub-seções sob um único <h2>. As
+   sub-seções (`.block-part`, com <h3>) não têm borda nem fundo próprios: a
+   separação é o espaçamento do grid. Assunto novo na aba entra como
+   `.block-part` de um bloco existente, não como cartão novo — foi a
+   proliferação de cartões que a issue #98 desfez. */
+
+.block {
+  display: grid;
+  gap: var(--space-16);
+  align-content: start;
+}
+
+/* O gap do grid já separa o título do conteúdo. */
+.block > h2 {
+  margin-bottom: 0;
+}
+
+.block h3 {
+  margin: 0 0 var(--space-8);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Quando o <h3> divide a linha com um controle, quem espaça é o cabeçalho. */
+.block-part > .section-head {
+  margin-bottom: var(--space-8);
+}
+
+.block-part > .section-head h3 {
+  margin-bottom: 0;
+}
+
+/* Complemento do <h3>: peso normal para não competir com o título. */
+.block-hint {
+  font-weight: 400;
+}
+
+/* Contexto é referência, não estado: um degrau abaixo do resto da aba, e a
+   descrição da issue com menos altura para não empurrar o que vem depois. */
+.block-context {
+  font-size: var(--font-size-md);
+}
+
+.block-context .issue-description {
+  max-height: 140px;
+}
+
+/* Próximos passos é uma linha, não um cartão: os passos entram separados por
+   `·` num único parágrafo (ver renderNextSteps no app.js). */
+.next-steps-line {
+  margin: 0;
+  font-size: var(--font-size-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.next-steps-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 /* ---- Cabeçalho ---- */
 
 .header {

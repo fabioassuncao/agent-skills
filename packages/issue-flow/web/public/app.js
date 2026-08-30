@@ -1387,19 +1387,17 @@
     }
   }
 
+  // Uma linha dentro do bloco de estado, não uma lista num cartão próprio: os
+  // passos são poucos e curtos, e o rótulo já vem do HTML (.next-steps-label).
   function renderNextSteps(snapshot) {
     clear(els.nextSteps);
     if (snapshot.nextSteps.length === 0) {
       const message =
         snapshot.status === 'completed' ? 'Pipeline concluído.' : 'Nenhum passo pendente.';
-      els.nextSteps.appendChild(el('p', 'empty', message));
+      els.nextSteps.appendChild(el('span', 'empty', message));
       return;
     }
-    const list = el('ol');
-    for (const step of snapshot.nextSteps) {
-      list.appendChild(el('li', null, step));
-    }
-    els.nextSteps.appendChild(list);
+    els.nextSteps.appendChild(el('span', null, snapshot.nextSteps.join(' · ')));
   }
 
   function renderStories(snapshot) {

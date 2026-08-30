@@ -112,86 +112,112 @@
               aria-controls="panel-history" aria-selected="false">Histórico</button>
     </div>
 
+    <!-- Aba Execução em quatro blocos, na ordem em que a pergunta aparece:
+         o que está acontecendo agora, sobre o quê, quanto já andou e o que
+         saiu disso. Cada bloco é UM cartão; o que antes era um cartão por
+         assunto virou uma sub-seção com <h3> e sem borda própria. -->
     <div class="tab-panel" id="panel-execution" role="tabpanel" aria-labelledby="tab-execution" tabindex="0">
-    <div class="columns">
-      <section class="card">
-        <h2>Resumo da issue</h2>
-        <div id="issue-summary"></div>
-      </section>
-      <section class="card">
-        <h2>Repositório</h2>
-        <div id="repository"></div>
-      </section>
-    </div>
 
-    <section class="card" aria-live="polite">
-      <h2>Progresso</h2>
-      <div class="progress-row">
-        <progress id="progress-bar" max="100" value="0"></progress>
-        <span id="progress-percent" class="progress-percent">0%</span>
+    <!-- Estado agora. Primeiro de propósito: é o único bloco que precisa ser
+         legível sem rolagem. Não acrescente conteúdo aqui sem checar isso. -->
+    <section class="card block">
+      <h2>Estado agora</h2>
+
+      <div aria-live="polite">
+        <div class="progress-row">
+          <progress id="progress-bar" max="100" value="0"></progress>
+          <span id="progress-percent" class="progress-percent">0%</span>
+        </div>
+        <p id="progress-counters" class="muted"></p>
       </div>
-      <p id="progress-counters" class="muted"></p>
-    </section>
 
-    <section class="card" aria-live="polite">
-      <h2>Executando agora</h2>
-      <div id="now"></div>
-    </section>
-
-    <section class="card" aria-live="polite">
-      <h2>Resiliência</h2>
-      <div id="resilience"></div>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <h2>Harnesses e configuração efetiva</h2>
-        <span class="muted">versões, preferências futuras e overrides desta execução</span>
+      <div class="columns">
+        <div class="block-part">
+          <h3>Executando agora</h3>
+          <div id="now" aria-live="polite"></div>
+        </div>
+        <div class="block-part">
+          <h3>Resiliência</h3>
+          <div id="resilience" aria-live="polite"></div>
+        </div>
       </div>
-      <div id="configuration"></div>
+
+      <p class="next-steps-line">
+        <span class="next-steps-label">Próximos passos:</span>
+        <span id="next-steps"></span>
+      </p>
     </section>
 
-    <div class="columns">
-      <section class="card">
-        <h2>Fases</h2>
+    <!-- Contexto. Estável durante a execução, então densidade menor: é
+         referência para quando o estado acima não bastar. -->
+    <section class="card block block-context">
+      <h2>Contexto</h2>
+
+      <div class="columns">
+        <div class="block-part">
+          <h3>Issue</h3>
+          <div id="issue-summary"></div>
+        </div>
+        <div class="block-part">
+          <h3>Repositório</h3>
+          <div id="repository"></div>
+        </div>
+      </div>
+
+      <div class="block-part">
+        <h3>
+          Harnesses e configuração efetiva
+          <span class="muted block-hint">versões, preferências futuras e overrides desta execução</span>
+        </h3>
+        <div id="configuration"></div>
+      </div>
+    </section>
+
+    <!-- Andamento: o caminho já percorrido, fase a fase e story a story. -->
+    <section class="card block">
+      <h2>Andamento</h2>
+
+      <div class="block-part">
+        <h3>Fases</h3>
         <ol id="phases" class="plain-list"></ol>
-      </section>
-      <section class="card">
-        <h2>Próximos passos</h2>
-        <div id="next-steps"></div>
-      </section>
-    </div>
+      </div>
 
-    <section class="card">
-      <h2>User stories</h2>
-      <ol id="stories" class="plain-list"></ol>
+      <div class="block-part">
+        <h3>User stories</h3>
+        <ol id="stories" class="plain-list"></ol>
+      </div>
     </section>
 
-    <div class="columns">
-      <section class="card">
-        <h2>Commits</h2>
-        <ul id="commits" class="plain-list"></ul>
-      </section>
-      <section class="card">
-        <h2>Pull requests</h2>
-        <ul id="pull-requests" class="plain-list"></ul>
-      </section>
-    </div>
+    <!-- Saída: o que a execução produziu no repositório e no log. -->
+    <section class="card block">
+      <h2>Saída</h2>
 
-    <section class="card">
-      <div class="section-head">
-        <h2>Logs recentes</h2>
-        <label class="log-filter-control">
-          Nível
-          <select id="log-filter" aria-label="Filtro por nível de log">
-            <option value="all">todos</option>
-            <option value="info">info</option>
-            <option value="warn">avisos</option>
-            <option value="error">erros</option>
-          </select>
-        </label>
+      <div class="columns">
+        <div class="block-part">
+          <h3>Commits</h3>
+          <ul id="commits" class="plain-list"></ul>
+        </div>
+        <div class="block-part">
+          <h3>Pull requests</h3>
+          <ul id="pull-requests" class="plain-list"></ul>
+        </div>
       </div>
-      <ol id="logs" class="plain-list logs"></ol>
+
+      <div class="block-part">
+        <div class="section-head">
+          <h3>Logs recentes</h3>
+          <label class="log-filter-control">
+            Nível
+            <select id="log-filter" aria-label="Filtro por nível de log">
+              <option value="all">todos</option>
+              <option value="info">info</option>
+              <option value="warn">avisos</option>
+              <option value="error">erros</option>
+            </select>
+          </label>
+        </div>
+        <ol id="logs" class="plain-list logs"></ol>
+      </div>
     </section>
     </div>
 

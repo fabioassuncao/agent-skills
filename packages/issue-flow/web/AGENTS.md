@@ -75,6 +75,33 @@ grid`/`flex` da regra base vence o atributo `hidden`. E o overlay/drawer ficam
 em `z-index` 20/21 para cobrir o `.banner` de desconexão, que é `sticky` com
 `z-index: 10`.
 
+## Blocos da aba Execução
+
+A aba "Execução" tem **quatro** cartões, nesta ordem, e a ordem é a hierarquia:
+
+| Bloco | O que carrega |
+| --- | --- |
+| Estado agora | progresso, "Executando agora", "Resiliência" e a linha "Próximos passos" |
+| Contexto | issue, repositório e "Harnesses e configuração efetiva" |
+| Andamento | fases e user stories |
+| Saída | commits, pull requests e logs recentes |
+
+Cada assunto dentro de um bloco é uma `.block-part` com `<h3>` — **sem borda,
+sem fundo, sem sombra própria**: quem separa é o `gap` do grid de `.block`.
+Assunto novo entra como `.block-part` de um bloco existente; um cartão novo na
+aba só se justifica se não couber em nenhum dos quatro. Foi a proliferação de
+cartões de mesmo peso (doze deles) que a issue #98 desfez, e ela volta sozinha
+se cada mudança acrescentar "só mais um".
+
+"Estado agora" é o único bloco com um requisito de layout: precisa caber sem
+rolagem em 1440x900 **com o cartão de erros e avisos aberto**. Antes de
+acrescentar linha ali, meça (`getBoundingClientRect().bottom <= innerHeight`).
+
+"Contexto" roda um degrau abaixo (`--font-size-md` em todo o bloco): é
+referência, não estado. "Próximos passos" é uma linha só — `renderNextSteps()`
+junta os passos com `·` num `<span>`, e o rótulo vem do HTML
+(`.next-steps-label`), não do JS.
+
 ## Escalas de tipografia, espaçamento e raio
 
 Ao lado das cores, `:root` declara três escalas **fechadas**. Um componente
