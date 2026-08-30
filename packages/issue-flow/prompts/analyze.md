@@ -55,4 +55,11 @@ silent, the defaults above still apply.
 
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
+
+### Judging completeness against this repository
+
+When the section above lists Issue Templates, the applicable one defines what a
+well-formed issue of this kind is expected to carry. Judge the issue's
+completeness against **its** required fields, not against a generic checklist,
+and name the field that is missing rather than asking for more detail in general.
 <!-- /if -->

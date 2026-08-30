@@ -100,9 +100,23 @@ Take the user's short instruction and expand it technically:
 
 Think like an architect who knows this codebase. The goal is to produce an issue that someone (human or AI agent) can pick up and execute without needing to ask clarifying questions.
 
+#### Read the repository's own taxonomy first
+
+A local issue has no GitHub label registry, but the repository still has
+conventions — Issue Templates in `.github/ISSUE_TEMPLATE/`, a title convention,
+`AGENTS.md`. Ask for them before inferring anything:
+
+```bash
+issue-flow policy --json 2>/dev/null
+```
+
+When it answers, its taxonomy replaces the defaults below, exactly as it does for
+a GitHub issue: a local issue that ignores the repository's conventions is one
+more thing to reconcile the day it is pushed.
+
 #### Infer Issue Metadata
 
-From the request and codebase analysis, infer:
+Only for what the repository did **not** declare, infer:
 
 - **Type**: `bug`, `enhancement`, `refactor`, `investigation`, or `architecture`
 - **Priority**: `low`, `medium`, or `high` — based on:
@@ -208,6 +222,13 @@ Identifiers are path segments: reject anything containing `/` or `\`, plus `.` a
 
 ### Step 7 — Write the Issue Body
 
+**When the repository has an Issue Template or Issue Form, it wins.** Pick the one
+that fits the request and write the body to *its* structure, filling every
+required field. The structure below is the default for a repository with no
+template — do not stack it on top of one.
+
+If two templates fit equally well, ask the user which one.
+
 Use this exact structure. Every section must be present and substantive — no placeholders or one-liners.
 
 ```markdown
@@ -278,7 +299,10 @@ Use this exact structure. Every section must be present and substantive — no p
 [<Type>] <concise description>
 ```
 
-- **Prefix** is mandatory: `[Bug]`, `[Refactor]`, `[Enhancement]`, `[Investigation]`, or `[Architecture]`
+- **Prefix**: `[Bug]`, `[Refactor]`, `[Enhancement]`, `[Investigation]`, or `[Architecture]` —
+  unless the repository declares its own `issues.titleConvention` (follow it
+  instead) or uses Issue Types (then write no textual prefix at all, since the
+  repository moved that information into a structured field)
 - **Max length**: 80 characters total, no trailing punctuation, no redundant words
 - **Language**: same as Step 2
 

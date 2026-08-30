@@ -1,4 +1,4 @@
-import { loadIssuesConfig } from '../config.js';
+import { loadIssuesConfig, loadPolicyConfig } from '../config.js';
 import { runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
@@ -7,11 +7,13 @@ import { getGlobalTimeout } from '../core/verbose.js';
 import { ensureProvidersRegistered } from '../issues/bootstrap.js';
 import { localIssueRef } from '../issues/context.js';
 import { IssueDraftParseError, parseIssueDraft } from '../issues/draft.js';
+import { createMissingLabels, reconcileLabels } from '../issues/label-policy.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueDraft, IssueGenerateTarget } from '../issues/types.js';
+import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveProjectPaths } from '../storage/resolve.js';
-import { printError, printSuccess } from '../ui/logger.js';
+import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 
 /** Human-readable pointer to a created Issue. */
 function issueLocation(issue: Issue): string {
@@ -104,6 +106,45 @@ async function createIssues(target: IssueGenerateTarget, draft: IssueDraft): Pro
   return [await getProvider(target).create(draft)];
 }
 
+/**
+ * Reconcile the draft's labels with the ones the repository really has.
+ *
+ * Two failures are being prevented here, and only one of them is cosmetic.
+ * GitHub rejects an issue whose label does not exist, so an invented label costs
+ * the whole Issue. And a tool that creates the label instead rewrites a taxonomy
+ * the team may have curated deliberately — which is worse, because it succeeds.
+ *
+ * Never throws: a policy that could not be resolved leaves the draft untouched.
+ */
+async function applyLabelPolicy(draft: IssueDraft): Promise<IssueDraft> {
+  let known: Awaited<ReturnType<typeof loadRepositoryPolicy>>['issues']['labels'];
+  let allowCreation: boolean;
+  try {
+    const policy = await loadRepositoryPolicy();
+    known = policy.issues.labels;
+    const config = await loadPolicyConfig({ projectRoot: policy.root });
+    allowCreation = config.issues.allowLabelCreation ?? false;
+  } catch {
+    return draft;
+  }
+
+  const { labels, missing } = reconcileLabels(draft.labels, known);
+  if (missing.length === 0) {
+    return { ...draft, labels };
+  }
+
+  if (!allowCreation) {
+    printWarning(
+      `Dropping ${missing.length} label(s) this repository does not have: ${missing.join(', ')}. ` +
+        'Issue Flow does not create labels; set policy.issues.allowLabelCreation to change that.',
+    );
+    return { ...draft, labels };
+  }
+
+  const created = await createMissingLabels(missing, printWarning);
+  return { ...draft, labels: [...labels, ...created] };
+}
+
 export async function runGenerate(
   promptText: string,
   target?: IssueGenerateTarget,
@@ -125,9 +166,17 @@ export async function runGenerate(
     return 1;
   }
 
+  const finalDraft = await applyLabelPolicy(draft);
+  if (finalDraft.template !== undefined) {
+    printInfo(`Following the repository's Issue Template: ${finalDraft.template}`);
+  }
+  if (finalDraft.type !== undefined) {
+    printInfo(`Issue Type: ${finalDraft.type}`);
+  }
+
   let created: Issue[];
   try {
-    created = await createIssues(destination, draft);
+    created = await createIssues(destination, finalDraft);
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err));
     return 1;

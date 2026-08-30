@@ -89,6 +89,17 @@ export interface IssueDraft {
   body: string;
   labels: string[];
   /**
+   * GitHub Issue Type, when the organization exposes one and the draft picked
+   * it. Absent means "no type", never a default: inventing one would put every
+   * issue of a repository under whichever type happened to be listed first.
+   */
+  type?: string;
+  /**
+   * Repository-relative path of the Issue Template the draft followed, for the
+   * confirmation shown to the user. Purely informational.
+   */
+  template?: string;
+  /**
    * Identifier to create the Issue under, when the caller needs a specific one
    * (a mirror must share the identifier of the Issue it mirrors). Providers
    * that allocate their own identifiers may ignore it.

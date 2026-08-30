@@ -191,6 +191,11 @@ export class GitHubIssueProvider implements IssueProvider {
     for (const label of draft.labels) {
       args.push('--label', label);
     }
+    // Only when the draft actually chose one. An organization without Issue
+    // Types rejects the flag outright, so it must never be sent speculatively.
+    if (draft.type !== undefined && draft.type !== '') {
+      args.push('--type', draft.type);
+    }
 
     const result = await run('gh', args);
     if (result.exitCode !== 0) {

@@ -100,11 +100,29 @@ Take the user's short instruction and expand it technically:
 
 Think like an architect who knows this codebase. The goal is to produce an issue that someone (human or AI agent) can pick up and execute without needing to ask clarifying questions.
 
+#### Read the repository's own taxonomy first
+
+Before inferring anything, ask the repository what it actually uses:
+
+```bash
+issue-flow policy --json 2>/dev/null
+```
+
+The payload carries `issues.templates`, `issues.types`, `issues.labels`,
+`issues.titleConvention` and the paths of the repository's policy documents. When
+it answers, **its taxonomy replaces the defaults below** — those exist for a
+repository that declares nothing, and applying them on top of a curated
+vocabulary is how a generator produces issues nobody recognizes.
+
+When the CLI is not installed, fall back to `gh label list` and to reading
+`.github/ISSUE_TEMPLATE/`, and treat what you find the same way.
+
 #### Infer Issue Metadata
 
-From the request and codebase analysis, infer:
+Only for what the repository did **not** declare, infer:
 
 - **Type**: `bug`, `enhancement`, `refactor`, `investigation`, or `architecture`
+  — superseded by `issues.types` whenever the repository has Issue Types
 - **Priority**: `low`, `medium`, or `high` — based on:
   - `high`: security issues, data loss risks, broken core functionality, production outages
   - `medium`: degraded functionality, performance issues, developer experience problems
@@ -139,6 +157,18 @@ Before writing, evaluate whether the request is too broad for a single issue.
 **If the scope is appropriate**: Proceed to writing.
 
 ### Step 5 — Write the Issue
+
+**When the repository has an Issue Template or Issue Form, it wins.** Pick the one
+that fits the request by its name and description, and write the body to *its*
+structure, filling every field it marks as required. Do not add the sections
+below on top of it: a repository whose quick-capture form has one required field
+does not want a twelve-section architectural document, and forcing one is how
+this skill turns a two-minute idea into a chore.
+
+If two templates fit equally well, ask the user which one. Choosing the kind of
+issue is the author's call, not the generator's.
+
+**The structure below is the default for a repository with no template.**
 
 Use this exact structure. Every section must be present and substantive — no placeholders or one-liners.
 
@@ -267,59 +297,62 @@ For each candidate found, evaluate on three dimensions:
 
 **If no duplicates found across all strategies**: Proceed to creation.
 
-### Step 7 — Validate and Prepare Labels
+### Step 7 — Validate Labels Against the Repository
 
-Before creating the issue, validate that the labels you want to use actually exist in the repository.
+Read the labels this repository actually has:
 
 ```bash
-gh label list --limit 100 --json name --jq '.[].name' 2>&1
+issue-flow policy --json 2>/dev/null | jq -r '.issues.labels[].name'
 ```
 
-For each intended label:
+Fall back to `gh label list --limit 200 --json name --jq '.[].name'` when the CLI
+is not installed.
 
-1. **If the label exists**: Use it as-is (respect exact casing).
-2. **If the label does NOT exist**: Create it before using it:
-   ```bash
-   gh label create "<label-name>" --description "<brief description>" --color "<hex-color>" 2>&1
-   ```
+**Use only labels from that list, and match their exact casing.** A label that is
+not on it is dropped — say so to the user at the end, naming the labels and the
+classification that was lost.
 
-   Use these standard colors:
-   | Label | Color |
-   |-------|-------|
-   | `bug` | `d73a4a` |
-   | `enhancement` | `a2eeef` |
-   | `refactor` | `e4e669` |
-   | `investigation` | `d4c5f9` |
-   | `architecture` | `1d76db` |
-   | `high` | `b60205` |
-   | `medium` | `fbca04` |
-   | `low` | `0e8a16` |
-   | `backend` | `5319e7` |
-   | `frontend` | `bfd4f2` |
-   | `infra` | `f9d0c4` |
-   | `database` | `c2e0c6` |
-   | `api` | `006b75` |
-   | `auth` | `e99695` |
-   | `storage` | `d4c5f9` |
-   | `i18n` | `fef2c0` |
-   | `integrations` | `c5def5` |
-   | `docs` | `0075ca` |
-   | `testing` | `bfdadc` |
-   | `ci-cd` | `f9d0c4` |
-   | `monitoring` | `d93f0b` |
+**Never create a label.** Labels are governance, not a detail of this workflow: a
+team that deleted `high`/`medium`/`low` in favour of a native priority field, or
+`bug`/`enhancement` in favour of Issue Types, made a decision. Recreating them
+here undoes it silently and repository-wide, and the failure is invisible because
+it *succeeds*.
 
-   **If label creation fails** (e.g., insufficient permissions): Proceed without that label. Do NOT fail the entire issue creation. Log which labels could not be created and mention it to the user at the end.
+The only exception is a repository that opted back in, which you can check with:
+
+```bash
+issue-flow policy --json 2>/dev/null | jq -r '.issues.allowLabelCreation // false'
+```
+
+When that is `true`, create a missing label with
+`gh label create "<name>" --description "<brief description>"`. Proceed without
+the label if creation fails — never fail the issue over it.
 
 ### Step 8 — Standardize the Title
 
-The title MUST follow this format:
+**First, check whether this repository declares its own convention:**
+
+```bash
+issue-flow policy --json 2>/dev/null | jq -r '.issues.titleConvention // empty'
+issue-flow policy --json 2>/dev/null | jq -r '.issues.types[]?'
+```
+
+- **The repository declares a `titleConvention`**: follow it, and ignore the
+  default below.
+- **The repository has Issue Types**: write the title with **no textual prefix**.
+  A repository with Issue Types has usually removed `[Bug]`/`[Enhancement]` from
+  titles precisely because that information moved into a structured field.
+  Reintroducing it is exactly the regression this step exists to prevent.
+- **Neither**: use the default format below.
+
+**Default format** (no repository convention, no Issue Types):
 
 ```
 [<Type>] <concise description>
 ```
 
 **Rules:**
-- **Prefix** is mandatory and must be one of: `[Bug]`, `[Refactor]`, `[Enhancement]`, `[Investigation]`, `[Architecture]`
+- **Prefix** must be one of: `[Bug]`, `[Refactor]`, `[Enhancement]`, `[Investigation]`, `[Architecture]`
 - **Description** must be concise, clear, and scannable
 - **Max length**: 80 characters total (including prefix)
 - **Language**: Same language chosen in Step 2
@@ -347,6 +380,12 @@ The title MUST follow this format:
      --body-file "$ISSUE_FILE" \
      --label "label1,label2" 2>&1
    ```
+
+   **When the repository has Issue Types** (`issues.types` in Step 3), add
+   `--type "<Type>"` with one of them. In an organization that adopted Issue
+   Types, an issue created without one is untyped and drops out of every view
+   built on that field. Never pass `--type` otherwise: an organization without
+   Issue Types rejects the flag.
 
 3. **Handle errors:**
 

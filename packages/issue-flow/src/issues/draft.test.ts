@@ -95,3 +95,34 @@ describe('parseIssueDraft', () => {
     );
   });
 });
+
+describe('parseIssueDraft — repository policy fields', () => {
+  function block(inner: string): string {
+    return `<issue-draft>\n<title>T</title>\n<body>B</body>\n${inner}\n</issue-draft>`;
+  }
+
+  it('omits type and template entirely when the agent emitted neither', () => {
+    const draft = parseIssueDraft(block(''));
+
+    // Absent, not empty: a repository with no Issue Types must not have `--type`
+    // sent for it, and `undefined` is what the provider checks.
+    expect('type' in draft).toBe(false);
+    expect('template' in draft).toBe(false);
+  });
+
+  it('reads the Issue Type the draft chose', () => {
+    expect(parseIssueDraft(block('<type>Bug</type>')).type).toBe('Bug');
+  });
+
+  it('reads the template the draft followed', () => {
+    expect(
+      parseIssueDraft(block('<template>.github/ISSUE_TEMPLATE/bug.yml</template>')).template,
+    ).toBe('.github/ISSUE_TEMPLATE/bug.yml');
+  });
+
+  it('treats an empty or "(none)" value as absent', () => {
+    expect('type' in parseIssueDraft(block('<type>  </type>'))).toBe(false);
+    expect('type' in parseIssueDraft(block('<type>(none)</type>'))).toBe(false);
+    expect('template' in parseIssueDraft(block('<template>(none)</template>'))).toBe(false);
+  });
+});
