@@ -10,6 +10,10 @@
    ou o tema oposto fica sem ele. */
 
 :root {
+  /* Esquema dos controles nativos. Os blocos de tema escuro abaixo o
+     sobrescrevem. */
+  color-scheme: light;
+
   /* Superfície: página, cartão elevado e recesso neutro. */
   --surface-page: #f4f5f7;
   --surface: #ffffff;
@@ -49,18 +53,32 @@
   --overlay: rgb(0 0 0 / 0.45);
 }
 
+/* ---- Tema escuro ----
+
+   Dois blocos gêmeos: o do sistema e o forçado pelo controle do painel.
+   **Os dois carregam exatamente a mesma lista de overrides e precisam mudar
+   juntos** — mexeu em um, mexa no outro. Só entram aqui os tokens cujo valor
+   muda; o que é igual nos dois temas fica só em `:root`.
+
+   O guarda `:not([data-theme='light'])` é o que faz a escolha manual vencer o
+   sistema: com o SO em escuro e o tema forçado em claro, o `@media` não
+   sobrescreve nada.
+
+   `color-scheme` vai dentro de cada bloco (e não no `<html>` nem num `<meta>`)
+   porque é ele que manda nos controles nativos — `<select>`, `<progress>`,
+   barras de rolagem — e precisa acompanhar o tema efetivo, não o do SO. */
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
     --surface-page: #0f1218;
     --surface: #171c24;
     --surface-sunken: #262d38;
     --text: #e5e9f0;
     --text-muted: #8b93a1;
-    --text-subtle: #767e8b;
     --border: #262d38;
-    --border-strong: #c7ccd4;
     --accent: #818cf8;
-    --accent-text: #ffffff;
     --state-ok: #4ade80;
     --state-ok-surface: #14301f;
     --state-run: #60a5fa;
@@ -73,6 +91,30 @@
     --shadow: none;
     --overlay: rgb(0 0 0 / 0.65);
   }
+}
+
+/* Gêmeo do bloco acima — mesma lista de overrides, mudam juntos. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-page: #0f1218;
+  --surface: #171c24;
+  --surface-sunken: #262d38;
+  --text: #e5e9f0;
+  --text-muted: #8b93a1;
+  --border: #262d38;
+  --accent: #818cf8;
+  --state-ok: #4ade80;
+  --state-ok-surface: #14301f;
+  --state-run: #60a5fa;
+  --state-run-surface: #172a45;
+  --state-warn: #fbbf24;
+  --state-warn-surface: #3a2d10;
+  --state-error: #f87171;
+  --state-error-surface: #3b1a1a;
+  --focus-ring: #818cf8;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
 }
 
 * {

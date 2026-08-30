@@ -80,6 +80,15 @@ escolhe o papel que já existe em vez de inventar uma cor.
 apenas redefinem o que muda. Um token que só existe num deles some no outro
 tema, e o sintoma aparece longe da causa.
 
+O tema escuro vive em **dois blocos gêmeos** com a mesma lista de overrides:
+`@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) { … } }`
+e `:root[data-theme='dark'] { … }`. Mexeu em um, mexa no outro. O guarda
+`:not([data-theme='light'])` é o que faz a escolha manual vencer o sistema nos
+dois sentidos. Cada bloco declara seu próprio `color-scheme` (e `:root`, o
+`light`): é ele — não um `<meta name="color-scheme">`, que foi removido do
+`index.html` justamente por isso — que faz `<select>`, `<progress>` e as barras
+de rolagem acompanharem o tema **efetivo** em vez do tema do SO.
+
 O antigo `--idle-bg` (badge inerte, contagem de coluna do Kanban, hover do
 fechar do drawer, trilha da barra de progresso) virou **`--surface-sunken`**, e
 não um `--state-neutral-surface`: metade dos usos não é badge de estado, e um
