@@ -75,7 +75,7 @@ npx issue-flow run 42 --web   # …and watch it live at http://localhost:3737
 | `generate` | Draft and create an issue on GitHub, locally, or both |
 | `init` | Check prerequisites and report (or create) missing conventions |
 | `analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review` | The phases, standalone |
-| `status`, `ps`, `runs`, `logs`, `usage`, `pause`, `cancel` | Operate a running pipeline |
+| `status`, `ps`, `runs`, `history`, `logs`, `usage`, `pause`, `cancel` | Operate a running pipeline |
 | `agent`, `policy`, `conventions`, `routing` | Inspect what was resolved, and why |
 | `web serve`, `web stop` | The monitoring server |
 

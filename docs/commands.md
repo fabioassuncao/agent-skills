@@ -6,8 +6,8 @@ installed.
 
 - [Global flags](#global-flags)
 - [Pipeline](#pipeline) — `run`, `resume`, and the individual phases
-- [Operating a run](#operating-a-run) — `status`, `ps`, `runs`, `logs`, `usage`, `pause`, `cancel`
-- [Database maintenance](#database-maintenance) — `db check`, `db backup`, `db vacuum`, `db export`
+- [Operating a run](#operating-a-run) — `status`, `ps`, `runs`, `history`, `logs`, `usage`, `pause`, `cancel`
+- [Database maintenance](#database-maintenance) — `db check`, `db backup`, `db vacuum`, `db export`, `db verify`, `db import`
 - [Issues](#issues) — `generate`
 - [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`, `bench`
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
@@ -305,15 +305,18 @@ Where reports are published is configured by
 
 ## Operating a run
 
-These commands read state that already exists — `run.lock`, `tasks.json`,
-`session.json`, `execution-plan.json` and `events.jsonl` — and none of them
-touches the pipeline.
+These commands read state that already exists. SQLite is authoritative for
+plans, queues, sessions, events and telemetry; `run.lock` remains the process
+ownership source. With `storage.driver: "json"`, the same commands use the
+compatibility files and do not create or query SQLite. None touches the
+pipeline.
 
 ```bash
 issue-flow ps                     # every live run on this machine
 issue-flow status                 # what is running, in which phase, since when
 issue-flow status 42 --json       # the same, as JSON
 issue-flow runs                   # history: how each issue ended, and why
+issue-flow history 42             # phases, invocations and verdicts for one issue
 issue-flow logs 42 --kind retry   # the journal, filtered
 issue-flow logs --follow          # …and kept open as it grows
 issue-flow usage 42 --by harness  # cost and tokens per invocation
@@ -326,8 +329,9 @@ issue-flow cancel 42              # stop it, and mark it so `resume` reports it
 | `status [issue]` | Who owns the run (pid, host, last heartbeat), which phase and attempt each issue is on, how long since the last activity, and where a queue stands | `--json` |
 | `ps` | Every `issue-flow` run active on this machine | `--json`, `--watch` |
 | `runs` | One line per issue: status, duration and the first line of the failure | — |
+| `history <issue>` | Relational history of runs, phases, agent invocations, verification verdicts and PR-review rounds | `--json` |
 | `logs [issue]` | The append-only journal, in order and filtered. Needs the [journal](resilience.md#the-event-journal) enabled | `--issue`, `--follow`, `--tail <n>` (default 50), `--kind <a,b>` |
-| `usage [issue]` | Reader over indexed SQLite execution history. Never stores an aggregate; absence of telemetry prints a message instead of crashing | `--issue`, `--since <date>`, `--by <harness\|provider\|model\|purpose\|status>`, `--json` |
+| `usage [issue]` | Reader over indexed execution history. Never stores an aggregate; absence of telemetry prints a message instead of crashing | `--issue`, `--since <date>`, `--by <harness\|provider\|model\|purpose\|trigger\|status>`, `--json` |
 | `pause` | Sends `SIGTERM` to the owner, which writes a checkpoint, stops the agent with a grace period and closes its journal before exiting | — |
 | `cancel [issue]` | The same stop, plus marking the issue so a later `resume` reports it instead of silently continuing | — |
 
@@ -343,6 +347,8 @@ issue-flow db backup
 issue-flow db backup --destination /safe/place/issue-flow.db
 issue-flow db vacuum
 issue-flow db export --destination /tmp/issue-flow-export.json
+issue-flow db verify
+issue-flow db import --with-events
 ```
 
 The SQLite database is `~/.issue-flow/issue-flow.db` (or under
@@ -351,8 +357,12 @@ steps on failure. `backup` creates a consistent SQLite snapshot with `VACUUM
 INTO`; without `--destination`, it writes a timestamped file below
 `~/.issue-flow/backups/`. `vacuum` rebuilds the live database to reclaim unused
 space. `export` emits a readable JSON snapshot to stdout, or writes it to the
-requested destination. All four commands exit non-zero with an actionable error when the
-database cannot be opened or is invalid.
+requested destination. `verify` compares every materialized task and queue
+projection with canonical SQLite state, including projections that are missing.
+`import` reprocesses preserved compatibility artifacts; legacy event journals
+are deliberately excluded unless `--with-events` is passed because they can be
+large. Every command exits non-zero with an actionable error when its operation
+cannot be completed.
 
 The automatic JSON-to-SQLite import also creates a pre-upgrade backup before it
 migrates an existing schema. It retains five such snapshots by default; failed

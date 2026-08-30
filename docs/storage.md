@@ -53,8 +53,9 @@ driver warns and uses the safer rollback journal (`DELETE`) mode instead.
 Schema migrations are forward-only and transactional. Each applied version is
 recorded in `schema_migrations` and mirrored in SQLite's `user_version`; a
 database created by a newer Issue Flow fails before any write, rather than being
-downgraded or modified. The `db check`, `db backup`, `db vacuum` and `db export` commands
-are documented in [the command reference](commands.md#database-maintenance).
+downgraded or modified. The `db check`, `db backup`, `db vacuum`, `db export`,
+`db verify` and `db import` commands are documented in
+[the command reference](commands.md#database-maintenance).
 
 ## One issue directory
 
@@ -624,8 +625,10 @@ reading anything. There is no command to run and no flag to pass.
 That same first resolution imports the global project's structured JSON state
 into SQLite. The importer records a SHA-256 hash for every source artifact, so
 restarts resume without duplicating rows; it imports the project, plans and
-stories, telemetry, queues, provider health, journals, verification evidence
-and pull-request references in one project transaction. Live `session.json`
+stories, telemetry, queues, provider health, verification evidence and
+pull-request references in one project transaction. Legacy journals are
+potentially large and are imported only by an explicit
+`issue-flow db import --with-events`. Live `session.json`
 snapshots are intentionally discarded because they are transient projections.
 JSON, JSONL,
 Markdown, locks and logs remain the diagnostic/source artifacts during this

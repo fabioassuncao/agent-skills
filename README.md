@@ -201,6 +201,7 @@ For the terminal, five commands read the state of a run without touching it:
 issue-flow ps        # every live run on this machine
 issue-flow status    # what is running, in which phase, since when
 issue-flow runs      # history: how each issue ended, and why
+issue-flow history 42 # phases, invocations and verdicts for one issue
 issue-flow logs --follow
 issue-flow usage 42 --by harness   # tokens and cost per invocation
 ```
@@ -214,7 +215,7 @@ issue-flow usage 42 --by harness   # tokens and cost per invocation
 | `generate` | Draft and create an issue on GitHub, locally, or both |
 | `init` | Check prerequisites and report (or create) missing conventions |
 | `analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review` | The phases, standalone |
-| `status`, `ps`, `runs`, `logs`, `usage`, `pause`, `cancel` | Operate a running pipeline |
+| `status`, `ps`, `runs`, `history`, `logs`, `usage`, `pause`, `cancel` | Operate a running pipeline |
 | `agent`, `policy`, `conventions`, `routing` | Inspect what was resolved, and why |
 | `web serve`, `web stop` | The monitoring server |
 

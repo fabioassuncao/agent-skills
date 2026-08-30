@@ -16,6 +16,13 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **SQLite as the canonical structured-state store (#91).** Versioned
+  migrations, transactional repositories, automatic non-destructive import,
+  JSON compatibility mode, indexed monitor/`ps`/`usage`, projection
+  verification, issue history and database maintenance commands replace
+  directory scans for structured state. Legacy event journals remain an
+  explicit `db import --with-events` operation because of their volume.
+
 - **An explicit experimental-project notice.** `docs/project-status.md` states
   how the project was built (mostly with AI coding agents), the risks that come
   with that — bugs, incomplete implementations, regressions, possibly
