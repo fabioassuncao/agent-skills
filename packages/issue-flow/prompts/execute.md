@@ -6,7 +6,7 @@ You are an autonomous coding agent working on a software project.
 
 1. Read the PRD at `__PRD_FILE__`
 2. Read the progress log at `__PROGRESS_FILE__` (check Codebase Patterns section first)
-3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
+3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create it from `__BASE_BRANCH__`.
 4. Treat the issue as unresolved if **any** `userStories[].passes` is `false`, **or** if the PRD's top-level `lastReviewFindings` is non-null — that second condition holds even when every story already passes (see "Correction Findings from a Failed Review" below).
 5. If `lastReviewFindings` is non-null, address it first (see below); otherwise pick the **highest priority** user story where `passes: false`
 6. Implement that single user story
@@ -150,4 +150,15 @@ silent, the defaults above still apply.
 
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
+<!-- /if -->
+
+<!-- if:__COMMIT_CONVENTION__ -->
+## Commit convention
+
+This repository declares: __COMMIT_CONVENTION__
+
+`<type>` in the commit message above is for you to choose, and it must match the
+**nature of the change** — `fix` for a bug fix, `docs` for documentation, `test`,
+`refactor`, `chore`, `feat` for a new capability. Committing a bug fix as `feat`
+corrupts the changelog and any version bump computed from the history.
 <!-- /if -->

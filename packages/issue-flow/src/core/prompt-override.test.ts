@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { emptyPolicyPlaceholders } from '../policy/placeholders.js';
+import { conventionPlaceholders, emptyPolicyPlaceholders } from '../policy/placeholders.js';
 import {
   applyConditionalSections,
   applyPlaceholders,
@@ -117,7 +117,12 @@ describe('applyConditionalSections', () => {
 });
 
 describe('rendered prompts without a policy', () => {
-  it('is byte for byte the packaged prompt with the conditional block removed', async () => {
+  /** The projection of "this repository declares nothing", on a `main` base. */
+  function noPolicy(): Record<string, string> {
+    return { ...emptyPolicyPlaceholders(), ...conventionPlaceholders(null, 'main') };
+  }
+
+  it('leaves no trace of the conditional sections in any packaged prompt', async () => {
     const promptsDir = resolvePackageDir('prompts') as string;
     const names = (await readdir(promptsDir)).filter((name) => name.endsWith('.md'));
 
@@ -125,17 +130,50 @@ describe('rendered prompts without a policy', () => {
 
     for (const name of names) {
       const template = await readFile(join(promptsDir, name), 'utf-8');
-      const rendered = applyPlaceholders(template, emptyPolicyPlaceholders());
+      const rendered = applyPlaceholders(template, noPolicy());
 
-      // Nothing of the policy section survives: no heading, no marker, and no
-      // unresolved placeholder left behind for the agent to puzzle over.
+      // No heading, no marker, and no unresolved `__REPO_*` left behind for the
+      // agent to puzzle over.
       expect(rendered, name).not.toContain('Repository policy');
       expect(rendered, name).not.toContain('<!-- if:');
+      expect(rendered, name).not.toContain('<!-- /if -->');
       expect(rendered, name).not.toContain('__REPO_');
-      // And the file is otherwise untouched, including its final newline.
+      expect(rendered, name).not.toContain('__BASE_BRANCH__');
+      expect(rendered, name).not.toContain('__COMMIT_CONVENTION__');
+      // And the file's final newline survives.
       expect(rendered.endsWith('\n'), name).toBe(true);
-      expect(rendered, name).toBe(template.slice(0, rendered.length));
     }
+  });
+
+  it('renders the pr prompt exactly as it did before the base branch was resolved', async () => {
+    // The non-regression claim of the base-branch fix: on a `main` repository,
+    // the three commands are byte for byte the ones that were hard-coded.
+    const promptsDir = resolvePackageDir('prompts') as string;
+    const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
+
+    const rendered = applyPlaceholders(template, noPolicy());
+
+    expect(rendered).toContain('git log main..HEAD --oneline');
+    expect(rendered).toContain('git diff main...HEAD --stat');
+    expect(rendered).toContain('gh pr create --title "..." --body "..." --base main');
+  });
+
+  it('resolves the three commands against a develop base', async () => {
+    const promptsDir = resolvePackageDir('prompts') as string;
+    const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
+
+    const rendered = applyPlaceholders(template, {
+      ...emptyPolicyPlaceholders(),
+      ...conventionPlaceholders(null, 'develop'),
+    });
+
+    expect(rendered).toContain('git log develop..HEAD --oneline');
+    expect(rendered).toContain('git diff develop...HEAD --stat');
+    expect(rendered).toContain('--base develop');
+    // The defect this replaces: `main` often exists in a develop-based
+    // repository, so a hard-coded base fails silently rather than loudly.
+    expect(rendered).not.toContain('main..HEAD');
+    expect(rendered).not.toContain('--base main');
   });
 
   it('renders the policy section when a policy is projected', async () => {
@@ -143,7 +181,7 @@ describe('rendered prompts without a policy', () => {
     const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
 
     const rendered = applyPlaceholders(template, {
-      ...emptyPolicyPlaceholders(),
+      ...noPolicy(),
       __REPO_POLICY__: '### Base branch\n\ndevelop',
     });
 
@@ -151,5 +189,39 @@ describe('rendered prompts without a policy', () => {
     expect(rendered).toContain('### Base branch\n\ndevelop');
     expect(rendered).toContain('takes precedence');
     expect(rendered).not.toContain('<!-- ');
+  });
+
+  it('renders the Pull Request template section only when the repository has one', async () => {
+    const promptsDir = resolvePackageDir('prompts') as string;
+    const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
+
+    expect(applyPlaceholders(template, noPolicy())).not.toContain(
+      "This repository's Pull Request template",
+    );
+
+    const withTemplate = applyPlaceholders(template, {
+      ...noPolicy(),
+      __REPO_PR_TEMPLATE__: '## What changed\n\n## How was it tested',
+    });
+
+    expect(withTemplate).toContain("This repository's Pull Request template");
+    expect(withTemplate).toContain('## How was it tested');
+    // Deleting a section is what makes automated review read it as unanswered.
+    expect(withTemplate).toContain('never delete it');
+  });
+
+  it('explains the commit type only when a convention is declared', async () => {
+    const promptsDir = resolvePackageDir('prompts') as string;
+    const template = await readFile(join(promptsDir, 'execute.md'), 'utf-8');
+
+    expect(applyPlaceholders(template, noPolicy())).not.toContain('## Commit convention');
+
+    const rendered = applyPlaceholders(template, {
+      ...noPolicy(),
+      __COMMIT_CONVENTION__: 'conventional commits',
+    });
+
+    expect(rendered).toContain('## Commit convention');
+    expect(rendered).toContain('conventional commits');
   });
 });

@@ -150,6 +150,12 @@ export async function loadPrompt(name: string, options: LoadPromptOptions = {}):
  * <!-- /if -->
  * ```
  *
+ * Separate two consecutive blocks with a blank line. Removal consumes the
+ * newline **before** the opening marker, so back-to-back blocks make the second
+ * removal eat the line that ended the prompt body — the file loses its trailing
+ * newline. `prompt-override.test.ts` asserts that newline for every packaged
+ * prompt, which is what catches it.
+ *
  * This exists for one reason: a repository that declares no policy must get a
  * prompt that is **byte for byte** the one it got before the policy layer
  * existed. Leaving an empty heading behind would break that, and an empty

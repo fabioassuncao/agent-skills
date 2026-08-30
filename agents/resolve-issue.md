@@ -79,7 +79,7 @@ If both exist and their content differs, show both to the user and ask which one
 
 **Before anything else**, check if there's already work in progress for this issue:
 
-1. **Check current branch**: Run `git branch --show-current`. If it matches `issue/{ISSUE_NUMBER}-*`, work may already be in progress.
+1. **Check current branch**: Run `git branch --show-current`. If it carries the issue number (under the repository's branch convention, or Issue Flow's `issue/{N}-{slug}` default), work may already be in progress.
 2. **Check for existing task files**:
    - `issues/{ISSUE_NUMBER}/prd.md`
    - `issues/{ISSUE_NUMBER}/tasks.json`
@@ -100,7 +100,7 @@ If both exist and their content differs, show both to the user and ask which one
    **In `manual` mode**: Report status and ask the user:
    ```
    Found existing work for issue #{ISSUE_NUMBER}:
-   - Branch: issue/{ISSUE_NUMBER}-{slug}
+   - Branch: per the repository's convention (default `issue/{ISSUE_NUMBER}-{slug}`)
    - Issue status: pending | in_progress | completed
    - Progress: X of Y user stories completed
    - Last commit: [commit message]
@@ -136,12 +136,24 @@ ISSUE_TITLE=$(gh issue view {ISSUE_NUMBER} --json title -q '.title')
 
 ```bash
 SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g' | cut -c1-50)
-BRANCH_NAME="issue/{ISSUE_NUMBER}-${SLUG}"
 
-git checkout main 2>/dev/null || git checkout master
+# The repository's own conventions, not Issue Flow's assumptions.
+CONVENTION=$(issue-flow policy --json 2>/dev/null | jq -r '.git.branchConvention // "issue/{N}-{slug}"')
+BASE=$(issue-flow policy --json 2>/dev/null | jq -r '.pullRequests.baseBranch // empty')
+BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}
+BASE=${BASE:-main}
+
+# Apply the convention: {N} is the issue number, {slug} the slug above.
+BRANCH_NAME=$(echo "$CONVENTION" | sed "s|{N}|{ISSUE_NUMBER}|g; s|{slug}|${SLUG}|g")
+
+git checkout "$BASE"
 git pull
 git checkout -b "$BRANCH_NAME"
 ```
+
+Branching from `$BASE` rather than from `main` is not cosmetic: in a repository
+based on `develop`, `main` usually exists too, so branching from it succeeds and
+produces a Pull Request whose diff carries unrelated commits.
 
 If the branch already exists, switch to it instead:
 ```bash

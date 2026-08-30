@@ -119,14 +119,21 @@ git log --all --oneline --grep="#{ISSUE_NUMBER}" --grep="{ISSUE_NUMBER}" --since
 ```
 
 ### 3d. From the current branch
-If the user is on a feature branch, compare it against the main branch:
+If the user is on a feature branch, compare it against the repository's base
+branch. Resolve it — never assume `main`:
 
 ```bash
-git log main..HEAD --oneline
-git diff main...HEAD --stat
+BASE=$(issue-flow policy --json 2>/dev/null | jq -r '.pullRequests.baseBranch // empty')
+BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}
+BASE=${BASE:-main}
+
+git log "$BASE"..HEAD --oneline
+git diff "$BASE"...HEAD --stat
 ```
 
-(Adapt `main` to whatever the project's default branch is — `master`, `develop`, etc.)
+This matters more than it looks: in a repository based on `develop`, `main`
+usually **exists** as well, so hard-coding it does not fail — it silently reviews
+the wrong diff.
 
 Once you've identified the relevant commits and changed files, **read and understand every changed file**. Don't just look at the diff — understand the context around the changes.
 
