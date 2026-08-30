@@ -121,6 +121,29 @@ never had them must not gain artificial nulls on a round trip.
 - **A hook that throws does not stop the ones after it.** The journal still has
   to be closed even when the checkpoint could not be written.
 
+## The post-commit story checkpoint is a net, not a source
+
+`adoptCommittedStories()` runs before every iteration of the execute loop and
+marks a pending story as passing when **both** hold: its id appears in a commit
+subject of this branch (`<type>(scope): US-001 - Title`, what the prompt writes),
+and the working tree is **clean**.
+
+- **The agent's `passes` remains the primary source.** This closes exactly one
+  window the agent cannot close itself: the crash between the commit landing and
+  `passes: true` being written. Without it the next iteration redoes the story on
+  top of a commit that already exists.
+- **A dirty tree disables it entirely.** Uncommitted changes mean work in
+  flight, and adopting a story on that basis calls finished what is not.
+- **It only ever reads.** `committedStoryIds()` and `isWorkingTreeClean()` run
+  `git log` and `git status`; nothing here checks a branch out or creates one.
+  That is the invariant that makes it safe beside the agent's `git checkout -B`
+  and the queue's `adoptQueueBranch` — this code has no opinion about which
+  branch is checked out, it reads the one that is.
+- **It never throws.** A git that cannot answer, or a plan that cannot be
+  written, leaves the loop doing exactly what it did before.
+- **A test that mocks `execa` wholesale must stub `../utils/git.js`**, or the
+  two git reads consume the CLI results the test queued.
+
 ## executor.ts output contract
 
 On the happy path (`exitCode === 0` and parseable JSON envelope),

@@ -9,6 +9,7 @@ import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan, UserStory } f
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
 import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
+import { committedStoryIds, getBaseBranch, isWorkingTreeClean } from '../utils/git.js';
 import { sleep } from '../utils/retry.js';
 import { executeClaude } from './executor.js';
 import { divideUsage } from './metrics.js';
@@ -131,6 +132,44 @@ export function commitPlaceholders(
       : `feat${suffix}: [Story ID] - [Story Title]`,
     __FIX_COMMIT_MESSAGE__: `fix${suffix}: address review findings`,
   };
+}
+
+/**
+ * Mark as passing every pending story whose commit is already on the branch.
+ *
+ * Two conditions, and both are required:
+ *
+ * - the story's id appears in a commit subject of this branch, which is what
+ *   the execute prompt writes (`<type>(scope): US-001 - Title`);
+ * - the working tree is **clean**, so nothing is half-applied. A dirty tree
+ *   means work in flight, and adopting a story on that basis would call
+ *   finished something that is not.
+ *
+ * Returns the ids it adopted. Never throws: a git that cannot answer, or a plan
+ * that cannot be written, leaves the loop doing exactly what it did before.
+ */
+async function adoptCommittedStories(tasksPath: string): Promise<string[]> {
+  try {
+    const plan = await loadTaskPlan(tasksPath);
+    const pending = plan.userStories.filter((story) => !story.passes);
+    if (pending.length === 0) return [];
+
+    if (!(await isWorkingTreeClean())) return [];
+
+    const committed = await committedStoryIds(await getBaseBranch());
+    const adopted = pending.filter((story) => committed.has(story.id)).map((story) => story.id);
+    if (adopted.length === 0) return [];
+
+    await saveTaskPlan(tasksPath, {
+      ...plan,
+      userStories: plan.userStories.map((story) =>
+        adopted.includes(story.id) ? { ...story, passes: true } : story,
+      ),
+    });
+    return adopted;
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -288,6 +327,26 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     }
 
     i++;
+
+    // Safety net for the crash between a story's commit and the agent writing
+    // `passes: true` (scenario I). The commit is the durable fact; the plan is
+    // written after it, so a process that died in between leaves work that is
+    // done and a plan that says it is not — and the next iteration redoes it on
+    // top of a commit that already exists.
+    //
+    // This never *replaces* the agent's `passes`, which stays the primary
+    // source: it only closes the window the agent cannot close itself.
+    const adopted = await adoptCommittedStories(paths.prdFile);
+    if (adopted.length > 0) {
+      printInfo(
+        `Adopting ${adopted.join(', ')}: already committed on this branch with a clean tree.`,
+      );
+      plan = await loadTaskPlan(paths.prdFile);
+      if (plan.userStories.every((story) => story.passes) && plan.lastReviewFindings === null) {
+        // Everything the loop was going to do is already done.
+        break;
+      }
+    }
 
     // One iteration is one attempt of the Claude CLI, retried in place by the
     // project's single retry executor (`resilience/retry.ts`). A retry costs no

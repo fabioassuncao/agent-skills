@@ -412,3 +412,43 @@ export async function preflightRepository(
 export function describePreflight(result: PreflightResult): string[] {
   return result.blocks.map((block) => `${block.message} Suggested: ${block.suggestion}`);
 }
+
+/* ── story-level idempotence ────────────────────────────────────────────── */
+
+/** A story id as it appears in a commit subject: `feat(issue-63): US-012 - …`. */
+const STORY_ID_IN_SUBJECT = /\bUS-\d+\b/g;
+
+/**
+ * The story ids already committed on this branch.
+ *
+ * The execute prompt commits one story per commit, with the id in the subject
+ * (`<type>(scope): US-001 - Title`), so the branch's own history is a record of
+ * what is done — and it is the *only* record that survives a crash between the
+ * commit and the agent writing `passes: true` into the plan.
+ *
+ * Read-only, and deliberately so: this answers a question, it never fixes
+ * anything. Never throws — an unreadable history means "nothing known", which
+ * leaves the engine doing exactly what it did before.
+ */
+export async function committedStoryIds(baseBranch: string, cwd?: string): Promise<Set<string>> {
+  const at = cwd === undefined ? {} : { cwd };
+  const range = baseBranch === '' ? 'HEAD' : `${baseBranch}..HEAD`;
+  const result = await run('git', ['log', range, '--format=%s'], at);
+  if (result.exitCode !== 0) return new Set();
+
+  const ids = new Set<string>();
+  for (const subject of result.stdout.split('\n')) {
+    for (const match of subject.matchAll(STORY_ID_IN_SUBJECT)) {
+      ids.add(match[0]);
+    }
+  }
+  return ids;
+}
+
+/** Whether the working tree has no uncommitted change. Never throws. */
+export async function isWorkingTreeClean(cwd?: string): Promise<boolean> {
+  const at = cwd === undefined ? {} : { cwd };
+  const result = await run('git', ['status', '--porcelain'], at);
+  if (result.exitCode !== 0) return false;
+  return result.stdout.trim() === '';
+}

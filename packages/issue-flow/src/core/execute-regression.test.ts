@@ -46,6 +46,21 @@ vi.mock('../policy/placeholders.js', async (importOriginal) => {
   };
 });
 
+// The post-commit story checkpoint (US-022) reads the branch history and the
+// working tree before each iteration. Those are `git` calls through the same
+// mocked `execa` this file queues CLI results on, so they are stubbed here: a
+// dirty tree disables the adoption entirely, which is the pre-US-022 behaviour
+// this non-regression suite is about.
+vi.mock('../utils/git.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/git.js')>();
+  return {
+    ...actual,
+    getBaseBranch: vi.fn(async () => 'main'),
+    isWorkingTreeClean: vi.fn(async () => false),
+    committedStoryIds: vi.fn(async () => new Set<string>()),
+  };
+});
+
 vi.mock('execa', () => ({ execa: vi.fn() }));
 
 import { execa } from 'execa';

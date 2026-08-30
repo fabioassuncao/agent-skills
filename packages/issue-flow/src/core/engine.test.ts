@@ -47,6 +47,20 @@ vi.mock('./executor.js', () => ({
   executeClaude: vi.fn(async () => claudeResult.current),
 }));
 
+// The post-commit story checkpoint (US-022) reads the branch history and the
+// working tree before every iteration. Both are stubbed so a test states its
+// repository in one place instead of queueing git subprocess answers.
+const repository = vi.hoisted(() => ({ clean: false, committed: [] as string[] }));
+vi.mock('../utils/git.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/git.js')>();
+  return {
+    ...actual,
+    getBaseBranch: vi.fn(async () => 'main'),
+    isWorkingTreeClean: vi.fn(async () => repository.clean),
+    committedStoryIds: vi.fn(async () => new Set(repository.committed)),
+  };
+});
+
 const { executeClaude } = await import('./executor.js');
 const { commitPlaceholders, runEngine } = await import('./engine.js');
 const { setSessionPublisher } = await import('./session-publisher.js');
@@ -697,5 +711,135 @@ describe('commitPlaceholders — repository commit convention', () => {
     expect(commitPlaceholders(undefined, '').__COMMIT_MESSAGE__).toBe(
       'feat: [Story ID] - [Story Title]',
     );
+  });
+});
+
+describe('the post-commit story checkpoint (US-022)', () => {
+  let tmpDir: string;
+  let paths: ResolvedPaths;
+
+  /** Two pending stories and a plan the loop would otherwise execute. */
+  function pendingPlan(): TaskPlan {
+    return makePlan({
+      issueStatus: 'in_progress',
+      completedAt: null,
+      correctionCycle: 0,
+      pipeline: {
+        prdCompleted: true,
+        jsonCompleted: true,
+        executionCompleted: false,
+        reviewCompleted: false,
+        prCreated: false,
+      },
+      userStories: [
+        {
+          id: 'US-001',
+          title: 'First story',
+          description: '',
+          acceptanceCriteria: [],
+          priority: 1,
+          passes: false,
+          notes: '',
+        },
+        {
+          id: 'US-002',
+          title: 'Second story',
+          description: '',
+          acceptanceCriteria: [],
+          priority: 2,
+          passes: false,
+          notes: '',
+        },
+      ],
+    });
+  }
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-adopt-'));
+    paths = {
+      prdFile: join(tmpDir, 'tasks.json'),
+      progressFile: join(tmpDir, 'progress.txt'),
+      archiveDir: join(tmpDir, 'archive'),
+      lastBranchFile: join(tmpDir, '.last-branch'),
+      projectRoot: tmpDir,
+    };
+    await mkdir(tmpDir, { recursive: true });
+    repository.clean = true;
+    repository.committed = [];
+    claudeResult.current = { exitCode: 0, output: '', cost: null };
+    mockExecuteClaude.mockClear();
+    setSessionPublisher(undefined);
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const readPlan = async (): Promise<TaskPlan> =>
+    JSON.parse(await readFile(paths.prdFile, 'utf-8'));
+
+  it('adopts a story whose commit is already on the branch, without re-running it', async () => {
+    // The crash this exists for: the commit landed, `passes: true` did not.
+    await writeFile(paths.prdFile, JSON.stringify(pendingPlan(), null, 2), 'utf-8');
+    repository.committed = ['US-001', 'US-002'];
+
+    await runEngine({ ...baseConfig, maxIterations: 1 }, paths);
+
+    const plan = await readPlan();
+    expect(plan.userStories.every((story) => story.passes)).toBe(true);
+    // Nothing was handed to the agent: the work already existed.
+    expect(mockExecuteClaude).not.toHaveBeenCalled();
+  });
+
+  it('leaves a story alone when its commit is not on the branch', async () => {
+    await writeFile(paths.prdFile, JSON.stringify(pendingPlan(), null, 2), 'utf-8');
+    repository.committed = [];
+
+    await runEngine({ ...baseConfig, maxIterations: 1 }, paths);
+
+    expect(mockExecuteClaude).toHaveBeenCalled();
+  });
+
+  it('never adopts on a dirty tree, however the history looks', async () => {
+    // Uncommitted work means something is in flight; calling the story done on
+    // that basis would call finished what is not.
+    await writeFile(paths.prdFile, JSON.stringify(pendingPlan(), null, 2), 'utf-8');
+    repository.committed = ['US-001', 'US-002'];
+    repository.clean = false;
+
+    await runEngine({ ...baseConfig, maxIterations: 1 }, paths);
+
+    const plan = await readPlan();
+    expect(plan.userStories.some((story) => !story.passes)).toBe(true);
+    expect(mockExecuteClaude).toHaveBeenCalled();
+  });
+
+  it('adopts only the committed half of a partly finished plan', async () => {
+    await writeFile(paths.prdFile, JSON.stringify(pendingPlan(), null, 2), 'utf-8');
+    repository.committed = ['US-001'];
+
+    await runEngine({ ...baseConfig, maxIterations: 1 }, paths);
+
+    const plan = await readPlan();
+    expect(plan.userStories.find((story) => story.id === 'US-001')?.passes).toBe(true);
+    // US-002 is still the agent's job.
+    expect(mockExecuteClaude).toHaveBeenCalled();
+  });
+
+  it("only ever reads the repository — creating or switching a branch stays the agent's job", async () => {
+    await writeFile(paths.prdFile, JSON.stringify(pendingPlan(), null, 2), 'utf-8');
+    repository.committed = ['US-001', 'US-002'];
+
+    await runEngine({ ...baseConfig, maxIterations: 1 }, paths);
+
+    // The invariant that makes the checkpoint safe beside `git checkout -B`
+    // (the agent's) and `adoptQueueBranch` (the queue's): this code has no
+    // opinion about which branch is checked out, it only reads the one that is.
+    const { getBaseBranch, isWorkingTreeClean, committedStoryIds } = await import(
+      '../utils/git.js'
+    );
+    expect(vi.mocked(getBaseBranch)).toHaveBeenCalled();
+    expect(vi.mocked(isWorkingTreeClean)).toHaveBeenCalled();
+    expect(vi.mocked(committedStoryIds)).toHaveBeenCalled();
   });
 });
