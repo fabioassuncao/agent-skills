@@ -137,6 +137,27 @@ export async function beginExecution(input: BeginExecutionInput): Promise<string
   }
 }
 
+/** Wall clock vs CLI envelope: startup the harness does not report. */
+export function timingFromUsage(
+  wallClockMs: number | null,
+  usage: ClaudeUsage | null | undefined,
+): Pick<
+  ExecutionRecord,
+  'cliDurationMs' | 'harnessStartupMs' | 'apiDurationMs' | 'ttftMs' | 'numTurns'
+> {
+  const cli = usage?.cliDurationMs;
+  const cliDurationMs = cli === undefined ? null : cli;
+  const harnessStartupMs =
+    wallClockMs !== null && cli !== undefined ? Math.max(0, wallClockMs - cli) : null;
+  return {
+    cliDurationMs,
+    harnessStartupMs,
+    apiDurationMs: usage?.apiDurationMs ?? null,
+    ttftMs: usage?.ttftMs ?? null,
+    numTurns: usage?.numTurns ?? null,
+  };
+}
+
 export interface EndExecutionInput {
   id: string;
   status?: ExecutionStatus;
@@ -214,6 +235,10 @@ export async function endExecution(input: EndExecutionInput): Promise<void> {
         },
         finishedAt,
         durationMs: Number.isFinite(started) ? Math.max(0, Date.now() - started) : null,
+        ...timingFromUsage(
+          Number.isFinite(started) ? Math.max(0, Date.now() - started) : null,
+          input.usage,
+        ),
         usage,
         cost: resolveCost({
           reportedUsd: input.reportedUsd ?? input.usage?.costUsd,

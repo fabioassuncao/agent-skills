@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TaskPlan } from '../types.js';
-import { beginExecution, bindTelemetry, endExecution, resetTelemetryState } from './recorder.js';
+import {
+  beginExecution,
+  bindTelemetry,
+  endExecution,
+  resetTelemetryState,
+  timingFromUsage,
+} from './recorder.js';
 import { DEFAULT_TELEMETRY_CONFIG } from './types.js';
 
 function plan(): TaskPlan {
@@ -30,6 +36,28 @@ function plan(): TaskPlan {
     userStories: [],
   };
 }
+
+describe('timingFromUsage', () => {
+  it('treats a missing duration as unreported, never zero', () => {
+    expect(timingFromUsage(5000, { inputTokens: 1 })).toEqual({
+      cliDurationMs: null,
+      harnessStartupMs: null,
+      apiDurationMs: null,
+      ttftMs: null,
+      numTurns: null,
+    });
+  });
+
+  it('derives startup as wall minus the CLI envelope', () => {
+    expect(timingFromUsage(5580, { cliDurationMs: 1948, ttftMs: 400 })).toEqual({
+      cliDurationMs: 1948,
+      harnessStartupMs: 3632,
+      apiDurationMs: null,
+      ttftMs: 400,
+      numTurns: null,
+    });
+  });
+});
 
 describe('recorder', () => {
   let dir: string;
@@ -129,6 +157,21 @@ describe('recorder', () => {
     expect(records.map((r) => r.trigger)).toEqual(['initial', 'retry']);
     expect(records[0]?.status).toBe('failed');
     expect(records[1]?.status).toBe('completed');
+  });
+
+  it('persists CLI timing and derived harnessStartupMs', async () => {
+    bindTelemetry({ tasksPath, config: DEFAULT_TELEMETRY_CONFIG });
+    const id = await beginExecution({ purpose: 'prd', harness: 'claude-code' });
+    await endExecution({
+      id: id!,
+      usage: { inputTokens: 2, cliDurationMs: 100, ttftMs: 40, numTurns: 1 },
+    });
+    const record = (await load()).executions?.[0];
+    expect(record?.cliDurationMs).toBe(100);
+    expect(record?.ttftMs).toBe(40);
+    expect(record?.numTurns).toBe(1);
+    expect(record?.harnessStartupMs).toBeGreaterThanOrEqual(0);
+    expect(record).not.toHaveProperty('apiDurationMs', 0);
   });
 
   it('does not create a record when nothing is bound', async () => {

@@ -58,6 +58,7 @@ import { acquireRunLock, describeRunLockOwner } from '../storage/lock.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
 import type { RunLock } from '../storage/schemas.js';
+import { formatPhaseLine, loadPhaseTiming, snapshotTimingFields } from '../telemetry/timing.js';
 import type { PullRequestRef, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
@@ -91,6 +92,45 @@ import { runReview } from './review.js';
 function toIssueNumber(id: string): number | null {
   const parsed = Number.parseInt(id, 10);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+async function publishInstrumentedPhaseEnd(
+  publisher: SessionPublisher,
+  phase: string,
+  issueNumber: string,
+  success: boolean,
+  error?: string,
+): Promise<void> {
+  const at = isoNow();
+  const startedAt = publisher.snapshot().phases.find((entry) => entry.name === phase)?.startedAt;
+  const wallMs =
+    startedAt === null || startedAt === undefined
+      ? null
+      : Math.max(0, Date.parse(at) - Date.parse(startedAt));
+  const timing = await loadPhaseTiming(phase, wallMs);
+  publisher.publish({
+    type: 'phase:end',
+    at,
+    phase,
+    success,
+    ...(error === undefined ? {} : { error }),
+    ...snapshotTimingFields(timing),
+  });
+  if (isVerbose()) {
+    printInfo(
+      formatPhaseLine({
+        issueNumber: toIssueNumber(issueNumber) ?? issueNumber,
+        phase,
+        iteration: timing.iteration,
+        wallMs,
+        cliDurationMs: timing.cliDurationMs,
+        harnessStartupMs: timing.harnessStartupMs,
+        ttftMs: timing.ttftMs,
+        numTurns: timing.numTurns,
+        outputTokens: timing.outputTokens,
+      }),
+    );
+  }
 }
 
 /**
@@ -1219,16 +1259,16 @@ async function runPipelinePhases(
         try {
           await fn();
           await publishGitState(publisher);
-          publisher.publish({ type: 'phase:end', at: isoNow(), phase, success: true });
+          await publishInstrumentedPhaseEnd(publisher, phase, issueNumber, true);
         } catch (err) {
           await publishGitState(publisher);
-          publisher.publish({
-            type: 'phase:end',
-            at: isoNow(),
+          await publishInstrumentedPhaseEnd(
+            publisher,
             phase,
-            success: false,
-            error: err instanceof Error ? err.message : String(err),
-          });
+            issueNumber,
+            false,
+            err instanceof Error ? err.message : String(err),
+          );
           throw err;
         }
       },

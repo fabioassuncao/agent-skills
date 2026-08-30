@@ -31,6 +31,8 @@ decisions — never a source of truth for behaviour.
   — the multi-harness orchestration landscape, the gap between configurable and
   adaptive selection, and the target architecture behind the routing,
   verification and escalation issues
+- [`docs/research/2026-08-30-harness-baseline.md`](docs/research/2026-08-30-harness-baseline.md)
+  — latency baseline (before table) for instrumentation `#79`; phases 3–4 are `#89`
 
 ## Developing
 

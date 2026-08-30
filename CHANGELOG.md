@@ -16,6 +16,16 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Instrumentação de latência por invocação** (#79). `parseUsage` passa a
+  ler `duration_ms`, `duration_api_ms`, `ttft_ms` e `num_turns`. O
+  `ExecutionRecord` guarda `cliDurationMs`, `harnessStartupMs`
+  (wall − envelope), `ttftMs` e `numTurns` — ausente continua "não
+  reportado", nunca zero. Cada fase do snapshot distingue
+  `harnessExecutionMs` de `orchestrationOverheadMs`. Benchmark sintético
+  em CI (`src/benchmark/`); tabela *before* em
+  `docs/research/2026-08-30-harness-baseline.md`. Quick wins e
+  `storiesPerIteration` ficam na #89.
+
 - **`--background` / `issue-flow ps`** (#82). `run -d` destaca o pipeline
   depois da confirmação de escopo, escreve `run.log` (com rotação) e marca
   `run.lock.detached`. `issue-flow ps` (e a invocação nua quando há runs)

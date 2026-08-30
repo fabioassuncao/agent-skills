@@ -26,6 +26,10 @@ Task telemetry → describes how the change was produced
 - **Estimation is opt-in.** Default `telemetry.pricing.estimate: false`.
   Issue Flow never estimates a price unless asked, and never labels an
   estimate as a charge. An estimate stores the four rates it used.
+- **Time lives on the same record.** `cliDurationMs`, `harnessStartupMs`
+  (`wall − duration_ms`), `apiDurationMs`, `ttftMs` and `numTurns` are
+  additive and optional. Absent means "not reported", never zero. There is
+  no second observability system beside this one.
 - **`executions` is additive and optional.** No `.default([])`, no
   `schemaVersion` bump. A plan that never had the field must not gain `[]`
   on rewrite.

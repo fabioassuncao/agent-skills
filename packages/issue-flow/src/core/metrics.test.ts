@@ -43,6 +43,8 @@ describe('parseUsage', () => {
       cacheReadTokens: 15_000,
       cacheCreationTokens: 500,
       costUsd: 0.16072345,
+      cliDurationMs: 8123,
+      numTurns: 3,
     });
   });
 
@@ -64,6 +66,25 @@ describe('parseUsage', () => {
     });
 
     expect(usage).toEqual({ inputTokens: 7, outputTokens: 8, costUsd: 0.9 });
+  });
+
+  it('reads envelope timing without inventing zeros when they are absent', () => {
+    expect(
+      parseUsage({
+        duration_ms: 1948,
+        duration_api_ms: 1810,
+        ttft_ms: 2100,
+        num_turns: 1,
+        usage: { input_tokens: 2 },
+      }),
+    ).toEqual({
+      inputTokens: 2,
+      cliDurationMs: 1948,
+      apiDurationMs: 1810,
+      ttftMs: 2100,
+      numTurns: 1,
+    });
+    expect(parseUsage({ usage: { input_tokens: 2 } })).toEqual({ inputTokens: 2 });
   });
 
   it('returns a partial object when only some fields exist', () => {

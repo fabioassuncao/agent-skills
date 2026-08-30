@@ -61,7 +61,19 @@ export type SessionEvent =
       state: string | null;
     }
   | { type: 'phase:start'; at: string; phase: string }
-  | { type: 'phase:end'; at: string; phase: string; success: boolean; error?: string }
+  | {
+      type: 'phase:end';
+      at: string;
+      phase: string;
+      success: boolean;
+      error?: string;
+      harnessExecutionMs?: number | null;
+      orchestrationOverheadMs?: number | null;
+      harnessStartupMs?: number | null;
+      ttftMs?: number | null;
+      attemptCount?: number | null;
+      retryDurationMs?: number | null;
+    }
   | {
       type: 'iteration:start';
       at: string;
@@ -210,6 +222,16 @@ export interface SessionPhaseSnapshot extends SessionUsageSnapshot {
   endedAt: string | null;
   durationSeconds: number | null;
   error: string | null;
+  /** Sum of invocation walls for this phase. */
+  harnessExecutionMs: number | null;
+  /** Phase wall minus harnessExecutionMs, when both are known. */
+  orchestrationOverheadMs: number | null;
+  /** Wall clock − CLI `duration_ms`. */
+  harnessStartupMs: number | null;
+  /** Time to first output, when the harness reports it. */
+  ttftMs: number | null;
+  attemptCount: number | null;
+  retryDurationMs: number | null;
 }
 
 export interface SessionStorySnapshot extends SessionUsageSnapshot {
@@ -372,6 +394,25 @@ function emptyUsage(): SessionUsageSnapshot {
     cacheReadTokens: null,
     cacheCreationTokens: null,
     costUsd: null,
+  };
+}
+
+function emptyPhaseTiming(): Pick<
+  SessionPhaseSnapshot,
+  | 'harnessExecutionMs'
+  | 'orchestrationOverheadMs'
+  | 'harnessStartupMs'
+  | 'ttftMs'
+  | 'attemptCount'
+  | 'retryDurationMs'
+> {
+  return {
+    harnessExecutionMs: null,
+    orchestrationOverheadMs: null,
+    harnessStartupMs: null,
+    ttftMs: null,
+    attemptCount: null,
+    retryDurationMs: null,
   };
 }
 
@@ -640,6 +681,7 @@ function applyEvent(
           endedAt: null,
           durationSeconds: null,
           error: null,
+          ...emptyPhaseTiming(),
           ...emptyUsage(),
         })),
         git: { branch: event.branch ?? null, baseBranch: event.baseBranch ?? null, commits: [] },
@@ -699,6 +741,7 @@ function applyEvent(
               endedAt: null,
               durationSeconds: null,
               error: null,
+              ...emptyPhaseTiming(),
               ...emptyUsage(),
             },
           ];
@@ -732,6 +775,12 @@ function applyEvent(
               endedAt: event.at,
               durationSeconds: secondsBetween(p.startedAt, event.at),
               error: event.error ? stripVTControlCharacters(event.error) : null,
+              harnessExecutionMs: event.harnessExecutionMs ?? p.harnessExecutionMs,
+              orchestrationOverheadMs: event.orchestrationOverheadMs ?? p.orchestrationOverheadMs,
+              harnessStartupMs: event.harnessStartupMs ?? p.harnessStartupMs,
+              ttftMs: event.ttftMs ?? p.ttftMs,
+              attemptCount: event.attemptCount ?? p.attemptCount,
+              retryDurationMs: event.retryDurationMs ?? p.retryDurationMs,
             }
           : p,
       );

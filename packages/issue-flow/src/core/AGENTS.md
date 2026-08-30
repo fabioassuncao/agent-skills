@@ -30,7 +30,10 @@ never had them must not gain artificial nulls on a round trip.
   metrics) must be copied over from the `previous` map, or the next update
   wipes it.
 - A phase's `durationSeconds` comes only from `phase:start`/`phase:end`. Other
-  events carrying a duration must not write it.
+  events carrying a duration must not write it. Additive timing on the same
+  event (`harnessExecutionMs`, `orchestrationOverheadMs`, `harnessStartupMs`,
+  `ttftMs`, `attemptCount`, `retryDurationMs`) is optional: absent stays
+  `null` (`.default(null)` in `src/schemas.ts`). `schemaVersion` stays `1`.
 - `issue:update` **merges** over the `issue` section: `number` and `url` fall
   back to what `session:start` published (`event.x ?? snapshot.issue.x`), so an
   origin with no remote never erases an identifier the run already knew. The

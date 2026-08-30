@@ -13,6 +13,13 @@ export interface ClaudeUsage {
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
   costUsd?: number;
+  /** Envelope `duration_ms` — request onward, not process startup. */
+  cliDurationMs?: number;
+  /** Envelope `duration_api_ms` when the harness reports it. */
+  apiDurationMs?: number;
+  /** Time to first output, when the harness reports it. */
+  ttftMs?: number;
+  numTurns?: number;
 }
 
 /** Field names of {@link ClaudeUsage}, used by the summing helper. */
@@ -100,6 +107,15 @@ export function parseUsage(payload: unknown): ClaudeUsage | null {
   if (cacheReadTokens !== undefined) usage.cacheReadTokens = cacheReadTokens;
   if (cacheCreationTokens !== undefined) usage.cacheCreationTokens = cacheCreationTokens;
   if (resolvedCost !== undefined) usage.costUsd = resolvedCost;
+
+  const cliDurationMs = num(payload.duration_ms);
+  const apiDurationMs = num(payload.duration_api_ms);
+  const ttftMs = num(payload.ttft_ms) ?? num(payload.time_to_first_token_ms);
+  const numTurns = num(payload.num_turns);
+  if (cliDurationMs !== undefined) usage.cliDurationMs = cliDurationMs;
+  if (apiDurationMs !== undefined) usage.apiDurationMs = apiDurationMs;
+  if (ttftMs !== undefined) usage.ttftMs = ttftMs;
+  if (numTurns !== undefined) usage.numTurns = numTurns;
 
   return Object.keys(usage).length > 0 ? usage : null;
 }

@@ -9,10 +9,12 @@ export {
   getTelemetryContext,
   recordInvocation,
   resetTelemetryState,
+  timingFromUsage,
   usageFromClaude,
 } from './recorder.js';
 export { redactFailureMessage, redactSecrets } from './redact.js';
 export { getTelemetrySessionId, setTelemetrySessionId } from './session-id.js';
+export { formatPhaseLine, loadPhaseTiming, summarizePhaseTiming } from './timing.js';
 export {
   type CostRecord,
   DEFAULT_TELEMETRY_CONFIG,

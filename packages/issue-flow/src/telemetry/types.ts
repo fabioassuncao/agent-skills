@@ -104,6 +104,15 @@ export interface ExecutionRecord {
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
+  /** Envelope duration when the CLI reports it. */
+  cliDurationMs?: number | null;
+  /** wallClock − cliDuration: startup the CLI does not see. */
+  harnessStartupMs?: number | null;
+  /** Envelope `duration_api_ms` when reported. */
+  apiDurationMs?: number | null;
+  /** Time to first output, when reported. */
+  ttftMs?: number | null;
+  numTurns?: number | null;
   usage: NormalizedUsage | null;
   cost: CostRecord;
   status: ExecutionStatus;

@@ -301,9 +301,39 @@ describe('reduceSessionEvent', () => {
     const prd = snap.phases.find((p) => p.name === 'prd');
     expect(prd?.status).toBe('completed');
     expect(prd?.durationSeconds).toBe(30);
+    expect(prd?.harnessExecutionMs).toBeNull();
+    expect(prd?.orchestrationOverheadMs).toBeNull();
     expect(snap.currentPhase).toBeNull();
     expect(snap.progress.phasesCompleted).toBe(1);
     expect(snap.progress.percent).toBe(33);
+  });
+
+  it('phase:end records harness vs orchestration timing when published', () => {
+    let snap = reduceSessionEvent(startedSnapshot(), {
+      type: 'phase:start',
+      at: '2026-08-03T12:00:05Z',
+      phase: 'execute',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'phase:end',
+      at: '2026-08-03T12:09:06Z',
+      phase: 'execute',
+      success: true,
+      harnessExecutionMs: 541_000,
+      orchestrationOverheadMs: 2000,
+      harnessStartupMs: 3600,
+      ttftMs: 2100,
+      attemptCount: 1,
+      retryDurationMs: null,
+    });
+    expect(snap.phases.find((p) => p.name === 'execute')).toMatchObject({
+      harnessExecutionMs: 541_000,
+      orchestrationOverheadMs: 2000,
+      harnessStartupMs: 3600,
+      ttftMs: 2100,
+      attemptCount: 1,
+      retryDurationMs: null,
+    });
   });
 
   it('phase:end with failure records the error without ANSI codes', () => {

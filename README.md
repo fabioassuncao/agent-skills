@@ -984,6 +984,8 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
   "phases": [
     {
       "name": "execute", "status": "completed", "durationSeconds": 754, "error": null,
+      "harnessExecutionMs": 541000, "orchestrationOverheadMs": 9000,
+      "harnessStartupMs": 3600, "ttftMs": 2100, "attemptCount": 1, "retryDurationMs": null,
       "inputTokens": 812, "outputTokens": 43120, "cacheReadTokens": 1284000,
       "cacheCreationTokens": 96400, "costUsd": 3.4187
     }
@@ -1114,6 +1116,11 @@ On a homogeneous run (every phase on the same agent -- the only case that existe
 | `cacheCreationTokens` | `phases[]`, `stories[]` | Prompt tokens written into the cache |
 | `costUsd` | `phases[]`, `stories[]` | Cost in USD, as reported by the CLI |
 | `durationSeconds` | `stories[]` | Wall-clock seconds attributed to the story |
+| `harnessExecutionMs` | `phases[]` | Sum of invocation walls for the phase |
+| `orchestrationOverheadMs` | `phases[]` | Phase wall minus harness execution, when both are known |
+| `harnessStartupMs` | `phases[]` | Wall clock minus CLI `duration_ms` |
+| `ttftMs` | `phases[]` | Time to first output, when the harness reports it |
+| `attemptCount` / `retryDurationMs` | `phases[]` | How many invocations, and how long the retries took |
 | `metrics.total*` | root | The same five measures summed over the whole issue |
 
 All of them are `number | null`, and `null` means **not reported** -- never zero. A phase that ran without the CLI ever returning usage data keeps its fields at `null`, and no surface renders a segment for a `null` value.
@@ -1248,6 +1255,11 @@ Story metrics answer "what did this story cost". They do not say **who** produce
         "model": { "requested": null, "resolved": null, "source": "unavailable" }
       },
       "status": "failed",
+      "durationMs": 5580,
+      "cliDurationMs": 1948,
+      "harnessStartupMs": 3632,
+      "ttftMs": 400,
+      "numTurns": 1,
       "usage": { "inputTokens": 412, "source": "provider" },
       "cost": { "status": "reported", "amount": 0.31, "currency": "USD" }
     }
@@ -1259,6 +1271,7 @@ Story metrics answer "what did this story cost". They do not say **who** produce
 - `{ "status": "reported", "amount": 0 }` is a real zero. `{ "status": "unknown" }` is not.
 - Estimation is opt-in (`telemetry.pricing.estimate`). An estimate stores the rates it used and is never added to reported cost.
 - `usage: null` means the provider reported nothing — never artificial zeros.
+- Time fields (`cliDurationMs`, `harnessStartupMs`, `ttftMs`, `numTurns`) are optional. Absent means the envelope did not report them — never zero. They live on this record, not on a second observability system. The synthetic baseline is `src/benchmark/`; the published before table is `docs/research/2026-08-30-harness-baseline.md`.
 - Git (branch, commit, PR, changelog) never reads this field. Provider and model do not leak into those artefacts.
 - A plan written before this field keeps loading; a round-trip does not materialize `executions: []`.
 

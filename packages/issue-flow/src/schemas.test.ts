@@ -446,6 +446,12 @@ describe('backwards compatibility with pre-metrics artifacts', () => {
       costUsd: null,
       // The pre-existing fields are untouched.
       durationSeconds: 1800,
+      harnessExecutionMs: null,
+      orchestrationOverheadMs: null,
+      harnessStartupMs: null,
+      ttftMs: null,
+      attemptCount: null,
+      retryDurationMs: null,
     });
     expect(snapshot.stories[0]).toMatchObject({
       durationSeconds: null,
