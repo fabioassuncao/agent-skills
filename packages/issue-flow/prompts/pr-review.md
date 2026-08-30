@@ -25,9 +25,16 @@ Run these, in this order:
 3. `gh pr diff __PR_NUMBER__ --stat` — size and shape of the change
 4. `git log --oneline <base>..<head>` — commit history of the branch
 5. Read __TASKS_PATH__ and __PRD_PATH__ when they exist, to learn what was intended
-6. Read `CLAUDE.md` (root and any nested ones near the changed files) and `README.md`
-   to learn the project's conventions — a review that contradicts the documented
-   conventions of the repository is a wrong review
+6. Learn the repository's conventions from **its own** sources, not from prior knowledge —
+   a review that contradicts the documented conventions of the repository is a
+   wrong review. When this prompt ends with a section naming the repository's
+   policy documents, read the ones a finding would depend on. Otherwise read
+   `AGENTS.md`, `CLAUDE.md` (root and any nested ones near the changed files) and
+   `README.md`.
+
+   Follow a pointer file rather than stopping at it: a `CLAUDE.md` whose entire
+   content is "Read and follow the instructions in AGENTS.md" is not a repository
+   without conventions, and treating it as one discards everything it forwards to.
 
 ## Step 2 — Budget the diff
 
@@ -79,6 +86,42 @@ of "no problem here", not an axis skipped.
 - **Commit messages**: do they describe the change accurately, at a useful granularity?
 - **Simplification**: concrete opportunities to achieve the same result with less code
 
+<!-- if:__REPO_POLICY__ -->
+- **Repository policy conformance**: does the change respect what this repository
+  declares about itself? Check what applies, from the section at the end of this
+  prompt: the issue body against its Issue Template, labels against the ones that
+  exist, an Issue Type where the repository uses them, the title convention, the
+  Pull Request body against the PR template, the **base branch**, and the branch
+  and commit conventions. Read the policy documents listed there for rules they
+  state as mandatory.
+
+  **Cite where each rule is written** — the document and its section:
+
+  > `docs/engineering/ENGINEERING-STANDARDS.md#git-workflow` requires a branch and
+  > a Pull Request for ordinary changes; this commit went straight to the default
+  > branch.
+
+  A violation without a citation is an opinion, and the author has no way to check
+  whether the reviewer is right.
+
+  **Calibrate the severity.** Turning every formatting divergence into a blocker
+  makes the review noisy, and a noisy review gets ignored:
+
+  | Situation | Severity |
+  |---|---|
+  | A rule the documentation states as mandatory | blocker |
+  | A required template field left out | blocker |
+  | Wrong base branch or wrong target | blocker |
+  | Formatting or naming-convention divergence | observation |
+  | A document the change made stale | observation, unless the rule is mandatory |
+
+  When the change touches paths with a `CODEOWNERS` entry, record who owns them.
+  Do **not** block on it: GitHub enforces the approval, not this review.
+
+  Never restate a repository rule as if it were your own standard, and never
+  invent one it does not declare.
+<!-- /if -->
+
 Ground every finding in the diff: cite `file:line`. A finding you cannot point at is
 speculation — leave it out or mark it clearly as a question.
 
@@ -93,7 +136,8 @@ Pick exactly one recommendation, by these criteria:
 - `REQUEST_CHANGES` — at least one blocker: a bug or regression in the changed
   behaviour, a security or data-loss risk, a broken/absent test for a critical path,
   an unimplemented part of the issue/PRD, or a change that contradicts the project's
-  documented conventions in a way that must be fixed before merge.
+  documented conventions in a way that must be fixed before merge — see the
+  severity table on the policy-conformance axis for where that line falls.
 
 A missing preference or a matter of style is never a blocker. When you hesitate
 between two verdicts, pick the more conservative one and explain why in the summary.

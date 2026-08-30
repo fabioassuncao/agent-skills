@@ -225,3 +225,70 @@ describe('rendered prompts without a policy', () => {
     expect(rendered).toContain('conventional commits');
   });
 });
+
+describe('review prompts and repository policy', () => {
+  /** The axis label, which must appear only when a policy was discovered. */
+  const AXIS = 'policy conformance';
+
+  async function render(name: string, vars: Record<string, string>): Promise<string> {
+    const promptsDir = resolvePackageDir('prompts') as string;
+    const template = await readFile(join(promptsDir, `${name}.md`), 'utf-8');
+    return applyPlaceholders(template, {
+      ...emptyPolicyPlaceholders(),
+      ...conventionPlaceholders(null, 'main'),
+      ...vars,
+    });
+  }
+
+  it.each([
+    'review',
+    'pr-review',
+  ])('leaves the %s report untouched when the repository declares no policy', async (name) => {
+    const rendered = await render(name, {});
+
+    expect(rendered.toLowerCase()).not.toContain(AXIS);
+    expect(rendered).not.toContain('CODEOWNERS');
+    expect(rendered).not.toContain('## Repository policy');
+  });
+
+  it.each([
+    'review',
+    'pr-review',
+  ])('adds conformance as an explicit axis of the %s report when there is a policy', async (name) => {
+    const rendered = await render(name, { __REPO_POLICY__: '### Base branch\n\ndevelop' });
+
+    expect(rendered.toLowerCase()).toContain(AXIS);
+    // Every violation names the document that defines the rule, or the review
+    // is opinion the author cannot check.
+    expect(rendered).toContain('citation');
+    // Owners are recorded, never blocked on: GitHub enforces the approval.
+    expect(rendered).toContain('CODEOWNERS');
+    // And the calibration that keeps the review from becoming noise.
+    expect(rendered).toContain('mandatory');
+  });
+
+  it.each([
+    'review',
+    'pr-review',
+  ])('tells the %s to read the policy, never to replicate it', async (name) => {
+    const rendered = (await render(name, { __REPO_POLICY__: '### Base branch\n\ndevelop' }))
+      .split(/\s+/)
+      .join(' ');
+
+    // The dividing line of this series: the reviews *read* the repository's
+    // rules, they do not restate them as their own.
+    expect(rendered, name).toContain('Never restate a repository rule');
+    expect(rendered, name).toContain('never invent one it does not declare');
+  });
+
+  it.each([
+    'review',
+    'pr-review',
+  ])('tells the %s to follow a pointer file rather than stopping at it', async (name) => {
+    const rendered = (await render(name, { __REPO_POLICY__: '### Base branch\n\ndevelop' }))
+      .split(/\s+/)
+      .join(' ');
+
+    expect(rendered, name).toContain('forwards to');
+  });
+});
