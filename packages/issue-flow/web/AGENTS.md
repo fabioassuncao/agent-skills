@@ -131,6 +131,26 @@ referência, não estado. "Próximos passos" é uma linha só — `renderNextSte
 junta os passos com `·` num `<span>`, e o rótulo vem do HTML
 (`.next-steps-label`), não do JS.
 
+## Glossário
+
+Termos da interface — um por conceito, em todo `index.html` e `app.js` visível
+ao usuário. Comentários de código podem falar a língua do domínio (`session`,
+`story`); a tela não.
+
+| Conceito | Termo na UI | Não usar |
+| --- | --- | --- |
+| Uma corrida do pipeline | **execução** / **execuções** | sessão (exceto no identificador técnico, e mesmo aí o rótulo é "execução `<id>`") |
+| Item do plano | **user story** / **user stories** | story, stories, User Story misturado |
+| Estado da corrida | **aguardando / executando / concluído / falhou** | sinônimos soltos no badge |
+| Indicador de corrida ativa | **ao vivo** + `.live` | "live", segundo badge, ponto com uppercase |
+
+Travessão (`—`) fica só em placeholders de valor ausente (`#—`, timers). Em
+frase, use ponto ou vírgula: "Desconectado do servidor. Tentando reconectar…",
+"Execução falhou. Veja os erros acima."
+
+O título do drawer é o da user story (`US-00N · título`) ou `Fase · <nome>`,
+nunca "Detalhes da user story".
+
 ## Escalas de tipografia, espaçamento e raio
 
 Ao lado das cores, `:root` declara três escalas **fechadas**. Um componente

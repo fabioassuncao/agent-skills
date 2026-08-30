@@ -1079,7 +1079,7 @@
       const messages = {
         idle: 'Nenhuma execução em andamento.',
         completed: 'Execução concluída.',
-        failed: 'Execução falhou — veja os erros acima.',
+        failed: 'Execução falhou. Veja os erros acima.',
       };
       els.now.appendChild(el('p', 'empty', messages[snapshot.status] || '—'));
       return;
@@ -1098,7 +1098,7 @@
 
     const activity = snapshot.currentActivity;
     if (activity) {
-      if (activity.story) nowRow(grid, 'Story', activity.story);
+      if (activity.story) nowRow(grid, 'User story', activity.story);
       if (activity.tool) nowRow(grid, 'Ferramenta', activity.tool);
       if (activity.detail) nowRow(grid, 'Detalhe', activity.detail);
       const since = el('dd', null, formatAgo(activity.since));
@@ -1975,7 +1975,7 @@
 
   function renderMeta(snapshot) {
     const parts = [];
-    if (snapshot.sessionId) parts.push('sessão ' + snapshot.sessionId);
+    if (snapshot.sessionId) parts.push('execução ' + snapshot.sessionId);
     if (snapshot.updatedAt) parts.push('atualizado ' + formatClock(snapshot.updatedAt));
     parts.push('somente leitura');
     els.sessionMeta.textContent = parts.join(' · ');
