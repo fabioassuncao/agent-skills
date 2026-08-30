@@ -6,6 +6,7 @@ import { taskPlanSchema } from '../../schemas.js';
 import type { ExecutionRecord } from '../../telemetry/types.js';
 import type { TaskPlan } from '../../types.js';
 import { writeFileAtomic } from '../../utils/fs.js';
+import type { ProviderHealthRecord, ProvidersHealth } from '../schemas.js';
 import { type OpenIssueFlowDatabaseOptions, openIssueFlowDatabase } from './index.js';
 
 /** Identity needed to address one plan in the shared SQLite database. */
@@ -19,6 +20,9 @@ export interface PlanRepositoryContext {
 }
 
 const contexts = new Map<string, PlanRepositoryContext>();
+const providerHealthContexts = new Map<string, PlanRepositoryContext>();
+const verificationContexts = new Map<string, PlanRepositoryContext>();
+const lastBranchContexts = new Map<string, PlanRepositoryContext>();
 const agentProjectionWindows = new Set<string>();
 
 /** Keep the tolerant US-NNN interpretation next to the indexed representation. */
@@ -36,6 +40,33 @@ export function registerPlanRepository(context: PlanRepositoryContext): void {
 
 export function getPlanRepository(path: string): PlanRepositoryContext | undefined {
   return contexts.get(path);
+}
+
+/** Register project- and issue-level compatibility projections with their canonical store. */
+export function registerStorageProjections(input: {
+  context: PlanRepositoryContext;
+  providersHealthFile?: string;
+  verifyFile?: string;
+  lastBranchFile?: string;
+}): void {
+  if (input.providersHealthFile !== undefined) {
+    providerHealthContexts.set(input.providersHealthFile, input.context);
+  }
+  if (input.verifyFile !== undefined) verificationContexts.set(input.verifyFile, input.context);
+  if (input.lastBranchFile !== undefined)
+    lastBranchContexts.set(input.lastBranchFile, input.context);
+}
+
+export function getProviderHealthRepository(path: string): PlanRepositoryContext | undefined {
+  return providerHealthContexts.get(path);
+}
+
+export function getVerificationRepository(path: string): PlanRepositoryContext | undefined {
+  return verificationContexts.get(path);
+}
+
+export function getLastBranchRepository(path: string): PlanRepositoryContext | undefined {
+  return lastBranchContexts.get(path);
 }
 
 /**
@@ -66,7 +97,23 @@ export async function ensurePlanRepository(path: string): Promise<PlanRepository
 
 export function resetPlanRepositories(): void {
   contexts.clear();
+  providerHealthContexts.clear();
+  verificationContexts.clear();
+  lastBranchContexts.clear();
   agentProjectionWindows.clear();
+}
+
+function ensureStoredProject(
+  database: Awaited<ReturnType<typeof openIssueFlowDatabase>>,
+  context: PlanRepositoryContext,
+  timestamp: string,
+): void {
+  database
+    .prepare(
+      `INSERT INTO projects (id, root, remote_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+    )
+    .run(context.projectId, context.projectRoot, timestamp, timestamp);
 }
 
 /** Prevent telemetry projection refreshes while an agent owns tasks.json. */
@@ -533,6 +580,161 @@ export async function saveExecution(
   ) {
     await materializePlan(context);
   }
+}
+
+/** Provider breaker state is a project-scoped canonical record, not a JSON file. */
+export async function readStoredProvidersHealth(
+  context: PlanRepositoryContext,
+): Promise<ProvidersHealth> {
+  return withDatabase((database) => {
+    const providers = Object.fromEntries(
+      database
+        .prepare('SELECT provider, payload_json FROM provider_health WHERE project_id = ?')
+        .all<{ provider: string; payload_json: string }>(context.projectId)
+        .map((row) => [row.provider, JSON.parse(row.payload_json) as ProviderHealthRecord]),
+    );
+    return { schemaVersion: 1, providers };
+  }, context.databaseOptions);
+}
+
+/** Apply one health transition under SQLite's write transaction. */
+export async function updateStoredProviderHealth(
+  context: PlanRepositoryContext,
+  provider: string,
+  update: (record: ProviderHealthRecord) => ProviderHealthRecord,
+): Promise<ProviderHealthRecord> {
+  return withDatabase(
+    (database) =>
+      database.transaction(() => {
+        const updatedAt = new Date().toISOString();
+        ensureStoredProject(database, context, updatedAt);
+        const previous = database
+          .prepare('SELECT payload_json FROM provider_health WHERE project_id = ? AND provider = ?')
+          .get<{ payload_json: string }>(context.projectId, provider);
+        const current: ProviderHealthRecord =
+          previous === undefined
+            ? {
+                status: 'healthy',
+                failures: [],
+                consecutiveFailures: 0,
+                cooldownLevel: 0,
+                cooldownUntil: null,
+                lastFailureKind: null,
+                lastFailureAt: null,
+                lastSuccessAt: null,
+                probeInFlight: false,
+                probeStartedAt: null,
+              }
+            : (JSON.parse(previous.payload_json) as ProviderHealthRecord);
+        const next = update(current);
+        database
+          .prepare(
+            `INSERT INTO provider_health
+           (project_id, provider, payload_json, updated_at, status, consecutive_failures, cooldown_level,
+            cooldown_until, last_failure_kind, last_failure_at, last_success_at, probe_in_flight, probe_started_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(project_id, provider) DO UPDATE SET payload_json = excluded.payload_json,
+             updated_at = excluded.updated_at, status = excluded.status,
+             consecutive_failures = excluded.consecutive_failures, cooldown_level = excluded.cooldown_level,
+             cooldown_until = excluded.cooldown_until, last_failure_kind = excluded.last_failure_kind,
+             last_failure_at = excluded.last_failure_at, last_success_at = excluded.last_success_at,
+             probe_in_flight = excluded.probe_in_flight, probe_started_at = excluded.probe_started_at`,
+          )
+          .run(
+            context.projectId,
+            provider,
+            JSON.stringify(next),
+            updatedAt,
+            next.status,
+            next.consecutiveFailures,
+            next.cooldownLevel,
+            next.cooldownUntil,
+            next.lastFailureKind,
+            next.lastFailureAt,
+            next.lastSuccessAt,
+            next.probeInFlight ? 1 : 0,
+            next.probeStartedAt,
+          );
+        database
+          .prepare('DELETE FROM provider_health_failures WHERE project_id = ? AND provider = ?')
+          .run(context.projectId, provider);
+        for (const failure of next.failures) {
+          database
+            .prepare(
+              `INSERT INTO provider_health_failures (project_id, provider, occurred_at, kind)
+             VALUES (?, ?, ?, ?)`,
+            )
+            .run(context.projectId, provider, failure.at, failure.kind);
+        }
+        return next;
+      }),
+    context.databaseOptions,
+  );
+}
+
+/** Append a verification result while its JSON file remains a readable projection. */
+export async function saveStoredVerification(
+  context: PlanRepositoryContext,
+  evidence: Record<string, unknown>,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      const createdAt = String(evidence.at ?? new Date().toISOString());
+      ensureStoredProject(database, context, createdAt);
+      database
+        .prepare(
+          `INSERT INTO verifications (id, project_id, issue_id, status, created_at, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUUID(),
+          context.projectId,
+          context.issueId,
+          String(evidence.verdict ?? 'unknown'),
+          createdAt,
+          JSON.stringify(evidence),
+        );
+    });
+  }, context.databaseOptions);
+}
+
+/** Branch changes are audit events; the compatibility dotfile is never authoritative. */
+export async function loadStoredLastBranch(context: PlanRepositoryContext): Promise<string | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare(
+        `SELECT payload_json FROM audit_log WHERE project_id = ? AND action = ?
+         ORDER BY occurred_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get<{ payload_json: string }>(context.projectId, `last_branch:${context.issueId}`);
+    if (row === undefined) return null;
+    const payload = JSON.parse(row.payload_json) as { branch?: unknown };
+    return typeof payload.branch === 'string' && payload.branch !== '' ? payload.branch : null;
+  }, context.databaseOptions);
+}
+
+export async function saveStoredLastBranch(
+  context: PlanRepositoryContext,
+  branch: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      const occurredAt = new Date().toISOString();
+      ensureStoredProject(database, context, occurredAt);
+      database
+        .prepare(
+          `INSERT INTO audit_log (id, project_id, occurred_at, action, payload_json)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUUID(),
+          context.projectId,
+          occurredAt,
+          `last_branch:${context.issueId}`,
+          JSON.stringify({ branch }),
+        );
+    });
+  }, context.databaseOptions);
 }
 
 /** A current session snapshot and its indexed identity for monitor readers. */

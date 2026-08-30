@@ -11,7 +11,11 @@ import { getProjectRoot } from '../utils/git.js';
 import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
 import { importProjectArtifacts } from './db/import.js';
 import { getDatabasePath } from './db/index.js';
-import { registerPlanRepository, resetPlanRepositories } from './db/repository.js';
+import {
+  registerPlanRepository,
+  registerStorageProjections,
+  resetPlanRepositories,
+} from './db/repository.js';
 import {
   type GetGlobalRootOptions,
   getGlobalRoot,
@@ -274,13 +278,25 @@ export async function resolveProjectPaths(
 
   const project = await getProjectResolution(projectRoot, rootOptions);
   const projectDir = getProjectDir(project.projectId, rootOptions);
+  const providersHealthFile = join(projectDir, PROVIDERS_HEALTH_FILENAME);
+  if (project.driver === 'sqlite') {
+    registerStorageProjections({
+      context: {
+        tasksPath: '',
+        projectId: project.projectId,
+        issueId: '',
+        projectRoot,
+      },
+      providersHealthFile,
+    });
+  }
 
   return {
     projectId: project.projectId,
     projectDir,
     issuesDir: join(projectDir, ISSUES_DIR_NAME),
     runLockFile: join(projectDir, RUN_LOCK_FILENAME),
-    providersHealthFile: join(projectDir, PROVIDERS_HEALTH_FILENAME),
+    providersHealthFile,
   };
 }
 
@@ -343,11 +359,21 @@ export async function resolveIssuePaths(
   }
 
   if (project.driver === 'sqlite') {
-    registerPlanRepository({
+    const context = {
       tasksPath: paths.tasksFile,
       projectId: project.projectId,
       issueId: basename(paths.issueDir),
       projectRoot,
+    };
+    registerPlanRepository(context);
+    registerStorageProjections({
+      context,
+      verifyFile: paths.verifyFile,
+      lastBranchFile: paths.lastBranchFile,
+      providersHealthFile: join(
+        getProjectDir(project.projectId, rootOptions),
+        PROVIDERS_HEALTH_FILENAME,
+      ),
     });
     bindTelemetry({ tasksPath: paths.tasksFile });
   } else {

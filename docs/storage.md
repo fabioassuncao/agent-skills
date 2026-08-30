@@ -32,7 +32,7 @@ noise. The trade-off is that the artifacts are machine-local.
   projects/
     issue-flow-4b21c0e9f7a3/     # One directory per project: <slug>-<hash12>
       metadata.json              # Project identity and timestamps
-      providers.json             # Durable agent health, circuit and cooldown state
+      providers.json             # Legacy JSON fallback for SQLite agent health
       run.lock                   # Ownership of the run in progress
       issues/
         42/                      # One per issue identifier — see below
@@ -72,11 +72,11 @@ needs to write it, so a given run leaves most of these absent:
   session.json      # Compatibility projection of the live session
   events.jsonl      # Compatibility projection of the ordered event history (opt-in)
   events.1.jsonl    # Optional previous generation when rotation is explicitly configured
-  verify.json       # Acceptance-contract evidence, redacted
+  verify.json       # Readable projection of redacted SQLite verification evidence
   decomposition.md  # "This issue looks larger than one run" report
   run.log           # stdout/stderr of a `--background` run
   run.log.1         # Previous generation, after a rotation
-  .last-branch      # Last branch the execution loop worked on
+  .last-branch      # Legacy fallback; branch history is stored in SQLite
   archive/          # Artifacts superseded by a later iteration
   pr-review/        # PR review reports and index
 ```

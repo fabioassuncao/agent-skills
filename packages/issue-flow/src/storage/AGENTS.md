@@ -109,10 +109,11 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   redaction, 10 MiB rotation (five generations) and 30-day retention. Its
   queued best-effort writes must never make the pipeline fail.
   `execution/registry.ts` is the only cross-project reader of `run.lock`.
-- **`providers.json` is project-level durable state.** Its path comes from
-  `resolveProjectPaths().providersHealthFile`; agent code never joins the name.
-  Writes are atomic, unknown provider keys stay readable, and cooldown survives
-  process restarts.
+- **Provider health is SQLite-authoritative.** `providers.json` is a legacy
+  JSON fallback whose path comes from `resolveProjectPaths().providersHealthFile`;
+  agent code never joins the name. Health transitions go through
+  `storage/db/repository.ts`, so cooldown and failure history survive restarts
+  transactionally.
 - Schemas read from disk are never `.strict()`: a file written by a newer version must stay
   readable by an older one.
 - The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other
