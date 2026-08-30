@@ -265,7 +265,7 @@ const program = new Command();
 program
   .name('issue-flow')
   .description(
-    'Unified CLI for orchestrating the full issue-flow pipeline via Claude Code or Codex CLI.',
+    'Unified CLI for orchestrating the full issue-flow pipeline via Claude Code, Codex CLI, Cursor CLI or Antigravity CLI.',
   )
   .version(version);
 
