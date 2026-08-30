@@ -144,6 +144,7 @@ at once:
 
 ```bash
 issue-flow run 42 --web              # http://localhost:3737
+issue-flow run 42 --restart-web      # replace an older detached monitor
 issue-flow run 42 --web --host 127.0.0.1   # this machine only
 issue-flow web stop
 ```

@@ -55,6 +55,7 @@ issue-flow run 42                     # prd → plan → execute → review → 
 issue-flow run 42 --from execute      # start at a given phase
 issue-flow run 42 --no-branch         # current branch, no branch creation, no PR
 issue-flow run 42 --web               # watch it live in the browser
+issue-flow run 42 --restart-web       # replace the monitor with this CLI version
 issue-flow run 42 --pr-review         # add a whole-PR review after `pr`
 issue-flow run 42 --continuous        # unattended profile
 issue-flow run 42,43,50               # several issues (also: `run 42 43 50`)
@@ -87,7 +88,7 @@ the first incomplete phase when pipeline state already exists. A failing
 | `--continue` | Continue User Story numbering from the last used in this project |
 | `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history. In a queue it applies to the first issue only |
 | `-d, --background` | Detach after the confirmation, print the pid and `run.log`, and return the terminal. Refused with `--mode manual`, in CI and outside a TTY |
-| `--web`, `--serve`, `--port`, `--host`, `--refresh`, `--web-log-limit`, `--web-no-logs` | [Web monitoring](web-monitor.md) |
+| `--web`, `--serve`, `--restart-web`, `--port`, `--host`, `--refresh`, `--web-log-limit`, `--web-no-logs` | [Web monitoring](web-monitor.md) |
 
 When the review comes back as `REQUEST_CHANGES`, the run prints the report path,
 **leaves the issue open** locally and on the remote, does not set
