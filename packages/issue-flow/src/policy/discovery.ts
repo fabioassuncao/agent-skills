@@ -3,7 +3,11 @@ import { join, relative, sep } from 'node:path';
 import { run } from '../utils/shell.js';
 import { classifyDocument, extractReferencedDocuments } from './parsers/docs.js';
 import { parseIssueTypes, parseLabels } from './parsers/labels.js';
-import { parseIssueTemplateFile, parseOrganizationTemplates } from './parsers/templates.js';
+import {
+  parseIssueTemplateFile,
+  parseOrganizationForms,
+  parseOrganizationTemplates,
+} from './parsers/templates.js';
 import {
   type IssueTemplate,
   type LabelDefinition,
@@ -671,6 +675,80 @@ const ORGANIZATION_TEMPLATES_QUERY = `query($owner:String!,$name:String!){
     }
   }
 }`;
+
+/**
+ * The organization's `.github` repository, read as a tree.
+ *
+ * `issueTemplates` above only ever returns **markdown** templates: GitHub does
+ * not expose organization-level Issue *Forms* through it, and a repository whose
+ * organization publishes `.yml` forms therefore looks like a repository with no
+ * templates at all. Reading the tree of the org's `.github` repository is the
+ * only way to see them.
+ *
+ * One round-trip for names *and* contents, which is why it is a tree query
+ * rather than the contents endpoint (a directory listing there carries no file
+ * bodies, costing one call per template).
+ */
+const ORGANIZATION_FORMS_QUERY = `query($owner:String!){
+  repository(owner:$owner,name:".github"){
+    object(expression:"HEAD:.github/ISSUE_TEMPLATE"){
+      ... on Tree {
+        entries { name type object { ... on Blob { text } } }
+      }
+    }
+  }
+}`;
+
+/**
+ * Issue Forms published by the organization's `.github` repository.
+ *
+ * Answers an empty list for every ordinary case — no organization, no `.github`
+ * repository, no `ISSUE_TEMPLATE` directory — so it is only ever an enrichment.
+ */
+export async function discoverOrganizationForms(
+  root: string,
+  owner: string | null,
+  exec: PolicyExec = defaultExec,
+): Promise<IssueTemplateDiscovery> {
+  if (owner === null || owner === '') {
+    return { templates: [], sources: [] };
+  }
+
+  const outcome = await ghJson(
+    root,
+    ['api', 'graphql', '-f', `query=${ORGANIZATION_FORMS_QUERY}`, '-f', `owner=${owner}`],
+    exec,
+  );
+  if ('error' in outcome) {
+    return {
+      templates: [],
+      sources: [
+        {
+          kind: 'issue-templates',
+          origin: 'gh',
+          path: null,
+          status: 'unavailable',
+          detail: outcome.error,
+        },
+      ],
+    };
+  }
+
+  const templates = parseOrganizationForms(outcome.value);
+  if (templates.length === 0) {
+    return { templates, sources: [] };
+  }
+  return {
+    templates,
+    sources: templates.map((template) => ({
+      kind: 'issue-templates' as const,
+      origin: 'gh' as const,
+      path: null,
+      status: 'found' as const,
+      detail: `organization form "${template.path}"`,
+    })),
+  };
+}
 
 /**
  * Issue Templates served by GitHub, including the ones the organization's

@@ -21,6 +21,7 @@ export {
   discoverIssueTemplates,
   discoverIssueTypes,
   discoverLabels,
+  discoverOrganizationForms,
   discoverOrganizationTemplates,
   discoverPullRequestTemplates,
   scopeLadder,

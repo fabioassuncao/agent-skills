@@ -273,13 +273,19 @@ describe('loadRepositoryPolicy', () => {
         .filter(([command]) => command === 'gh')
         .map(([, args]) => args.join(' '));
 
-      expect(ghCalls).toHaveLength(3);
-      expect(new Set(ghCalls).size).toBe(3);
+      // Four, and no duplicates: labels, Issue Types, and the organization's
+      // defaults — which cost two calls rather than one because GitHub exposes
+      // them through different surfaces. `issueTemplates` covers only markdown
+      // templates and is blind to Issue Forms, which exist solely as files in
+      // the organization's `.github` repository.
+      expect(ghCalls).toHaveLength(4);
+      expect(new Set(ghCalls).size).toBe(4);
       expect(ghCalls).toEqual(
         expect.arrayContaining([
           expect.stringContaining('label list'),
           'api orgs/acme/issue-types',
-          expect.stringContaining('api graphql'),
+          expect.stringContaining('issueTemplates'),
+          expect.stringContaining('ISSUE_TEMPLATE'),
         ]),
       );
     });

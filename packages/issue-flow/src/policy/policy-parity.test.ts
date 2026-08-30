@@ -30,6 +30,7 @@ const SHARED_BLOCK = join(REPO_ROOT, 'skills/_shared/repository-policy.md');
 
 /** Skills that take a policy decision and must therefore read the shared block. */
 const POLICY_AWARE_SKILLS = [
+  'init-repository',
   'generate-issue',
   'generate-local-issue',
   'analyze-issue',
@@ -121,6 +122,41 @@ describe('the shared block is referenced, never copied', () => {
       const content = await readFile(join(REPO_ROOT, 'skills', skill, 'SKILL.md'), 'utf-8');
       expect(content, skill).not.toContain('issue-flow policy --json');
     }
+  });
+});
+
+describe('initialization has one core behind both interfaces', () => {
+  it('gives the skill the same plan the CLI renders', async () => {
+    const skill = await readFile(join(REPO_ROOT, 'skills/init-repository/SKILL.md'), 'utf-8');
+
+    // The skill does not re-derive the analysis: it asks the CLI, which is the
+    // only way "one core, two interfaces" can be true rather than aspirational.
+    expect(skill).toContain('issue-flow init --json');
+    expect(skill).toContain('issue-flow init --apply');
+  });
+
+  it('tells the skill to fall back rather than fail when the CLI is absent', async () => {
+    const skill = (await readFile(join(REPO_ROOT, 'skills/init-repository/SKILL.md'), 'utf-8'))
+      .split(/\s+/)
+      .join(' ');
+
+    expect(skill).toContain('If the CLI is not available');
+    expect(skill).toContain('do not tell the user to install anything');
+  });
+
+  it('states the non-destructive rule in the skill, not only in the code', async () => {
+    const skill = (await readFile(join(REPO_ROOT, 'skills/init-repository/SKILL.md'), 'utf-8'))
+      .split(/\s+/)
+      .join(' ');
+
+    expect(skill).toContain('Never overwrite a convention that exists');
+  });
+
+  it('documents the same agent entry-point chain the scaffolding writes', async () => {
+    const skill = await readFile(join(REPO_ROOT, 'skills/init-repository/SKILL.md'), 'utf-8');
+
+    expect(skill).toContain('CLAUDE.md  →  AGENTS.md');
+    expect(skill).toContain('Read and follow the instructions in AGENTS.md.');
   });
 });
 

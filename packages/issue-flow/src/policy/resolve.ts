@@ -11,6 +11,7 @@ import {
   discoverIssueTemplates,
   discoverIssueTypes,
   discoverLabels,
+  discoverOrganizationForms,
   discoverOrganizationTemplates,
   discoverPullRequestTemplates,
 } from './discovery.js';
@@ -169,7 +170,7 @@ async function resolvePolicy(
       : Promise.resolve(null),
   ]);
 
-  const [labels, issueTypes, orgTemplates] = await Promise.all([
+  const [labels, issueTypes, orgTemplates, orgForms] = await Promise.all([
     toggles.labels
       ? discoverLabels(root, options.exec)
       : Promise.resolve({ labels: [], sources: [disabledSource('labels')] }),
@@ -179,11 +180,20 @@ async function resolvePolicy(
     wantsOrgTemplates
       ? discoverOrganizationTemplates(root, slug, options.exec)
       : Promise.resolve({ templates: [], sources: [] }),
+    // Two calls, because GitHub answers the two kinds of organization default
+    // through different surfaces: `issueTemplates` covers markdown templates and
+    // is blind to Issue Forms, which only exist as files in the org's `.github`
+    // repository. A repository whose organization publishes forms would
+    // otherwise look like one with no templates at all.
+    wantsOrgTemplates
+      ? discoverOrganizationForms(root, slug?.owner ?? null, options.exec)
+      : Promise.resolve({ templates: [], sources: [] }),
   ]);
 
   const sources: PolicySource[] = [
     ...templateDiscovery.sources,
     ...orgTemplates.sources,
+    ...orgForms.sources,
     ...issueTypes.sources,
     ...labels.sources,
     ...prTemplates.sources,
@@ -231,7 +241,7 @@ async function resolvePolicy(
     scope,
     enabled: true,
     issues: {
-      templates: [...templateDiscovery.templates, ...orgTemplates.templates],
+      templates: [...templateDiscovery.templates, ...orgTemplates.templates, ...orgForms.templates],
       types: issueTypes.types,
       labels: labels.labels,
       titleConvention: issues.titleConvention ?? null,

@@ -102,3 +102,34 @@ export function parseOrganizationTemplates(payload: unknown): IssueTemplate[] {
   }
   return templates;
 }
+
+/**
+ * Parse the organization `.github` repository's `ISSUE_TEMPLATE` tree.
+ *
+ * These are the Issue **Forms** an organization publishes, which the
+ * `issueTemplates` connection cannot see. Each entry is a real file, so it is
+ * parsed exactly like a local one — the only difference is where it came from,
+ * and the caller marks that on `origin`.
+ */
+export function parseOrganizationForms(payload: unknown): IssueTemplate[] {
+  const repository = isRecord(payload) && isRecord(payload.data) ? payload.data.repository : null;
+  const tree = isRecord(repository) ? repository.object : null;
+  const entries = isRecord(tree) && Array.isArray(tree.entries) ? tree.entries : [];
+
+  const templates: IssueTemplate[] = [];
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue;
+    const name = asString(entry.name);
+    if (name === null || entry.type !== 'blob') continue;
+    // The chooser configuration is not a template, same as on the filesystem.
+    if (/^config\.(yml|yaml)$/i.test(name)) continue;
+    if (!/\.(yml|yaml|md|markdown)$/i.test(name)) continue;
+
+    const text = isRecord(entry.object) ? asString(entry.object.text) : null;
+    if (text === null) continue;
+
+    templates.push({ ...parseIssueTemplateFile(name, text), origin: 'organization' });
+  }
+
+  return templates.sort((a, b) => a.path.localeCompare(b.path));
+}
