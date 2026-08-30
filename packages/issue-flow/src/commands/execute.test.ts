@@ -141,4 +141,15 @@ describe('runExecute — standalone web monitoring', () => {
     expect(snapshot.currentPhase).toBeNull();
     expect(snapshot.stories.map((story: { id: string }) => story.id)).toEqual(['US-001']);
   });
+
+  it('forwards the one-shot restart request only for direct execute monitoring', async () => {
+    runtime.webEnabled = true;
+
+    expect(await runExecute(undefined, { issue: '75', restartWeb: true })).toBe(0);
+
+    expect(ensureWebMonitor).toHaveBeenCalledWith(
+      expect.objectContaining({ port: 3737, host: '127.0.0.1' }),
+      { restart: true },
+    );
+  });
 });

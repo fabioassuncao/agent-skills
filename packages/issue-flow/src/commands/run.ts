@@ -276,6 +276,8 @@ export interface RunPipelineOptions {
   background?: boolean;
   /** Hidden: this process is the child of a `--background` spawn. */
   detachedChild?: boolean;
+  /** `--restart-web`: replace the machine-wide monitor once for this invocation. */
+  restartWeb?: boolean;
   /** `--continue`: name the (automatic) User Story numbering continuity. */
   continueNumbering?: boolean;
   /** `--start-us <n>`: force the first plan of this run to start at `n`. */
@@ -396,6 +398,7 @@ export async function runPipeline(
       prReview,
       requested,
       runOptions: options,
+      restartWeb: options.restartWeb,
       ...(ownership.interruptedBy === null ? {} : { interruptedBy: ownership.interruptedBy }),
     });
 
@@ -491,6 +494,8 @@ interface IssueSessionInput {
   /** Identifiers the user asked for; only the standalone attempt needs them. */
   requested?: string[];
   runOptions?: RunPipelineOptions;
+  /** One-shot restart request; queue members after the first never inherit it. */
+  restartWeb?: boolean;
   queue?: QueueRunContext;
   /**
    * The dead owner whose lock this run took over. Recorded in the journal as
@@ -615,12 +620,15 @@ async function runIssueSession(
   // (US-002) — either way the returned handle never owns a local server that
   // this process would need to close.
   if (webConfig.enabled) {
-    await ensureWebMonitor({
-      publisher,
-      port: webConfig.port,
-      host: webConfig.host,
-      refreshSeconds: webConfig.refreshSeconds,
-    });
+    await ensureWebMonitor(
+      {
+        publisher,
+        port: webConfig.port,
+        host: webConfig.host,
+        refreshSeconds: webConfig.refreshSeconds,
+      },
+      { restart: input.restartWeb === true },
+    );
   }
 
   let result: IssueRunResult = {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { type AddressInfo, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -38,6 +38,7 @@ vi.mock('../web/lock.js', async (importOriginal) => {
         return handle;
       },
     ),
+    stopWebMonitor: vi.fn(actual.stopWebMonitor),
   };
 });
 
@@ -45,7 +46,7 @@ import {
   detectActiveInstance,
   ensureSingleWebServer,
   getWebLockFile,
-  removeWebLock,
+  stopWebMonitor,
 } from '../web/lock.js';
 import { runWebServe, runWebStop } from './web.js';
 
@@ -111,85 +112,22 @@ describe('commands/web', () => {
 
   describe('runWebStop', () => {
     it('reports no running instance when there is no lock', async () => {
+      vi.mocked(stopWebMonitor).mockResolvedValueOnce('not-running');
       const code = await runWebStop();
       expect(code).toBe(0);
     });
 
-    it('cleans up a lock referencing a dead process', async () => {
-      const lockFile = getWebLockFile();
-      await writeFile(
-        lockFile,
-        JSON.stringify({
-          pid: 999999999,
-          port: 3737,
-          host: '127.0.0.1',
-          startedAt: '2020-01-01T00:00:00Z',
-        }),
-        'utf-8',
-      );
-
+    it('returns zero after the shared stop path confirms shutdown', async () => {
+      vi.mocked(stopWebMonitor).mockResolvedValueOnce('stopped');
       const code = await runWebStop();
-
       expect(code).toBe(0);
-      expect(await detectActiveInstance(lockFile)).toBeNull();
     });
 
-    it('sends SIGTERM to the lock pid and waits for the lock to be removed', async () => {
-      const lockFile = getWebLockFile();
-      await writeFile(
-        lockFile,
-        JSON.stringify({
-          pid: 4242,
-          port: 3737,
-          host: '127.0.0.1',
-          startedAt: '2020-01-01T00:00:00Z',
-        }),
-        'utf-8',
-      );
-      const killSpy = vi.spyOn(process, 'kill').mockImplementation(((
-        pid: number,
-        signal?: string | number,
-      ) => {
-        expect(pid).toBe(4242);
-        expect(signal).toBe('SIGTERM');
-        // Simulate the target's own graceful shutdown removing the lock —
-        // the real signal handler lives in server.ts, exercised elsewhere.
-        void removeWebLock(lockFile);
-        return true;
-      }) as typeof process.kill);
-
-      try {
-        const code = await runWebStop();
-        expect(code).toBe(0);
-      } finally {
-        killSpy.mockRestore();
-      }
-    });
-
-    it('returns non-zero when kill fails for a reason other than a dead process', async () => {
-      const lockFile = getWebLockFile();
-      await writeFile(
-        lockFile,
-        JSON.stringify({
-          pid: 4242,
-          port: 3737,
-          host: '127.0.0.1',
-          startedAt: '2020-01-01T00:00:00Z',
-        }),
-        'utf-8',
-      );
-      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
-        const err = new Error('EPERM') as NodeJS.ErrnoException;
-        err.code = 'EPERM';
-        throw err;
-      });
-
-      try {
-        const code = await runWebStop();
-        expect(code).toBe(1);
-      } finally {
-        killSpy.mockRestore();
-      }
+    it('returns non-zero when ownership or shutdown could not be confirmed', async () => {
+      vi.mocked(stopWebMonitor).mockResolvedValueOnce('failed');
+      expect(await runWebStop()).toBe(1);
+      vi.mocked(stopWebMonitor).mockResolvedValueOnce('unowned');
+      expect(await runWebStop()).toBe(1);
     });
   });
 });

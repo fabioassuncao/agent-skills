@@ -5,6 +5,22 @@
  * import, so anything defined there is untestable.
  */
 
+import type { WebConfig } from './schemas.js';
+
+/** Extract ephemeral/config-backed web flags from commander's camel-cased options. */
+export function resolveWebOverrides(opts: Record<string, unknown>): Partial<WebConfig> {
+  const overrides: Partial<WebConfig> = {};
+  if (opts.web === true || opts.serve === true || opts.restartWeb === true) {
+    overrides.enabled = true;
+  }
+  if (opts.port !== undefined) overrides.port = opts.port as number;
+  if (opts.host !== undefined) overrides.host = opts.host as string;
+  if (opts.refresh !== undefined) overrides.refreshSeconds = opts.refresh as number;
+  if (opts.webLogLimit !== undefined) overrides.logLimit = opts.webLogLimit as number;
+  if (opts.webNoLogs === true) overrides.includeLogs = false;
+  return overrides;
+}
+
 /** Shape commander produces for a negated boolean option (`--no-branch`). */
 export interface BranchFlagOptions {
   branch?: boolean;

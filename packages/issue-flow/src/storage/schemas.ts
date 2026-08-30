@@ -370,6 +370,8 @@ export const webLockSchema = z.object({
   port: z.number().int().positive(),
   host: z.string().min(1),
   startedAt: z.string().min(1),
+  /** Added in a backward-compatible way: locks from older releases remain valid. */
+  instanceId: z.string().min(1).optional(),
 });
 
 /**

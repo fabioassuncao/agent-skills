@@ -7,6 +7,7 @@ import {
   resolveQueueScopeFlags,
   resolveRunPhaseFlags,
   resolveUserStoryNumberingFlags,
+  resolveWebOverrides,
 } from './cli-options.js';
 import {
   setAgentCliOverrides,
@@ -25,7 +26,7 @@ import {
 } from './issues/cli-flags.js';
 import type { IssueGenerateTarget } from './issues/types.js';
 import { resolveResilienceOverrides } from './resilience/cli-flags.js';
-import type { RoutingConfig, WebConfig } from './schemas.js';
+import type { RoutingConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
 
 const require = createRequire(import.meta.url);
@@ -210,6 +211,7 @@ function withWebOptions(cmd: Command): Command {
   return cmd
     .option('--web', 'Enable the web monitoring server')
     .option('--serve', 'Alias for --web')
+    .option('--restart-web', 'Restart the web monitor before serving it (implies --web)')
     .option('--port <n>', 'Web server port (default: 3737)', parseInteger)
     .option('--host <h>', 'Web server host (default: 0.0.0.0)')
     .option('--refresh <s>', 'Suggested UI polling interval in seconds', parseInteger)
@@ -231,33 +233,6 @@ function withIssueOptions(cmd: Command): Command {
     .option('--prefer-local', 'On divergence, use the local version without asking')
     .option('--prefer-github', 'On divergence, use the GitHub version without asking')
     .option('--ask', 'On divergence, ask which version to use (interactive only)');
-}
-
-/**
- * Extract the web-related CLI flags from a command's options, keeping only
- * the ones the user actually set.
- */
-function resolveWebOverrides(opts: Record<string, unknown>): Partial<WebConfig> {
-  const overrides: Partial<WebConfig> = {};
-  if (opts.web === true || opts.serve === true) {
-    overrides.enabled = true;
-  }
-  if (opts.port !== undefined) {
-    overrides.port = opts.port as number;
-  }
-  if (opts.host !== undefined) {
-    overrides.host = opts.host as string;
-  }
-  if (opts.refresh !== undefined) {
-    overrides.refreshSeconds = opts.refresh as number;
-  }
-  if (opts.webLogLimit !== undefined) {
-    overrides.logLimit = opts.webLogLimit as number;
-  }
-  if (opts.webNoLogs === true) {
-    overrides.includeLogs = false;
-  }
-  return overrides;
 }
 
 const program = new Command();
@@ -440,6 +415,7 @@ withUserStoryNumberingOptions(
       onIssueFailure?: 'stop' | 'skip' | 'block';
       background?: boolean;
       detachedChild?: boolean;
+      restartWeb?: boolean;
     },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
@@ -475,6 +451,7 @@ withUserStoryNumberingOptions(
         onIssueFailure: options.onIssueFailure,
         background: options.background,
         detachedChild: options.detachedChild,
+        restartWeb: options.restartWeb,
       },
     );
     process.exit(code);
@@ -699,6 +676,7 @@ withWebOptions(
       maxIterations?: number;
       retryLimit?: number;
       retryForever?: boolean;
+      restartWeb?: boolean;
     },
   ) => {
     try {

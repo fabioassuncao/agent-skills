@@ -13,6 +13,8 @@ export interface ExecuteOptions {
   maxIterations?: number;
   retryLimit?: number;
   retryForever?: boolean;
+  /** `--restart-web`: replace the detached monitor before direct execution. */
+  restartWeb?: boolean;
   /**
    * Conventional-commit scope for the stories of this issue (`issue-71`).
    * Only the multi-issue queue sets it — see `EngineConfig.commitScope`.
@@ -73,12 +75,15 @@ export async function runExecute(
       phases: ['execute'],
     });
     standalonePublisher.publish({ type: 'phase:start', at: isoNow(), phase: 'execute' });
-    await ensureWebMonitor({
-      publisher: standalonePublisher,
-      port: webConfig.port,
-      host: webConfig.host,
-      refreshSeconds: webConfig.refreshSeconds,
-    });
+    await ensureWebMonitor(
+      {
+        publisher: standalonePublisher,
+        port: webConfig.port,
+        host: webConfig.host,
+        refreshSeconds: webConfig.refreshSeconds,
+      },
+      { restart: options.restartWeb === true },
+    );
   }
 
   let exitCode: number | null = null;
