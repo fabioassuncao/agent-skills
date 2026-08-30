@@ -17,6 +17,17 @@ those live in the documents referenced below, which are the source of truth.
 - [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
   usage model, and the parity contract between the skills and the CLI
 
+## Research
+
+Investigations that produced knowledge rather than rules. They are dated,
+because what they describe changes in weeks, and they are evidence for
+decisions — never a source of truth for behaviour.
+
+- [`docs/research/2026-08-30-multi-harness-orchestration.md`](docs/research/2026-08-30-multi-harness-orchestration.md)
+  — the multi-harness orchestration landscape, the gap between configurable and
+  adaptive selection, and the target architecture behind the routing,
+  verification and escalation issues
+
 ## Developing
 
 - [`packages/issue-flow/CONTRIBUTING.md`](packages/issue-flow/CONTRIBUTING.md) —

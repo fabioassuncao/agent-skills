@@ -169,6 +169,7 @@ export interface IssuePaths {
   sessionFile: string;
   eventsFile: string;
   rotatedEventsFile: string;
+  decompositionFile: string;
   lastBranchFile: string;
   archiveDir: string;
   prReviewDir: string;
@@ -266,6 +267,9 @@ export function getIssuePaths(
     // snapshot above is the projection; this pair is the history.
     eventsFile: join(issueDir, 'events.jsonl'),
     rotatedEventsFile: join(issueDir, 'events.1.jsonl'),
+    // "This issue looks larger than one run": written only when the signals
+    // agree, and read by a person rather than by the pipeline.
+    decompositionFile: join(issueDir, 'decomposition.md'),
     lastBranchFile: join(issueDir, '.last-branch'),
     archiveDir: join(issueDir, 'archive'),
     prReviewDir: join(issueDir, 'pr-review'),

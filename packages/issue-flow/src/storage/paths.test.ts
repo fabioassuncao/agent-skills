@@ -231,6 +231,7 @@ describe('getIssuePaths', () => {
       sessionFile: join(issueDir, 'session.json'),
       eventsFile: join(issueDir, 'events.jsonl'),
       rotatedEventsFile: join(issueDir, 'events.1.jsonl'),
+      decompositionFile: join(issueDir, 'decomposition.md'),
       lastBranchFile: join(issueDir, '.last-branch'),
       archiveDir: join(issueDir, 'archive'),
       prReviewDir: join(issueDir, 'pr-review'),

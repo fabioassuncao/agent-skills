@@ -144,6 +144,26 @@ and the working tree is **clean**.
 - **A test that mocks `execa` wholesale must stub `../utils/git.js`**, or the
   two git reads consume the CLI results the test queued.
 
+## decompose.ts: detected, reported, never acted on
+
+- **Two signals or nothing.** Each one alone is ambiguous — a long plan can be a
+  long plan, a timeout can be a slow afternoon. `DECOMPOSITION_MIN_SIGNALS` is
+  what turns coincidence into evidence.
+- **An infrastructural failure never reaches this conclusion.** Network and
+  rate-limit retries are not size signals; only `timeout` and `stalled` ones
+  count. Reacting to an outage with "have you considered splitting this issue?"
+  is worse than saying nothing, and `decompose.test.ts` pins it.
+- **Every signal quotes its number.** "This is too big" is not an argument; "the
+  `execute` phase timed out twice" is, and a person can disagree with it.
+- **The default is a report plus `blocked`.** Splitting an issue is a product
+  decision. `--auto-decompose` is the opt-in, and even then it refuses once the
+  branch carries committed stories — splitting on top of half-finished work
+  leaves commits belonging to no issue.
+- **The proposed cut is deliberately unclever**: pending stories in priority
+  order, five at a time, each piece depending on the one before it. That is the
+  only dependency shape derivable from the plan alone; anything more would be a
+  guess dressed as a plan.
+
 ## executor.ts output contract
 
 On the happy path (`exitCode === 0` and parseable JSON envelope),

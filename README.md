@@ -279,6 +279,40 @@ agreeing. `resume` makes every step of it explicit, in this order:
 
 `run` is unchanged: its automatic resume behaves exactly as it always has.
 
+### When an issue turns out to be too large
+
+A phase that keeps timing out, a plan with thirty stories, five iterations in a
+row that finish nothing: each is ambiguous alone and any one of them can be a
+slow afternoon. Two or more of them agreeing is the same thing said twice, and
+what it is saying is that the demand was never one issue.
+
+When a **failed** run carries at least two of these signals, Issue Flow writes
+`decomposition.md` in the issue directory and marks the issue `blocked` with a
+pointer to it:
+
+| Signal | Threshold |
+|--------|-----------|
+| Timeouts on the same phase | 2 |
+| User stories in the plan | more than 15 |
+| Iterations in a row completing no story | 5 |
+| Files touched on the branch | more than 40 |
+| Characters in the issue body | more than 20 000 |
+| The execute loop ran out of iterations | — |
+
+The report names every signal **with the number that crossed the line**, proposes
+a cut of the pending stories in priority order, and stops there: splitting an
+issue is a product decision, and the default is a report rather than an act.
+
+A run that failed because the network went down is **not** decomposed. Network
+and rate-limit retries are not size signals, and reacting to an outage with
+"have you considered splitting this issue?" would be worse than silence.
+
+`--auto-decompose` creates the proposed sub-issues through `issue-flow generate`
+(so the repository's label and template policy applies to each of them). It
+refuses to run when the branch already carries committed stories: splitting on
+top of half-finished work leaves commits belonging to no issue, and that needs a
+person.
+
 ### Operating a long run: `status`, `runs`, `logs`, `pause`, `cancel`
 
 A six-hour unattended execution needs answers the pipeline itself cannot give
@@ -1025,6 +1059,7 @@ Each issue's state is tracked in a directory of its own inside the [global stora
   session.json   # Live session snapshot (only with web monitoring enabled)
   events.jsonl   # Append-only event journal (only with resilience.journal.enabled)
   events.1.jsonl # Previous journal generation, kept when events.jsonl rotates
+  decomposition.md # "This issue looks larger than one run" report, when detected
   .last-branch   # Last branch the execution loop worked on
   archive/       # Artifacts superseded by a later iteration
   pr-review/     # PR review reports and index (only when the pr-review phase ran)
