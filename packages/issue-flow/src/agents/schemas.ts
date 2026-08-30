@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGENT_PHASES, type AgentConfig, type AgentPhase } from './types.js';
+import { AGENT_PHASES, type AgentPhase } from './types.js';
 
 /**
  * File-format schemas for the `agent` key.
@@ -133,17 +133,4 @@ export function parsePhasesInput(
     result[key as AgentPhase] = parsed.data;
   }
   return result;
-}
-
-/** Empty resolved config: Claude, no model, no per-phase overrides. */
-export function emptyAgentConfig(): AgentConfig {
-  return {
-    provider: 'claude',
-    model: null,
-    claude: {},
-    codex: {},
-    cursor: {},
-    antigravity: {},
-    phases: {},
-  };
 }

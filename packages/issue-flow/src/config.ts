@@ -1553,10 +1553,6 @@ export function setVerifyCliOverrides(overrides: Partial<VerifyConfig>): void {
   verifyCliOverrides = overrides;
 }
 
-export function getVerifyCliOverrides(): Partial<VerifyConfig> {
-  return verifyCliOverrides;
-}
-
 export interface LoadVerifyConfigOptions {
   cli?: Partial<VerifyConfig>;
   projectRoot?: string;

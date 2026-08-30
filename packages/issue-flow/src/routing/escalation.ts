@@ -174,14 +174,6 @@ export function nextRung(input: NextRungInput): NextRungResult {
   return { rung: 'blocked', skipped, exhausted: true };
 }
 
-export function escalationCapabilities(provider: AgentProviderId): NextRungInput['capabilities'] {
-  return {
-    reasoningEffort: provider === 'codex' || provider === 'antigravity',
-    modelSelection: true,
-    otherHarness: true,
-  };
-}
-
 /** A harness already used on this task cannot be selected again. */
 export function unusedHarness(
   current: AgentProviderId,

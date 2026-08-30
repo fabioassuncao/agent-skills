@@ -134,9 +134,6 @@ export function printStartupHeader(
   printBox(lines);
 }
 
-// Re-export formatDuration from logger to maintain backwards compatibility
-export { formatDuration } from './logger.js';
-
 /**
  * Print the final summary box.
  */

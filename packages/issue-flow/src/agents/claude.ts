@@ -325,7 +325,3 @@ export function peekHarnessVersion(id: string): string | null | undefined {
 export function cacheHarnessVersion(id: string, version: string | null): void {
   harnessVersions.set(id, version);
 }
-
-export function resetHarnessVersionCache(): void {
-  harnessVersions.clear();
-}

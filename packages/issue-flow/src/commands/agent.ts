@@ -12,7 +12,7 @@ import {
 } from '../agents/types.js';
 import { GLOBAL_CONFIG_FILENAME, loadAgentConfig, PROJECT_CONFIG_FILENAME } from '../config.js';
 import { getGlobalRoot } from '../storage/paths.js';
-import { printError, printInfo, printSuccess } from '../ui/logger.js';
+import { printError, printSuccess } from '../ui/logger.js';
 import { writeFileAtomic } from '../utils/fs.js';
 import { getProjectRoot } from '../utils/git.js';
 
@@ -260,10 +260,4 @@ export async function writeAgentPreference(input: {
 /** Used by init to persist a first-run choice without touching other keys. */
 export async function persistFirstAgentChoice(provider: AgentProviderId): Promise<string> {
   return writeAgentPreference({ target: 'global', provider });
-}
-
-export function printAgentUseHint(): void {
-  printInfo(
-    'Choose an agent later with: issue-flow agent use <claude|codex|cursor|antigravity> --global',
-  );
 }

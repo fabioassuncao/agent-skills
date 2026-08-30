@@ -8,14 +8,6 @@ import { type AcceptanceOutcome, runAcceptance } from './run-issue.js';
 
 const contractHistory: { fingerprint: string; fatalFailed: number }[] = [];
 
-export function resetEscalationHistory(): void {
-  contractHistory.length = 0;
-}
-
-export function contractFailureHistory(): readonly { fingerprint: string; fatalFailed: number }[] {
-  return contractHistory;
-}
-
 /** `prdFile` is `tasks.json` in the issue directory (global or standalone). */
 export function resolveIssueDir(_config: EngineConfig, paths: ResolvedPaths): string {
   return dirname(paths.prdFile);

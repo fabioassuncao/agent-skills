@@ -67,15 +67,6 @@ function recordRunUsage(phase: string, usage: ClaudeUsage, providerId?: string):
   }
 }
 
-/** Tokens spent per agent in the innermost scope. One entry on a homogeneous run. */
-export function getRunUsageByAgent(): Record<string, ClaudeUsage> {
-  const result: Record<string, ClaudeUsage> = {};
-  for (const [agent, usage] of current().byAgent) {
-    result[agent] = { ...usage };
-  }
-  return result;
-}
-
 /** Everything the innermost active scope has spent, across all phases. */
 export function getRunUsageTotals(): ClaudeUsage {
   return { ...current().all };

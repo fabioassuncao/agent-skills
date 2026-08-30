@@ -13,10 +13,6 @@ export interface AgentAvailability {
 
 const probeCache = new Map<AgentProviderId, Promise<AgentAvailability>>();
 
-export function resetAvailabilityCache(): void {
-  probeCache.clear();
-}
-
 export async function probeAgent(id: AgentProviderId): Promise<AgentAvailability> {
   const cached = probeCache.get(id);
   if (cached) return cached;

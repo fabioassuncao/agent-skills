@@ -15,7 +15,7 @@ import { resolvePolicy } from '../resilience/policy.js';
 import { withRetry } from '../resilience/retry.js';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
 import { DECOMPOSITION_THRESHOLDS, timeoutsByPhase } from './decompose.js';
-import { type ClaudeUsage, parseUsage, sumUsage } from './metrics.js';
+import { type ClaudeUsage, sumUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
 import { getShutdownSignal } from './shutdown.js';
 import { isoNow } from './state-manager.js';
@@ -326,6 +326,3 @@ function mapHeadlessResult(
     ...(retryExhausted ? { retryExhausted: true } : {}),
   };
 }
-
-/** Kept so existing tests that imported parse helpers through this module still typecheck. */
-export { parseUsage };
