@@ -9,13 +9,7 @@ import {
   loadIssuesConfig,
   loadRoutingConfig,
 } from '../config.js';
-import {
-  PIPELINE_PHASES,
-  PIPELINE_PHASES_NO_BRANCH,
-  PIPELINE_PHASES_WITH_PR_REVIEW,
-  PipelineManager,
-  type PipelinePhase,
-} from '../core/pipeline.js';
+import { PIPELINE_PHASES, PipelineManager, type PipelinePhase } from '../core/pipeline.js';
 import { mostRecent } from '../core/pr-review/discovery.js';
 import {
   type PrReviewRoundEntry,
@@ -35,7 +29,6 @@ import { recommendedTarget } from '../routing/policy.js';
 import { bindDiagnosticContext } from '../storage/diagnostics.js';
 import { describeRunLockOwner } from '../storage/lock.js';
 import type { IssuePaths } from '../storage/paths.js';
-import type { UserStory } from '../types.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { printRunSummary } from '../ui/summary.js';
@@ -49,6 +42,13 @@ import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
 import { adoptQueueBranch, decideQueue, detachAfterConfirm, runQueue } from './run/multi-issue.js';
+import {
+  type PersistedPlanFlags,
+  resolveBranchAndReviewModes,
+  resolveExecuteRetry,
+  resolveStoryNumbering,
+  selectPhaseLists,
+} from './run/phase-options.js';
 import {
   publishInstrumentedPhaseEnd,
   publishIssueDetails,
@@ -66,13 +66,6 @@ import {
   type IssueRunResult,
   type IssueSessionInput,
   type PrReviewOutcome,
-  QUEUE_PR_PHASES,
-  QUEUE_PR_PHASES_WITH_REVIEW,
-  RUNNABLE_PHASES,
-  RUNNABLE_PHASES_NO_BRANCH,
-  RUNNABLE_PHASES_WITH_PR_REVIEW,
-  RUNNABLE_QUEUE_PR_PHASES,
-  RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW,
   type RunPipelineOptions,
 } from './run/types.js';
 
@@ -209,21 +202,8 @@ async function runPipelinePhases(
   input: IssueSessionInput,
 ): Promise<IssueRunResult> {
   const { from, noBranch, prReview, queue } = input;
-  // User Story numbering flags (issue #36). `--start-us` names a starting
-  // point, so the queue only ever hands it to the first issue it runs —
-  // applying it to each one would give them all the same ids, the very
-  // collision #36 set out to remove. Every later issue continues from history,
-  // which by then already includes the plans written earlier in this run.
-  const continueNumbering = input.runOptions?.continueNumbering;
-  const startUs = input.runOptions?.startUs;
-  // Retry budget of the `execute` phase (`--retry-limit`, `--retry-forever`).
-  // Left `undefined` when the flags are absent so `createConfig()` applies the
-  // engine defaults — passing a number here would make `run` diverge from
-  // `execute` the moment one of those defaults changes.
-  const executeRetry = {
-    retryLimit: input.runOptions?.retryLimit,
-    retryForever: input.runOptions?.retryForever,
-  };
+  const { continueNumbering, startUs } = resolveStoryNumbering(input.runOptions);
+  const executeRetry = resolveExecuteRetry(input.runOptions);
   const tasksPath = paths.tasksFile;
   const sessionId = randomUUID();
   bindDiagnosticContext({
@@ -394,53 +374,34 @@ async function runPipelinePhases(
     }
   }
 
-  // Resolve noBranch mode: persisted value takes precedence on resume
-  let effectiveNoBranch = noBranch ?? false;
-  // Resolve pr-review mode: flag > persisted value > default (off). Unlike
-  // --no-branch, the flag wins: the phase adds a step at the end instead of
-  // changing what the earlier phases did, so opting in on resume is safe.
-  let effectivePrReview = prReview ?? false;
-  let planIssueUrl: string | undefined;
-  let planBranch: string | undefined;
-  // Kept from the same read as planIssueUrl/planBranch — seeding the snapshot
-  // must not cost a second trip to disk.
-  let planStories: UserStory[] = [];
+  // Resolve noBranch / pr-review against any persisted plan (precedences differ —
+  // see resolveBranchAndReviewModes).
+  let persistedFlags: PersistedPlanFlags | null = null;
   try {
     const existingPlan = await loadTaskPlan(tasksPath);
-    const persistedNoBranch = existingPlan.noBranch ?? false;
-    planIssueUrl = existingPlan.issueUrl || undefined;
-    planBranch = existingPlan.branchName || undefined;
-    planStories = existingPlan.userStories;
-    effectivePrReview = prReview ?? existingPlan.prReview?.enabled ?? false;
-
-    // Only warn when the user explicitly passed a flag that conflicts with the persisted value
-    if (noBranch !== undefined && noBranch !== persistedNoBranch) {
-      if (persistedNoBranch) {
-        printWarning(
-          'This pipeline was started with --no-branch. Ignoring current flag; using persisted mode.',
-        );
-      } else {
-        printWarning(
-          'This pipeline was started without --no-branch. Ignoring current flag; using persisted mode.',
-        );
-      }
-    }
-
-    // Persisted mode wins on resume
-    effectiveNoBranch = persistedNoBranch;
+    persistedFlags = {
+      noBranch: existingPlan.noBranch ?? false,
+      prReviewEnabled: existingPlan.prReview?.enabled ?? false,
+      issueUrl: existingPlan.issueUrl || undefined,
+      branchName: existingPlan.branchName || undefined,
+      userStories: existingPlan.userStories,
+    };
   } catch {
-    // No tasks.json yet — use the CLI flag as-is
+    // No tasks.json yet — resolvers use the CLI flag as-is
   }
 
-  // The CLI rejects --pr-review with --no-branch, but the persisted no-branch
-  // mode can only be known here. Without a pr phase there is no Pull Request
-  // to review, so the opt-in is dropped instead of failing a resumed run.
-  if (effectiveNoBranch && effectivePrReview) {
-    printWarning(
-      'This pipeline runs with --no-branch and opens no PR. Skipping the pr-review phase.',
-    );
-    effectivePrReview = false;
+  const modes = resolveBranchAndReviewModes({
+    noBranch,
+    prReview,
+    persisted: persistedFlags,
+  });
+  for (const warning of modes.warnings) {
+    printWarning(warning);
   }
+  const { effectiveNoBranch, effectivePrReview } = modes;
+  const planIssueUrl = modes.planIssueUrl;
+  let planBranch = modes.planBranch;
+  const planStories = modes.planStories;
 
   // Persist the opt-in as soon as we know it, not only after the `plan` phase.
   // A mid-pipeline `--pr-review` (e.g. `--from pr --pr-review`) never re-enters
@@ -458,36 +419,14 @@ async function runPipelinePhases(
     }
   }
 
-  // Inside a queue the Pull Request is opened once, after the last issue, so
-  // `pr` (and with it `pr-review`) leaves the per-issue phase list. The list is
-  // the same one `--no-branch` uses, but the branch is still created: what
-  // changes is who opens the Pull Request, not whether there is a branch.
   const inQueue = queue !== undefined;
-  // The queue's last pass implements nothing: it only opens the single Pull
-  // Request that covers every issue already committed to the shared branch.
   const finalPr = queue?.finalPr;
-  const activePhases = finalPr
-    ? effectivePrReview
-      ? QUEUE_PR_PHASES_WITH_REVIEW
-      : QUEUE_PR_PHASES
-    : inQueue
-      ? PIPELINE_PHASES_NO_BRANCH
-      : effectiveNoBranch
-        ? PIPELINE_PHASES_NO_BRANCH
-        : effectivePrReview
-          ? PIPELINE_PHASES_WITH_PR_REVIEW
-          : PIPELINE_PHASES;
-  const phaseOrder = finalPr
-    ? effectivePrReview
-      ? RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW
-      : RUNNABLE_QUEUE_PR_PHASES
-    : inQueue
-      ? RUNNABLE_PHASES_NO_BRANCH
-      : effectiveNoBranch
-        ? RUNNABLE_PHASES_NO_BRANCH
-        : effectivePrReview
-          ? RUNNABLE_PHASES_WITH_PR_REVIEW
-          : RUNNABLE_PHASES;
+  const { activePhases, phaseOrder } = selectPhaseLists({
+    finalPr: finalPr !== undefined,
+    inQueue,
+    effectiveNoBranch,
+    effectivePrReview,
+  });
 
   // Commit scope for this issue's stories: only a queue needs one, because
   // only there do several issues share a branch (and therefore a `git log`).
