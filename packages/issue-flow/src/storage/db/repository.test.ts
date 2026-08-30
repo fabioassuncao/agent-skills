@@ -17,6 +17,7 @@ import {
   saveExecution,
   saveStoredPlan,
   saveStoredQueue,
+  saveStoredVerification,
 } from './repository.js';
 
 function plan(): TaskPlan {
@@ -153,6 +154,32 @@ describe('SQLite plan repository', () => {
     await expect(listStoredExecutions({ projectId: retained.projectId })).resolves.toEqual([
       expect.objectContaining({ id: 'newer' }),
     ]);
+  });
+
+  it('persists verification evidence before a plan has materialized the issue row', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'issue-flow-verification-'));
+    const verificationContext: PlanRepositoryContext = {
+      tasksPath: join(directory, 'tasks.json'),
+      projectId: `verification-project-${Date.now()}`,
+      issueId: '42',
+      projectRoot: directory,
+    };
+
+    await expect(
+      saveStoredVerification(verificationContext, {
+        at: '2026-08-30T20:00:00Z',
+        verdict: 'unverified',
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(exportStoredState()).resolves.toMatchObject({
+      issues: expect.arrayContaining([
+        expect.objectContaining({ project_id: verificationContext.projectId, id: '42' }),
+      ]),
+      verifications: expect.arrayContaining([
+        expect.objectContaining({ project_id: verificationContext.projectId, issue_id: '42' }),
+      ]),
+    });
   });
 });
 

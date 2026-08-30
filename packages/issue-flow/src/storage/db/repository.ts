@@ -173,6 +173,27 @@ function ensureStoredProject(
     .run(context.projectId, context.projectRoot, timestamp, timestamp);
 }
 
+/**
+ * Evidence and other issue-scoped facts can arrive before the plan phase has
+ * materialized a canonical pipeline. Keep those writes relationally valid
+ * without making the evidence writer parse or create a task-plan projection.
+ * A later plan write replaces this placeholder with the plan's own status and
+ * descriptive fields.
+ */
+function ensureStoredIssue(
+  database: Awaited<ReturnType<typeof openIssueFlowDatabase>>,
+  context: PlanRepositoryContext,
+  timestamp: string,
+): void {
+  database
+    .prepare(
+      `INSERT INTO issues (project_id, id, title, status, branch_name, created_at, updated_at)
+       VALUES (?, ?, NULL, 'pending', NULL, ?, ?)
+       ON CONFLICT(project_id, id) DO NOTHING`,
+    )
+    .run(context.projectId, context.issueId, timestamp, timestamp);
+}
+
 /** Prevent telemetry projection refreshes while an agent owns tasks.json. */
 export function setAgentProjectionWindow(path: string, active: boolean): void {
   if (active) agentProjectionWindows.add(path);
@@ -858,6 +879,7 @@ export async function saveStoredVerification(
     database.transaction(() => {
       const createdAt = String(evidence.at ?? new Date().toISOString());
       ensureStoredProject(database, context, createdAt);
+      ensureStoredIssue(database, context, createdAt);
       database
         .prepare(
           `INSERT INTO verifications (id, project_id, issue_id, status, created_at, payload_json)
