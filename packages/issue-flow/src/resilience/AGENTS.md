@@ -138,6 +138,37 @@ which is a much louder change than editing a JSON file.
   a fudge: `EngineConfig.retryLimit` counts *retries*, `maxAttempts` counts
   *attempts*.
 
+## Rules of the `resilience` configuration key
+
+- **The format lives in `storage/schemas.ts`, the precedence lives in
+  `config.ts`.** `resilienceConfigSchema` owns *what a file may say*;
+  `loadResilienceConfig()` owns *which file wins*. That split is the storage
+  layer's own rule (`src/storage/AGENTS.md`) and it is why this module declares
+  no schema of its own — `PolicyConfig` here is the slice `resolvePolicy()`
+  reads, and `ResilienceConfigIsPolicyConfig` in `storage/schemas.ts` is the
+  compile-time proof that the file format is a superset of it.
+- **The key is read one rung lower than every other one.** `policy` climbs four
+  rungs; `resilience` climbs five, because `~/.issue-flow/config.json` is a
+  legitimate place to say "on *this machine*, retry the network forever". Both
+  files accept the identical object.
+- **Absence resolves to `{}`, never to a skeleton.** `resolvePolicy(kind, {})`
+  is the base table of the PRD, so an unconfigured project gets exactly the
+  behaviour of every release before the key existed. A section nobody configured
+  is left out of the result rather than emitted empty — that is what makes the
+  non-regression assertion a single `toEqual({})`.
+- **`retry` merges two levels deep**, per `FailureKind` *and* per field.
+  `mergeConfigLayers()` is documented as shallow and stops at the first nested
+  object; `mergeResilienceRetry()` in `config.ts` is the one place that goes
+  further, because the table is two levels deep by construction.
+- **No default is materialized by the loader.** Each sub-key's defaults belong
+  to the layer that consumes it: `policy.ts` for `retry`, and one later story
+  each for `providers`, `queue`, `watchdog`, `journal` and `decompose`. A
+  default written into the loader would be indistinguishable from a value the
+  user wrote and would override the rung above it.
+- **Configuration cannot buy an attempt for a human-action kind.** The clamp is
+  in `resolvePolicy()`, after the user layer, so a `taskExecution.maxAttempts:
+  99` in a config file is read, merged, and then discarded — proved by test.
+
 ## Gotchas
 
 - **Exit code `143` decides nothing on its own.** The Claude CLI handles

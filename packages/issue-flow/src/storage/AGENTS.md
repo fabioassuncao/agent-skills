@@ -61,6 +61,11 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
 - **No `.default()` in an intermediate precedence layer.** `globalConfigSchema` is a middle layer
   (CLI > env > `.issue-flow.json` > `config.json` > defaults); a default materialized there is
   indistinguishable from a value the user wrote and silently overrides the layer above it.
+  `resilienceConfigSchema` is the same kind of middle layer and follows the same rule — it is the
+  format of the `resilience` key in **both** `config.json` and `.issue-flow.json`, which are two
+  rungs of one ladder rather than two formats. Its enums are pinned to the types of
+  `resilience/policy.ts` with `satisfies`, and `ResilienceConfigIsPolicyConfig` fails to compile if
+  the file format ever stops being a superset of what `resolvePolicy()` reads.
 - Schemas read from disk are never `.strict()`: a file written by a newer version must stay
   readable by an older one.
 - The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other

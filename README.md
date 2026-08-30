@@ -108,6 +108,8 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--only` | Run just the issues informed, without their hierarchy |
 | `--continue` | Continue User Story numbering from the last one used in this project (see [User Story numbering continuity](#user-story-numbering-continuity)) |
 | `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history. In a queue it applies to the first issue only; the rest continue from history |
+| `--retry-limit N` | Retry transient Claude failures in the `execute` phase up to N consecutive times (default: 10) |
+| `--retry-forever` | Retry transient Claude failures in the `execute` phase indefinitely |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `-v, --verbose` | Show Claude progress output in real time |
 
@@ -1170,6 +1172,19 @@ Preferences that apply to every project, all keys optional:
   "commit": {
     "signoff": false,
     "conventional": true
+  },
+  "resilience": {
+    "profile": "default",
+    "retry": {
+      "network": { "retryForever": true, "maxDelayMs": 120000 },
+      "rateLimit": { "retryForever": true, "maxDelayMs": 900000 },
+      "providerDown": { "maxAttempts": 4, "failover": "after_attempts" }
+    },
+    "providers": { "failover": true, "chain": ["claude", "codex"], "cooldownMs": 60000 },
+    "queue": { "onIssueFailure": "skip", "maxIssueAttempts": 3 },
+    "watchdog": { "inactivityTimeoutMs": 600000 },
+    "journal": { "enabled": true, "maxFileBytes": 10485760 },
+    "decompose": { "auto": false }
   }
 }
 ```
@@ -1181,6 +1196,23 @@ Preferences that apply to every project, all keys optional:
 | `web` | Machine-wide web monitoring defaults. Deliberately a subset of the `web` key of `.issue-flow.json`: `enabled` and `includeLogs` stay a per-project decision |
 | `retry` | Retry and backoff preferences, mirroring the engine defaults |
 | `commit` | Commit preferences (`signoff`, `conventional`) |
+| `resilience` | Retry policy per failure kind, provider failover, queue behaviour, watchdog, journal and decomposition. The **same** object is accepted under the `resilience` key of `.issue-flow.json` -- they are two rungs of one ladder, not two formats (see [Convention-aware behaviour](docs/conventions.md#the-resilience-key)) |
+
+Every field of `resilience` is optional and **none carries a default**, for the
+reason the precedence table below states: this file is an intermediate rung, and
+a default materialized here would be indistinguishable from a value you wrote.
+A project that configures nothing resolves to an empty object, which is exactly
+the behaviour of every release before the key existed. The environment covers
+the scalar knobs one variable each -- `ISSUE_FLOW_RESILIENCE_PROFILE`,
+`ISSUE_FLOW_RESILIENCE_FAILOVER_ON_AUTH`, `ISSUE_FLOW_RESILIENCE_FAILOVER`,
+`ISSUE_FLOW_RESILIENCE_PROVIDER_CHAIN`,
+`ISSUE_FLOW_RESILIENCE_PROVIDER_COOLDOWN_MS`,
+`ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`,
+`ISSUE_FLOW_RESILIENCE_MAX_ISSUE_ATTEMPTS`,
+`ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`,
+`ISSUE_FLOW_RESILIENCE_JOURNAL_MAX_BYTES` and
+`ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE` -- while the per-kind `retry` table
+travels whole as JSON in `ISSUE_FLOW_RESILIENCE_RETRY`.
 
 The file is read by `loadGlobalConfig()`, which **never throws**. A missing file is silent -- it is the common case. Invalid JSON, a non-object root, an unreadable path or an invalid key each degrade to "no global preference" with a warning, and validation happens key by key: a typo under `retry` costs you `retry` only, never your `web` settings. Unknown keys are dropped without a warning, which is what keeps a file written by a newer release readable.
 
@@ -1214,6 +1246,8 @@ Settings resolve from the highest-priority source that provides them:
 The merge is per key and shallow: a layer only participates with the keys it actually carries, so a global `config.json` that sets `web.host` but not `web.port` leaves a project-level `web.port` untouched. Nested objects (`web`, `retry`) are replaced whole rather than field by field.
 
 As noted above, this is the documented and implemented precedence (`mergeConfigLayers()` in `src/config.ts`), but the global config file is not yet plugged into the commands: today `loadWebConfig()` still resolves **CLI flag > environment variable > `.issue-flow.json` > default**, as described under [Web Monitoring → Configuration](#configuration). This is about `config.json` only -- the storage tree itself is fully wired up.
+
+The `resilience` key is the exception: `loadResilienceConfig()` reads all five rungs, `config.json` included, and merges `retry` one level deeper than the shallow rule above -- per failure kind **and** per field, because that table is two levels deep by construction.
 
 ### Migrating from `issues/`
 

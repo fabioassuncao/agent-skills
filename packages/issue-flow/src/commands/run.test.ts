@@ -433,6 +433,34 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     });
   });
 
+  it('não passa orçamento de retry à fase execute quando as flags estão ausentes', async () => {
+    // The non-regression half of US-012: `run` without the new flags must hand
+    // `runExecute` exactly what it handed before they existed, so `createConfig`
+    // applies the engine defaults instead of a number this command invented.
+    const code = await runPipeline('42', 'auto');
+
+    expect(code).toBe(0);
+    expect(vi.mocked(runExecute)).toHaveBeenCalledWith(undefined, {
+      issue: '42',
+      commitScope: undefined,
+      retryLimit: undefined,
+      retryForever: undefined,
+    });
+  });
+
+  it('propaga --retry-limit e --retry-forever para a fase execute', async () => {
+    const code = await runPipeline('42', 'auto', undefined, undefined, undefined, {
+      retryLimit: 3,
+      retryForever: true,
+    });
+
+    expect(code).toBe(0);
+    expect(vi.mocked(runExecute)).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ issue: '42', retryLimit: 3, retryForever: true }),
+    );
+  });
+
   it('falha da resolução encerra o pipeline com o exit code do erro', async () => {
     vi.mocked(resolveIssue).mockRejectedValue(new IssueResolutionError('nowhere to be found', 2));
 

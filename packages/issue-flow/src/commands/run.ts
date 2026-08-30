@@ -184,6 +184,14 @@ export interface RunPipelineOptions {
   continueNumbering?: boolean;
   /** `--start-us <n>`: force the first plan of this run to start at `n`. */
   startUs?: number;
+  /**
+   * `--retry-limit <n>`: consecutive retries the `execute` phase may spend on a
+   * transient failure. Absent means the engine default (`DEFAULTS.retryLimit`),
+   * which is what every release before this flag existed used.
+   */
+  retryLimit?: number;
+  /** `--retry-forever`: lift the retry count of the `execute` phase. */
+  retryForever?: boolean;
 }
 
 /**
@@ -370,6 +378,14 @@ async function runPipelinePhases(
   // which by then already includes the plans written earlier in this run.
   const continueNumbering = input.runOptions?.continueNumbering;
   const startUs = input.runOptions?.startUs;
+  // Retry budget of the `execute` phase (`--retry-limit`, `--retry-forever`).
+  // Left `undefined` when the flags are absent so `createConfig()` applies the
+  // engine defaults — passing a number here would make `run` diverge from
+  // `execute` the moment one of those defaults changes.
+  const executeRetry = {
+    retryLimit: input.runOptions?.retryLimit,
+    retryForever: input.runOptions?.retryForever,
+  };
   const tasksPath = paths.tasksFile;
   const sessionId = randomUUID();
 
@@ -675,7 +691,12 @@ async function runPipelinePhases(
       }
     },
     execute: makeRunner(
-      () => runExecute(undefined, { issue: issueNumber, commitScope: queueCommitScope }),
+      () =>
+        runExecute(undefined, {
+          issue: issueNumber,
+          commitScope: queueCommitScope,
+          ...executeRetry,
+        }),
       'execute',
     ),
     review: async () => {
@@ -710,6 +731,7 @@ async function runPipelinePhases(
         const execCode = await runExecute(undefined, {
           issue: issueNumber,
           commitScope: queueCommitScope,
+          ...executeRetry,
         });
         if (execCode !== 0) {
           throw new Error('Correction execution failed');

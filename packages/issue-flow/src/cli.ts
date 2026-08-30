@@ -226,7 +226,16 @@ withUserStoryNumberingOptions(
           )
           .option('--pr-review', 'Review the created Pull Request after the pr phase')
           .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
-          .option('--only', 'Run just the issues informed, without their hierarchy'),
+          .option('--only', 'Run just the issues informed, without their hierarchy')
+          // Same two flags `execute` has always had, forwarded to the execute
+          // phase of the pipeline: a `run` is the only way most users reach that
+          // loop, and had no way to widen its retry budget.
+          .option(
+            '--retry-limit <number>',
+            'Retry transient Claude failures up to N consecutive times',
+            parseInteger,
+          )
+          .option('--retry-forever', 'Retry transient Claude failures indefinitely'),
       ),
     ),
   ),
@@ -242,6 +251,8 @@ withUserStoryNumberingOptions(
       only?: boolean;
       continue?: boolean;
       startUs?: number;
+      retryLimit?: number;
+      retryForever?: boolean;
     },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
@@ -271,6 +282,8 @@ withUserStoryNumberingOptions(
         only: scope.only,
         continueNumbering: numbering.continueFlag,
         startUs: numbering.startUs,
+        retryLimit: options.retryLimit,
+        retryForever: options.retryForever,
       },
     );
     process.exit(code);

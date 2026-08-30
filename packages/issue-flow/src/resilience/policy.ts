@@ -85,6 +85,14 @@ export function retryConfigKey(kind: FailureKind): RetryConfigKey {
 }
 
 /**
+ * Every key `resilience.retry` accepts, for the layers that have to iterate
+ * them (the schema in `storage/schemas.ts`, the merge in `config.ts`). Derived
+ * from `CONFIG_KEYS` rather than written a second time, so a new `FailureKind`
+ * cannot reach the configuration surface half-declared.
+ */
+export const RETRY_CONFIG_KEYS: readonly RetryConfigKey[] = Object.values(CONFIG_KEYS);
+
+/**
  * The slice of the `resilience` configuration this module reads. The full key
  * (providers, queue, watchdog, journal, decompose) is a superset of this, and
  * satisfies it structurally.
