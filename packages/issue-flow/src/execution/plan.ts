@@ -12,6 +12,7 @@ import type {
   ExecutionPlan,
   ExecutionPlanExcluded,
   ExecutionPlanIssue,
+  QueueIssueStatus,
   QueueStatus,
 } from './types.js';
 
@@ -170,18 +171,71 @@ export async function saveExecutionPlan(
  * than from the start. A `completed` issue is never revisited — that is the
  * whole point of persisting the queue.
  */
-export function nextQueueIssue(plan: ExecutionPlan): ExecutionPlanIssue | null {
+export interface NextQueueIssueOptions {
+  /**
+   * Ids this invocation is done with, however they ended. A queue that skips a
+   * failing Issue and comes back to it needs a way to say "not this one again",
+   * or "come back later" becomes "come back forever".
+   */
+  exclude?: ReadonlySet<string>;
+}
+
+/**
+ * Whether every dependency this Issue declares *inside the queue* is finished.
+ *
+ * The execution order already places dependencies first, so this only bites
+ * once an entry stops being `completed` — skipped, blocked or failed. Handing
+ * out an Issue whose blocker was skipped is how a queue produces work that
+ * cannot compile.
+ */
+function dependenciesSatisfied(plan: ExecutionPlan, entry: ExecutionPlanIssue): boolean {
+  return entry.dependsOn.every((id) => {
+    const dependency = plan.issues.find((candidate) => candidate.id === id);
+    return dependency === undefined || dependency.status === 'completed';
+  });
+}
+
+/**
+ * The Issue to work on next.
+ *
+ * The order of the four lookups is the resumption policy:
+ * an interrupted Issue first (it was mid-flight), then one that failed on a
+ * previous invocation, then the untouched ones, and only at the end the ones
+ * this queue deliberately set aside — which is what "go on with the
+ * independent work and come back to it" means in one line.
+ *
+ * `blocked` is absent on purpose: it needs a human, and no ordering of the
+ * queue changes that.
+ */
+export function nextQueueIssue(
+  plan: ExecutionPlan,
+  options: NextQueueIssueOptions = {},
+): ExecutionPlanIssue | null {
+  const exclude = options.exclude ?? new Set<string>();
+  const eligible = (status: QueueIssueStatus) => (entry: ExecutionPlanIssue) =>
+    entry.status === status && !exclude.has(entry.id) && dependenciesSatisfied(plan, entry);
+
   return (
-    plan.issues.find((entry) => entry.status === 'in_progress') ??
-    plan.issues.find((entry) => entry.status === 'failed') ??
-    plan.issues.find((entry) => entry.status === 'pending') ??
+    plan.issues.find(eligible('in_progress')) ??
+    plan.issues.find(eligible('failed')) ??
+    plan.issues.find(eligible('pending')) ??
+    plan.issues.find(eligible('skipped')) ??
     null
   );
 }
 
-/** Status of the queue derived from its entries. */
+/**
+ * Status of the queue derived from its entries.
+ *
+ * `skipped` is *not* terminal — the queue means to come back to it — so a queue
+ * holding one is still `in_progress`. `blocked` is: nothing the queue can do
+ * moves it, so a queue that ends with one ends `failed`, which is what a person
+ * needs to see.
+ */
 export function queueStatus(plan: ExecutionPlan): QueueStatus {
-  if (plan.issues.some((entry) => entry.status === 'failed')) return 'failed';
+  if (plan.issues.some((entry) => entry.status === 'failed' || entry.status === 'blocked')) {
+    return 'failed';
+  }
   if (plan.issues.every((entry) => entry.status === 'completed')) return 'completed';
   if (plan.issues.some((entry) => entry.status !== 'pending')) return 'in_progress';
   return 'pending';
@@ -237,10 +291,58 @@ export function markQueueIssueFailed(
   id: string,
   failure: { phase: string | null; error: LastError | null },
 ): ExecutionPlan {
+  const current = plan.issues.find((entry) => entry.id === id);
   return updateIssue(plan, id, {
     status: 'failed',
     failedPhase: failure.phase,
     lastError: failure.error,
+    attempts: (current?.attempts ?? 0) + 1,
+  });
+}
+
+/**
+ * Set an Issue aside and come back to it later.
+ *
+ * The difference from `failed` is the whole point of `--on-issue-failure skip`:
+ * a failure that stopped this attempt is not a verdict on the eleven other
+ * Issues in the queue, and `skipped` is the status that says "not now" rather
+ * than "not at all". `attempts` is incremented here because the counter is what
+ * keeps "come back later" from becoming "come back forever".
+ */
+export function markQueueIssueSkipped(
+  plan: ExecutionPlan,
+  id: string,
+  failure: { phase: string | null; error: LastError | null },
+): ExecutionPlan {
+  const current = plan.issues.find((entry) => entry.id === id);
+  return updateIssue(plan, id, {
+    status: 'skipped',
+    failedPhase: failure.phase,
+    lastError: failure.error,
+    attempts: (current?.attempts ?? 0) + 1,
+  });
+}
+
+/**
+ * Stop working on an Issue until a person looks at it.
+ *
+ * `blocked` is never handed back out by `nextQueueIssue`: waiting cannot fix
+ * a missing credential or a repository mid-rebase, and a queue that could
+ * unblock itself would spin on the same cause forever.
+ */
+export function markQueueIssueBlocked(
+  plan: ExecutionPlan,
+  id: string,
+  reason: string,
+  failure: { phase: string | null; error: LastError | null },
+): ExecutionPlan {
+  const current = plan.issues.find((entry) => entry.id === id);
+  return updateIssue(plan, id, {
+    status: 'blocked',
+    blockedReason: reason,
+    failedPhase: failure.phase,
+    lastError: failure.error,
+    attempts: (current?.attempts ?? 0) + 1,
   });
 }
 

@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { initResilienceConfig, loadIssuesConfig, loadWebConfig } from '../config.js';
+import {
+  getActiveResilienceConfig,
+  initResilienceConfig,
+  loadIssuesConfig,
+  loadWebConfig,
+} from '../config.js';
 import { JournalPublisher, MultiPublisher } from '../core/journal.js';
 import {
   PIPELINE_PHASES,
@@ -25,9 +30,11 @@ import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getInactivityTimeout, isVerbose, setInactivityTimeout } from '../core/verbose.js';
 import {
+  markQueueIssueBlocked,
   markQueueIssueCompleted,
   markQueueIssueFailed,
   markQueueIssueInProgress,
+  markQueueIssueSkipped,
   nextQueueIssue,
   saveExecutionPlan,
   setQueueBranch,
@@ -197,7 +204,22 @@ export interface RunPipelineOptions {
   retryLimit?: number;
   /** `--retry-forever`: lift the retry count of the `execute` phase. */
   retryForever?: boolean;
+  /**
+   * `--on-issue-failure <mode>`: what one failing Issue does to the rest of a
+   * queue. `stop` is the default and the behaviour of every release before the
+   * flag existed.
+   */
+  onIssueFailure?: QueueFailureMode;
 }
+
+/** What one failing Issue does to the rest of the queue. */
+export type QueueFailureMode =
+  | /** End the run where it failed. The behaviour that has always been. */ 'stop'
+  | /** Set it aside, run the independent work, come back to it. */ 'skip'
+  | /** Set it aside for a human, and never come back to it. */ 'block';
+
+/** Attempts an Issue gets before the queue stops handing it out. */
+const DEFAULT_MAX_ISSUE_ATTEMPTS = 2;
 
 /**
  * Everything a queue hands to the run of one of its issues.
@@ -1236,9 +1258,23 @@ async function runQueue(
   const summaries: QueueIssueSummary[] = [];
   let firstOfThisRun = true;
 
+  const resilience = getActiveResilienceConfig();
+  const failureMode: QueueFailureMode =
+    options.runOptions?.onIssueFailure ??
+    (resilience.queue?.onIssueFailure as QueueFailureMode | undefined) ??
+    'stop';
+  const maxIssueAttempts = resilience.queue?.maxIssueAttempts ?? DEFAULT_MAX_ISSUE_ATTEMPTS;
+
+  // Ids this invocation is done with. Without it, an Issue that exhausted its
+  // attempts would be handed back out on the very next lookup — `failed` comes
+  // before `pending` in the resumption policy, which is right *across*
+  // invocations and wrong inside one.
+  const exhausted = new Set<string>();
+  const failedIds = new Set<string>();
+
   try {
     while (true) {
-      const entry = nextQueueIssue(plan);
+      const entry = nextQueueIssue(plan, { exclude: exhausted });
       if (entry === null) break;
 
       plan = markQueueIssueInProgress(plan, entry.id);
@@ -1278,22 +1314,60 @@ async function runQueue(
       const usage = issueUsage.totals();
 
       if (result.code !== 0) {
-        plan = markQueueIssueFailed(plan, entry.id, {
+        const failure = {
           phase: result.failedPhase,
           error: {
             category: 'queue_issue_failed',
             message: `Issue #${entry.id} failed${result.failedPhase === null ? '' : ` in phase ${result.failedPhase}`}`,
             at: isoNow(),
           },
-        });
-        await saveExecutionPlan(planFile, plan);
+        };
+        const where = result.failedPhase === null ? '' : ` (phase ${result.failedPhase})`;
 
-        printError(
-          `Queue stopped at issue #${entry.id}${result.failedPhase === null ? '' : ` (phase ${result.failedPhase})`}. ` +
-            'The branch and every commit made so far were kept.',
-        );
-        printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
-        return result.code;
+        if (failureMode === 'stop') {
+          plan = markQueueIssueFailed(plan, entry.id, failure);
+          await saveExecutionPlan(planFile, plan);
+          printError(
+            `Queue stopped at issue #${entry.id}${where}. ` +
+              'The branch and every commit made so far were kept.',
+          );
+          printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
+          return result.code;
+        }
+
+        if (failureMode === 'block') {
+          plan = markQueueIssueBlocked(
+            plan,
+            entry.id,
+            `Failed${where} and --on-issue-failure block was in force`,
+            failure,
+          );
+          await saveExecutionPlan(planFile, plan);
+          exhausted.add(entry.id);
+          failedIds.add(entry.id);
+          printWarning(
+            `Issue #${entry.id} failed${where} and is blocked for review. Continuing with the rest of the queue.`,
+          );
+          continue;
+        }
+
+        // `skip`: not a verdict on the eleven other Issues in the queue.
+        const attempts = entry.attempts + 1;
+        if (attempts >= maxIssueAttempts) {
+          plan = markQueueIssueFailed(plan, entry.id, failure);
+          exhausted.add(entry.id);
+          failedIds.add(entry.id);
+          printWarning(
+            `Issue #${entry.id} failed${where} after ${attempts} attempt(s). Continuing with the rest of the queue.`,
+          );
+        } else {
+          plan = markQueueIssueSkipped(plan, entry.id, failure);
+          printWarning(
+            `Issue #${entry.id} failed${where}. Skipping it for now and coming back at the end of the queue.`,
+          );
+        }
+        await saveExecutionPlan(planFile, plan);
+        continue;
       }
 
       // The first issue names the branch; every later one is made to adopt it.
@@ -1312,7 +1386,7 @@ async function runQueue(
       });
     }
 
-    return await finishQueue(
+    const code = await finishQueue(
       plan,
       planFile,
       summaries,
@@ -1321,6 +1395,17 @@ async function runQueue(
       options,
       resolvedPrimary,
     );
+
+    if (failedIds.size > 0) {
+      // The queue went as far as it could, and that is worth reporting as a
+      // failure even though the independent work landed.
+      printError(
+        `${failedIds.size} issue(s) did not finish: ${[...failedIds].map((id) => `#${id}`).join(', ')}.`,
+      );
+      printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
+      return code === 0 ? 1 : code;
+    }
+    return code;
   } finally {
     queueUsage.end();
   }

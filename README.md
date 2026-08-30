@@ -110,6 +110,7 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history. In a queue it applies to the first issue only; the rest continue from history |
 | `--retry-limit N` | Retry transient Claude failures in the `execute` phase up to N consecutive times (default: 10) |
 | `--retry-forever` | Retry transient Claude failures in the `execute` phase indefinitely |
+| `--on-issue-failure <mode>` | In a queue, what one failing issue does to the rest: `stop` (default, ends the run), `skip` (set it aside, run the independent issues, come back to it at the end) or `block` (set it aside for a human and never come back) |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `--inactivity-timeout <s>` | Stop the agent after this many seconds with no output at all (`0` = off, default 600). A second, tighter instrument beside `--timeout`: it tells a long task from a stuck one |
 | `-v, --verbose` | Show Claude progress output in real time |

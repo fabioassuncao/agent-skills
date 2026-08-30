@@ -39,6 +39,31 @@ The Issue data published there comes from the `ResolvedIssue` the run already
 holds (`resolveCommandIssue` runs once, at the top), never from a fresh provider
 call.
 
+## What one failing issue does to a queue
+
+`--on-issue-failure` picks between three answers, and `stop` — ending the run
+where it failed — stays the default and the behaviour of every release before
+the flag existed.
+
+- **`skip` sets the issue aside and comes back to it.** `nextQueueIssue()` hands
+  out `skipped` entries **last**, which is what "go on with the independent work
+  and return at the end" means in one line. `attempts` is what keeps that from
+  becoming "come back forever": past `resilience.queue.maxIssueAttempts` (2 by
+  default) the entry becomes `failed`.
+- **`block` is for a failure a person has to look at.** `nextQueueIssue()` never
+  hands a `blocked` entry back out — waiting cannot fix a missing credential —
+  so the queue finishes the rest and reports it.
+- **`exhausted` is per invocation, and it has to be.** The resumption policy
+  puts `failed` before `pending`, which is right *across* invocations (re-run
+  and it picks up where it stopped) and wrong *inside* one, where it would hand
+  the same spent issue back out on the very next lookup.
+- **Dependencies are enforced at hand-out, not only in the order.**
+  `computeExecutionOrder` already places blockers first; the check in
+  `nextQueueIssue()` only bites once an entry stops being `completed`, which is
+  exactly when handing out its dependents would produce work that cannot build.
+- **A queue that ends with unfinished issues exits non-zero**, even though the
+  independent work landed: the run did not do what it was asked.
+
 ## The repository is described, never repaired
 
 `ensureRepositoryWritable()` runs `preflightRepository()` (in `utils/git.ts`)

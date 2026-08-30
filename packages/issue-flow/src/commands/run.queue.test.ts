@@ -233,7 +233,12 @@ afterEach(async () => {
 /** Silence the terminal output while still returning the exit code. */
 async function run(
   issues: string | string[],
-  options: { yes?: boolean; only?: boolean; startUs?: number } = { yes: true },
+  options: {
+    yes?: boolean;
+    only?: boolean;
+    startUs?: number;
+    onIssueFailure?: 'stop' | 'skip' | 'block';
+  } = { yes: true },
 ): Promise<number> {
   const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
@@ -551,5 +556,95 @@ describe('dependency cycles', () => {
       .mocked(runExecute)
       .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
     expect(executed).toEqual(['50']);
+  });
+});
+
+describe('one failing issue does not have to end the queue (US-027)', () => {
+  beforeEach(() => {
+    // Four independent issues: nothing in the queue depends on anything else,
+    // which is the case the whole story is about.
+    relations.set('50', { ...emptyRelations('50'), children: ['51', '52', '53'] });
+  });
+
+  /** Which issues the pipeline actually executed, in order. */
+  const executed = (): string[] =>
+    vi.mocked(runExecute).mock.calls.map(([, options]) => (options as { issue?: string }).issue!);
+
+  function failing(id: string) {
+    return async (_max: unknown, options: unknown) =>
+      (options as { issue?: string }).issue === id ? 1 : 0;
+  }
+
+  it('stops at the failing issue by default, exactly as before', async () => {
+    vi.mocked(runExecute).mockImplementation(failing('51'));
+
+    expect(await run('50')).not.toBe(0);
+
+    // 50 ran, 51 failed, and the queue ended there.
+    expect(executed()).toEqual(['50', '51']);
+    const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
+    expect(plan.issues.find((entry) => entry.id === '51')?.status).toBe('failed');
+    expect(plan.issues.find((entry) => entry.id === '52')?.status).toBe('pending');
+  });
+
+  it('with skip, runs the independent issues and comes back to the failed one', async () => {
+    vi.mocked(runExecute).mockImplementation(failing('51'));
+
+    const code = await run('50', { yes: true, onIssueFailure: 'skip' });
+
+    // Everything ran; 51 was set aside and retried at the end of the queue.
+    expect(executed()).toEqual(['50', '51', '52', '53', '51']);
+    // It still failed the second time, so the queue reports failure — but the
+    // nine independent issues are done rather than never attempted.
+    expect(code).not.toBe(0);
+    const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
+    expect(plan.issues.find((entry) => entry.id === '52')?.status).toBe('completed');
+    expect(plan.issues.find((entry) => entry.id === '53')?.status).toBe('completed');
+    expect(plan.issues.find((entry) => entry.id === '51')).toMatchObject({
+      status: 'failed',
+      attempts: 2,
+    });
+  });
+
+  it('with skip, an issue that passes on the second attempt completes the queue', async () => {
+    let firstAttempt = true;
+    vi.mocked(runExecute).mockImplementation(async (_max, options) => {
+      if ((options as { issue?: string }).issue !== '51') return 0;
+      if (firstAttempt) {
+        firstAttempt = false;
+        return 1;
+      }
+      return 0;
+    });
+
+    expect(await run('50', { yes: true, onIssueFailure: 'skip' })).toBe(0);
+
+    expect(executed()).toEqual(['50', '51', '52', '53', '51']);
+    const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
+    expect(plan.status).toBe('completed');
+  });
+
+  it('never re-runs an issue that already completed', async () => {
+    vi.mocked(runExecute).mockImplementation(failing('51'));
+
+    await run('50', { yes: true, onIssueFailure: 'skip' });
+
+    const runs = executed();
+    expect(runs.filter((id) => id === '50')).toHaveLength(1);
+    expect(runs.filter((id) => id === '52')).toHaveLength(1);
+    expect(runs.filter((id) => id === '53')).toHaveLength(1);
+  });
+
+  it('with block, sets the issue aside for a human and never comes back to it', async () => {
+    vi.mocked(runExecute).mockImplementation(failing('51'));
+
+    const code = await run('50', { yes: true, onIssueFailure: 'block' });
+
+    expect(executed()).toEqual(['50', '51', '52', '53']);
+    expect(code).not.toBe(0);
+    const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
+    const blocked = plan.issues.find((entry) => entry.id === '51');
+    expect(blocked?.status).toBe('blocked');
+    expect(blocked?.blockedReason).toContain('block');
   });
 });

@@ -32,6 +32,12 @@ function parseInteger(value: string): number {
   return parsed;
 }
 
+/** Parse `--on-issue-failure <mode>`, rejecting anything but the three modes. */
+function parseQueueFailureMode(value: string): 'stop' | 'skip' | 'block' {
+  if (value === 'stop' || value === 'skip' || value === 'block') return value;
+  throw new InvalidArgumentError('Must be one of: stop, skip, block.');
+}
+
 /**
  * Parse `--start-us <n>`: a User Story number is 1-based, so 0 is rejected
  * along with everything `parseInteger` already rejects.
@@ -253,7 +259,14 @@ withUserStoryNumberingOptions(
             'Retry transient Claude failures up to N consecutive times',
             parseInteger,
           )
-          .option('--retry-forever', 'Retry transient Claude failures indefinitely'),
+          .option('--retry-forever', 'Retry transient Claude failures indefinitely')
+          // What one failing issue does to the rest of a queue. `stop` is what
+          // every release before this flag did, and stays the default.
+          .option(
+            '--on-issue-failure <mode>',
+            'In a queue, on a failing issue: stop | skip | block',
+            parseQueueFailureMode,
+          ),
       ),
     ),
   ),
@@ -271,6 +284,7 @@ withUserStoryNumberingOptions(
       startUs?: number;
       retryLimit?: number;
       retryForever?: boolean;
+      onIssueFailure?: 'stop' | 'skip' | 'block';
     },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
@@ -302,6 +316,7 @@ withUserStoryNumberingOptions(
         startUs: numbering.startUs,
         retryLimit: options.retryLimit,
         retryForever: options.retryForever,
+        onIssueFailure: options.onIssueFailure,
       },
     );
     process.exit(code);
