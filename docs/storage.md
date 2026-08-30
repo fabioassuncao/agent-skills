@@ -53,7 +53,7 @@ driver warns and uses the safer rollback journal (`DELETE`) mode instead.
 Schema migrations are forward-only and transactional. Each applied version is
 recorded in `schema_migrations` and mirrored in SQLite's `user_version`; a
 database created by a newer Issue Flow fails before any write, rather than being
-downgraded or modified. The `db check`, `db backup` and `db vacuum` commands
+downgraded or modified. The `db check`, `db backup`, `db vacuum` and `db export` commands
 are documented in [the command reference](commands.md#database-maintenance).
 
 ## One issue directory
@@ -67,7 +67,7 @@ needs to write it, so a given run leaves most of these absent:
   metadata.json     # Issue metadata (local issues only)
   analysis.md       # Issue analysis (standalone `analyze` only)
   prd.md            # Product requirements
-  tasks.json        # Task plan, pipeline state, stories, telemetry
+  tasks.json        # Agent-facing projection of plan, pipeline state and stories
   progress.txt      # Execution log
   session.json      # Live session snapshot (web monitoring)
   events.jsonl      # Append-only event journal (opt-in)
@@ -538,7 +538,8 @@ Two limitations are worth knowing:
 
 Story metrics answer "what did this story cost". They do not say **who** produced
 the number, on which attempt, or whether a failed try spent tokens too.
-`tasks.json.executions` is one row per agent invocation:
+SQLite's `executions` table is the canonical record (and `tasks.json.executions`
+is a compatibility projection) with one row per agent invocation:
 
 ```json
 {
@@ -581,8 +582,9 @@ the number, on which attempt, or whether a failed try spent tokens too.
   materialize `executions: []`.
 
 Read it with `issue-flow usage [--issue N] [--by harness]`. Disable writes with
-`telemetry.enabled: false` or `ISSUE_FLOW_TELEMETRY=0`. The list is capped at
-`telemetry.maxExecutions` (default `500`).
+`telemetry.enabled: false` or `ISSUE_FLOW_TELEMETRY=0`. SQLite history is not
+silently truncated by `telemetry.maxExecutions`; retain or archive it through an
+explicit database-maintenance policy instead.
 
 The same invocation rows are projected into `session.json.executions` while a
 session is live. `processLogs` is a bounded, redacted tail of harness output for

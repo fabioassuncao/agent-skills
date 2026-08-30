@@ -183,6 +183,15 @@ export const migrations: readonly Migration[] = [
     up: (database) =>
       database.exec("ALTER TABLE executions ADD COLUMN payload_json TEXT NOT NULL DEFAULT '{}'"),
   },
+  {
+    version: 3,
+    name: 'index numeric user story identifiers',
+    up: (database) =>
+      database.exec(`
+        ALTER TABLE stories ADD COLUMN story_number INTEGER;
+        CREATE INDEX stories_project_number_idx ON stories(project_id, story_number DESC);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

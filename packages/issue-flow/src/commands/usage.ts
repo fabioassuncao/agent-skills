@@ -1,6 +1,4 @@
-import { readdir } from 'node:fs/promises';
-import { loadTaskPlan } from '../core/state-manager.js';
-import { getIssuePaths } from '../storage/paths.js';
+import { listStoredExecutions } from '../storage/db/repository.js';
 import { resolveProjectPaths } from '../storage/resolve.js';
 import { type GroupKey, groupBy, summarize } from '../telemetry/aggregate.js';
 import { discardedExecutionCount } from '../telemetry/recorder.js';
@@ -81,50 +79,6 @@ function successRate(summary: ExecutionSummary): string {
   return `${((ok / summary.count) * 100).toFixed(1)}%`;
 }
 
-async function loadPlans(
-  issue: string | undefined,
-): Promise<{ id: string; plan: TaskPlan }[] | null> {
-  let project: Awaited<ReturnType<typeof resolveProjectPaths>>;
-  try {
-    project = await resolveProjectPaths();
-  } catch (err) {
-    printError(`Not inside a usable project: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
-  }
-
-  if (issue !== undefined) {
-    try {
-      const paths = getIssuePaths(project.projectId, issue);
-      return [{ id: issue, plan: await loadTaskPlan(paths.tasksFile) }];
-    } catch (err) {
-      printError(
-        `No telemetry for issue ${issue}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return null;
-    }
-  }
-
-  let ids: string[];
-  try {
-    ids = await readdir(project.issuesDir);
-  } catch {
-    return [];
-  }
-
-  const loaded: { id: string; plan: TaskPlan }[] = [];
-  for (const id of ids) {
-    try {
-      loaded.push({
-        id,
-        plan: await loadTaskPlan(getIssuePaths(project.projectId, id).tasksFile),
-      });
-    } catch {
-      // An issue without a readable plan is not telemetry.
-    }
-  }
-  return loaded;
-}
-
 export function buildUsageReport(
   plans: { id: string; plan: TaskPlan }[],
   options: UsageOptions,
@@ -132,13 +86,22 @@ export function buildUsageReport(
 ): UsageReport {
   const cutoff = sinceCutoff(options.since);
   const records = plans.flatMap(({ plan }) => afterCutoff(plan.executions ?? [], cutoff));
+  return buildUsageReportFromRecords(records, options, discarded);
+}
+
+/** Build the same report from the canonical execution rows. */
+export function buildUsageReportFromRecords(
+  records: readonly ExecutionRecord[],
+  options: UsageOptions,
+  discarded = 0,
+): UsageReport {
   const total = summarize(records, discarded);
   const groups =
     options.by === undefined
       ? []
       : [...groupBy(records, options.by)].map(([key, summary]) => ({ key, summary }));
   return {
-    issue: options.issue ?? (plans.length === 1 ? (plans[0]?.id ?? null) : null),
+    issue: options.issue ?? null,
     since: options.since ?? null,
     by: options.by ?? null,
     discarded,
@@ -177,16 +140,36 @@ export async function runUsage(
   issue: string | undefined,
   options: UsageOptions = {},
 ): Promise<number> {
-  const plans = await loadPlans(issue ?? options.issue);
-  if (plans === null) return 1;
-
   if (options.since !== undefined && sinceCutoff(options.since) === null) {
     printError(`Invalid --since date: ${options.since}`);
     return 1;
   }
 
-  const report = buildUsageReport(plans, { ...options, issue: issue ?? options.issue });
-  if (plans.length === 0 || (report.total.count === 0 && (issue ?? options.issue) !== undefined)) {
+  const requestedIssue = issue ?? options.issue;
+  let project: Awaited<ReturnType<typeof resolveProjectPaths>>;
+  try {
+    project = await resolveProjectPaths();
+  } catch (err) {
+    printError(`Not inside a usable project: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+
+  let records: ExecutionRecord[];
+  try {
+    records = await listStoredExecutions({
+      projectId: project.projectId,
+      ...(requestedIssue === undefined ? {} : { issueId: requestedIssue }),
+      ...(options.since === undefined ? {} : { since: options.since }),
+    });
+  } catch (err) {
+    printError(
+      `Could not query execution telemetry: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 1;
+  }
+
+  const report = buildUsageReportFromRecords(records, { ...options, issue: requestedIssue });
+  if (report.total.count === 0) {
     printInfo('No execution telemetry recorded yet.');
     return 0;
   }

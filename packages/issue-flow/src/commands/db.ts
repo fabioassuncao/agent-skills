@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getDatabasePath, openIssueFlowDatabase } from '../storage/db/index.js';
+import { exportStoredState } from '../storage/db/repository.js';
 import { getGlobalRoot } from '../storage/paths.js';
 import { printError, printInfo } from '../ui/logger.js';
 
@@ -59,6 +61,31 @@ export async function runDbVacuum(): Promise<number> {
     }
   } catch (error) {
     return failure('vacuum', error);
+  }
+}
+
+/** Export the relational state as portable, readable JSON for diagnostics. */
+export async function runDbExport(destination?: string): Promise<number> {
+  try {
+    const payload = JSON.stringify(
+      {
+        schemaVersion: 1,
+        exportedAt: new Date().toISOString(),
+        database: getDatabasePath(),
+        tables: await exportStoredState(),
+      },
+      null,
+      2,
+    );
+    if (destination === undefined) {
+      printInfo(payload);
+    } else {
+      await writeFile(destination, `${payload}\n`, 'utf-8');
+      printInfo(`Database export written: ${destination}`);
+    }
+    return 0;
+  } catch (error) {
+    return failure('export', error);
   }
 }
 

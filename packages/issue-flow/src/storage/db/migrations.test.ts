@@ -29,7 +29,7 @@ describe('SQLite migrations', () => {
       );
       expect(
         db.prepare('SELECT version FROM schema_migrations').all<{ version: number }>(),
-      ).toEqual([{ version: 1 }, { version: CURRENT_SCHEMA_VERSION }]);
+      ).toEqual([{ version: 1 }, { version: 2 }, { version: CURRENT_SCHEMA_VERSION }]);
     } finally {
       db.close();
     }

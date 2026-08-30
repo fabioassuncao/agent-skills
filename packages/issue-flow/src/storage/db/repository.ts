@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { taskPlanSchema } from '../../schemas.js';
+import type { ExecutionRecord } from '../../telemetry/types.js';
 import type { TaskPlan } from '../../types.js';
 import { writeFileAtomic } from '../../utils/fs.js';
-import { openIssueFlowDatabase } from './index.js';
+import { type OpenIssueFlowDatabaseOptions, openIssueFlowDatabase } from './index.js';
 
 /** Identity needed to address one plan in the shared SQLite database. */
 export interface PlanRepositoryContext {
@@ -12,10 +13,20 @@ export interface PlanRepositoryContext {
   projectId: string;
   issueId: string;
   projectRoot: string;
+  /** Test/embedding seam for a non-default Issue Flow home. */
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
 }
 
 const contexts = new Map<string, PlanRepositoryContext>();
 const agentProjectionWindows = new Set<string>();
+
+/** Keep the tolerant US-NNN interpretation next to the indexed representation. */
+function storyNumber(id: string): number | null {
+  const matches = id.match(/\d+/g);
+  if (matches === null || matches.length === 0) return null;
+  const value = Number.parseInt(matches.at(-1) ?? '', 10);
+  return Number.isNaN(value) ? null : value;
+}
 
 /** Register the SQLite-backed projection for an issue path resolved by storage. */
 export function registerPlanRepository(context: PlanRepositoryContext): void {
@@ -74,8 +85,9 @@ function parsePlan(value: string, path: string): TaskPlan {
 
 async function withDatabase<T>(
   work: (database: Awaited<ReturnType<typeof openIssueFlowDatabase>>) => T,
+  options: OpenIssueFlowDatabaseOptions = {},
 ): Promise<T> {
-  const database = await openIssueFlowDatabase();
+  const database = await openIssueFlowDatabase(options);
   try {
     return work(database);
   } finally {
@@ -149,8 +161,8 @@ function writePlanRows(
   for (const story of plan.userStories) {
     database
       .prepare(
-        `INSERT INTO stories (project_id, issue_id, id, title, priority, passes, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO stories (project_id, issue_id, id, title, priority, passes, notes, story_number)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         context.projectId,
@@ -160,6 +172,7 @@ function writePlanRows(
         story.priority,
         story.passes ? 1 : 0,
         story.notes,
+        storyNumber(story.id),
       );
   }
   for (const story of plan.userStories) {
@@ -179,8 +192,9 @@ export async function saveStoredPlan(
   context: PlanRepositoryContext,
   plan: TaskPlan,
 ): Promise<void> {
-  await withDatabase((database) =>
-    database.transaction(() => writePlanRows(database, context, plan)),
+  await withDatabase(
+    (database) => database.transaction(() => writePlanRows(database, context, plan)),
+    context.databaseOptions,
   );
   await materializePlan(context);
 }
@@ -294,5 +308,90 @@ export async function loadExecution(
       )
       .get<{ payload_json: string }>(id, context.projectId, context.issueId);
     return row === undefined ? null : (JSON.parse(row.payload_json) as Record<string, unknown>);
+  });
+}
+
+/** Execution history is queried directly from SQLite; tasks.json is only a projection. */
+export async function listStoredExecutions(input: {
+  projectId: string;
+  issueId?: string;
+  since?: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+}): Promise<ExecutionRecord[]> {
+  return withDatabase((database) => {
+    const clauses = ['project_id = ?'];
+    const values: string[] = [input.projectId];
+    if (input.issueId !== undefined) {
+      clauses.push('issue_id = ?');
+      values.push(input.issueId);
+    }
+    if (input.since !== undefined) {
+      clauses.push('started_at >= ?');
+      values.push(input.since);
+    }
+    return database
+      .prepare(
+        `SELECT payload_json FROM executions WHERE ${clauses.join(' AND ')} ORDER BY started_at, rowid`,
+      )
+      .all<{ payload_json: string }>(...values)
+      .map((row) => JSON.parse(row.payload_json) as ExecutionRecord);
+  }, input.databaseOptions);
+}
+
+export interface StoredUserStoryNumber {
+  number: number;
+  issueId: string;
+  storyId: string;
+}
+
+/** Use the relational story index for project-wide US-NNN continuity. */
+export async function findHighestStoredUserStoryNumber(input: {
+  projectId: string;
+  excludeIssueId?: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+}): Promise<StoredUserStoryNumber | null> {
+  return withDatabase((database) => {
+    const statement =
+      input.excludeIssueId === undefined
+        ? 'SELECT issue_id, id, story_number FROM stories WHERE project_id = ? AND story_number IS NOT NULL ORDER BY story_number DESC LIMIT 1'
+        : 'SELECT issue_id, id, story_number FROM stories WHERE project_id = ? AND issue_id <> ? AND story_number IS NOT NULL ORDER BY story_number DESC LIMIT 1';
+    const row = database
+      .prepare(statement)
+      .get<{ issue_id: string; id: string; story_number: number }>(
+        input.projectId,
+        ...(input.excludeIssueId === undefined ? [] : [input.excludeIssueId]),
+      );
+    return row === undefined
+      ? null
+      : { number: row.story_number, issueId: row.issue_id, storyId: row.id };
+  }, input.databaseOptions);
+}
+
+/** A stable, JSON-friendly diagnostic export that never exposes SQL to callers. */
+export async function exportStoredState(): Promise<Record<string, unknown>> {
+  return withDatabase((database) => {
+    const tables = [
+      'projects',
+      'issues',
+      'pipelines',
+      'stories',
+      'story_dependencies',
+      'runs',
+      'phases',
+      'executions',
+      'events',
+      'snapshots',
+      'pull_requests',
+      'reviews',
+      'verifications',
+      'provider_health',
+      'queues',
+      'queue_issues',
+      'migrated_artifacts',
+      'audit_log',
+    ];
+    return Object.fromEntries(
+      tables.map((table) => [table, database.prepare(`SELECT * FROM ${table}`).all()]),
+    );
   });
 }

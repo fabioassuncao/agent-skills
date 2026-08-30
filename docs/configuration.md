@@ -242,12 +242,13 @@ can override — in [Resilience](resilience.md).
 | Key | Values | Default |
 |-----|--------|---------|
 | `enabled` | boolean | `true` |
-| `maxExecutions` | integer > 0 | `500` |
+| `maxExecutions` | integer > 0 | `500` (legacy compatibility; SQLite history is not truncated) |
 | `pricing.estimate` | boolean | `false` |
 | `pricing.overrides` | `Record<model, { inputPerMillion, outputPerMillion, cacheReadPerMillion, cacheWritePerMillion }>` | `{}` |
 
-Telemetry is one row per agent invocation in `tasks.json.executions`, read with
-`issue-flow usage`. See [Storage → execution telemetry](storage.md#execution-telemetry).
+Telemetry is one row per agent invocation in SQLite, projected to
+`tasks.json.executions` for compatibility, and read with `issue-flow usage`. See
+[Storage → execution telemetry](storage.md#execution-telemetry).
 
 ### `policy`
 

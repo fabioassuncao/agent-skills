@@ -21,6 +21,13 @@ import {
 } from './index.js';
 import { CURRENT_SCHEMA_VERSION } from './migrations.js';
 
+function storyNumber(id: string): number | null {
+  const matches = id.match(/\d+/g);
+  if (matches === null || matches.length === 0) return null;
+  const value = Number.parseInt(matches.at(-1) ?? '', 10);
+  return Number.isNaN(value) ? null : value;
+}
+
 /** A source file that was imported into one or more relational tables. */
 interface Artifact {
   path: string;
@@ -216,10 +223,11 @@ function importArtifact(
     for (const story of plan.userStories) {
       database
         .prepare(
-          `INSERT INTO stories (project_id, issue_id, id, title, priority, passes, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO stories (project_id, issue_id, id, title, priority, passes, notes, story_number)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(project_id, issue_id, id) DO UPDATE SET title = excluded.title,
-           priority = excluded.priority, passes = excluded.passes, notes = excluded.notes`,
+           priority = excluded.priority, passes = excluded.passes, notes = excluded.notes,
+           story_number = excluded.story_number`,
         )
         .run(
           projectId,
@@ -229,6 +237,7 @@ function importArtifact(
           story.priority,
           story.passes ? 1 : 0,
           story.notes,
+          storyNumber(story.id),
         );
       increment(counts, 'stories');
     }

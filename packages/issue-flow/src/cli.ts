@@ -496,7 +496,7 @@ withGlobalOptions(
 withGlobalOptions(
   program
     .command('usage')
-    .description('Aggregate execution telemetry from tasks.json')
+    .description('Aggregate execution telemetry from SQLite')
     .argument('[issue]', 'Restrict the report to one issue')
     .option('--issue <issue>', 'Same as the positional argument')
     .option('--since <date>', 'Only executions started on or after this ISO date')
@@ -557,6 +557,14 @@ db.command('vacuum')
   .action(async () => {
     const { runDbVacuum } = await import('./commands/db.js');
     process.exit(await runDbVacuum());
+  });
+
+db.command('export')
+  .description('Export structured SQLite state as readable JSON')
+  .option('--destination <path>', 'Where to write the JSON export (stdout by default)')
+  .action(async (options: { destination?: string }) => {
+    const { runDbExport } = await import('./commands/db.js');
+    process.exit(await runDbExport(options.destination));
   });
 
 withGlobalOptions(

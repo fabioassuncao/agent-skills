@@ -53,7 +53,7 @@ Task telemetry → describes how the change was produced
 `defaults < ~/.issue-flow/config.json < .issue-flow.json < env`
 
 - `telemetry.enabled` (default `true`) — `ISSUE_FLOW_TELEMETRY`
-- `telemetry.maxExecutions` (default `500`, FIFO + discarded counter) —
+- `telemetry.maxExecutions` (legacy compatibility only; SQLite history is not silently truncated) —
   `ISSUE_FLOW_TELEMETRY_MAX_EXECUTIONS`
 - `telemetry.pricing.estimate` (default `false`) — `ISSUE_FLOW_TELEMETRY_ESTIMATE`
 - `telemetry.pricing.overrides` — negotiated rates, beat the table

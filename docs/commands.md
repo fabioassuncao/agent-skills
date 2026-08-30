@@ -7,7 +7,7 @@ installed.
 - [Global flags](#global-flags)
 - [Pipeline](#pipeline) — `run`, `resume`, and the individual phases
 - [Operating a run](#operating-a-run) — `status`, `ps`, `runs`, `logs`, `usage`, `pause`, `cancel`
-- [Database maintenance](#database-maintenance) — `db check`, `db backup`, `db vacuum`
+- [Database maintenance](#database-maintenance) — `db check`, `db backup`, `db vacuum`, `db export`
 - [Issues](#issues) — `generate`
 - [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`, `bench`
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
@@ -158,7 +158,7 @@ issue-flow plan 42 --start-us 27   # force a starting number, ignoring history
 is resolved through a cascade, and the decision is always printed:
 
 1. **Automatic recovery** (default): the highest `US-NNN` already used anywhere
-   in the project, recovered by scanning every `tasks.json` of the project. Ids
+   in the project, recovered from the indexed SQLite `stories` table. Ids
    that do not follow the format (`story-5`, `add-auth`) are parsed leniently or
    skipped — never thrown on.
 2. **No history** (the project's first `plan`): numbering starts at `US-001`.
@@ -174,7 +174,7 @@ User Story numbering forced to US-027 via --start-us.
 `--continue` and `--start-us` are mutually exclusive and passing both fails with
 exit code `1`. The decision is recorded in the project's `metadata.json`
 (`userStoryNumbering`) for audit, but the *next* decision always re-scans
-`tasks.json` from scratch — the record is never read back.
+the canonical database from scratch — the record is never read back.
 
 The resolved number is passed to the `plan` prompt as strong context. There is
 no programmatic renumbering pass after generation.
@@ -327,7 +327,7 @@ issue-flow cancel 42              # stop it, and mark it so `resume` reports it
 | `ps` | Every `issue-flow` run active on this machine | `--json`, `--watch` |
 | `runs` | One line per issue: status, duration and the first line of the failure | — |
 | `logs [issue]` | The append-only journal, in order and filtered. Needs the [journal](resilience.md#the-event-journal) enabled | `--issue`, `--follow`, `--tail <n>` (default 50), `--kind <a,b>` |
-| `usage [issue]` | Reader over `tasks.json.executions`. Never stores an aggregate; absence of telemetry prints a message instead of crashing | `--issue`, `--since <date>`, `--by <harness\|provider\|model\|purpose\|status>`, `--json` |
+| `usage [issue]` | Reader over indexed SQLite execution history. Never stores an aggregate; absence of telemetry prints a message instead of crashing | `--issue`, `--since <date>`, `--by <harness\|provider\|model\|purpose\|status>`, `--json` |
 | `pause` | Sends `SIGTERM` to the owner, which writes a checkpoint, stops the agent with a grace period and closes its journal before exiting | — |
 | `cancel [issue]` | The same stop, plus marking the issue so a later `resume` reports it instead of silently continuing | — |
 
@@ -342,6 +342,7 @@ issue-flow db check
 issue-flow db backup
 issue-flow db backup --destination /safe/place/issue-flow.db
 issue-flow db vacuum
+issue-flow db export --destination /tmp/issue-flow-export.json
 ```
 
 The SQLite database is `~/.issue-flow/issue-flow.db` (or under
@@ -349,7 +350,8 @@ The SQLite database is `~/.issue-flow/issue-flow.db` (or under
 steps on failure. `backup` creates a consistent SQLite snapshot with `VACUUM
 INTO`; without `--destination`, it writes a timestamped file below
 `~/.issue-flow/backups/`. `vacuum` rebuilds the live database to reclaim unused
-space. All three commands exit non-zero with an actionable error when the
+space. `export` emits a readable JSON snapshot to stdout, or writes it to the
+requested destination. All four commands exit non-zero with an actionable error when the
 database cannot be opened or is invalid.
 
 The automatic JSON-to-SQLite import also creates a pre-upgrade backup before it

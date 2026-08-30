@@ -41,18 +41,34 @@ async function makeTemp(prefix: string): Promise<string> {
   return dir;
 }
 
-/** Write `<projectRoot>/…/issues/<issueId>/tasks.json` inside the global tree. */
+/** Seed canonical story history; numbering must never read tasks.json projections. */
 async function writeTasksJson(issueId: string, userStories: Array<{ id: string }>): Promise<void> {
-  // `issuesDir` is `<globalHome>/projects/<projectId>/issues`. The project id
-  // depends on the (mocked) remote, which is null in this file, so the id is
-  // derived from `path:<projectRoot>` — resolved indirectly through
-  // resolveProjectPaths() in the functions under test. Writing the file
-  // through that same resolver keeps this helper from hard-coding the id.
   const { resolveProjectPaths } = await import('./resolve.js');
-  const { issuesDir } = await resolveProjectPaths({ projectRoot, env });
-  const dir = join(issuesDir, issueId);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'tasks.json'), JSON.stringify({ userStories }), 'utf-8');
+  const { projectId } = await resolveProjectPaths({ projectRoot, env });
+  const { openIssueFlowDatabase } = await import('./db/index.js');
+  const database = await openIssueFlowDatabase({ env });
+  try {
+    const now = '2026-08-30T00:00:00.000Z';
+    database
+      .prepare(
+        'INSERT OR IGNORE INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)',
+      )
+      .run(projectId, projectRoot, now, now);
+    database
+      .prepare(
+        'INSERT OR IGNORE INTO issues (project_id, id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(projectId, issueId, 'in_progress', now, now);
+    for (const story of userStories) {
+      database
+        .prepare(
+          'INSERT INTO stories (project_id, issue_id, id, title, priority, passes, story_number) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(projectId, issueId, story.id, story.id, 1, 0, parseUserStoryNumber(story.id));
+    }
+  } finally {
+    database.close();
+  }
 }
 
 beforeEach(async () => {
@@ -119,7 +135,7 @@ describe('findHighestUserStoryNumber', () => {
     expect(result).toEqual({ number: 20, issueId: '13', storyId: 'US-020' });
   });
 
-  it('tolerates a corrupt or unreadable tasks.json in a sibling issue', async () => {
+  it('does not consult a corrupt compatibility projection in a sibling issue', async () => {
     const { resolveProjectPaths } = await import('./resolve.js');
     const { issuesDir } = await resolveProjectPaths({ projectRoot, env });
     await mkdir(join(issuesDir, '14'), { recursive: true });
@@ -146,17 +162,8 @@ describe('findHighestUserStoryNumber', () => {
     expect(result).toEqual({ number: 5, issueId: '12', storyId: 'US-005' });
   });
 
-  it('throws instead of reporting an empty history when the scan fails', async () => {
-    const { resolveProjectPaths } = await import('./resolve.js');
-    const { issuesDir } = await resolveProjectPaths({ projectRoot, env });
-    // A file where the issues directory is expected: readdir fails with
-    // ENOTDIR, which must not be mistaken for "no history yet".
-    await mkdir(join(issuesDir, '..'), { recursive: true });
-    await writeFile(issuesDir, 'not a directory', 'utf-8');
-
-    await expect(findHighestUserStoryNumber({ projectRoot, env })).rejects.toThrow(
-      /Could not scan the project's User Story history/,
-    );
+  it('does not depend on an issues directory existing', async () => {
+    await expect(findHighestUserStoryNumber({ projectRoot, env })).resolves.toBeNull();
   });
 });
 

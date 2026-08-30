@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TaskPlan } from '../../types.js';
 import {
+  exportStoredState,
+  findHighestStoredUserStoryNumber,
   ingestAgentPlan,
+  listStoredExecutions,
   loadStoredPlan,
   type PlanRepositoryContext,
   resetPlanRepositories,
@@ -91,6 +94,28 @@ describe('SQLite plan repository', () => {
     expect(JSON.parse(await readFile(context.tasksPath, 'utf-8')).userStories[0]).toMatchObject({
       passes: true,
       notes: 'done',
+    });
+  });
+
+  it('serves indexed history and a readable diagnostic export without the projection', async () => {
+    await saveExecution(context, {
+      id: 'execution-history',
+      startedAt: '2026-08-30T20:00:00Z',
+      finishedAt: null,
+      durationMs: null,
+      status: 'running',
+      cost: { status: 'unknown', reason: 'not_reported' },
+    });
+
+    expect(
+      await listStoredExecutions({ projectId: context.projectId, issueId: context.issueId }),
+    ).toContainEqual(expect.objectContaining({ id: 'execution-history' }));
+    await expect(
+      findHighestStoredUserStoryNumber({ projectId: context.projectId }),
+    ).resolves.toEqual({ number: 1, issueId: '91', storyId: 'US-001' });
+    await expect(exportStoredState()).resolves.toMatchObject({
+      stories: expect.arrayContaining([expect.objectContaining({ id: 'US-001', story_number: 1 })]),
+      executions: expect.arrayContaining([expect.objectContaining({ id: 'execution-history' })]),
     });
   });
 });

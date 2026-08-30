@@ -155,6 +155,33 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     return JSON.parse(await readFile(join(projectDir, 'metadata.json'), 'utf-8'));
   }
 
+  async function seedPriorStory(): Promise<void> {
+    const { resolveProjectPaths } = await import('../storage/resolve.js');
+    const { projectId } = await resolveProjectPaths({});
+    const { openIssueFlowDatabase } = await import('../storage/db/index.js');
+    const database = await openIssueFlowDatabase();
+    try {
+      const now = '2026-08-30T00:00:00.000Z';
+      database
+        .prepare(
+          'INSERT OR IGNORE INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)',
+        )
+        .run(projectId, tmpDir, now, now);
+      database
+        .prepare(
+          'INSERT OR IGNORE INTO issues (project_id, id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(projectId, '12', 'completed', now, now);
+      database
+        .prepare(
+          'INSERT INTO stories (project_id, issue_id, id, title, priority, passes, story_number) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(projectId, '12', 'US-015', 'Prior story', 1, 1, 15);
+    } finally {
+      database.close();
+    }
+  }
+
   it('starts at US-001 with no prior history for the project', async () => {
     const code = await runPlan('42', makeResolved());
 
@@ -171,15 +198,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
 
   it('continues numbering automatically from a previous issue in the same project', async () => {
     // Seed history: another issue in the same project already used up to US-015.
-    const { resolveProjectPaths } = await import('../storage/resolve.js');
-    const { issuesDir } = await resolveProjectPaths({});
-    const priorDir = join(issuesDir, '12');
-    await mkdir(priorDir, { recursive: true });
-    await writeFile(
-      join(priorDir, 'tasks.json'),
-      JSON.stringify({ userStories: [{ id: 'US-015' }] }),
-      'utf-8',
-    );
+    await seedPriorStory();
     nextPlanUserStoryId.current = 'US-016';
 
     const code = await runPlan('42', makeResolved());
@@ -194,15 +213,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
   });
 
   it('--start-us forces the numbering and ignores history', async () => {
-    const { resolveProjectPaths } = await import('../storage/resolve.js');
-    const { issuesDir } = await resolveProjectPaths({});
-    const priorDir = join(issuesDir, '12');
-    await mkdir(priorDir, { recursive: true });
-    await writeFile(
-      join(priorDir, 'tasks.json'),
-      JSON.stringify({ userStories: [{ id: 'US-015' }] }),
-      'utf-8',
-    );
+    await seedPriorStory();
     nextPlanUserStoryId.current = 'US-027';
 
     const code = await runPlan('42', makeResolved(), { startUs: 27 });
@@ -217,15 +228,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
   });
 
   it('--continue names the flag explicitly in the log while resolving the same number', async () => {
-    const { resolveProjectPaths } = await import('../storage/resolve.js');
-    const { issuesDir } = await resolveProjectPaths({});
-    const priorDir = join(issuesDir, '12');
-    await mkdir(priorDir, { recursive: true });
-    await writeFile(
-      join(priorDir, 'tasks.json'),
-      JSON.stringify({ userStories: [{ id: 'US-015' }] }),
-      'utf-8',
-    );
+    await seedPriorStory();
     nextPlanUserStoryId.current = 'US-016';
 
     const code = await runPlan('42', makeResolved(), { continueFlag: true });
@@ -236,15 +239,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
   });
 
   it('re-running plan on the same issue does not push its own numbering forward', async () => {
-    const { resolveProjectPaths } = await import('../storage/resolve.js');
-    const { issuesDir } = await resolveProjectPaths({});
-    const priorDir = join(issuesDir, '12');
-    await mkdir(priorDir, { recursive: true });
-    await writeFile(
-      join(priorDir, 'tasks.json'),
-      JSON.stringify({ userStories: [{ id: 'US-015' }] }),
-      'utf-8',
-    );
+    await seedPriorStory();
     nextPlanUserStoryId.current = 'US-016';
 
     expect(await runPlan('42', makeResolved())).toBe(0);
@@ -257,15 +252,7 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
   });
 
   it('warns when the generated plan ignores the requested numbering', async () => {
-    const { resolveProjectPaths } = await import('../storage/resolve.js');
-    const { issuesDir } = await resolveProjectPaths({});
-    const priorDir = join(issuesDir, '12');
-    await mkdir(priorDir, { recursive: true });
-    await writeFile(
-      join(priorDir, 'tasks.json'),
-      JSON.stringify({ userStories: [{ id: 'US-015' }] }),
-      'utf-8',
-    );
+    await seedPriorStory();
     // Claude ignores __NEXT_US_NUMBER__ and restarts at US-001.
     nextPlanUserStoryId.current = 'US-001';
 
