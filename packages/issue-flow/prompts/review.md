@@ -55,4 +55,27 @@ silent, the defaults above still apply.
 
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
+
+### Repository policy conformance
+
+Add this as an explicit axis of the review, alongside the acceptance criteria and
+the regressions:
+
+- The branch and the commits against the conventions above.
+- The changes against any rule the policy documents state as **mandatory**. Read
+  the documents listed there; follow a pointer file rather than stopping at it —
+  a `CLAUDE.md` whose whole content forwards to `AGENTS.md` is not a repository
+  without conventions.
+- Paths with a `CODEOWNERS` entry: record who owns them, and never fail on it.
+
+**Cite the document and section that defines every rule you invoke.** A violation
+without a citation is an opinion, and the author cannot check it.
+
+Only a rule the repository states as **mandatory** — or a required template field
+left out, or a wrong base branch — belongs in FINDINGS. A formatting or naming
+divergence is worth mentioning in the body of your answer, never a FAIL: a review
+that fails on style is a review that gets ignored.
+
+Never restate a repository rule as if it were your own standard, and never invent
+one it does not declare.
 <!-- /if -->

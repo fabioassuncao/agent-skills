@@ -73,11 +73,30 @@ Before making any decisions about how to run tests, lint, or validate code, unde
 Also check:
 - `docker-compose.yml` / `docker-compose.yaml` / `compose.yaml` → services run in Docker
 - `Dockerfile` → containerized environment
-- `CLAUDE.md` → project-specific instructions that may override default behavior
+- `AGENTS.md` and `CLAUDE.md` → project-specific instructions that may override default behavior
 - `.tool-versions`, `.nvmrc`, `.python-version` → version managers
 - CI config (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`) → how tests are run in CI
 
-**Read CLAUDE.md if it exists** — it may contain critical instructions about how commands should be executed (e.g., through Docker, specific test runners, required flags). These instructions take precedence over any assumptions.
+**Read the repository's declared policy** — the single source for its conventions,
+covering every document an ad-hoc read would miss:
+
+```bash
+issue-flow policy 2>/dev/null
+```
+
+It lists the **paths** of the policy documents this repository actually has
+(`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, and whatever `AGENTS.md` forwards
+to), plus its labels, Issue Types, base branch and conventions. Read the documents
+a finding would depend on. When the CLI is not installed, read `AGENTS.md` and
+`CLAUDE.md` from the repository root yourself.
+
+**Follow a pointer file rather than stopping at it.** A `CLAUDE.md` whose entire
+content is `Read and follow the instructions in AGENTS.md.` is not a repository
+without conventions — concluding that discards everything it forwards to.
+
+These instructions may contain critical detail about how commands are executed
+(through Docker, a specific test runner, required flags) and take precedence over
+any assumption.
 
 From these signals, determine:
 1. The primary language and framework
@@ -320,4 +339,19 @@ FINDINGS:
 - **Prioritize practical analysis** (code behavior) over theoretical assessment.
 - **Be rigorous but fair** — flag real problems, not style preferences that aren't project conventions.
 - **Always justify your decisions** — every "unmet" or "regression" needs evidence pointing to specific code.
-- **Respect the project's own rules** — CLAUDE.md, CI config, and existing conventions always take precedence over generic best practices.
+- **Respect the project's own rules** — `AGENTS.md`, `CLAUDE.md`, CI config, and existing conventions always take precedence over generic best practices.
+- **Report policy conformance as its own axis**, alongside correctness, scope and
+  tests, whenever the repository declares a policy. Check the branch and commits
+  against its conventions, the changes against any rule its documents state as
+  **mandatory**, and record the owners of paths covered by `CODEOWNERS` — without
+  ever failing on that last one, since GitHub enforces the approval.
+
+  **Cite the document and section behind every rule you invoke.** A violation with
+  no citation is an opinion the author cannot check.
+
+  Only a rule the repository states as mandatory, a missing required template
+  field, or a wrong base branch is blocking. A formatting or naming divergence is
+  an observation — a review that fails on style is a review that gets ignored.
+
+  Never restate a repository rule as if it were your own standard, and never
+  invent one it does not declare.

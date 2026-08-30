@@ -29,8 +29,13 @@ gates conformance. Here the subject is the Pull Request itself.
   point at is speculation — leave it out or mark it clearly as a question.
 - **Never approve by omission.** A review you could not complete is a scoped review, not an
   approval. Malformed or missing verdicts are failures, never `APPROVE`.
-- **Respect the repository.** `CLAUDE.md`, `README.md` and the surrounding code define the
-  conventions. A review that contradicts the project's documented conventions is a wrong review.
+- **Respect the repository.** `AGENTS.md`, `CLAUDE.md`, `README.md` and the surrounding code
+  define the conventions. A review that contradicts the project's documented conventions is a
+  wrong review — and one that restates a repository's rule as the reviewer's own preference is
+  no better.
+- **Cite where a rule is written.** Every policy violation names the document and section that
+  defines it. Without that, the author cannot check whether the reviewer is right, and the
+  review is opinion.
 
 ---
 
@@ -75,8 +80,12 @@ git log --oneline {BASE}..{HEAD}     # commit history of the branch
 Then read, when they exist:
 
 - `issues/{N}/prd.md` and `issues/{N}/tasks.json` — what was intended
-- `CLAUDE.md` (root and any nested ones near the changed files) and `README.md` — the project's
-  conventions
+- the repository's declared policy — `issue-flow policy` lists the paths of its policy
+  documents, its labels, Issue Types, base branch and conventions. Read the documents a
+  finding would depend on, and **follow a pointer file rather than stopping at it**: a
+  `CLAUDE.md` that forwards to `AGENTS.md` is not a repository without conventions
+- `AGENTS.md`, `CLAUDE.md` (root and any nested ones near the changed files) and `README.md` —
+  the fallback when the CLI is not installed
 
 Missing artifacts are normal. Treat every one as optional and continue.
 
@@ -125,7 +134,17 @@ here", not an axis skipped.
   irreversible in production.
 - **Test coverage**: are the new paths tested? Do the tests assert behaviour or just that the code
   ran? Which uncovered path would you be most afraid of?
-- **Documentation**: README, CLAUDE.md, comments and docs updated where the change makes them stale.
+- **Documentation**: README, `AGENTS.md`, `CLAUDE.md`, comments and docs updated where the change makes them stale.
+- **Repository policy conformance** (only when the repository declares one): the issue body
+  against its Issue Template, labels against the ones that exist, an Issue Type where the
+  repository uses them, the title convention, the Pull Request body against the PR template,
+  the **base branch**, and the branch and commit conventions. Record the owners of paths
+  covered by `CODEOWNERS`, without blocking on it.
+
+  Calibrate: a rule the documentation states as mandatory, a missing required template field,
+  or a wrong base is a blocker. A formatting or naming divergence is an observation. Turning
+  every divergence into `REQUEST_CHANGES` makes the review noisy, and a noisy review is
+  ignored.
 - **Commit messages**: do they describe the change accurately, at a useful granularity?
 - **Simplification**: concrete opportunities to achieve the same result with less code.
 
