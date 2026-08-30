@@ -24,6 +24,11 @@ export const RUN_LOCK_FILENAME = 'run.lock';
 /** Persisted agent-provider health, shared by every run of one project. */
 export const PROVIDERS_HEALTH_FILENAME = 'providers.json';
 
+/** Projection and journal filenames shared by storage and the web reader. */
+export const SESSION_FILENAME = 'session.json';
+export const EVENTS_FILENAME = 'events.jsonl';
+export const ROTATED_EVENTS_FILENAME = 'events.1.jsonl';
+
 export interface GetGlobalRootOptions {
   /** Environment source. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;
@@ -265,11 +270,11 @@ export function getIssuePaths(
     tasksFile: join(issueDir, 'tasks.json'),
     progressFile: join(issueDir, 'progress.txt'),
     analysisFile: join(issueDir, 'analysis.md'),
-    sessionFile: join(issueDir, 'session.json'),
+    sessionFile: join(issueDir, SESSION_FILENAME),
     // The journal, and the single generation kept when it rotates. The
     // snapshot above is the projection; this pair is the history.
-    eventsFile: join(issueDir, 'events.jsonl'),
-    rotatedEventsFile: join(issueDir, 'events.1.jsonl'),
+    eventsFile: join(issueDir, EVENTS_FILENAME),
+    rotatedEventsFile: join(issueDir, ROTATED_EVENTS_FILENAME),
     // "This issue looks larger than one run": written only when the signals
     // agree, and read by a person rather than by the pipeline.
     decompositionFile: join(issueDir, 'decomposition.md'),

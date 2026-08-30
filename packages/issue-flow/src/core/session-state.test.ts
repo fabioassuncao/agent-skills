@@ -72,6 +72,17 @@ describe('createInitialSnapshot', () => {
       totalCostUsd: null,
     });
   });
+
+  it('starts resilience observability with backward-compatible empty values', () => {
+    expect(createInitialSnapshot().resilience).toEqual({
+      attempt: 0,
+      provider: null,
+      model: null,
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: null,
+    });
+  });
 });
 
 describe('reduceSessionEvent', () => {
@@ -85,6 +96,55 @@ describe('reduceSessionEvent', () => {
       message: 'hello',
     });
     expect(before).toEqual(frozen);
+  });
+
+  it('projects agent attempts, failures, failover and streamed activity', () => {
+    let snap = startedSnapshot();
+    snap = reduceSessionEvent(snap, {
+      type: 'agent:attempt',
+      at: '2026-08-03T12:01:00Z',
+      attempt: 2,
+      provider: 'claude',
+      model: 'sonnet',
+      primaryProvider: 'claude',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'agent:result',
+      at: '2026-08-03T12:01:10Z',
+      provider: 'claude',
+      success: false,
+      failureKind: 'provider_down',
+      cooldownUntil: '2026-08-03T12:02:10Z',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'failover',
+      at: '2026-08-03T12:01:11Z',
+      from: 'claude',
+      to: 'codex',
+      reason: 'provider_down',
+      cooldownUntil: '2026-08-03T12:02:10Z',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'agent:activity',
+      at: '2026-08-03T12:01:12Z',
+      provider: 'codex',
+    });
+    snap = reduceSessionEvent(snap, {
+      type: 'agent:result',
+      at: '2026-08-03T12:01:13Z',
+      provider: 'codex',
+      success: true,
+      cooldownUntil: null,
+    });
+
+    expect(snap.resilience).toEqual({
+      attempt: 2,
+      provider: 'codex',
+      model: 'sonnet',
+      lastFailureKind: 'provider_down',
+      cooldownUntil: null,
+      lastActivityAt: '2026-08-03T12:01:13Z',
+    });
   });
 
   it('session:start initializes session, issue, git and pending phases', () => {

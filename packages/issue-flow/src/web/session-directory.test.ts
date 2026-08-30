@@ -81,6 +81,32 @@ describe('web/session-directory', () => {
     expect(handle.getSession('sess-a')?.snapshot.sessionId).toBe('sess-a');
   });
 
+  it('reads the rotated and current journal for an active session in order', async () => {
+    const file = await writeSession('proj-a', '42', makeSnapshot({ sessionId: 'sess-a' }));
+    const issueDir = join(file, '..');
+    const first = {
+      seq: 1,
+      event: { type: 'retry', at: '2026-08-30T10:00:00Z', attempt: 1 },
+    };
+    const second = {
+      seq: 2,
+      event: {
+        type: 'failover',
+        at: '2026-08-30T10:01:00Z',
+        from: 'claude',
+        to: 'codex',
+        reason: 'provider_down',
+      },
+    };
+    await writeFile(join(issueDir, 'events.1.jsonl'), `${JSON.stringify(first)}\n`, 'utf-8');
+    await writeFile(join(issueDir, 'events.jsonl'), `${JSON.stringify(second)}\npartial`, 'utf-8');
+    const handle = watch();
+
+    await waitFor(() => handle.sessions().length === 1);
+    expect(await handle.events('sess-a')).toEqual([first, second]);
+    expect(await handle.events('missing')).toBeUndefined();
+  });
+
   it('reflects multiple sessions across different projects and issues simultaneously', async () => {
     await writeSession('proj-a', '1', makeSnapshot({ sessionId: 'sess-a' }));
     await writeSession('proj-b', '2', makeSnapshot({ sessionId: 'sess-b' }));

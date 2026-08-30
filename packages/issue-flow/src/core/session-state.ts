@@ -112,6 +112,7 @@ export type SessionEvent =
       failureKind?: FailureKind;
       cooldownUntil?: string | null;
     }
+  | { type: 'agent:activity'; at: string; provider: string }
   | { type: 'stories:update'; at: string; stories: UserStory[] }
   | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }
@@ -256,6 +257,16 @@ export interface SessionActivity {
   since: string;
 }
 
+/** Live resilience state for the current agent invocation. */
+export interface SessionResilienceSnapshot {
+  attempt: number;
+  provider: string | null;
+  model: string | null;
+  lastFailureKind: FailureKind | null;
+  cooldownUntil: string | null;
+  lastActivityAt: string | null;
+}
+
 export interface SessionCommit {
   hash: string;
   subject: string;
@@ -335,6 +346,7 @@ export interface SessionSnapshot {
     correctionCycle: number;
     maxCorrectionCycles: number | null;
   };
+  resilience: SessionResilienceSnapshot;
   git: { branch: string | null; baseBranch: string | null; commits: SessionCommit[] };
   repository: SessionRepositorySnapshot;
   pullRequests: SessionPullRequest[];
@@ -398,6 +410,14 @@ export function createInitialSnapshot(): SessionSnapshot {
     stories: [],
     metrics: emptyMetrics(),
     execution: { iteration: 0, retries: 0, correctionCycle: 0, maxCorrectionCycles: null },
+    resilience: {
+      attempt: 0,
+      provider: null,
+      model: null,
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: null,
+    },
     git: { branch: null, baseBranch: null, commits: [] },
     repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
     pullRequests: [],
@@ -792,6 +812,52 @@ function applyEvent(
         execution: { ...snapshot.execution, retries: snapshot.execution.retries + 1 },
       };
 
+    case 'agent:attempt':
+      return {
+        ...snapshot,
+        resilience: {
+          ...snapshot.resilience,
+          attempt: event.attempt,
+          provider: event.provider,
+          model: event.model ?? null,
+          lastActivityAt: event.at,
+        },
+      };
+
+    case 'failover':
+      return {
+        ...snapshot,
+        resilience: {
+          ...snapshot.resilience,
+          provider: event.to,
+          lastFailureKind: event.reason,
+          cooldownUntil: event.cooldownUntil ?? null,
+          lastActivityAt: event.at,
+        },
+      };
+
+    case 'agent:result':
+      return {
+        ...snapshot,
+        resilience: {
+          ...snapshot.resilience,
+          provider: event.provider,
+          lastFailureKind: event.failureKind ?? snapshot.resilience.lastFailureKind,
+          cooldownUntil: event.cooldownUntil ?? null,
+          lastActivityAt: event.at,
+        },
+      };
+
+    case 'agent:activity':
+      return {
+        ...snapshot,
+        resilience: {
+          ...snapshot.resilience,
+          provider: event.provider,
+          lastActivityAt: event.at,
+        },
+      };
+
     case 'stories:update': {
       const previous = new Map(snapshot.stories.map((story) => [story.id, story]));
       const stories = event.stories.map((story) => {
@@ -852,7 +918,11 @@ function applyEvent(
         current && current.story === story && current.tool === tool && current.detail === detail
           ? current.since
           : event.at;
-      return { ...snapshot, currentActivity: { story, tool, detail, since } };
+      return {
+        ...snapshot,
+        currentActivity: { story, tool, detail, since },
+        resilience: { ...snapshot.resilience, lastActivityAt: event.at },
+      };
     }
 
     case 'log': {

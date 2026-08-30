@@ -53,7 +53,20 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     });
   }
 
-  const run = await runnerFor(selection.provider).run(invocation, selection.settings);
+  const run = await runnerFor(selection.provider).run(
+    {
+      ...invocation,
+      onLine: (line) => {
+        publisher.publish({
+          type: 'agent:activity',
+          at: isoNow(),
+          provider: selection.provider,
+        });
+        invocation.onLine?.(line);
+      },
+    },
+    selection.settings,
+  );
   const failure =
     run.success && run.exitCode === 0
       ? null

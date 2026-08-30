@@ -480,6 +480,19 @@ describe('backwards compatibility with pre-metrics artifacts', () => {
     });
   });
 
+  it('fills the absent resilience projection of an older session.json', () => {
+    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
+
+    expect(snapshot.resilience).toEqual({
+      attempt: 0,
+      provider: null,
+      model: null,
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: null,
+    });
+  });
+
   it('fills the absent story status and dependencies of an older session.json', () => {
     const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
 

@@ -834,9 +834,9 @@ A missing file, invalid JSON or an invalid `issues` key falls back to the defaul
 
 At the top of the page, two cards give the full context of the run without leaving the browser: **"Resumo da issue"** (issue number, title, full description, labels, and open/closed state -- with a neutral "Não definida" placeholder for priority, since the `Issue` domain has no such field) and **"Repositório"** (current branch, short HEAD commit, repository name, and the project's working directory). The **"User stories"** card shows, per story, a status badge (`backlog` / `in_progress` / `in_review` / `done`), its existing pass/fail indicator and duration, and, when declared, the story IDs it depends on. All three cards degrade gracefully to neutral placeholders (`—`, "Sem título", "Sem descrição") whenever the underlying `session.json` predates these fields or a value simply isn't available (no remote configured, no commits yet, etc.) -- nothing about the pre-existing sections (progress, current phase, next steps, commits, PRs, logs) changes.
 
-### Views: "Execução" and "Kanban"
+### Views: "Execução", "Kanban" and "Histórico"
 
-Below the header and the alerts, the panel is split into two tabs. **"Execução"** is the vertical panel described above, unchanged. **"Kanban"** is a second reading of the same data: every user story laid out in four columns -- **Backlog**, **Em andamento**, **Em revisão**, **Concluído** -- grouped by the story's `status`, each column showing its own story count. A story whose `status` is absent (older `session.json`) or unrecognized falls into Backlog rather than disappearing, and every column renders even when it is empty, so an empty plan still shows the board instead of a blank page.
+Below the header and the alerts, the panel is split into three tabs. **"Execução"** includes the live resilience projection (current attempt, provider/model, last `FailureKind`, cooldown, and last real agent activity). **"Kanban"** is a second reading of the same data: every user story laid out in four columns -- **Backlog**, **Em andamento**, **Em revisão**, **Concluído** -- grouped by the story's `status`, each column showing its own story count. A story whose `status` is absent (older `session.json`) or unrecognized falls into Backlog rather than disappearing, and every column renders even when it is empty, so an empty plan still shows the board instead of a blank page. **"Histórico"** reads the append-only journal and lists the run's pipeline, retry, failure, and failover events, with pipeline/resilience filters. When journaling is disabled or the files do not exist, it renders an empty state.
 
 Each card carries the story id, its title, a short excerpt of the description (clamped to three lines -- the full text stays in the DOM), a status badge, and the same `✓`/`○` completion indicator the "User stories" card uses. Clicking a card -- or focusing it and pressing Enter -- opens a **side drawer** with the story's full title, status, description, acceptance criteria, declared dependencies, and its duration and completion time when known. A section for the story's update history is rendered only if a future `session.json` publishes one; today no such field exists, so the section is simply absent. The drawer closes on the overlay, the close button, or `Esc`, and returns focus to the card that opened it.
 
@@ -894,12 +894,20 @@ The web UI always opens the executions dashboard when at least one session exist
     "status": "running",
     "startedAt": "2026-08-04T16:00:00Z",
     "updatedAt": "2026-08-04T16:05:00Z",
-    "statusUrl": "/api/status?session=3f9e2b7a-…"
+    "attempt": 2,
+    "provider": "codex",
+    "lastFailureKind": "provider_down",
+    "cooldownUntil": "2026-08-04T16:06:00Z",
+    "lastActivityAt": "2026-08-04T16:05:58Z",
+    "statusUrl": "/api/status?session=3f9e2b7a-…",
+    "eventsUrl": "/api/events?session=3f9e2b7a-…"
   }
 ]
 ```
 
 `GET /api/status?session=<id>` returns that session's full snapshot (the same shape documented under [`session.json`](#sessionjson) below). Without `?session=`, `/api/status` keeps the pre-multi-session behavior when it is unambiguous: with **exactly one** active session it answers that one directly; with **zero** or **more than one**, it answers `404`/`409` respectively instead of guessing, with the `409` body listing every active `sessionId` so a client can disambiguate.
+
+`GET /api/events?session=<id>` returns the journal entries for that active session, reading `events.1.jsonl` before `events.jsonl` and tolerating absent, partial, or malformed lines. The endpoint is read-only and returns `[]` when journaling is disabled.
 
 Monitoring never affects the pipeline: publishing failures are swallowed with a single warning, a busy port (`EADDRINUSE`) just skips the server, and killing the server or closing the browser mid-run has no effect on the execution. With `--web` off, the terminal output and behavior are byte-for-byte identical to previous versions.
 
@@ -991,6 +999,14 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
     "totalCostUsd": 4.1052
   },
   "execution": { "iteration": 5, "retries": 0, "correctionCycle": 0, "maxCorrectionCycles": 3 },
+  "resilience": {
+    "attempt": 2,
+    "provider": "codex",
+    "model": "gpt-5.6",
+    "lastFailureKind": "provider_down",
+    "cooldownUntil": "2026-08-03T16:14:00Z",
+    "lastActivityAt": "2026-08-03T16:13:08Z"
+  },
   "git": { "branch": "issue/42-dark-mode", "baseBranch": "main", "commits": [{ "hash": "abc1234", "subject": "feat: …" }] },
   "repository": {
     "name": "owner/repo",

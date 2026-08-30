@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import chalk from 'chalk';
+import type { JournalEntry } from '../core/journal.js';
 import { resolvePackageDir } from '../core/prompt-resolver.js';
 import {
   NullPublisher,
@@ -120,6 +121,7 @@ interface SessionSource {
   list(): SessionSnapshot[];
   /** A specific session by id, or undefined when it is not currently active. */
   get(sessionId: string): SessionSnapshot | undefined;
+  events(sessionId: string): Promise<JournalEntry[] | undefined>;
 }
 
 function publisherSessionSource(publisher: SessionPublisher): SessionSource {
@@ -132,6 +134,7 @@ function publisherSessionSource(publisher: SessionPublisher): SessionSource {
       const snapshot = publisher.snapshot();
       return snapshot.sessionId === sessionId ? snapshot : undefined;
     },
+    events: async (sessionId) => (publisher.snapshot().sessionId === sessionId ? [] : undefined),
   };
 }
 
@@ -139,6 +142,7 @@ function directorySessionSource(handle: SessionDirectoryHandle): SessionSource {
   return {
     list: () => handle.sessions().map((entry) => entry.snapshot),
     get: (sessionId) => handle.getSession(sessionId)?.snapshot,
+    events: (sessionId) => handle.events(sessionId),
   };
 }
 
@@ -222,7 +226,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     return entry;
   };
 
-  const handleRequest = (req: IncomingMessage, res: ServerResponse): void => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     baseHeaders(res);
 
     const requestUrl = new URL(req.url ?? '/', 'http://localhost');
@@ -304,9 +308,30 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
           // activity; these two say how hard the run has had to work for it.
           retries: snapshot.execution.retries,
           correctionCycle: snapshot.execution.correctionCycle,
+          attempt: snapshot.resilience.attempt,
+          provider: snapshot.resilience.provider,
+          lastFailureKind: snapshot.resilience.lastFailureKind,
+          cooldownUntil: snapshot.resilience.cooldownUntil,
+          lastActivityAt: snapshot.resilience.lastActivityAt,
           statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
+          eventsUrl: `/api/events?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
         })),
       );
+      return;
+    }
+
+    if (path === '/api/events') {
+      const sessionId = requestUrl.searchParams.get('session');
+      if (sessionId === null) {
+        respondJson(res, 400, { error: 'Pass ?session=<id>.' });
+        return;
+      }
+      const entries = await source.events(sessionId);
+      if (entries === undefined) {
+        respondJson(res, 404, { error: `No active session with id '${sessionId}'.` });
+        return;
+      }
+      respondJson(res, 200, entries);
       return;
     }
 
@@ -330,15 +355,13 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   };
 
   const server = createServer((req, res) => {
-    try {
-      handleRequest(req, res);
-    } catch (err) {
+    void handleRequest(req, res).catch((err) => {
       try {
         respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
       } catch {
         // Response already destroyed — nothing to do, never crash the process.
       }
-    }
+    });
   });
 
   const listening = await new Promise<boolean>((resolve) => {

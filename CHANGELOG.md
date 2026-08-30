@@ -39,6 +39,10 @@ the fact, so they list what changed rather than explaining why. Everything from
   probe `half_open` e a cadeia de fallback passam a atuar por `FailureKind`.
   Falhas de autenticação bloqueiam o run, enquanto falhas lógicas e de rede
   não contaminam a saúde do provider.
+- **Observabilidade de resiliência no monitor web** (#70). `session.json`
+  projeta tentativa, provider, última falha, cooldown e atividade do agente;
+  o painel exibe esses dados e ganha uma aba de histórico alimentada por
+  `events.jsonl` (incluindo a geração rotacionada).
 
 ## [0.12.0] - 2026-08-30
 

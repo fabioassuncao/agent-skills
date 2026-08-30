@@ -68,8 +68,8 @@ which is what matters here more than sub-second latency.
 
 ## `server.ts`: one `SessionSource`, two backends
 
-Every route (`/api/status`, `/api/sessions`) is written against a small
-`SessionSource` interface (`list()` / `get(sessionId)`), never against a
+Every route (`/api/status`, `/api/sessions`, `/api/events`) is written against a small
+`SessionSource` interface (`list()` / `get(sessionId)` / `events(sessionId)`), never against a
 publisher or the session directory directly:
 
 - `directorySessionSource()` wraps a `SessionDirectoryHandle` — the normal
@@ -83,6 +83,11 @@ single active session when there is exactly one (pre-multi-session
 behavior), and answers `404`/`409` when there are zero/several — genuinely
 ambiguous without an id. `GET /api/sessions` always lists every entry
 `SessionSource.list()` returns, `[]` when there are none.
+
+`GET /api/events?session=<id>` reads the rotated journal first and the current
+generation second. Missing files and partial/malformed lines are empty/skipped,
+never request failures; the publisher-backed legacy source returns an empty
+history because it has no durable journal path.
 
 ETags are content-hashed (`sha1` of the serialized snapshot) rather than
 counter-based: a directory-backed session has no in-process publisher to hand

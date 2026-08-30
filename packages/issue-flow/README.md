@@ -194,7 +194,7 @@ Analyzes the project and creates a detailed GitHub issue via Claude headless.
 
 ## Web Monitoring
 
-`run` and `execute` support an optional (off by default) real-time monitoring mode: a local HTTP server (plain `node:http`, zero new dependencies) serves a self-contained, read-only web UI with live progress -- current phase and activity, user stories, commits, pull requests, logs, and time estimates.
+`run` and `execute` support an optional (off by default) real-time monitoring mode: a local HTTP server (plain `node:http`, zero new dependencies) serves a self-contained, read-only web UI with live progress, provider/attempt/cooldown state, user stories, commits, pull requests, logs, time estimates, and an `events.jsonl` history tab.
 
 ```bash
 # Enable with defaults -- binds to 0.0.0.0:3737, reachable from your LAN/VPN

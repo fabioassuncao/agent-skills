@@ -1,12 +1,16 @@
 import { readdir, readFile, stat as statFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { type JournalEntry, parseJournal } from '../core/journal.js';
 import type { ValidatedSessionSnapshot } from '../schemas.js';
 import { sessionSnapshotSchema } from '../schemas.js';
 import {
+  EVENTS_FILENAME,
   type GetGlobalRootOptions,
   getGlobalRoot,
   ISSUES_DIR_NAME,
   PROJECTS_DIR_NAME,
+  ROTATED_EVENTS_FILENAME,
+  SESSION_FILENAME,
 } from '../storage/paths.js';
 
 /**
@@ -62,6 +66,8 @@ export interface SessionDirectoryHandle {
   sessions(): ActiveSession[];
   /** A single active session by id, or undefined. */
   getSession(sessionId: string): ActiveSession | undefined;
+  /** Journal entries for one active session, oldest generation first. */
+  events(sessionId: string): Promise<JournalEntry[] | undefined>;
   /** Force an immediate rescan instead of waiting for the next tick. Never throws. */
   refresh(): Promise<void>;
   /** Stop polling. Idempotent. */
@@ -91,7 +97,7 @@ async function discoverSessionFiles(root: string): Promise<string[]> {
     projectIds.map(async (projectId) => {
       const issuesDir = join(projectsDir, projectId, ISSUES_DIR_NAME);
       const issueIds = await listSubdirectories(issuesDir);
-      return issueIds.map((issueId) => join(issuesDir, issueId, 'session.json'));
+      return issueIds.map((issueId) => join(issuesDir, issueId, SESSION_FILENAME));
     }),
   );
 
@@ -127,6 +133,14 @@ async function readSessionFile(filePath: string): Promise<ReadResult | null> {
     return { snapshot: parsed.data, updatedAtMs: mtimeMs };
   } catch {
     return null;
+  }
+}
+
+async function readJournalFile(filePath: string): Promise<JournalEntry[]> {
+  try {
+    return parseJournal(await readFile(filePath, 'utf-8'));
+  } catch {
+    return [];
   }
 }
 
@@ -194,6 +208,15 @@ export function watchSessionDirectory(
   return {
     sessions: () => [...sessions.values()],
     getSession: (sessionId: string) => sessions.get(sessionId),
+    events: async (sessionId: string) => {
+      const session = sessions.get(sessionId);
+      if (session === undefined) return undefined;
+      const [rotated, current] = await Promise.all([
+        readJournalFile(join(session.issueDir, ROTATED_EVENTS_FILENAME)),
+        readJournalFile(join(session.issueDir, EVENTS_FILENAME)),
+      ]);
+      return [...rotated, ...current];
+    },
     refresh: scan,
     close: () => clearInterval(timer),
   };

@@ -76,6 +76,10 @@ never had them must not gain artificial nulls on a round trip.
   for a dashboard and useless for an audit — after a six-hour run, "what
   happened at 3am" has no answer. The journal writes the events themselves, one
   JSON line each, in order, with a monotonic `seq`.
+- **Agent output is activity, not a heartbeat guess.** `agent:activity` is
+  published from each runner `onLine` callback and feeds
+  `snapshot.resilience.lastActivityAt`; filesystem mtime and `updatedAt` are
+  transport/projection timestamps and must not replace it in the dashboard.
 - **It sits *beside* `FilePublisher`, never in its place.** `MultiPublisher`
   holds both and fans one event stream out; `snapshot()` and `version()` answer
   from the first member, so the dashboard reads exactly what it always read.

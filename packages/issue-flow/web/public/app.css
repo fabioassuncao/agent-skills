@@ -458,6 +458,34 @@ progress {
   border-bottom: 1px solid var(--border);
 }
 
+.plain-list .history-entry {
+  align-items: flex-start;
+}
+
+.history-type {
+  flex: 0 0 9rem;
+  color: var(--muted);
+}
+
+.history-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .plain-list .history-entry {
+    flex-wrap: wrap;
+  }
+
+  .history-type {
+    flex-basis: auto;
+  }
+
+  .history-message {
+    flex-basis: 100%;
+  }
+}
+
 .plain-list li:last-child {
   border-bottom: none;
 }

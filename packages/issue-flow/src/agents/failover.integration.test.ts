@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setActiveResilienceConfig, setAgentCliOverrides } from '../config.js';
 import { JournalPublisher, parseJournal } from '../core/journal.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
+import { MemoryPublisher } from '../core/session-state.js';
 import { classify } from '../resilience/errors.js';
 import { resetStorageResolutionCache, resolveProjectPaths } from '../storage/resolve.js';
 import { recordProviderFailure } from './health.js';
@@ -246,5 +247,38 @@ describe('agent failover integration', () => {
 
     expect(selected.selection).toMatchObject({ provider: 'claude', healthFile: null });
     expect(codexCalls).toBe(0);
+  });
+
+  it('projects real runner output as the provider last activity', async () => {
+    setActiveResilienceConfig({ providers: { failover: false } });
+    registerRunner({
+      ...runner('claude', () => result('claude', true)),
+      run: async (invocation) => {
+        invocation.onLine?.('working');
+        return result('claude', true);
+      },
+    });
+    const publisher = new MemoryPublisher();
+    publisher.publish({
+      type: 'session:start',
+      at: '2026-08-30T10:00:00Z',
+      sessionId: 'session-1',
+      issueNumber: 70,
+      phases: ['execute'],
+    });
+    setSessionPublisher(publisher);
+
+    await invokeSelectedAgent({
+      prompt: 'work',
+      phase: 'execute',
+      timeout: 0,
+      permission: 'autonomous',
+    });
+
+    expect(publisher.snapshot().resilience).toMatchObject({
+      attempt: 1,
+      provider: 'claude',
+    });
+    expect(publisher.snapshot().resilience.lastActivityAt).not.toBeNull();
   });
 });

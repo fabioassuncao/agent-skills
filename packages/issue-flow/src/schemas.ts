@@ -334,6 +334,42 @@ export const sessionSnapshotSchema = z.object({
     correctionCycle: z.number(),
     maxCorrectionCycles: z.number().nullable(),
   }),
+  // Additive resilience projection. Every field defaults so session.json from
+  // before provider failover/observability remains readable without a schema
+  // version bump.
+  resilience: z
+    .object({
+      attempt: z.number().int().nonnegative().default(0),
+      provider: z.string().nullable().default(null),
+      model: z.string().nullable().default(null),
+      lastFailureKind: z
+        .enum([
+          'network',
+          'timeout',
+          'stalled',
+          'rate_limit',
+          'provider_down',
+          'provider_crash',
+          'authentication',
+          'configuration',
+          'repository_state',
+          'task_execution',
+          'internal',
+          'unknown',
+        ])
+        .nullable()
+        .default(null),
+      cooldownUntil: z.string().nullable().default(null),
+      lastActivityAt: z.string().nullable().default(null),
+    })
+    .default({
+      attempt: 0,
+      provider: null,
+      model: null,
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: null,
+    }),
   git: z.object({
     branch: z.string().nullable(),
     baseBranch: z.string().nullable(),
