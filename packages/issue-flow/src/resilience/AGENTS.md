@@ -3,10 +3,11 @@
 The failure taxonomy and the retry policy of the pipeline. Everything that
 decides *whether to try again, and after how long* belongs here — and only here.
 
-`errors.ts` answers **what went wrong** (`classify`); the retry policy and the
-single retry executor land alongside it. Nothing in this directory performs I/O,
-reads configuration files or knows about phases: it takes evidence and returns a
-verdict.
+`errors.ts` answers **what went wrong** (`classify`); `policy.ts` answers **what
+to do about it** (`resolvePolicy`, the backoff, the run state machine); the
+single retry executor lands alongside them. Nothing in this directory performs
+I/O, reads configuration files or knows about phases: it takes evidence and
+returns a verdict.
 
 ## The golden rule
 
@@ -28,7 +29,13 @@ waiting cannot fix a missing credential, a mistyped flag or a repository stuck
 mid-merge. `requiresHumanAction(kind)` is the predicate; those four kinds
 escalate, they do not retry.
 
-## Rules
+The rule is not a convention to be remembered — `resolvePolicy()` clamps those
+four kinds to `maxAttempts: 0, retryForever: false` **after** the configuration
+layer has been merged in, so no profile, no configuration file and no flag can
+buy them an attempt. Anything that wants to bypass it has to delete that clamp,
+which is a much louder change than editing a JSON file.
+
+## Rules of `errors.ts`
 
 - **Text is the last resort, never the first.** `classify()` decides by
   precedence: `errno` / `httpStatus` (a machine told us) → how the process ended
@@ -60,6 +67,42 @@ escalate, they do not retry.
   `includes` against the lower-cased output; use a `RegExp` when the shape
   matters (`/\b\d+\s+failed\b/` for what a test runner actually prints).
 
+## Rules of `policy.ts`
+
+- **The defaults table is the contract, and it is the PRD's table.** Every cell
+  of `BASE_POLICIES` is asserted row by row in `policy.test.ts`. Changing a
+  number there is changing documented behaviour and the test says so out loud.
+- **Precedence is base → profile → user configuration → the golden-rule
+  clamp.** The clamp is last on purpose; everything else is a plain object
+  spread, in that order, so "what wins" is readable in one expression.
+- **A profile only ever widens a budget.** `continuous` grants more attempts and
+  `retryForever`; it never makes a non-retryable kind retryable.
+- **`retryForever` is bounded in *delay*, never in *count*.** The ceiling is
+  `maxDelayMs` and `computeDelayMs()` applies it identically whether the budget
+  is finite or not. Waiting forever is a supported answer; hammering a service
+  that is down is not.
+- **Full jitter is the default**: `random(0, ceiling)`, not `ceiling ± noise`.
+  The RNG is injectable (`computeDelayMs(policy, n, { random })`) so the backoff
+  curve is asserted exactly, with no tolerance window.
+- **A server's `Retry-After` wins outright** — un-jittered, and *not* capped by
+  `maxDelayMs`. Capping it would mean coming back before the server allowed,
+  which is precisely the behaviour rate limiting exists to punish.
+- **Every wait goes through `abortableDelay()`**, which resolves `false` when
+  the signal fires instead of throwing. A caller that slept fifteen minutes and
+  a caller that was interrupted must not take the same next step, and an abort
+  is an expected outcome here, not an error.
+- **`failoverOnAuth` is opt-in and stays that way.** It is the only way
+  `authentication` gets a `failover` other than `never`, and it never leaks to
+  the other three human-action kinds. Silently switching provider because the
+  main one lost its credential hides exactly what the user needs to be told.
+- **The state machine lives here and only here.** `RUN_TRANSITIONS` is the whole
+  table; `canTransition()` is the only reader. `completed` and `cancelled` are
+  terminal, and `blocked` is left only by `actor: 'human'` — a pipeline that
+  could unblock itself would spin on the same missing credential forever.
+- **`RunStatus` is the run level.** The issue-level `runState.status` persisted
+  in `tasks.json` is a projection of it (`idle` is the name `queued` takes on a
+  single issue); the transitions are not re-declared there.
+
 ## Gotchas
 
 - **Exit code `143` decides nothing on its own.** The Claude CLI handles
@@ -79,3 +122,10 @@ escalate, they do not retry.
   branch is testable.
 - `retryAfterMs` is **omitted**, not set to `undefined`, when the server said
   nothing — a caller can test the property's presence.
+- **`attemptsMade` is a count of failures, not an index.** `computeDelayMs(p, 1)`
+  is the wait *before the second attempt* and yields `initialDelayMs` as its
+  ceiling, because the exponent is `attemptsMade - 1`. Off by one here doubles
+  or halves every delay in the project.
+- **`stalled` and `internal` have `initialDelayMs === maxDelayMs`.** That is the
+  table saying "a flat delay", not a missing value: with the two equal, the
+  backoff factor has nothing to grow into.
