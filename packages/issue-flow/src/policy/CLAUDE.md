@@ -112,11 +112,53 @@ its result, so two concurrent callers share a discovery instead of racing two; a
 rejection is evicted so it is not served forever. `resetPolicyCache()` exists for
 tests and long-lived processes.
 
+## The projection into prompts
+
+`placeholders.ts` turns a resolved policy into the `__REPO_*` placeholders. Two
+rules there are load-bearing:
+
+- **`__REPO_DOCS__` carries paths, never content.** The agent has `Read`.
+  Embedding `AGENTS.md` would multiply the cost of every run and freeze a copy of
+  the repository's own rule inside a prompt, which is the thing this whole layer
+  exists to avoid.
+- **Over budget, a section is replaced whole, never truncated.** A summary cut
+  mid-rule is worse than one that says where the rule lives. Essentials (base
+  branch, conventions, Issue Types, templates, labels) keep their slot as a
+  pointer; the rest simply drop out. `policy.contextBudget` sets the ceiling.
+
+`resolvePolicyPlaceholders()` is what commands call. It never throws and never
+warns: no git checkout, no `gh`, a discovery that fails — all yield the empty
+projection and the command behaves exactly as before.
+
+## Byte-identity is the contract
+
+A repository that declares no policy must get a prompt that is **byte for byte**
+the one it got before this layer existed. That is why the policy section of each
+packaged prompt is wrapped in `<!-- if:__REPO_POLICY__ -->` … `<!-- /if -->` and
+stripped by `applyConditionalSections()` (`core/prompt-resolver.ts`) — including
+the blank line before it. `core/prompt-override.test.ts` pins this against every
+file in `prompts/`, so adding a prompt does not require remembering the rule.
+
+An empty "Repository policy" heading would not just break byte-identity; it
+would invite the agent to wonder what was supposed to be there.
+
+## Prompt overrides
+
+`loadPrompt()` resolves `<root>/.issue-flow/prompts/<name>.md` (replacement),
+then `<name>.append.md` (appended), then the packaged prompt. `append` is the
+recommended form, and the doc comment says why: replacing a whole prompt makes
+the repository inherit its maintenance, so every later improvement stops
+reaching it, silently.
+
+`loadPrompt` falls back to `getProjectRoot()` when no root is passed, which costs
+a `git rev-parse`. Pass `projectRoot` wherever one is already in hand — `engine.ts`
+does, from `resolvePaths()`.
+
 ## No consumers yet
 
-Issue #56 delivers the foundation and `issue-flow policy` alone. No prompt, no
-skill and no phase reads `loadRepositoryPolicy()` — which is what makes the
-change fully additive, with no observable behaviour altered.
+Issue #56 delivered the foundation and `issue-flow policy`; #57 added the
+projection into the prompts and the per-repository override. The Agent Skills
+still do not consume any of it — that is #61.
 
 `issue-flow policy --json` is the bridge for the Agent Skills: they are markdown
 and cannot import TypeScript, so a versioned JSON document on stdout is the only

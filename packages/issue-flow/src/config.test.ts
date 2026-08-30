@@ -858,6 +858,7 @@ describe('loadPolicyConfig', () => {
 
     expect(config).toEqual({
       enabled: true,
+      contextBudget: 1500,
       discovery: {
         issueTemplates: true,
         pullRequestTemplate: true,

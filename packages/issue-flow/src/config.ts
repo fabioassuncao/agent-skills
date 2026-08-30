@@ -647,6 +647,10 @@ function readPolicyConfigEnv(
   if (env.ISSUE_FLOW_POLICY !== undefined) {
     layer.enabled = parseBooleanEnv(env.ISSUE_FLOW_POLICY);
   }
+  const budget = readNumberEnv(env, 'ISSUE_FLOW_POLICY_CONTEXT_BUDGET', warn);
+  if (budget !== undefined) {
+    layer.contextBudget = budget;
+  }
 
   const issues: NonNullable<PolicyConfigInput['issues']> = {};
   if (env.ISSUE_FLOW_POLICY_ISSUE_TITLE_CONVENTION !== undefined) {
@@ -728,10 +732,10 @@ export async function loadPolicyConfig(
   const envLayer = readPolicyConfigEnv(env, warn);
 
   const merged = {
-    ...mergeConfigLayers<{ enabled: boolean }>({
-      project: fileLayer.enabled === undefined ? {} : { enabled: fileLayer.enabled },
-      env: envLayer.enabled === undefined ? {} : { enabled: envLayer.enabled },
-      cli: cli.enabled === undefined ? {} : { enabled: cli.enabled },
+    ...mergeConfigLayers<{ enabled: boolean; contextBudget: number }>({
+      project: dropNullish({ enabled: fileLayer.enabled, contextBudget: fileLayer.contextBudget }),
+      env: dropNullish({ enabled: envLayer.enabled, contextBudget: envLayer.contextBudget }),
+      cli: dropNullish({ enabled: cli.enabled, contextBudget: cli.contextBudget }),
     }),
     discovery: mergeConfigLayers({
       project: dropNullish(fileLayer.discovery),

@@ -142,3 +142,20 @@ IMPORTANT: You MUST include the `<pr-review-result>` block, with the recommendat
 written exactly as one of `APPROVE`, `APPROVE_WITH_SUGGESTIONS` or `REQUEST_CHANGES`.
 An output without it, or with any other value, is a failed review — it is never read
 as an approval.
+
+<!-- if:__REPO_POLICY__ -->
+## Repository policy
+
+The repository this runs in declares the conventions below. They were discovered
+from its own files (Issue Templates, labels, `AGENTS.md`, `CONTRIBUTING.md`,
+`CODEOWNERS`) and from its configuration.
+
+__REPO_POLICY__
+
+**This section takes precedence over any convention stated earlier in this
+prompt.** Where the two disagree, follow the repository. Where the repository is
+silent, the defaults above still apply.
+
+Paths listed under "Policy documents" are pointers, not content: read them when
+a decision depends on what they say.
+<!-- /if -->

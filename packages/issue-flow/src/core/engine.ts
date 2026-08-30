@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import type { EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
@@ -219,8 +220,14 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // Initialize progress file
   await ensureProgressFile(paths.progressFile);
 
-  // Load prompt template
-  const promptTemplate = await loadPrompt('execute');
+  // Load prompt template. The root is handed over rather than rediscovered:
+  // it was resolved once by `resolvePaths()`, and a second `git rev-parse` here
+  // would be a subprocess per run for an answer already in hand.
+  const promptTemplate = await loadPrompt('execute', { projectRoot: paths.projectRoot });
+
+  // The repository's own conventions, resolved once for the whole loop: they
+  // cannot change mid-run, and every iteration renders the same projection.
+  const policy = await resolvePolicyPlaceholders({ root: paths.projectRoot });
 
   // Print startup header
   printStartupHeader(config, plan);
@@ -266,6 +273,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     const prompt = applyPlaceholders(promptTemplate, {
       __PRD_FILE__: paths.prdFile,
       __PROGRESS_FILE__: paths.progressFile,
+      ...policy,
       ...commitPlaceholders(config.commitScope),
     });
 

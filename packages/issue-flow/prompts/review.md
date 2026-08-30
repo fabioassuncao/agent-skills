@@ -39,3 +39,20 @@ FINDINGS:
 IMPORTANT: You MUST include the <review-result> block in your output.
 
 IMPORTANT: On FAIL, these FINDINGS are saved verbatim and handed to a correction iteration that has no other context about this review session — it only sees this text. Write each finding as a self-contained, actionable defect report: name the exact file and line, describe what is wrong and why, and state (or strongly imply) what a correct fix looks like. Avoid vague findings like "tests could be improved" — either the codebase fails an acceptance criterion or a regression, or it doesn't.
+
+<!-- if:__REPO_POLICY__ -->
+## Repository policy
+
+The repository this runs in declares the conventions below. They were discovered
+from its own files (Issue Templates, labels, `AGENTS.md`, `CONTRIBUTING.md`,
+`CODEOWNERS`) and from its configuration.
+
+__REPO_POLICY__
+
+**This section takes precedence over any convention stated earlier in this
+prompt.** Where the two disagree, follow the repository. Where the repository is
+silent, the defaults above still apply.
+
+Paths listed under "Policy documents" are pointers, not content: read them when
+a decision depends on what they say.
+<!-- /if -->
