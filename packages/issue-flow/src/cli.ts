@@ -534,6 +534,31 @@ withGlobalOptions(
   process.exit(await runPs(options));
 });
 
+// ── db ──────────────────────────────────────────────────────────────────────
+const db = program.command('db').description('Inspect and maintain the Issue Flow SQLite database');
+
+db.command('check')
+  .description('Run SQLite integrity_check')
+  .action(async () => {
+    const { runDbCheck } = await import('./commands/db.js');
+    process.exit(await runDbCheck());
+  });
+
+db.command('backup')
+  .description('Create a consistent SQLite backup')
+  .option('--destination <path>', 'Where to write the backup')
+  .action(async (options: { destination?: string }) => {
+    const { runDbBackup } = await import('./commands/db.js');
+    process.exit(await runDbBackup(options.destination));
+  });
+
+db.command('vacuum')
+  .description('Rebuild the SQLite database to reclaim unused space')
+  .action(async () => {
+    const { runDbVacuum } = await import('./commands/db.js');
+    process.exit(await runDbVacuum());
+  });
+
 withGlobalOptions(
   program.command('runs').description('History of the runs of this project, with how each ended'),
 ).action(async () => {

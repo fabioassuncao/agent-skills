@@ -6,6 +6,11 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
 
 ## Rules
 
+- **`node:sqlite` has one boundary: `db/driver.ts`.** Consumers use its small
+  `DatabaseDriver` interface; migrations and future repositories may issue SQL
+  only under `src/storage/db/`. The driver owns connection PRAGMAs, the narrow
+  SQLite ExperimentalWarning filter, transactions and online snapshots.
+
 - **Never join `homedir()` by hand.** Every path under the global tree must derive from
   `getGlobalRoot()` in `paths.ts` — that is the single seam where `ISSUE_FLOW_HOME` takes effect,
   and it is what keeps tests, CI and sandboxes off the real `$HOME`.

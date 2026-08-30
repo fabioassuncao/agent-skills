@@ -6,6 +6,7 @@ working tree untouched: no artifact to ignore, no artifact to commit, no diff
 noise. The trade-off is that the artifacts are machine-local.
 
 - [Directory tree](#directory-tree)
+- [SQLite database](#sqlite-database)
 - [One issue directory](#one-issue-directory)
 - [Project id](#project-id)
 - [`ISSUE_FLOW_HOME`](#issue_flow_home)
@@ -21,6 +22,9 @@ noise. The trade-off is that the artifacts are machine-local.
 ```
 ~/.issue-flow/
   config.json                    # Machine-wide preferences (optional)
+  issue-flow.db                  # Structured-state SQLite database
+  backups/
+    issue-flow-<timestamp>.db    # Consistent snapshots made by `db backup`
   logs/
     issue-flow-2026-08-30.jsonl  # Structured, machine-wide diagnostics
   web.lock                       # PID + port of the active web monitor, if any
@@ -38,6 +42,19 @@ noise. The trade-off is that the artifacts are machine-local.
 ```
 
 `queues/` only exists once a run really coordinates more than one issue.
+
+## SQLite database
+
+`issue-flow.db` is the versioned relational foundation for structured state.
+It is opened only through the storage database driver, with foreign keys,
+five-second busy timeout and WAL enabled. On a detected network filesystem the
+driver warns and uses the safer rollback journal (`DELETE`) mode instead.
+
+Schema migrations are forward-only and transactional. Each applied version is
+recorded in `schema_migrations` and mirrored in SQLite's `user_version`; a
+database created by a newer Issue Flow fails before any write, rather than being
+downgraded or modified. The `db check`, `db backup` and `db vacuum` commands
+are documented in [the command reference](commands.md#database-maintenance).
 
 ## One issue directory
 

@@ -14,6 +14,12 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** Issue Flow now requires Node.js `>=22.13.0` to use its built-in
+  SQLite storage foundation. Earlier Node 22 releases do not provide the
+  supported `node:sqlite` runtime surface.
+
 ## [0.18.0] - 2026-08-30
 
 O painel de monitoramento ganha uma hierarquia visual consolidada (#98), e o

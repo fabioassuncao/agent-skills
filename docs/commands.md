@@ -7,6 +7,7 @@ installed.
 - [Global flags](#global-flags)
 - [Pipeline](#pipeline) — `run`, `resume`, and the individual phases
 - [Operating a run](#operating-a-run) — `status`, `ps`, `runs`, `logs`, `usage`, `pause`, `cancel`
+- [Database maintenance](#database-maintenance) — `db check`, `db backup`, `db vacuum`
 - [Issues](#issues) — `generate`
 - [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`, `bench`
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
@@ -333,6 +334,23 @@ issue-flow cancel 42              # stop it, and mark it so `resume` reports it
 `pause` and `cancel` deliberately do nothing beyond signalling: the owning
 process already knows how to stop well, and a second implementation of that from
 outside would be a worse one. Neither ever signals a **stale** owner.
+
+## Database maintenance
+
+```bash
+issue-flow db check
+issue-flow db backup
+issue-flow db backup --destination /safe/place/issue-flow.db
+issue-flow db vacuum
+```
+
+The SQLite database is `~/.issue-flow/issue-flow.db` (or under
+`ISSUE_FLOW_HOME`). `check` runs SQLite's `integrity_check` and names recovery
+steps on failure. `backup` creates a consistent SQLite snapshot with `VACUUM
+INTO`; without `--destination`, it writes a timestamped file below
+`~/.issue-flow/backups/`. `vacuum` rebuilds the live database to reclaim unused
+space. All three commands exit non-zero with an actionable error when the
+database cannot be opened or is invalid.
 
 ## Issues
 
