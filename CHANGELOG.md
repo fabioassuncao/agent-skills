@@ -10,6 +10,8 @@ that were tagged but never published to the registry are marked as such.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-29
+
 ### Added
 
 - **Convention-aware initialization** — Issue Flow now works predictably both in
@@ -424,6 +426,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.11.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.0
 [0.10.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.10.0
 [0.9.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.9.0
 [0.5.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.5.0
