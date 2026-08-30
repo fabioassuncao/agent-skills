@@ -186,7 +186,9 @@ envelope unwrapping, what the loop decides from the result), write it in
 `execute-regression.test.ts` instead: that file mocks `execa` and runs the real
 `executeClaude()`, which is the only way to prove the CLI contract and the flow
 decisions still agree. Mock `../utils/retry.js`'s `sleep` there too, or every
-iteration and retry costs real seconds.
+iteration costs real seconds — and `../resilience/policy.js`'s `abortableDelay`,
+which is what the retry backoff waits on since the loop delegated to
+`resilience/retry.ts:withRetry`.
 
 Both artifacts are user-facing contracts: any new field on `SessionSnapshot` or
 `UserStory` also belongs in the root `README.md` (`Web Monitoring →

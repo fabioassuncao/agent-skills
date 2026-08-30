@@ -12,6 +12,14 @@ vi.mock('../utils/retry.js', async (importOriginal) => {
   return { ...actual, sleep: vi.fn(async () => {}) };
 });
 
+// The retry backoff of the execute loop, faked the same way: the decision to
+// retry, the attempt budget and the computed delay all stay real — only the
+// waiting is skipped, so a 30s->900s curve is assertable in milliseconds.
+vi.mock('../resilience/policy.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../resilience/policy.js')>();
+  return { ...actual, abortableDelay: vi.fn(async () => true) };
+});
+
 // Git/gh enrichment spawns subprocesses as soon as a real publisher is
 // installed; it carries no engine logic worth exercising here.
 vi.mock('./session-git.js', () => ({ publishGitState: vi.fn(async () => {}) }));
@@ -45,6 +53,7 @@ const { setSessionPublisher } = await import('./session-publisher.js');
 const { MemoryPublisher } = await import('./session-state.js');
 type SessionEvent = import('./session-state.js').SessionEvent;
 type MetricsEvent = Extract<SessionEvent, { type: 'metrics:update' }>;
+type RetryEvent = Extract<SessionEvent, { type: 'retry' }>;
 
 const mockExecuteClaude = vi.mocked(executeClaude);
 
@@ -250,6 +259,10 @@ describe('runEngine — execute-phase metrics', () => {
     return publisher.events.filter((e): e is MetricsEvent => e.type === 'metrics:update');
   }
 
+  function retryEvents(): RetryEvent[] {
+    return publisher.events.filter((e): e is RetryEvent => e.type === 'retry');
+  }
+
   function pendingPlan(...stories: UserStory[]): TaskPlan {
     return makePlan({
       issueStatus: 'in_progress',
@@ -453,6 +466,39 @@ describe('runEngine — execute-phase metrics', () => {
     expect(metricsEvents()).toHaveLength(2);
     expect(metricsEvents().every((e) => e.scope === 'iteration')).toBe(true);
     expect(publisher.snapshot().metrics.totalInputTokens).toBe(4);
+  });
+
+  it("keeps the execute loop's own backoff curve: retryLimit retries, 30s doubling to 900s", async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    claudeResult.current = { exitCode: 75, output: 'rate limit', cost: null };
+
+    const code = await runEngine(
+      { ...baseConfig, retryLimit: 2, backoffBaseSeconds: 30, backoffMaxSeconds: 900 },
+      paths,
+    );
+
+    // `retryLimit` counts retries, not attempts: two retries, three invocations.
+    expect(code).toBe(75);
+    expect(mockExecuteClaude).toHaveBeenCalledTimes(3);
+    expect(retryEvents().map((e) => [e.attempt, e.delaySeconds, e.kind])).toEqual([
+      // Exit code 75 is the CLI saying the provider is unavailable — a
+      // structured signal, so it outranks the "rate limit" in the text.
+      [1, 30, 'provider_down'],
+      [2, 60, 'provider_down'],
+    ]);
+  });
+
+  it("does not retry a failure in the agent's own work, not even with --retry-forever", async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    // A test runner's output: the work is wrong, and waiting cannot fix it.
+    claudeResult.current = { exitCode: 1, output: 'Tests  3 failed | 41 passed', cost: null };
+
+    const code = await runEngine({ ...baseConfig, retryForever: true }, paths);
+
+    expect(code).toBe(1);
+    expect(mockExecuteClaude).toHaveBeenCalledTimes(1);
+    expect(retryEvents()).toHaveLength(0);
+    expect((await readPlan()).lastError?.category).toBe('fatal_claude_failure');
   });
 
   it('completes the iteration normally when the CLI reported no usage at all', async () => {

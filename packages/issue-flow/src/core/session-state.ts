@@ -1,6 +1,7 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import type { FailureKind } from '../resilience/errors.js';
 import type { StoryStage, UserStory, UserStoryStatus } from '../types.js';
 
 /**
@@ -71,7 +72,19 @@ export type SessionEvent =
       storyId?: string;
     }
   | { type: 'iteration:end'; at: string; iteration: number }
-  | { type: 'retry'; at: string; attempt: number; delaySeconds?: number; reason?: string }
+  | {
+      type: 'retry';
+      at: string;
+      attempt: number;
+      delaySeconds?: number;
+      reason?: string;
+      /**
+       * What the resilience layer classified the failure as. Optional so an
+       * event written by an older build — or by a caller with nothing but a
+       * message — stays valid; the reducer only counts retries either way.
+       */
+      kind?: FailureKind;
+    }
   | { type: 'stories:update'; at: string; stories: UserStory[] }
   | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }

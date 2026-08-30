@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
+import { type ClassifiedFailure, classify } from '../resilience/errors.js';
+import { fixedBackoffPolicy, withRetry } from '../resilience/retry.js';
 import { printRetry } from '../ui/logger.js';
-import { retryDelaySeconds, sleep } from '../utils/retry.js';
 import { getSessionPublisher } from './session-publisher.js';
 import { isoNow } from './state-manager.js';
 
@@ -17,6 +18,8 @@ export interface PhaseRetryOptions {
   retryLimit?: number;
   backoffBaseSeconds?: number;
   backoffMaxSeconds?: number;
+  /** Cuts a pending backoff short, so a phase stops waiting on shutdown. */
+  signal?: AbortSignal;
 }
 
 const DEFAULT_PHASE_RETRY_LIMIT = 3;
@@ -25,42 +28,66 @@ const DEFAULT_BACKOFF_MAX_SECONDS = 120;
 
 /**
  * Bounded retry wrapper for single-shot phases (prd, plan, pr) that invoke
- * the Claude CLI once and validate an artifact. Mirrors the transient-retry
- * pattern already used by the execute phase's iteration loop (core/engine.ts:
- * isTransientFailure + retryDelaySeconds), applied here to phases that
+ * the Claude CLI once and validate an artifact. Applied to phases that
  * previously aborted the whole pipeline on the first failure with no chance
  * to recover. Non-transient failures (or exhausting the retry budget) still
  * end the phase — this bounds recovery attempts, it never retries forever.
+ *
+ * The loop itself is `resilience/retry.ts:withRetry`, shared with the
+ * `execute` loop of `core/engine.ts`. What stays here is what is specific to a
+ * phase: the caller's `transient` verdict, the `retry` event and the printed
+ * line. With no options supplied the effective numbers are the ones this
+ * module has always used — 3 attempts, 15s doubling to 120s, no jitter.
  */
 export async function runPhaseWithRetry(options: PhaseRetryOptions): Promise<PhaseAttemptResult> {
   const retryLimit = options.retryLimit ?? DEFAULT_PHASE_RETRY_LIMIT;
   const backoffBaseSeconds = options.backoffBaseSeconds ?? DEFAULT_BACKOFF_BASE_SECONDS;
   const backoffMaxSeconds = options.backoffMaxSeconds ?? DEFAULT_BACKOFF_MAX_SECONDS;
 
-  let lastResult: PhaseAttemptResult = { ok: false, error: 'Phase never attempted' };
-  let retryCount = 0;
+  if (retryLimit < 1) return { ok: false, error: 'Phase never attempted' };
 
-  for (let attemptNumber = 1; attemptNumber <= retryLimit; attemptNumber++) {
-    lastResult = await options.attempt(attemptNumber);
-    if (lastResult.ok) return lastResult;
-    if (!lastResult.transient || attemptNumber === retryLimit) return lastResult;
+  const outcome = await withRetry<PhaseAttemptResult>((attempt) => options.attempt(attempt), {
+    policy: fixedBackoffPolicy(retryLimit, backoffBaseSeconds, backoffMaxSeconds),
+    signal: options.signal,
+    evaluate: (result) => (result.ok ? null : phaseFailure(result)),
+    onAttempt: ({ attempt, failure, willRetry, delayMs }) => {
+      if (failure === null || !willRetry) return;
 
-    retryCount++;
-    const delaySeconds = retryDelaySeconds(retryCount, backoffBaseSeconds, backoffMaxSeconds);
-    getSessionPublisher().publish({
-      type: 'retry',
-      at: isoNow(),
-      attempt: retryCount,
-      delaySeconds,
-      reason: lastResult.error,
-    });
-    printRetry(
-      `Phase ${options.phase} hit a recoverable failure (attempt ${attemptNumber}/${retryLimit}): ${lastResult.error}. Retrying in ${delaySeconds}s.`,
-    );
-    await sleep(delaySeconds);
-  }
+      const delaySeconds = delayMs / 1000;
+      getSessionPublisher().publish({
+        type: 'retry',
+        at: isoNow(),
+        attempt,
+        delaySeconds,
+        reason: failure.message,
+        kind: failure.kind,
+      });
+      printRetry(
+        `Phase ${options.phase} hit a recoverable failure (attempt ${attempt}/${retryLimit}): ${failure.message}. Retrying in ${delaySeconds}s.`,
+      );
+    },
+  });
 
-  return lastResult;
+  return outcome.value;
+}
+
+/**
+ * Turn a phase's own verdict into the classified failure `withRetry` decides
+ * on.
+ *
+ * `transient` stays authoritative: the phases build it with
+ * `isTransientFailure()` over the CLI's output, but a phase can also fail on
+ * something it alone can see — a PRD file that never appeared — and that
+ * judgement is not recoverable from the error text. `classify()` is consulted
+ * only to name the *kind*, which is what the `retry` event now reports.
+ */
+function phaseFailure(result: PhaseAttemptResult): ClassifiedFailure {
+  const message = result.error ?? 'Phase failed';
+  return {
+    ...classify({ source: 'agent', stdout: message }),
+    message,
+    retryable: result.transient === true,
+  };
 }
 
 /**

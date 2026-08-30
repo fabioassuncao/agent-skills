@@ -4,10 +4,10 @@ The failure taxonomy and the retry policy of the pipeline. Everything that
 decides *whether to try again, and after how long* belongs here — and only here.
 
 `errors.ts` answers **what went wrong** (`classify`); `policy.ts` answers **what
-to do about it** (`resolvePolicy`, the backoff, the run state machine); the
-single retry executor lands alongside them. Nothing in this directory performs
-I/O, reads configuration files or knows about phases: it takes evidence and
-returns a verdict.
+to do about it** (`resolvePolicy`, the backoff, the run state machine);
+`retry.ts` is the one place that **does** it (`withRetry`). Nothing in this
+directory performs I/O, reads configuration files or knows about phases: it
+takes evidence and returns a verdict.
 
 ## The golden rule
 
@@ -103,6 +103,41 @@ which is a much louder change than editing a JSON file.
   in `tasks.json` is a projection of it (`idle` is the name `queued` takes on a
   single issue); the transitions are not re-declared there.
 
+## Rules of `retry.ts`
+
+- **There is one retry loop in this project, and it is `withRetry()`.** Before
+  it, `core/phase-runner.ts` and the `execute` loop of `core/engine.ts` each had
+  their own counter, their own backoff and no way of staying in step; both now
+  delegate. A third loop is a bug, not a feature — a new call site passes a
+  `RetryPolicy`, it does not write a `for`.
+- **The veto is enforced here a second time.** `resolvePolicy()` clamps the
+  four human-action kinds, but a caller may hand-build a `RetryPolicy` without
+  ever going through it, so `withRetry()` checks `requiresHumanAction()` on the
+  *classified kind* as well. Neither check is redundant: one guards the
+  configuration, the other guards the call site.
+- **The caller owns the verdict, through `evaluate`.** Only the caller knows
+  what failure looks like in its own return type — an exit code, an `ok: false`,
+  an HTTP response — and `ClassifiedFailure.retryable` as it returns it is
+  authoritative. A phase that failed on something only it can see (a PRD file
+  that never appeared) says so there; `classify()` is then consulted for the
+  *kind* alone.
+- **Nothing is published from this module.** Everything observable goes back
+  through `onAttempt`, which is awaited before the backoff, so a caller's event,
+  print or `tasks.json` write lands before the wait begins. Keeping the
+  publisher out is what lets this directory stay I/O-free.
+- **`onAttempt` fires on *every* attempt, including the successful one and the
+  one that spends the last of the budget.** `willRetry` is the discriminator,
+  never the presence of a failure.
+- **`fixedBackoffPolicy()` is un-jittered on purpose.** It is the shape the two
+  legacy call sites express themselves in, and both publish their delay in a
+  `retry` event and print it; jitter arrives with the configuration key that
+  asks for it, not as a silent change of today's numbers.
+- **The two historical budgets are preserved as data, not as code**:
+  `fixedBackoffPolicy(3, 15, 120)` for the single-shot phases and
+  `fixedBackoffPolicy(retryLimit + 1, 30, 900)` for `execute`. The `+ 1` is not
+  a fudge: `EngineConfig.retryLimit` counts *retries*, `maxAttempts` counts
+  *attempts*.
+
 ## Gotchas
 
 - **Exit code `143` decides nothing on its own.** The Claude CLI handles
@@ -129,3 +164,11 @@ which is a much louder change than editing a JSON file.
 - **`stalled` and `internal` have `initialDelayMs === maxDelayMs`.** That is the
   table saying "a flat delay", not a missing value: with the two equal, the
   backoff factor has nothing to grow into.
+- **A retry costs no iteration budget in `execute`.** `withRetry` loops *inside*
+  one pass of the engine's `while`, which is what the old `i--; continue` bought;
+  everything a retried attempt must redo — re-reading `tasks.json`, republishing
+  `iteration:start`, re-rendering the prompt — has to stay inside the function
+  handed to `withRetry`, because the loop it replaces re-ran all of it.
+- **Faking a backoff in a test means mocking `abortableDelay` from
+  `resilience/policy.js`**, not `sleep` from `utils/retry.js`. `withRetry` never
+  touches the latter, and a test that mocks the wrong one waits for real.

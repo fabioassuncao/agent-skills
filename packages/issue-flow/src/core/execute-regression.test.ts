@@ -18,6 +18,14 @@ import type { EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.
  */
 
 // Instant sleep: the real one waits 2s per iteration and backs off on retries.
+// The retry backoff waits on `abortableDelay` since the loop delegated to
+// `resilience/retry.ts:withRetry`; mocking only `sleep` leaves it waiting for
+// real. The retry decision and the computed delay stay production code.
+vi.mock('../resilience/policy.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../resilience/policy.js')>();
+  return { ...actual, abortableDelay: vi.fn(async () => true) };
+});
+
 vi.mock('../utils/retry.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/retry.js')>();
   return { ...actual, sleep: vi.fn(async () => {}) };
