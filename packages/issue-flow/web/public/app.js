@@ -127,6 +127,9 @@
     // guardar o nó levaria a uma referência morta.
     selectedDetail: null,
     configWritable: false,
+    // Identifica o processo que serviu os assets atuais. Uma troca significa
+    // que --restart-web colocou código novo no mesmo origin e exige reload.
+    serverInstanceId: null,
     // Multi-sessão (#35): lista de /api/sessions e seleção explícita do usuário.
     // selectedSessionId null = modo automático (1 sessão → detalhe; 2+ → dashboard).
     sessions: [],
@@ -528,6 +531,20 @@
     state.eventsUrl = null;
   }
 
+  function serverInstanceChanged(response) {
+    const instanceId = response.headers.get('X-Issue-Flow-Instance');
+    if (!instanceId) return false; // servidor anterior à identidade de instância
+    if (state.serverInstanceId === null) {
+      state.serverInstanceId = instanceId;
+      return false;
+    }
+    if (state.serverInstanceId !== instanceId) {
+      window.location.reload();
+      return true;
+    }
+    return false;
+  }
+
   function requestPoll() {
     clearTimer();
     if (state.polling) {
@@ -560,6 +577,7 @@
     state.pollAgain = false;
     try {
       const sessionsRes = await fetch('api/sessions', { cache: 'no-store' });
+      if (serverInstanceChanged(sessionsRes)) return;
       if (!sessionsRes.ok) throw new Error('HTTP ' + sessionsRes.status);
       const sessions = await sessionsRes.json();
       if (!Array.isArray(sessions)) throw new Error('sessions payload invalid');
@@ -1721,18 +1739,19 @@
     // Default do seletor vem da configuração do servidor (/api/health);
     // a escolha do usuário em localStorage tem precedência.
     const stored = readStoredRefresh();
-    if (stored !== null) {
-      state.refreshSeconds = stored;
-    } else {
-      try {
-        const health = await fetch('api/health', { cache: 'no-store' }).then((r) => r.json());
-        state.configWritable = list(health.capabilities).includes('config:agent:write');
-        const suggested = Number(health.refreshSeconds);
-        if (Number.isFinite(suggested) && suggested > 0) state.refreshSeconds = suggested;
-      } catch (err) {
-        // Sem /api/health segue o default local (5s).
+    try {
+      const healthRes = await fetch('api/health', { cache: 'no-store' });
+      serverInstanceChanged(healthRes);
+      const health = await healthRes.json();
+      state.configWritable = list(health.capabilities).includes('config:agent:write');
+      const suggested = Number(health.refreshSeconds);
+      if (stored === null && Number.isFinite(suggested) && suggested > 0) {
+        state.refreshSeconds = suggested;
       }
+    } catch (err) {
+      // Sem /api/health segue o default local (5s).
     }
+    if (stored !== null) state.refreshSeconds = stored;
     buildRefreshSelect();
 
     window.setInterval(renderTimers, 1000);

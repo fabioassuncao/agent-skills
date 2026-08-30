@@ -12,6 +12,60 @@ Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
 the fact, so they list what changed rather than explaining why. Everything from
 0.9.0 onwards was written at release time.
 
+## [0.15.0] - 2026-08-30
+
+Depois de atualizar o Issue Flow, o monitor web continuava servindo a interface
+antiga: o processo detached lê `index.html`, `app.css` e `app.js` uma vez, na
+partida, e os mantém em memória junto do cache de ETag do status. Só reiniciar o
+processo invalida esses caches. `--restart-web` faz exatamente isso — e nada
+além disso. O servidor passa a ter identidade de instância, o que permite a uma
+aba já aberta perceber a troca e se recarregar sozinha, e um monitor órfão deixa
+de ser um conflito de porta insolúvel.
+
+### Added
+
+- **`--restart-web` em `run` e `execute`.** Uma ação efêmera que implica
+  `--web`: para o monitor verificado anterior de forma graciosa e sobe um novo
+  processo detached pelo entry point da CLI que está executando o comando. Sem a
+  flag, o comportamento de reúso da instância única continua idêntico. O log
+  registra o PID e a versão antigos e os novos. A flag não tem variável de
+  ambiente nem chave em `.issue-flow.json` — é um pedido pontual, não uma
+  configuração. Numa fila de issues ela vale apenas para a primeira. Como o
+  restart usa a versão do pacote em execução, atualizar o pacote junto é
+  `npx issue-flow@latest run 42 --restart-web`.
+
+- **Identidade de instância no monitor.** Todo servidor gera um `instanceId` na
+  partida, exposto em `GET /api/health` — junto de `pid` e `startedAt` — e
+  devolvido em toda resposta no header `X-Issue-Flow-Instance`. O painel guarda
+  a primeira identidade que observa e chama `window.location.reload()` quando
+  ela muda: é assim que uma aba aberta troca de assets depois de um restart, sem
+  intervenção. Uma aba carregada por uma versão anterior à identidade precisa de
+  um reload manual. O campo entra em `web.lock` como opcional, de modo que locks
+  escritos por versões antigas seguem válidos.
+
+- **`web.restart.lock`.** Um lock irmão, de vida curta, que serializa a janela
+  de manutenção de `--restart-web` e de `web stop`. Um dono morto é tratado como
+  stale e o arquivo é removido. Falha de restart nunca derruba o pipeline.
+
+### Fixed
+
+- **Monitor órfão depois de remover `~/.issue-flow`.** O processo seguia vivo
+  sem `web.lock`, e a porta virava um conflito que nenhum comando resolvia.
+  Agora o Issue Flow sonda a porta configurada e só reconstrói o lock quando o
+  endpoint de saúde **e** a linha de comando do processo que escuta provam que
+  aquilo é um `issue-flow web serve`. Um dono ambíguo nunca é encerrado.
+
+- **`/api/health` reportando `0.0.0` no bundle.** A versão era lida em um
+  caminho relativo que só existe na árvore de fontes; no `dist/` a leitura
+  falhava em silêncio, o que justamente escondia o diagnóstico de qual versão
+  estava servindo o painel. Os dois layouts passam a ser tentados.
+
+- **`--refresh` do servidor lido mesmo com preferência salva.** O painel só
+  buscava `/api/health` quando não havia escolha em `localStorage`, e assim
+  perdia `capabilities` — o card de configuração ficava read-only sem motivo. A
+  saúde agora é sempre consultada; a preferência do usuário continua vencendo o
+  valor sugerido.
+
 ## [0.14.0] - 2026-08-30
 
 O monitor web deixa de ser uma vitrine e passa a explicar a própria execução.
@@ -1029,6 +1083,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.15.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.15.0
 [0.14.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.14.0
 [0.13.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.13.0
 [0.12.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.12.0

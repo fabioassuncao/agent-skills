@@ -24,6 +24,7 @@ noise. The trade-off is that the artifacts are machine-local.
   logs/
     issue-flow-2026-08-30.jsonl  # Structured, machine-wide diagnostics
   web.lock                       # PID + port of the active web monitor, if any
+  web.restart.lock               # Short-lived serialization of an explicit restart
   projects/
     issue-flow-4b21c0e9f7a3/     # One directory per project: <slug>-<hash12>
       metadata.json              # Project identity and timestamps
@@ -152,8 +153,18 @@ Marks the single web monitoring server active on this machine. `pid` is the
 that triggered it:
 
 ```json
-{ "pid": 41213, "port": 3737, "host": "127.0.0.1", "startedAt": "2026-08-04T02:00:00Z" }
+{
+  "pid": 41213,
+  "port": 3737,
+  "host": "127.0.0.1",
+  "startedAt": "2026-08-04T02:00:00Z",
+  "instanceId": "a3f66c15-9c4a-4acf-895e-c965f92127dc"
+}
 ```
+
+`instanceId` is additive: locks written before it existed remain readable.
+`web.restart.lock` exists only while `--restart-web` or `web stop` owns the
+maintenance window. A dead owner is treated as stale and the file is removed.
 
 See [Web monitoring → single instance](web-monitor.md#single-instance-detached-from-the-pipeline).
 

@@ -1,5 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { Server } from 'node:http';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +19,8 @@ import {
 import type { ActiveSession, SessionDirectoryHandle } from './session-directory.js';
 
 const noop = (): void => {};
+const packageVersion = (createRequire(import.meta.url)('../../package.json') as { version: string })
+  .version;
 
 describe('truncateSessionDescription', () => {
   it('returns null for nullish input and preserves short text', () => {
@@ -267,12 +270,23 @@ describe('startWebServer', () => {
 
   it('reports ok, uptime and version on /api/health', async () => {
     const handle = await start({ version: '9.9.9', refreshSeconds: 10 });
-    const health = await fetch(`${handle.url}/api/health`).then((r) => r.json());
+    const response = await fetch(`${handle.url}/api/health`);
+    const health = await response.json();
     expect(health.ok).toBe(true);
+    expect(health.pid).toBe(process.pid);
+    expect(health.instanceId).toBe(handle.instanceId);
+    expect(health.startedAt).toEqual(expect.any(String));
     expect(typeof health.uptime).toBe('number');
     expect(health.version).toBe('9.9.9');
     expect(health.refreshSeconds).toBe(10);
     expect(health.capabilities).toContain('config:agent:write');
+    expect(response.headers.get('X-Issue-Flow-Instance')).toBe(handle.instanceId);
+  });
+
+  it('reports the package version from both source and bundled layouts', async () => {
+    const handle = await start();
+    const health = await fetch(`${handle.url}/api/health`).then((response) => response.json());
+    expect(health.version).toBe(packageVersion);
   });
 
   it('writes a validated global harness preference only on loopback', async () => {

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
@@ -36,11 +36,17 @@ const require = createRequire(import.meta.url);
 export const SESSION_LIST_DESCRIPTION_MAX = 280;
 
 function readPackageVersion(): string {
-  try {
-    return (require('../../package.json') as { version: string }).version;
-  } catch {
-    return '0.0.0';
+  // Source lives at src/web/server.ts (../../package.json); the bundle lives
+  // directly in dist/ (../package.json). Try both layouts instead of letting a
+  // built monitor silently report 0.0.0 and obscuring restart diagnostics.
+  for (const candidate of ['../package.json', '../../package.json']) {
+    try {
+      return (require(candidate) as { version: string }).version;
+    } catch {
+      // Try the other supported layout.
+    }
   }
+  return '0.0.0';
 }
 
 /** Collapse whitespace and truncate for the sessions list payload. */
@@ -75,6 +81,8 @@ export interface WebServerOptions {
   refreshSeconds?: number;
   /** Package version reported by /api/health. Default: read from package.json. */
   version?: string;
+  /** Stable identity for this server process. Default: a fresh UUID at startup. */
+  instanceId?: string;
   /** Directory holding index.html/app.css/app.js. Default: auto-resolved. */
   publicDir?: string;
   /** Info logger. Default: printInfo. */
@@ -103,6 +111,8 @@ export interface WebServerHandle {
   port: number;
   /** Human-facing access URL. */
   url: string;
+  /** Identity exposed by health checks and written into web.lock. */
+  instanceId: string;
   /** Close the server and release signal handlers. Idempotent, never rejects. */
   close(): Promise<void>;
 }
@@ -176,8 +186,9 @@ async function loadStaticAssets(publicDir: string | null): Promise<Map<string, S
 }
 
 /** Headers applied to every response, including 304s and errors. */
-function baseHeaders(res: ServerResponse): void {
+function baseHeaders(res: ServerResponse, instanceId: string): void {
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Issue-Flow-Instance', instanceId);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
@@ -218,6 +229,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const info = options.info ?? printInfo;
   const warn = options.warn ?? printWarning;
   const version = options.version ?? readPackageVersion();
+  const instanceId = options.instanceId ?? randomUUID();
   const startedAtMs = Date.now();
 
   // The UI ships at the package root as web/public/ (sibling of prompts/),
@@ -246,7 +258,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   };
 
   const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    baseHeaders(res);
+    baseHeaders(res, instanceId);
 
     const requestUrl = new URL(req.url ?? '/', 'http://localhost');
     const path = requestUrl.pathname;
@@ -410,6 +422,9 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     if (path === '/api/health') {
       respondJson(res, 200, {
         ok: true,
+        pid: process.pid,
+        instanceId,
+        startedAt: new Date(startedAtMs).toISOString(),
         uptime: Math.round((Date.now() - startedAtMs) / 1000),
         version,
         refreshSeconds: options.refreshSeconds ?? 5,
@@ -507,7 +522,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   // socket close. Capturing `close` directly here was a real bug: the wrapped
   // behavior only ever ran for an *explicit* `handle.close()` call, leaving
   // the lock file (and the poller) behind on every signal-driven shutdown.
-  const handle: WebServerHandle = { server, host: options.host, port, url, close };
+  const handle: WebServerHandle = { server, host: options.host, port, url, instanceId, close };
 
   // Explicit close on SIGINT/SIGTERM, then re-raise so the default
   // termination behavior still applies.

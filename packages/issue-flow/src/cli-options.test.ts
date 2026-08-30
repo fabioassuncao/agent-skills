@@ -6,7 +6,18 @@ import {
   resolveQueueScopeFlags,
   resolveRunPhaseFlags,
   resolveUserStoryNumberingFlags,
+  resolveWebOverrides,
 } from './cli-options.js';
+
+describe('resolveWebOverrides', () => {
+  it('--restart-web implies web without becoming a persisted config field', () => {
+    expect(resolveWebOverrides({ restartWeb: true })).toEqual({ enabled: true });
+  });
+
+  it('preserves the historical empty override when web flags are absent', () => {
+    expect(resolveWebOverrides({})).toEqual({});
+  });
+});
 
 describe('resolveNoBranch', () => {
   it('reports no-branch mode when the flag is present', () => {

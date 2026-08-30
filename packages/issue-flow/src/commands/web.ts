@@ -1,7 +1,6 @@
 import { loadWebConfig } from '../config.js';
 import type { WebConfig } from '../schemas.js';
-import { printError, printInfo, printWarning } from '../ui/logger.js';
-import { ensureSingleWebServer, getWebLockFile, readWebLock, removeWebLock } from '../web/lock.js';
+import { ensureSingleWebServer, stopWebMonitor } from '../web/lock.js';
 import { watchSessionDirectory } from '../web/session-directory.js';
 
 /**
@@ -15,13 +14,6 @@ import { watchSessionDirectory } from '../web/session-directory.js';
  * which point `startWebServer`'s own signal handler closes it (removing the
  * lock) and re-raises the signal for the default termination behavior.
  */
-
-const STOP_POLL_INTERVAL_MS = 100;
-const STOP_TIMEOUT_MS = 5000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export interface RunWebServeOptions {
   port?: number;
@@ -84,38 +76,7 @@ export async function runWebServe(options: RunWebServeOptions): Promise<number> 
 
 /** Stop the single running web monitor instance, if any. */
 export async function runWebStop(): Promise<number> {
-  const lockFile = getWebLockFile();
-  const lock = await readWebLock(lockFile);
-  if (lock === null) {
-    printInfo('No web monitor is currently running.');
-    return 0;
-  }
-
-  try {
-    process.kill(lock.pid, 'SIGTERM');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ESRCH') {
-      printWarning(
-        'The web monitor lock referenced a process that is no longer running; removing it.',
-      );
-      await removeWebLock(lockFile);
-      return 0;
-    }
-    printError(
-      `Failed to stop the web monitor: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return 1;
-  }
-
-  const deadline = Date.now() + STOP_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if ((await readWebLock(lockFile)) === null) {
-      printInfo(`Web monitor (pid ${lock.pid}) stopped.`);
-      return 0;
-    }
-    await sleep(STOP_POLL_INTERVAL_MS);
-  }
-
-  printWarning('Sent the stop signal, but the web monitor did not confirm shutdown in time.');
-  return 0;
+  const webConfig = await loadWebConfig();
+  const result = await stopWebMonitor({ port: webConfig.port, host: webConfig.host });
+  return result === 'failed' || result === 'unowned' ? 1 : 0;
 }

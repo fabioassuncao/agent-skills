@@ -11,6 +11,7 @@ import {
   getWebLockFile,
   readWebLock,
   removeWebLock,
+  stopWebMonitor,
   WEB_LOCK_FILENAME,
 } from './lock.js';
 import type { WebServerHandle } from './server.js';
@@ -321,5 +322,146 @@ describe('web/lock', () => {
         process.argv[1] = originalArgv1;
       }
     });
+
+    it('restart stops the verified instance, invalidates memory caches and spawns a replacement', async () => {
+      const existing = await start();
+      const oldLock = await readWebLock(getWebLockFile(envOptions));
+      const info = vi.fn();
+      const kill = vi.fn(() => true) as unknown as typeof process.kill;
+      const spawn = vi.fn((_command: string, _args: string[]) => {
+        void ensureSingleWebServer(
+          { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn: noop },
+          envOptions,
+        ).then((handle) => {
+          if (handle) handles.push(handle);
+        });
+        return fakeChild();
+      });
+
+      const replacement = await ensureWebMonitor(
+        { publisher: makePublisher(), port: 0, host: '127.0.0.1', info, warn: noop },
+        {
+          ...envOptions,
+          restart: true,
+          kill,
+          isAlive: () => false,
+          spawn,
+          entryScript: '/cli.js',
+          claimPollIntervalMs: 10,
+        },
+      );
+      if (replacement) handles.push(replacement);
+
+      expect(kill).toHaveBeenCalledWith(oldLock?.pid, 'SIGTERM');
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(replacement).not.toBeNull();
+      expect(replacement?.instanceId).not.toBe(existing.instanceId);
+      expect(info).toHaveBeenCalledWith(expect.stringContaining('caches invalidated'));
+      expect(info).toHaveBeenCalledWith(expect.stringContaining('new instance started'));
+    });
+
+    it('restart does not spawn a competing process when shutdown times out', async () => {
+      await start();
+      const warn = vi.fn();
+      const spawn = vi.fn();
+
+      const result = await ensureWebMonitor(
+        { publisher: makePublisher(), port: 0, host: '127.0.0.1', info: noop, warn },
+        {
+          ...envOptions,
+          restart: true,
+          kill: vi.fn(() => true) as unknown as typeof process.kill,
+          isAlive: () => true,
+          spawn,
+          shutdownTimeoutMs: 25,
+          claimPollIntervalMs: 5,
+        },
+      );
+
+      expect(result).toBeNull();
+      expect(spawn).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('did not confirm shutdown'));
+    });
+
+    it('recovers a healthy orphan after the whole global root was deleted', async () => {
+      const existing = await start();
+      await rm(home, { recursive: true, force: true });
+      const info = vi.fn();
+
+      const recovered = await ensureWebMonitor(
+        {
+          publisher: makePublisher(),
+          port: existing.port,
+          host: '127.0.0.1',
+          info,
+          warn: noop,
+        },
+        {
+          ...envOptions,
+          inspectProcess: async () =>
+            `node /opt/issue-flow/dist/cli.js web serve --port ${existing.port} --host 127.0.0.1`,
+        },
+      );
+      if (recovered) handles.push(recovered);
+
+      expect(recovered?.port).toBe(existing.port);
+      expect((await readWebLock(getWebLockFile(envOptions)))?.pid).toBe(process.pid);
+      expect(info).toHaveBeenCalledWith(expect.stringContaining('Recovered orphaned'));
+    });
+
+    it('leaves a monitor-like orphan untouched when process ownership is ambiguous', async () => {
+      const existing = await start();
+      await removeWebLock(getWebLockFile(envOptions));
+      const warn = vi.fn();
+      const kill = vi.fn();
+      const spawn = vi.fn();
+
+      const result = await ensureWebMonitor(
+        {
+          publisher: makePublisher(),
+          port: existing.port,
+          host: '127.0.0.1',
+          info: noop,
+          warn,
+        },
+        {
+          ...envOptions,
+          restart: true,
+          kill,
+          spawn,
+          inspectProcess: async () => 'node unrelated-service.js',
+          findPortOwner: async () => null,
+        },
+      );
+
+      expect(result).toBeNull();
+      expect(kill).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not be verified'));
+    });
+  });
+
+  it('stopWebMonitor cleans a dead lock without signalling an unrelated pid', async () => {
+    const lockFile = getWebLockFile(envOptions);
+    await writeFile(
+      lockFile,
+      JSON.stringify({
+        pid: DEAD_PID,
+        port: 59999,
+        host: '127.0.0.1',
+        startedAt: '2020-01-01T00:00:00Z',
+      }),
+      'utf-8',
+    );
+    const kill = vi.fn();
+
+    const result = await stopWebMonitor(
+      { port: 59999, host: '127.0.0.1', info: noop, warn: noop },
+      { ...envOptions, kill },
+    );
+
+    expect(result).toBe('not-running');
+    expect(kill).not.toHaveBeenCalled();
+    expect(await readWebLock(lockFile)).toBeNull();
   });
 });

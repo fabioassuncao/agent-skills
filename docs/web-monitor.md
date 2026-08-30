@@ -10,6 +10,7 @@ and polls the server at a configurable interval.
 issue-flow run 42 --web                            # http://localhost:3737
 issue-flow run 42 --web --port 8080 --refresh 10
 issue-flow run 42 --web --host 127.0.0.1           # this machine only
+issue-flow run 42 --restart-web                    # restart, then monitor
 issue-flow web stop                                # stop the monitor explicitly
 ```
 
@@ -142,6 +143,36 @@ removed and re-claimed. The claim uses an exclusive create (`wx`) **after** a
 successful bind, so two invocations racing to become the owner still agree on
 exactly one winner.
 
+### Explicit restart and stale UI assets
+
+`--restart-web` is an ephemeral action flag accepted by `run` and `execute`. It
+implies `--web`, gracefully stops the previous verified monitor, and starts a
+new detached process through the entry point of the CLI handling the command.
+Without it, the normal reuse behaviour above is unchanged.
+
+The distinction matters after upgrading Issue Flow: `web/public` is not copied
+through a separate frontend build. The server reads `index.html`, `app.css` and
+`app.js` once at startup and retains them in memory, together with its status
+ETag cache. A process started by an older package therefore keeps serving that
+older UI even if the package files on disk are later replaced. Restarting the
+process invalidates those process-local caches. There is no web build cache on
+disk, service worker or HTTP browser cache to delete; responses use
+`Cache-Control: no-store`, and `--restart-web` deliberately does not remove npm
+cache, `dist`, session files or browser `localStorage`.
+
+If `~/.issue-flow` was deleted while the detached monitor was alive, the
+process becomes an orphan with no `web.lock`. Issue Flow probes the configured
+port and restores the lock only after both the health endpoint and the listener
+command line prove that it is `issue-flow web serve`. An ambiguous owner is
+never killed. Restart operations are serialized, and failures remain non-fatal
+to the pipeline.
+
+New monitor versions expose an instance id; an already-open current dashboard
+detects the replacement and reloads itself. A tab loaded from a release that
+predates instance ids needs one manual reload. `--restart-web` uses the package
+version currently executing; to request an npm update as well, use for example
+`npx issue-flow@latest run 42 --restart-web`.
+
 If the global storage tree itself is unavailable (no resolvable home directory
 and no `ISSUE_FLOW_HOME`), monitoring falls back to the pre-single-instance
 behaviour instead of being lost: the server binds **inline**, in the pipeline's
@@ -168,7 +199,7 @@ local.
 | Route | Returns |
 |-------|---------|
 | `GET /` | The dashboard |
-| `GET /api/health` | Liveness, used by the single-instance probe |
+| `GET /api/health` | Liveness, PID, version and instance identity used by ownership/restart probes |
 | `GET /api/sessions` | Every active session, with the summary fields the dashboard cards need |
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
 | `GET /api/events?session=<id>` | Journal entries for that session |
@@ -233,6 +264,7 @@ Each setting resolves with the precedence **CLI flag > environment variable >
 | CLI flag | Environment variable | `.issue-flow.json` key | Default |
 |----------|----------------------|------------------------|---------|
 | `--web` / `--serve` | `ISSUE_FLOW_WEB` | `web.enabled` | `false` |
+| `--restart-web` | — | — | one-shot action; implies `--web` |
 | `--port <n>` | `ISSUE_FLOW_WEB_PORT` | `web.port` | `3737` |
 | `--host <h>` | `ISSUE_FLOW_WEB_HOST` | `web.host` | `0.0.0.0` |
 | `--refresh <s>` | `ISSUE_FLOW_WEB_REFRESH` | `web.refreshSeconds` | `5` |

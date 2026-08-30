@@ -43,6 +43,11 @@
   never tear down a server another process owns. A handle for a *newly bound*
   instance gets its `close()` wrapped to also delete the lock file, so the
   lock never outlives the server that owns it.
+- `instanceId` is optional for old locks and mandatory on newly written ones.
+  It must match `/api/health` before a new server is trusted. `--restart-web`
+  serializes replacement through the short-lived sibling `web.restart.lock`.
+  A missing `web.lock` may be recovered from the configured listener only when
+  both health and the process command line prove it is `issue-flow web serve`.
 
 ## Multi-session discovery (`session-directory.ts`, US-003)
 
