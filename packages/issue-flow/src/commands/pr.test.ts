@@ -9,6 +9,8 @@ import type { TaskPlan } from '../types.js';
 // `git branch --show-current`; all three go through execa, so the mock answers
 // with the temporary repo root, a stable remote and a fixed branch name.
 const mockRepo = vi.hoisted(() => ({ root: '', remote: 'https://github.com/acme/widgets.git' }));
+/** What `gh pr list --head <branch> --state open` answers. Empty by default. */
+const mockOpenPrs = vi.hoisted(() => ({ json: '[]' }));
 vi.mock('execa', () => ({
   execa: vi.fn(async (file: string, args: string[] = []) => {
     if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
@@ -19,6 +21,9 @@ vi.mock('execa', () => ({
     }
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
       return { stdout: 'issue/42-sample', exitCode: 0 };
+    }
+    if (file === 'gh' && args[0] === 'pr' && args[1] === 'list') {
+      return { stdout: mockOpenPrs.json, exitCode: 0 };
     }
     return { stdout: '', exitCode: 0 };
   }),
@@ -108,6 +113,7 @@ describe('runPr — persisted Pull Request', () => {
     process.env[GLOBAL_ROOT_ENV] = globalHome;
     resetStorageResolutionCache();
     headlessOptions.last = null;
+    mockOpenPrs.json = '[]';
 
     const paths = await resolveIssuePaths('42');
     issueDir = paths.issueDir;
@@ -304,5 +310,103 @@ describe('multiIssueContext', () => {
     expect(multiIssueContext({ ...queue, excluded: [], pending: [] })).toContain(
       '(no known pending items)',
     );
+  });
+});
+
+describe('runPr — an open Pull Request is adopted, never duplicated (US-021)', () => {
+  let tmpDir: string;
+  let globalHome: string;
+  let previousHome: string | undefined;
+  let tasksPath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-pr-adopt-'));
+    globalHome = await mkdtemp(join(tmpdir(), 'issue-flow-home-'));
+    mockRepo.root = tmpDir;
+    previousHome = process.env[GLOBAL_ROOT_ENV];
+    process.env[GLOBAL_ROOT_ENV] = globalHome;
+    resetStorageResolutionCache();
+    vi.clearAllMocks();
+    mockOpenPrs.json = '[]';
+    headlessOptions.last = null;
+    headlessOutput.current = '';
+
+    const paths = await resolveIssuePaths('42');
+    tasksPath = paths.tasksFile;
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(tasksPath, JSON.stringify(makePlan(), null, 2), 'utf-8');
+  });
+
+  afterEach(async () => {
+    resetStorageResolutionCache();
+    if (previousHome === undefined) delete process.env[GLOBAL_ROOT_ENV];
+    else process.env[GLOBAL_ROOT_ENV] = previousHome;
+    await rm(tmpDir, { recursive: true, force: true });
+    await rm(globalHome, { recursive: true, force: true });
+  });
+
+  /** Every command the phase actually ran, as `<file> <argv>`. */
+  async function invocations(): Promise<string[]> {
+    const { execa } = await import('execa');
+    return vi.mocked(execa).mock.calls.map(([file, args]) => `${file} ${(args ?? []).join(' ')}`);
+  }
+
+  it('adopts the open Pull Request and never runs gh pr create', async () => {
+    mockOpenPrs.json = JSON.stringify([
+      { number: 128, url: 'https://github.com/acme/repo/pull/128', title: 'Sample issue' },
+    ]);
+
+    const code = await runPr('42', makeResolved());
+
+    expect(code).toBe(0);
+    // The agent is never invoked: there is nothing left for it to do.
+    expect(headlessOptions.last).toBeNull();
+    for (const call of await invocations()) {
+      expect(call).not.toContain('pr create');
+    }
+    // And it asked the right question.
+    expect(await invocations()).toContainEqual(
+      expect.stringContaining('gh pr list --head issue/42-sample --state open'),
+    );
+  });
+
+  it('records the adopted Pull Request on the plan and marks the phase done', async () => {
+    mockOpenPrs.json = JSON.stringify([
+      { number: 128, url: 'https://github.com/acme/repo/pull/128', title: 'Sample issue' },
+    ]);
+
+    await runPr('42', makeResolved());
+
+    const plan = JSON.parse(await readFile(tasksPath, 'utf-8')) as TaskPlan;
+    expect(plan.pipeline.prCreated).toBe(true);
+    expect(plan.pullRequest).toMatchObject({
+      number: 128,
+      url: 'https://github.com/acme/repo/pull/128',
+      headBranch: 'issue/42-sample',
+    });
+  });
+
+  it('creates one when the branch has none open', async () => {
+    mockOpenPrs.json = '[]';
+    headlessOutput.current = 'PR created: https://github.com/acme/repo/pull/900';
+
+    const code = await runPr('42', makeResolved());
+
+    expect(code).toBe(0);
+    // The phase ran normally: nothing about the guard changes the happy path.
+    expect(headlessOptions.last).not.toBeNull();
+    const plan = JSON.parse(await readFile(tasksPath, 'utf-8')) as TaskPlan;
+    expect(plan.pullRequest?.number).toBe(900);
+  });
+
+  it('runs the phase when gh cannot answer, instead of assuming either way', async () => {
+    // Malformed output: `listPullRequests` degrades to "nothing known", and a
+    // phase that skipped itself on that basis would silently never open a PR.
+    mockOpenPrs.json = 'not json';
+    headlessOutput.current = 'PR created: https://github.com/acme/repo/pull/901';
+
+    await runPr('42', makeResolved());
+
+    expect(headlessOptions.last).not.toBeNull();
   });
 });

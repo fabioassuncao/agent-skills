@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
 import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
+import { listPullRequests } from '../core/session-git.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
@@ -144,6 +145,53 @@ export function multiIssueContext(queue: PrQueueContext | undefined): string {
   ].join('\n');
 }
 
+/**
+ * Adopt the Pull Request that is already open for this branch, if there is one.
+ *
+ * "Already open" is the only safe reading: a *closed* Pull Request for the same
+ * branch is a decision someone made, and reopening or reusing it would undo it.
+ * A merged one means the work is done and a new branch is the answer.
+ *
+ * Returns `true` when the phase has nothing left to do. Never throws — a `gh`
+ * that cannot answer leaves the phase to run exactly as it did before.
+ */
+async function adoptExistingPullRequest(
+  branchName: string,
+  tasksPath: string,
+  issueNumber: string,
+): Promise<boolean> {
+  let open: Awaited<ReturnType<typeof listPullRequests>>;
+  try {
+    open = await listPullRequests(branchName, { state: 'open' });
+  } catch {
+    return false;
+  }
+
+  const existing = open[0];
+  if (existing === undefined) return false;
+
+  try {
+    const plan = await loadTaskPlan(tasksPath);
+    plan.pipeline.prCreated = true;
+    plan.pullRequest = {
+      number: existing.number,
+      url: existing.url,
+      headBranch: branchName,
+      // The Pull Request predates this attempt; what is recorded is when this
+      // run adopted it, which is the only timestamp this process can vouch for.
+      createdAt: isoNow(),
+    };
+    await saveTaskPlan(tasksPath, plan);
+  } catch {
+    // No plan yet: the adoption still stands, there is just nowhere to note it.
+  }
+
+  printSuccess(
+    `Pull Request already open for ${branchName}: ${existing.url}. Adopting it instead of opening a second one for issue #${issueNumber}.`,
+  );
+  return true;
+}
+
 export async function runPr(
   issue: string,
   resolvedIssue?: ResolvedIssue,
@@ -171,6 +219,16 @@ export async function runPr(
     printError('Failed to get current branch');
     return 1;
   }
+
+  // Idempotence, before anything is invoked.
+  //
+  // `runPhaseWithRetry` retries this phase up to three times, and the timeout
+  // that used to end a run is now correctly classified as transient — so an
+  // attempt that created the Pull Request and *then* timed out would have the
+  // next attempt create a second one. Asking GitHub what already exists is the
+  // cheap half of the fix; the expensive half would be undoing a duplicate.
+  const adopted = await adoptExistingPullRequest(branchName, tasksPath, issueNumber);
+  if (adopted) return 0;
 
   const queue = options.queue;
   const consolidating = queue !== undefined && queue.issues.length > 1;

@@ -382,12 +382,21 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     // `gh issue view` is expected (the GitHub origin is queried like any other),
     // but nothing may be written to GitHub, and the PR lookup of the summary is
     // GitHub-only — an Issue from another origin must not trigger it.
+    //
+    // The one `gh pr` call that *is* expected is the idempotence guard of the
+    // `pr` phase (`--state open`, US-021): the Pull Request itself is a GitHub
+    // object whatever the Issue's origin, so "is one already open for this
+    // branch" is a question that has to be asked before opening a second one.
+    const isAdoptionGuard = (args: readonly string[]) =>
+      args[0] === 'pr' && args[1] === 'list' && args.includes('open');
+
     const forbidden = vi
       .mocked(execa)
       .mock.calls.filter(
         ([file, args]) =>
           file === 'gh' &&
           Array.isArray(args) &&
+          !isAdoptionGuard(args) &&
           (args[0] === 'pr' || (args[0] === 'issue' && args[1] !== 'view')),
       );
     expect(forbidden).toEqual([]);
