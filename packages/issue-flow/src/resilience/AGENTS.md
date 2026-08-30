@@ -167,6 +167,39 @@ which is a much louder change than editing a JSON file.
   retryable kind, so a policy passed to such a command costs nothing. Passing
   one anyway is still worth avoiding — say what you mean.
 
+## Rules of the GitHub provider under policy
+
+- **Every `gh` invocation carries a policy *resolver*, not a policy.** The kind
+  is only known after the attempt, so `run()` is handed
+  `(failure) => resolvePolicy(failure.kind, config)`: a DNS blip gets the
+  `network` budget, a rate limit gets the `rate_limit` budget and the server's
+  `Retry-After`, and an expired credential gets zero attempts — from one call
+  site, without the call site knowing which of them happened.
+- **The key is read synchronously, from `getActiveResilienceConfig()`.** A
+  provider that shelled out to `git` to find its own retry budget would be doing
+  the very thing this layer exists to make survivable, and it would consume a
+  mocked `run` in every test that stubs the shell. `initResilienceConfig()`
+  installs it once, from `runPipeline`; until then the value is `{}`, which is
+  the base table.
+- **The availability probes have a smaller budget than the work.** `gh
+  --version` and `gh auth status` answer a liveness question, and the answer
+  must not take minutes: they are capped at three attempts and a 5s delay, so an
+  unreachable GitHub cannot stall a `local` Issue that would have resolved
+  instantly. The real reads keep the full policy.
+- **`isAvailable(): boolean` was the bug.** A provider that is unreachable and a
+  provider that is unauthenticated both answered `false`, and the resolver could
+  only say "provider unavailable" — the transient one deserved a retry and the
+  other deserved a human. `checkAvailability()` returns the classified reason
+  and, only for a kind that needs a person, the action to take.
+- **An `action` is attached only when waiting cannot help.** Telling someone to
+  run `gh auth login` because their Wi-Fi dropped is worse than saying nothing,
+  and the resolver keys off the *presence* of an action to decide that an origin
+  is blocked rather than merely absent.
+- **A verdict must survive a `throw`.** `ClassifiedError` carries the
+  `ClassifiedFailure` and the action past a `catch`, because a boundary that
+  flattens them back into a string hands the next decision-maker a message
+  again — which is the failure mode this whole directory exists to end.
+
 ## Rules of the `resilience` configuration key
 
 - **The format lives in `storage/schemas.ts`, the precedence lives in

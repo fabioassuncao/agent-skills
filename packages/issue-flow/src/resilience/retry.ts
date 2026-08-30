@@ -32,8 +32,20 @@ export interface RetryAttemptInfo<T> {
   delayMs: number;
 }
 
+/**
+ * A policy chosen from the failure that just happened.
+ *
+ * The kind is only known *after* an attempt, so a call site that spans several
+ * kinds — every `gh` invocation is a network failure, a rate limit or an
+ * authentication failure depending on the day — hands over the resolver rather
+ * than one frozen policy. `resolvePolicy(failure.kind, config)` is what a
+ * caller normally passes.
+ */
+export type RetryPolicyFor = (failure: ClassifiedFailure) => RetryPolicy;
+
 export interface WithRetryOptions<T> {
-  policy: RetryPolicy;
+  /** One policy, or one chosen per classified failure. */
+  policy: RetryPolicy | RetryPolicyFor;
   /**
    * The verdict on one attempt's value: `null` for success, a classified
    * failure otherwise.
@@ -93,6 +105,7 @@ export async function withRetry<T>(
 ): Promise<RetryOutcome<T>> {
   const { policy, evaluate, signal, onAttempt, random } = options;
   const delay = options.delay ?? abortableDelay;
+  const policyFor: RetryPolicyFor = typeof policy === 'function' ? policy : () => policy;
 
   for (let attempt = 1; ; attempt++) {
     const value = await fn(attempt);
@@ -103,10 +116,11 @@ export async function withRetry<T>(
       return { value, attempts: attempt, failure: null, exhausted: false, aborted: false };
     }
 
+    const active = policyFor(failure);
     const eligible = failure.retryable && !requiresHumanAction(failure.kind);
-    const willRetry = eligible && shouldRetry(policy, attempt);
+    const willRetry = eligible && shouldRetry(active, attempt);
     const delayMs = willRetry
-      ? computeDelayMs(policy, attempt, { random, retryAfterMs: failure.retryAfterMs })
+      ? computeDelayMs(active, attempt, { random, retryAfterMs: failure.retryAfterMs })
       : 0;
 
     await onAttempt?.({ attempt, value, failure, willRetry, delayMs });

@@ -98,6 +98,42 @@ export function requiresHumanAction(kind: FailureKind): boolean {
   return HUMAN_ACTION_KINDS.has(kind);
 }
 
+/* ── carrying a verdict through a throw ─────────────────────────────────── */
+
+/**
+ * An `Error` that carries its own classification.
+ *
+ * A `catch` normally flattens a failure back into a string, which is exactly
+ * the loss this layer exists to prevent: the caller that has to decide between
+ * "retry" and "escalate to a human" then has nothing but a message again. Any
+ * boundary that must throw — a provider, a phase — throws this instead.
+ *
+ * `action` is what a human has to do, and it is only ever set for a kind that
+ * needs one (`gh auth login` for `authentication`). It is written at the throw
+ * site because only that site knows which CLI is involved.
+ */
+export class ClassifiedError extends Error {
+  readonly failure: ClassifiedFailure;
+  readonly action: string | undefined;
+
+  constructor(message: string, failure: ClassifiedFailure, action?: string) {
+    super(message);
+    this.name = 'ClassifiedError';
+    this.failure = failure;
+    this.action = action;
+  }
+}
+
+/** The verdict an error carries, or `null` when it carries none. */
+export function failureOf(error: unknown): ClassifiedFailure | null {
+  return error instanceof ClassifiedError ? error.failure : null;
+}
+
+/** The human action an error asks for, or `null`. */
+export function actionOf(error: unknown): string | null {
+  return error instanceof ClassifiedError ? (error.action ?? null) : null;
+}
+
 /* ── step 1: errno ──────────────────────────────────────────────────────── */
 
 const ERRNO_KINDS: Readonly<Record<string, FailureKind>> = {
@@ -225,6 +261,14 @@ const TEXT_RULES: readonly { kind: FailureKind; patterns: readonly TextPattern[]
       'enotfound',
       'eai_again',
       'socket hang up',
+      // What Go prints, and therefore what `gh` prints: its network errors
+      // never mention "connection reset", they mention the resolver.
+      'no such host',
+      'dial tcp',
+      'i/o timeout',
+      'tls handshake timeout',
+      'server misbehaving',
+      'error connecting to',
     ],
   },
   { kind: 'timeout', patterns: ['timed out', 'timeout', 'etimedout'] },

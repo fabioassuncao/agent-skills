@@ -7,7 +7,7 @@ import {
   type FailureSource,
 } from '../resilience/errors.js';
 import type { RetryPolicy } from '../resilience/policy.js';
-import { withRetry } from '../resilience/retry.js';
+import { type RetryPolicyFor, withRetry } from '../resilience/retry.js';
 
 export interface ExecResult {
   stdout: string;
@@ -49,8 +49,12 @@ export interface RunOptions extends ExecaOptions {
    * --verify --quiet`, `gh pr view` on a branch with no PR) is safe anyway —
    * an unclassifiable exit lands on `unknown`, which is not a retryable kind —
    * but the intent is worth being explicit about.
+   *
+   * A function instead of a policy resolves it from the failure that actually
+   * happened, which is how one `gh` call gets the `network` budget for a DNS
+   * blip and the `rate_limit` budget for a rate limit.
    */
-  retry?: RetryPolicy;
+  retry?: RetryPolicy | RetryPolicyFor;
   /** Overrides the subsystem inferred from `command` (`git`, `gh`). */
   source?: FailureSource;
   /**

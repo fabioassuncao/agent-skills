@@ -1249,6 +1249,14 @@ As noted above, this is the documented and implemented precedence (`mergeConfigL
 
 The `resilience` key is the exception: `loadResilienceConfig()` reads all five rungs, `config.json` included, and merges `retry` one level deeper than the shallow rule above -- per failure kind **and** per field, because that table is two levels deep by construction.
 
+Every `gh` invocation goes through that policy: a DNS blip during a
+long run is retried on the `network` budget (8 attempts, 2s to 120s, jittered), a
+rate limit waits exactly what the server's `Retry-After` asked for, and an expired
+credential is **not** retried at all -- it stops immediately and prints the action
+to take (`gh auth login`). The availability probes (`gh --version`, `gh auth
+status`) use a smaller budget of their own, so an unreachable GitHub never stalls
+an Issue that lives locally.
+
 ### Migrating from `issues/`
 
 Migration is **automatic**: the first command that resolves a path for a project copies an existing `<projectRoot>/issues/` tree into the global storage before reading anything. There is no command to run and no flag to pass -- upgrading and running `issue-flow run 42` is all it takes.

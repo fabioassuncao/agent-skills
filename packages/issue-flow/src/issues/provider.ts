@@ -1,4 +1,22 @@
+import type { ClassifiedFailure } from '../resilience/errors.js';
 import type { Issue, IssueDraft, IssueRelations, IssueSource } from './types.js';
+
+/**
+ * The richer form of `isAvailable()`: whether the origin can be used, and —
+ * when it cannot — the classified reason and the action a human would take.
+ *
+ * It exists because `boolean` throws away the only distinction the resilience
+ * layer cares about: a provider that is unreachable (retryable, transient) and
+ * a provider that is unauthenticated (never retryable, needs a person) both
+ * answered `false`, and the caller could only report "provider unavailable".
+ */
+export interface ProviderAvailability {
+  available: boolean;
+  /** Why not. Absent when `available` is true, or when the origin cannot say. */
+  failure?: ClassifiedFailure;
+  /** What a human has to do about it, e.g. `Run \`gh auth login\``. */
+  action?: string;
+}
 
 /**
  * Contract every Issue origin implements.
@@ -17,6 +35,15 @@ export interface IssueProvider {
    * directory writable). Never throws: an unusable provider reports `false`.
    */
   isAvailable(): Promise<boolean>;
+
+  /**
+   * Same question, with the reason attached. Optional: an origin that cannot
+   * classify its own unavailability simply omits it, and callers fall back to
+   * `isAvailable()` (`provider.checkAvailability?.()`).
+   *
+   * Never throws either — an unusable provider *reports*, it does not raise.
+   */
+  checkAvailability?(): Promise<ProviderAvailability>;
 
   /**
    * Fetch an Issue by its provider-scoped identifier.

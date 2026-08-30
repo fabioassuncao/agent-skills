@@ -1013,3 +1013,43 @@ export async function loadResilienceConfig(
     ...(decompose === undefined ? {} : { decompose }),
   };
 }
+
+/**
+ * The `resilience` key in force for this process.
+ *
+ * Read **synchronously**, by call sites that cannot afford four disk reads per
+ * `gh` invocation and must not perform I/O of their own — a provider that
+ * shelled out to `git` to find its retry budget would be doing exactly the
+ * thing this key exists to make survivable.
+ *
+ * It starts empty on purpose: `{}` is the base table of `resolvePolicy()`, so
+ * a process that never installs anything behaves exactly as it did before the
+ * key existed. `initResilienceConfig()` is what fills it in, once, from the
+ * command that owns the run.
+ */
+let activeResilienceConfig: ResilienceConfig = {};
+
+/** The key in force. `{}` until a command installs one. */
+export function getActiveResilienceConfig(): ResilienceConfig {
+  return activeResilienceConfig;
+}
+
+/** Install a key directly. For tests, and for a caller that already loaded it. */
+export function setActiveResilienceConfig(config: ResilienceConfig): void {
+  activeResilienceConfig = config;
+}
+
+/**
+ * Load the key off the ladder and install it. Never throws: a failed load
+ * leaves the base table in place, which is the documented default.
+ */
+export async function initResilienceConfig(
+  options: LoadResilienceConfigOptions = {},
+): Promise<ResilienceConfig> {
+  try {
+    activeResilienceConfig = await loadResilienceConfig(options);
+  } catch {
+    activeResilienceConfig = {};
+  }
+  return activeResilienceConfig;
+}

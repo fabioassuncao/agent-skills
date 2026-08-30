@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { loadIssuesConfig, loadWebConfig } from '../config.js';
+import { initResilienceConfig, loadIssuesConfig, loadWebConfig } from '../config.js';
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASES_NO_BRANCH,
@@ -414,6 +414,13 @@ async function runPipelinePhases(
   // Loaded before the checks so init knows which origin the user is heading
   // for: with a local one, a missing gh must not fail the environment.
   const issuesConfig = await loadIssuesConfig();
+
+  // The `resilience` key, installed once for the whole run. Every `gh` call
+  // below reads it synchronously (`getActiveResilienceConfig()`), which is why
+  // it has to be in place before the first phase resolves the Issue. Absent
+  // configuration leaves the base table, so this is a no-op for a project that
+  // configured nothing.
+  await initResilienceConfig();
 
   // Phase 1: Init check. Inside a queue it already ran for the whole run, so
   // the environment is not probed once per issue — the phase is still

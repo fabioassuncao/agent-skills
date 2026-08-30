@@ -152,6 +152,22 @@ const TABLE: readonly {
     retryable: true,
   },
   {
+    name: 'a DNS failure as gh actually prints it is a network failure',
+    signal: {
+      source: 'github',
+      exitCode: 1,
+      stderr: 'error connecting to api.github.com: dial tcp: lookup api.github.com: no such host',
+    },
+    kind: 'network',
+    retryable: true,
+  },
+  {
+    name: 'a Go i/o timeout from gh is a network failure',
+    signal: { source: 'github', exitCode: 1, stderr: 'Post "https://api.github.com": i/o timeout' },
+    kind: 'network',
+    retryable: true,
+  },
+  {
     name: 'an expired gh credential is an authentication failure',
     signal: {
       source: 'github',
