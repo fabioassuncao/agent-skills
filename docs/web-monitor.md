@@ -22,7 +22,8 @@ server or closing the browser mid-run has no effect on the execution. With
 ## The dashboard
 
 With two or more active sessions, the panel opens on the executions dashboard —
-one card per run, from every project on this machine:
+one card per run, from every project on this machine. The dashboard header is
+**Execuções ativas**, not the product name:
 
 ![Executions dashboard: one card per active run](screenshots/painel-execucoes.png)
 
@@ -32,29 +33,33 @@ active session the panel opens straight into the detail view.
 
 ## The detail view
 
-![Execution detail: issue summary, repository, progress, current activity, resilience, phases, stories, commits and logs](screenshots/painel-execucao.png)
+The header is the status line of the run: issue number and title, branch,
+monitor version, status badge and elapsed time. The product name lives in the
+document `<title>` only.
 
-At the top, two cards give the full context of the run without leaving the
-browser: **"Resumo da issue"** (number, title, full description, labels and
-open/closed state — with a neutral "Não definida" placeholder for priority, since
-the `Issue` domain has no such field) and **"Repositório"** (current branch,
-short HEAD commit, repository name and the project's working directory).
+![Execution detail: current state, context, progress and output](screenshots/painel-execucao.png)
 
 Below the header and the alerts, the panel is split into three tabs.
 
-**"Execução"** is the view above: progress, the *"Executando agora"* card, the
-live resilience projection (current attempt, provider/model, last failure kind,
-cooldown and last real agent activity), the phase list with per-phase tokens and
-cost, effective harness/model configuration, user stories, commits, pull
-requests and recent logs.
+**"Execução"** is four blocks, in reading order:
 
-The resilience card is where a provider migration shows up:
+1. **Estado agora** — progress, current activity, resilience and the next-steps line
+2. **Contexto** — issue (state, labels, description), repository and effective harness configuration. On wide viewports this sits as a side column
+3. **Andamento** — phases and user stories
+4. **Saída** — commits, pull requests and recent logs
 
-![Detail view of a run that failed over from Claude to Codex](screenshots/painel-resiliencia.png)
+The issue number and title appear once, in the header; Contexto does not repeat
+them. There is no priority field: the domain has none, and the panel does not
+invent one. Labels stay visible.
 
-**"Kanban"** is a second reading of the same data — every story in four columns
+Resilience lives inside **Estado agora**. A provider migration shows up there:
+
+![Current-state block of a run that failed over after a rate limit](screenshots/painel-resiliencia.png)
+
+**"Kanban"** is a second reading of the same data — every user story in four columns
 (**Backlog**, **Em andamento**, **Em revisão**, **Concluído**), grouped by the
-story's [`status`](storage.md#story-status), each column showing its own count:
+story's [`status`](storage.md#story-status), each column showing its own count.
+The tab name is the heading; the panel does not repeat it.
 
 ![Kanban tab: user stories grouped by status](screenshots/painel-kanban.png)
 
