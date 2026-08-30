@@ -14,6 +14,44 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-30
+
+O painel de monitoramento ganha uma hierarquia visual consolidada (#98), e o
+routing opinativo passa a escolher entre os harnesses que a máquina realmente
+pode usar (#105) — sem pinar um provider ausente ou não autenticado.
+
+### Added
+
+- **Routing por readiness (#105).** Inventário concorrente dos quatro harnesses
+  com estado (`ready` / `conditional` / `unavailable`), autenticação
+  (`confirmed` / `failed` / `unverified`), proveniência e TTL. Em
+  `recommend`/`active`, o router recebe o snapshot e rankeia só o que é
+  attemptável; `authProbe: 'none'` (Claude, Antigravity) fica `conditional`,
+  nunca auth confirmada.
+- **Fallback pela lista ranqueada.** Se o alvo opinativo falhar no probe entre
+  decisão e uso, o próximo candidato elegível é tentado e o fallback fica no
+  diagnóstico.
+- **`routing use recommended --active`.** Grava política e `mode: active` num
+  único comando; o `init` deixa de perguntar o agente quando o router já é dono
+  da seleção.
+- **Escalas tipográficas e de espaçamento no painel (#98, US-001–US-012).**
+  Tokens fechados de tipografia, espaço e raio; header sem marca duplicada;
+  aba Execução reagrupada por importância; foco, abas ARIA e `prefers-reduced-motion`.
+
+### Changed
+
+- **Política recomendada sem pin de harness.** `preferredTier` e afinidade
+  suave substituem `preferHarness` como filtro de elegibilidade — um único
+  harness pronto cobre todas as fases.
+- **Catálogo do monitor.** `GET /api/config` e o painel expõem authentication,
+  state e idade da observação além de `installed`/`authenticated`.
+
+### Fixed
+
+- **Filas multi-issue.** Issues descobertas já fechadas deixam de ser
+  agendadas ao planejar ou retomar uma fila; relações fechadas continuam como
+  contexto.
+
 ## [0.17.0] - 2026-08-30
 
 Routing passa a escolher harness **e** modelo, com política recomendada opt-in
@@ -1170,6 +1208,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.18.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.18.0
 [0.17.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.17.0
 [0.16.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.16.0
 [0.15.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.15.0
