@@ -19,7 +19,12 @@ import { type ClaudeUsage, parseUsage, sumUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
 import { getShutdownSignal } from './shutdown.js';
 import { isoNow } from './state-manager.js';
-import { getInactivityTimeout, getOutputCallback, isVerbose } from './verbose.js';
+import {
+  getActivityCallback,
+  getInactivityTimeout,
+  getOutputCallback,
+  isVerbose,
+} from './verbose.js';
 
 export interface HeadlessOptions {
   prompt: string;
@@ -90,7 +95,7 @@ async function escalatedTimeout(
 function printAgentEvent(event: AgentEvent, onOutput?: (line: string) => void): void {
   const icons = getIcons();
   const colored = useColor();
-  const emit = onOutput ?? ((msg: string) => process.stderr.write(`${msg}\n`));
+  const emit = onOutput ?? ((msg: string) => process.stdout.write(`${msg}\n`));
 
   if (event.kind === 'text') {
     const lines = event.text.split('\n');
@@ -178,7 +183,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   if (verbose) {
     const icons = getIcons();
     const colored = useColor();
-    const emit = effectiveOnOutput ?? ((msg: string) => process.stderr.write(`${msg}\n`));
+    const emit = effectiveOnOutput ?? ((msg: string) => process.stdout.write(`${msg}\n`));
     if (statusMessage) {
       const msg = colored
         ? chalk.blue(`${icons.start} ${statusMessage}`)
@@ -229,6 +234,16 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
       maxTurns,
       allowedTools,
       inactivityTimeoutMs: getInactivityTimeout(),
+      onEvent: (event) => {
+        if (event.kind === 'text') return;
+        getSessionPublisher().publish({
+          type: 'activity',
+          at: isoNow(),
+          tool: event.name,
+          detail: event.detail,
+        });
+        getActivityCallback()?.({ tool: event.name, detail: event.detail });
+      },
     });
 
     const elapsed = timer?.stop() ?? 0;

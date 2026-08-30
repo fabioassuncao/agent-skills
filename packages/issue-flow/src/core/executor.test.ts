@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeClaude } from './executor.js';
-import { setOutputCallback } from './verbose.js';
+import { setOutputCallback, setVerbose } from './verbose.js';
 
 vi.mock('execa', () => ({
   execa: vi.fn(),
@@ -68,6 +68,7 @@ describe('executeClaude', () => {
 
   afterEach(() => {
     setOutputCallback(undefined);
+    setVerbose(false);
   });
 
   it('requests the stream-json output format while keeping the prompt on stdin', async () => {
@@ -177,7 +178,18 @@ describe('executeClaude', () => {
     expect(result.output.includes('<promise>COMPLETE</promise>')).toBe(true);
   });
 
-  it('forwards the result text to the output callback, not the raw JSON', async () => {
+  it('swallows the agent report in clean mode', async () => {
+    const lines: string[] = [];
+    setOutputCallback((line) => lines.push(line));
+    mockExeca.mockReturnValue(claudeSubprocess([jsonEnvelope('  human readable  ')]));
+
+    await executeClaude('prompt');
+
+    expect(lines).toEqual([]);
+  });
+
+  it('forwards the result text line by line under --verbose, not the raw JSON', async () => {
+    setVerbose(true);
     const lines: string[] = [];
     setOutputCallback((line) => lines.push(line));
     mockExeca.mockReturnValue(claudeSubprocess([jsonEnvelope('  human readable  ')]));
@@ -185,6 +197,22 @@ describe('executeClaude', () => {
     await executeClaude('prompt');
 
     expect(lines).toEqual(['human readable']);
+  });
+
+  it('prints a stripped excerpt on failure even in clean mode', async () => {
+    const lines: string[] = [];
+    setOutputCallback((line) => lines.push(line));
+    mockExeca.mockReturnValue(
+      claudeSubprocess([], {
+        stdout: 'ok\n**boom** in `file.ts`',
+        stderr: '',
+        exitCode: 1,
+      }),
+    );
+
+    await executeClaude('prompt');
+
+    expect(lines).toEqual(['ok', 'boom in file.ts']);
   });
 
   it('does not invoke the output callback when the result text is empty', async () => {

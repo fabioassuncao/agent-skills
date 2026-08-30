@@ -61,6 +61,28 @@ export function getStoryStageCallback(): ((storyId: string | undefined) => void)
   return _onStoryStage;
 }
 
+export interface ActivityNotice {
+  tool: string;
+  detail?: string;
+}
+
+let _onActivity: ((notice: ActivityNotice) => void) | undefined;
+
+/**
+ * Live tool activity for the clean terminal view. Published in every mode,
+ * including non-verbose — the snapshot's `currentActivity` and the dashboard
+ * both read the same event.
+ */
+export function setActivityCallback(
+  callback: ((notice: ActivityNotice) => void) | undefined,
+): void {
+  _onActivity = callback;
+}
+
+export function getActivityCallback(): ((notice: ActivityNotice) => void) | undefined {
+  return _onActivity;
+}
+
 let _globalTimeout: number | undefined;
 
 export function setGlobalTimeout(ms: number): void {

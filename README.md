@@ -122,7 +122,7 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--agent <claude\|codex>` | Run every phase on this agent (overrides `phases` too) |
 | `--agent-model <model>` | Same, for the model |
 | `--agent-phase <phase>=<provider>[:<model>]` | Override one phase (repeatable) |
-| `-v, --verbose` | Show agent progress output in real time |
+| `-v, --verbose` | Full agent stream, one line per story, and the complete preflight report. The default is a one-screen clean view (phases, `N/M` stories, the active story, elapsed / remaining time) |
 
 `--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists `prReview.enabled` as soon as a `tasks.json` exists (including mid-pipeline resumes such as `--from pr --pr-review`), so a later run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open** (locally and on the remote), does **not** mark `issueStatus: completed`, and still exits `0`.
 

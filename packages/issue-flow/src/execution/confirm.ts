@@ -115,6 +115,16 @@ export function buildQueueSummaryLines(plan: ExecutionPlan): string[] {
   return lines;
 }
 
+/** One-line recap after the user (or a flag) picks a scope. */
+export function buildScopeSummaryLine(plan: ExecutionPlan, choice: QueueChoice): string | null {
+  if (choice === 'cancel') return null;
+  const primary = plan.requested[0] ?? plan.id;
+  if (choice === 'requested') {
+    return `Scope: ${plan.requested.length} requested issue(s).`;
+  }
+  return `Scope: ${plan.issues.length} issues from the hierarchy of #${primary}.`;
+}
+
 /**
  * Ask, in an interactive terminal, which scope to run.
  *
@@ -139,10 +149,12 @@ export async function confirmQueue(
 
   if (options.only === true) {
     info(`--only: running just the ${requestedOnlyCount} issue(s) you asked for.`);
+    info(buildScopeSummaryLine(plan, 'requested') ?? '');
     return 'requested';
   }
   if (options.yes === true) {
     info(`--yes: running the whole hierarchy (${plan.issues.length} issues).`);
+    info(buildScopeSummaryLine(plan, 'all') ?? '');
     return 'all';
   }
 
@@ -153,6 +165,8 @@ export async function confirmQueue(
         `issue ${plan.requested.map((id) => `#${id}`).join(', ')}. ` +
         'Re-run with --yes to execute the whole hierarchy.',
     );
+    const summary = buildScopeSummaryLine(plan, 'requested');
+    if (summary) info(summary);
     return 'requested';
   }
   if (!interactive) {
@@ -167,7 +181,15 @@ export async function confirmQueue(
     `Which scope should run? [1] Only the issues informed (${requestedOnlyCount})  ` +
     `[2] The whole hierarchy (${plan.issues.length})  [3] Cancel: `;
 
-  return await ask(query, options.stdin ?? process.stdin, options.stdout ?? process.stdout, warn);
+  const choice = await ask(
+    query,
+    options.stdin ?? process.stdin,
+    options.stdout ?? process.stdout,
+    warn,
+  );
+  const summary = buildScopeSummaryLine(plan, choice);
+  if (summary) info(summary);
+  return choice;
 }
 
 /**

@@ -21,11 +21,9 @@ export function elapsedSecondsSince(startedAtMs: number): number {
 /**
  * Process-owned totals, accumulated alongside every published event.
  *
- * The session snapshot cannot be the source of the terminal summary: with web
- * monitoring off the publisher is a `NullPublisher` and its snapshot stays
- * empty, so the numbers would silently vanish exactly in the default mode.
- * These counters live in the process and are therefore independent of any
- * publisher.
+ * The session snapshot now stays populated without `--web` (`MemoryPublisher`),
+ * but the end-of-run summary box still reads these process-owned counters so a
+ * standalone phase command (no publisher installed) does not print zeros.
  *
  * Only phase- and iteration-scoped usage is recorded. Story metrics are a
  * rateio of an iteration already counted here — adding them would double the

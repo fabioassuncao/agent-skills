@@ -287,10 +287,12 @@ the phase total.
 
 `session-metrics.ts` also keeps process-owned counters (`getRunUsageTotals`,
 `getPhaseUsageTotals`), fed by the same `publishPhaseMetrics` /
-`publishIterationMetrics` calls. The session snapshot cannot be the source for
-anything printed to the terminal: with web monitoring off the publisher is a
-`NullPublisher` and its snapshot stays empty, so the numbers would vanish
-exactly in the default mode. Story-scoped usage is deliberately **not**
+`publishIterationMetrics` calls. The session snapshot is what the clean terminal view renders
+(`src/ui/status-view.ts`), because `run` now installs a `MemoryPublisher` even
+when `--web` is off. Cost totals in the end-of-run summary box still come from
+the process-owned counters: they predate the always-on reducer and stay the
+source of `printSummaryBox` so a standalone phase command without a publisher
+does not print zeros. Story-scoped usage is deliberately **not**
 recorded there — it is a rateio of an iteration already counted, same
 anti-double-counting rule as the reducer.
 

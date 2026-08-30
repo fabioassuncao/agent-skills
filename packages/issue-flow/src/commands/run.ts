@@ -32,7 +32,7 @@ import {
 import { listPullRequests, publishGitState } from '../core/session-git.js';
 import { beginUsageScope, getRunUsageTotals } from '../core/session-metrics.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
-import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
+import { FilePublisher, MemoryPublisher, type SessionPublisher } from '../core/session-state.js';
 import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getInactivityTimeout, isVerbose, setInactivityTimeout } from '../core/verbose.js';
@@ -492,9 +492,11 @@ async function runIssueSession(
   }
   // The snapshot writer stays the primary surface, so `snapshot()` and
   // `version()` keep answering exactly what the dashboard answered before.
+  // With no disk surface the reducer still runs in memory: the terminal
+  // renders that snapshot, and US-009 is preserved because nothing is written.
   const publisher: SessionPublisher =
     surfaces.length === 0
-      ? new NullPublisher()
+      ? new MemoryPublisher()
       : surfaces.length === 1
         ? (surfaces[0] as SessionPublisher)
         : new MultiPublisher(surfaces);
@@ -832,8 +834,10 @@ async function runPipelinePhases(
   // published, keeping every issue's session shape identical.
   const sessionStartedAt = isoNow();
   if (queue?.preChecked !== true) {
-    printInfo('Running prerequisite checks...');
-    const initCode = await runInit(issuesConfig.preferredProvider);
+    if (isVerbose()) {
+      printInfo('Running prerequisite checks...');
+    }
+    const initCode = await runInit(issuesConfig.preferredProvider, { compact: !isVerbose() });
     if (initCode !== 0) {
       publishSessionStart(PIPELINE_PHASES, sessionStartedAt);
       publisher.publish({ type: 'phase:start', at: sessionStartedAt, phase: 'init' });

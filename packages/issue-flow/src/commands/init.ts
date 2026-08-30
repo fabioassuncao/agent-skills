@@ -168,6 +168,11 @@ export interface InitOptions {
   checkOnly?: boolean;
   /** Skip the first-run agent choice. */
   noAgentPrompt?: boolean;
+  /**
+   * One-line preflight for `issue-flow run` in clean mode. `issue-flow init`
+   * itself never passes this — its product is the full report.
+   */
+  compact?: boolean;
 }
 
 const ACTION_ICON: Record<ScaffoldActionKind, string> = {
@@ -175,6 +180,21 @@ const ACTION_ICON: Record<ScaffoldActionKind, string> = {
   keep: '=',
   review: '!',
 };
+
+/**
+ * One-line preflight for the clean terminal. The full report stays on
+ * `issue-flow init` and on `--verbose`.
+ */
+export function summarizePreflight(
+  results: ReadonlyArray<{ passed: boolean }>,
+  plan: { actions: ReadonlyArray<{ kind: string }> },
+): string {
+  const kept = plan.actions.filter((action) => action.kind === 'keep').length;
+  const creates = plan.actions.filter((action) => action.kind === 'create').length;
+  const env = results.every((result) => result.passed) ? 'environment ok' : 'environment failed';
+  const createBit = creates === 0 ? 'nothing to create' : `${creates} to create`;
+  return `Preflight: ${env} · ${kept} conventions kept · ${createBit}`;
+}
 
 /**
  * Render the plan for a human.
@@ -235,8 +255,9 @@ export async function runInit(
   options: InitOptions = {},
 ): Promise<number> {
   const json = options.json === true;
+  const compact = options.compact === true;
 
-  if (!json) {
+  if (!json && !compact) {
     printInfo('Checking prerequisites...\n');
   }
 
@@ -255,16 +276,16 @@ export async function runInit(
     return true;
   };
 
-  if (!json) {
+  if (!json && (!compact || !results.every((r) => r.passed || !isBlocking(r)))) {
     for (const r of results) {
       if (r.passed) {
-        printSuccess(`${r.name}: ${r.detail}`);
+        if (!compact) printSuccess(`${r.name}: ${r.detail}`);
       } else if (isBlocking(r)) {
         printError(`${r.name}: ${r.detail}`);
         if (r.hint) {
           console.log(`    ${r.hint}`);
         }
-      } else {
+      } else if (!compact) {
         printWarning(`${r.name}: ${r.detail} (not required for ${source} issues)`);
       }
     }
@@ -272,13 +293,15 @@ export async function runInit(
 
   const allPassed = results.filter(isBlocking).every((r) => r.passed);
 
-  if (!json) {
+  if (!json && !compact) {
     console.log('');
     if (allPassed) {
       printSuccess('All prerequisites met. Ready to run the pipeline.');
     } else {
       printError('Some prerequisites are missing. Please fix the issues above.');
     }
+  } else if (!json && compact && !allPassed) {
+    printError('Prerequisites not met. Fix the issues above and try again.');
   }
 
   if (usesCodex) {
@@ -349,7 +372,11 @@ export async function runInit(
     return allPassed ? 0 : 1;
   }
 
-  renderPlan(plan, options.apply === true);
+  if (compact) {
+    printInfo(summarizePreflight(results, plan));
+  } else {
+    renderPlan(plan, options.apply === true);
+  }
 
   if (applied !== null) {
     console.log('');

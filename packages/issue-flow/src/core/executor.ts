@@ -1,6 +1,7 @@
 import { invokeSelectedAgent } from '../agents/invoke.js';
 import type { ClaudeResult } from '../types.js';
-import { getOutputCallback } from './verbose.js';
+import { failureExcerpt } from '../ui/text.js';
+import { getOutputCallback, isVerbose } from './verbose.js';
 
 export interface ExecuteClaudeOptions {
   /**
@@ -51,15 +52,36 @@ export async function executeClaude(
     output = run.result || run.rawOutput;
   }
 
-  const onOutput = getOutputCallback();
-  if (onOutput) {
-    const trimmed = output.trim();
-    if (trimmed) onOutput(trimmed);
-  }
+  emitAgentOutput(output, !(run.success && run.exitCode === 0));
 
   return {
     exitCode: run.exitCode === 0 && run.success ? 0 : run.exitCode === 0 ? 1 : run.exitCode,
     output,
     cost,
   };
+}
+
+/**
+ * Clean mode never dumps the agent report. Verbose breaks it line by line.
+ * A failure always prints a short excerpt — the user should not need
+ * `--verbose` to see why a story stopped.
+ */
+function emitAgentOutput(output: string, failed: boolean): void {
+  const onOutput = getOutputCallback();
+  if (!onOutput) return;
+  const trimmed = output.trim();
+  if (!trimmed) return;
+
+  if (isVerbose()) {
+    for (const line of trimmed.split('\n')) {
+      if (line.trim()) onOutput(line);
+    }
+    return;
+  }
+
+  if (failed) {
+    for (const line of failureExcerpt(trimmed)) {
+      onOutput(line);
+    }
+  }
 }

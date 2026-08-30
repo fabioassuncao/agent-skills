@@ -3,6 +3,12 @@
 `usage` is a reader, like `status` / `runs` / `logs`: it only aggregates
 `tasks.json.executions`. It never writes an `executionSummary`.
 
+`run` always installs a `MemoryPublisher`. Disk surfaces (`FilePublisher`,
+`JournalPublisher`) stay opt-in. `activity` events are published in every
+mode so the clean terminal and the dashboard share `currentActivity`;
+`FilePublisher` already throttles the write that would otherwise bust the
+`/api/status` ETag on every tool call.
+
 ## Contract of a single-invocation phase
 
 `analyze`, `generate`, `prd`, `plan`, `review`, `pr` and `pr-review` each own

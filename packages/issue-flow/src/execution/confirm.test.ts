@@ -2,6 +2,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildQueueSummaryLines,
+  buildScopeSummaryLine,
   confirmQueue,
   issueLabel,
   QueueConfirmationError,
@@ -71,6 +72,18 @@ describe('issueLabel', () => {
   it('uses the number when there is one and the id otherwise', () => {
     expect(issueLabel({ id: '50', number: 50 })).toBe('#50');
     expect(issueLabel({ id: 'auth-refactor', number: null })).toBe('auth-refactor');
+  });
+});
+
+describe('buildScopeSummaryLine', () => {
+  it('recaps the chosen scope in one line after the prompt', () => {
+    const two = plan([
+      entry('63', { position: 1, origin: 'requested' }),
+      entry('64', { position: 2 }),
+    ]);
+    expect(buildScopeSummaryLine(two, 'all')).toBe('Scope: 2 issues from the hierarchy of #63.');
+    expect(buildScopeSummaryLine(two, 'requested')).toBe('Scope: 1 requested issue(s).');
+    expect(buildScopeSummaryLine(two, 'cancel')).toBeNull();
   });
 });
 

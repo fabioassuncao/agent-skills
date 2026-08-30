@@ -16,6 +16,13 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Changed
 
+- **Saída do terminal em modo clean** (#81). `issue-flow run` deixa de
+  despejar o relatório do agente e a lista de stories: a tela renderiza o
+  `SessionSnapshot` (fases, `N/M`, story ativa, tempos). `--verbose` preserva
+  o detalhe anterior, linha a linha. Sem `--web` o reducer roda em memória e
+  o disco continua intocado. `issue-flow init` segue imprimindo o relatório
+  completo.
+
 - **Convenção Git default** (#77). Branches passam de `issue/{N}-{slug}` para
   `{type}/{N}-{slug}`, com o tipo resolvido por Issue Type, labels, prefixo do
   título ou fallback `feat`. Commits e títulos de PR seguem Conventional

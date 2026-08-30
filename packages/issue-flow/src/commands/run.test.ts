@@ -327,6 +327,21 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(existsSync(join(tmp, 'issues'))).toBe(false);
   });
 
+  it('sem --web o reducer roda em memória e o disco continua intocado', async () => {
+    let publisherName = '';
+    vi.mocked(runExecute).mockImplementationOnce(async () => {
+      publisherName = getSessionPublisher().constructor.name;
+      return 0;
+    });
+
+    const { code } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(publisherName).toBe('MemoryPublisher');
+    expect(existsSync((await globalPaths()).sessionFile)).toBe(false);
+    expect(existsSync((await globalPaths()).issueDir)).toBe(false);
+  });
+
   it('saída do terminal é idêntica com e sem --web (exceto a URL do servidor)', async () => {
     const { code: offCode, lines: offLines } = await runCaptured();
     expect(offCode).toBe(0);
@@ -575,7 +590,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     const { code } = await runCaptured();
 
     expect(code).toBe(0);
-    expect(vi.mocked(runInit)).toHaveBeenCalledWith('github');
+    expect(vi.mocked(runInit)).toHaveBeenCalledWith('github', { compact: true });
   });
 
   it('com --local, a checagem de pré-requisitos roda com a origem local (US-011)', async () => {
@@ -584,7 +599,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     const { code } = await runCaptured();
 
     expect(code).toBe(0);
-    expect(vi.mocked(runInit)).toHaveBeenCalledWith('local');
+    expect(vi.mocked(runInit)).toHaveBeenCalledWith('local', { compact: true });
   });
 });
 
