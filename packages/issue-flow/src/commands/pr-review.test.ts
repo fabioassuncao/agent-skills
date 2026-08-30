@@ -42,7 +42,8 @@ const headless = vi.hoisted(() => ({
   error: null as string | null,
   options: null as Record<string, unknown> | null,
 }));
-vi.mock('../core/headless.js', () => ({
+vi.mock('../core/headless.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core/headless.js')>()),
   runHeadless: vi.fn(async (options: Record<string, unknown>) => {
     headless.options = options;
     return { success: headless.success, result: headless.output, error: headless.error };

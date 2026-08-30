@@ -14,6 +14,30 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Fixed
+
+- **A headless timeout was reported as `claude exited with code 143`, and cost
+  the phase every retry it had** (#72). `runHeadless()` runs execa with
+  `reject: false`, so a timeout *resolves* instead of throwing — the `catch`
+  block never saw one, and the only other check looked for `signalName`, a
+  property execa 9 does not have. Detection now reads the finished result and
+  covers all three shapes it arrives in (`timedOut: true`,
+  `signal: SIGTERM/SIGKILL`, or a bare 143/137 exit code left behind by a CLI
+  that handles the signal itself), guarded by the elapsed time so an unrelated
+  external kill is not relabelled. The message keeps the words `timed out`,
+  which is what `isTransientFailure()` matches on, so the phase gets its three
+  attempts back — and now says how to raise the limit.
+
+### Changed
+
+- **One timeout for every single-invocation phase, raised to 15 minutes**
+  (#72). `analyze`, `prd`, `plan`, `review`, `pr` and `generate` each carried a
+  literal `300_000`, `pr-review` carried `900_000`, and the README documented a
+  third number. They now share `DEFAULT_HEADLESS_TIMEOUT_MS`, so `--timeout`
+  still wins and `--timeout 0` still means no limit. The `execute` loop remains
+  the deliberate exception, with no limit at all, because its iteration budget
+  is what bounds it.
+
 ## [0.11.0] - 2026-08-29
 
 ### Added

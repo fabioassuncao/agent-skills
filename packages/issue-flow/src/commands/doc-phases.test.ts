@@ -36,7 +36,8 @@ const headlessStub = vi.hoisted(() => ({
   result: '',
   cost: null as Record<string, number> | null,
 }));
-vi.mock('../core/headless.js', () => ({
+vi.mock('../core/headless.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core/headless.js')>()),
   runHeadless: vi.fn(async (options: unknown) => {
     await headlessStub.run(options);
     return { success: true, result: headlessStub.result, cost: headlessStub.cost, error: null };

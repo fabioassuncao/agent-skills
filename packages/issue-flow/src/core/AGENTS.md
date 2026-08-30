@@ -77,6 +77,35 @@ stdout. On any failure it falls back to raw `stdout + stderr`, because
 `isTransientFailure()` inspects the raw diagnostics. Never unwrap the envelope
 on a failing exit code.
 
+## The headless timeout is reported, never swallowed
+
+`runHeadless` runs the CLI with `reject: false`, so **execa resolves on a
+timeout instead of throwing** — the `catch` block is not what handles one. The
+finished result is what carries it, and it arrives in more than one shape:
+`timedOut: true` always, plus `signal: 'SIGTERM' | 'SIGKILL'` when execa did
+the killing, or a bare `exitCode` of 143/137 when the CLI installed its own
+handler and exited by itself (which `claude` does, leaving 143 and no signal).
+`wasTimedOut()` covers all three, guarded by the elapsed time so an unrelated
+external kill is not relabelled. The same clock guard decides in the `catch`,
+where there is no process to inspect at all: a rejection that arrives nowhere
+near the limit — or with no limit set — keeps its own message rather than being
+dressed up as our timeout.
+
+The wording matters as much as the detection: `utils/retry.ts` classifies a
+failure as transient by **matching the text**, and that is what earns the phase
+its retries in `phase-runner.ts`. A timeout reported as a bare `claude exited
+with code 143` — the shape this had before — both hides the cause and silently
+costs the phase every retry it had. Any new failure message that describes a
+timeout keeps the words `timed out` in it.
+
+Every single-invocation phase takes its limit from `DEFAULT_HEADLESS_TIMEOUT_MS`
+(`getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS` at the call site, so
+`--timeout` always wins, and `--timeout 0` means no limit). Do not write a
+per-phase literal: the value drifted apart across the commands exactly that way,
+and the README documented a third number. The execute loop is the deliberate
+exception, running with `timeout: 0` (`executor.ts`) because its iteration
+budget is what bounds it.
+
 ## Parsing CLI metrics
 
 All token/cost parsing goes through `core/metrics.ts` (`parseUsage`,
