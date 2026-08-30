@@ -12,6 +12,40 @@ that were tagged but never published to the registry are marked as such.
 
 ### Added
 
+- **Convention-aware initialization** — Issue Flow now works predictably both in
+  repositories that already have conventions and in ones that have none.
+  - **A documented default convention set** (`src/conventions/defaults.ts`,
+    [`docs/conventions.md`](docs/conventions.md)): six issue types (Idea,
+    Research, Epic, Feature, Bug, Task — the last three being GitHub's own
+    defaults), a small cross-cutting label vocabulary, and an explicit list of
+    what is deliberately *not* a type. It applies only where the repository, its
+    organization and the user's configuration are all silent.
+  - **`issue-flow init` now reports and can create what a repository is
+    missing**: `--apply` writes, `--json` emits the plan, `--scope` resolves a
+    monorepo subdirectory, `--check-only` restores the old prerequisites-only
+    behavior. The convention half never changes the exit code, so a script that
+    treats `init` as a prerequisite gate is unaffected.
+  - **The `init-repository` skill** drives the same core through
+    `issue-flow init --json` rather than re-deriving the analysis, so both
+    interfaces produce the same plan.
+  - Initialization is **non-destructive and idempotent**: nothing that exists is
+    ever overwritten, existence is re-checked immediately before each write, and
+    a second run writes nothing.
+  - **`AGENTS.md` is established as the canonical agent entry point** and
+    `CLAUDE.md` as a one-line bridge to it. Scaffolding generates both that way,
+    and a repository whose `CLAUDE.md` carries its own instructions is reported
+    for a human decision — promoting it means moving text somebody wrote, which
+    is never automatic.
+
+### Fixed
+
+- **Organization-published Issue Forms were invisible.** GitHub's
+  `issueTemplates` GraphQL connection only returns *markdown* templates, so a
+  repository whose organization publishes `.yml` Issue Forms looked like a
+  repository with no templates at all — and would have been given a local copy of
+  the organization's. Discovery now also reads the organization's `.github`
+  repository tree, in a single call that returns names and contents together.
+
 - **The repository policy reaches the flows** (issues #57, #58, #59, #60, #61).
   v0.10.0 shipped the discovery layer with no consumers; this connects it.
   - **Projection into the prompts and per-repository overrides** (#57): the

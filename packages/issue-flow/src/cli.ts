@@ -161,15 +161,25 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 // ── init ────────────────────────────────────────────────────────────────────
 withIssueOptions(
   withGlobalOptions(
-    program.command('init').description('Verify that all prerequisites (claude, gh, git) are met'),
+    program
+      .command('init')
+      .description(
+        'Check prerequisites and report (or create) the conventions this repository is missing',
+      )
+      .option('--apply', 'Create the missing files instead of only reporting them')
+      .option('--json', 'Emit the plan as JSON')
+      .option('--scope <dir>', 'Resolve the conventions for a subdirectory (monorepo)')
+      .option('--check-only', 'Only verify prerequisites, as earlier releases did'),
   ),
-).action(async () => {
-  const { loadIssuesConfig } = await import('./config.js');
-  const { runInit } = await import('./commands/init.js');
-  const { preferredProvider } = await loadIssuesConfig();
-  const code = await runInit(preferredProvider);
-  process.exit(code);
-});
+).action(
+  async (options: { apply?: boolean; json?: boolean; scope?: string; checkOnly?: boolean }) => {
+    const { loadIssuesConfig } = await import('./config.js');
+    const { runInit } = await import('./commands/init.js');
+    const { preferredProvider } = await loadIssuesConfig();
+    const code = await runInit(preferredProvider, options);
+    process.exit(code);
+  },
+);
 
 // ── generate ────────────────────────────────────────────────────────────────
 withGlobalOptions(

@@ -37,6 +37,7 @@ Skills and sub-agents are invoked differently in Claude Code:
 | Component | Type | Description |
 |-----------|------|-------------|
 | [`resolve-issue`](../.claude/agents/resolve-issue.md) | **Sub-agent** | Orchestrates the full pipeline end-to-end with mode support and auto-correction loop. |
+| [`init-repository`](../skills/init-repository/) | Skill | Analyzes what a repository already declares and fills only the gaps — Issue Forms, PR template, `AGENTS.md`, `CLAUDE.md`, conventions. Incremental, non-destructive and idempotent. |
 | [`generate-issue`](../skills/generate-issue/) | Skill | Generates architect-quality GitHub issues from short instructions with duplicate detection and label management. |
 | [`generate-local-issue`](../skills/generate-local-issue/) | Skill | Generates architect-quality issues as local files (`issues/<N>/issue.md` + `metadata.json`) with no GitHub involved. |
 | [`analyze-issue`](../skills/analyze-issue/) | Skill | Analyzes a GitHub issue to extract context, scope, affected areas, and complexity. Standalone use only -- not part of the default pipeline. |
@@ -46,6 +47,33 @@ Skills and sub-agents are invoked differently in Claude Code:
 | [`create-pr`](../skills/create-pr/) | Skill | Creates a Pull Request from the current branch with context from issue data, PRD, and git history. |
 | [`review-issue`](../skills/review-issue/) | Skill | Reviews whether a GitHub issue has been fully resolved, with structured output for the correction loop. |
 | [`review-pr`](../skills/review-pr/) | Skill | Reviews a Pull Request as a whole (diff, architecture, duplication, tests, commits, description) and returns a structured verdict. Optional -- runs after `create-pr` when `--pr-review` is requested. |
+
+## Agent entry points: `AGENTS.md` and `CLAUDE.md`
+
+```text
+CLAUDE.md  →  AGENTS.md  →  specialized documentation  →  single source of truth
+```
+
+**`AGENTS.md` is canonical** — the entry point for any coding agent of any
+vendor, following the [open convention](https://agents.md) where agents read the
+nearest file in the directory tree. Issue Flow treats it as an **index**: it names
+the documents to read and holds no rule of its own.
+
+**`CLAUDE.md` is a bridge**, and nothing else. One line:
+
+```markdown
+Read and follow the instructions in AGENTS.md.
+```
+
+Both formats allow their own content; Issue Flow deliberately restricts that.
+Instructions duplicated in an agent file age out of sight and start contradicting
+their source without anyone noticing. Any other tool-specific adapter follows the
+same rule — a pointer, never a second copy.
+
+Discovery walks the hierarchy from the root down to the working scope, so a
+nested `AGENTS.md` wins over the root one, and it **follows a pointer file rather
+than stopping at it**. The full policy, and what does not belong in an
+`AGENTS.md`, is in [Conventions](conventions.md#agent-entry-points).
 
 ## Repository policy: parity with the CLI is a contract
 
