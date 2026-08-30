@@ -1,6 +1,7 @@
 import type { AgentProviderId } from '../agents/types.js';
 import type { FailureKind } from '../resilience/errors.js';
 import type { CheckResult } from '../verify/types.js';
+import type { ModelEntry, ModelTier } from './models.js';
 
 export type FailureClass = 'availability' | 'non-convergence' | 'environment';
 
@@ -182,4 +183,22 @@ export function unusedHarness(
 ): AgentProviderId | null {
   const seen = new Set<AgentProviderId>([current, ...triedHarnesses]);
   return available.find((id) => !seen.has(id)) ?? null;
+}
+
+const TIER_ORDER: readonly ModelTier[] = ['fast', 'mid', 'strong'];
+
+/** Return the next stronger concrete model, never a tier/model already attempted. */
+export function nextModelTier(
+  current: ModelTier,
+  tried: readonly ModelTier[],
+  catalog: readonly ModelEntry[],
+): ModelEntry | null {
+  const seen = new Set<ModelTier>([current, ...tried]);
+  const currentIndex = TIER_ORDER.indexOf(current);
+  for (const tier of TIER_ORDER.slice(currentIndex + 1)) {
+    if (seen.has(tier)) continue;
+    const entry = catalog.find((model) => model.tier === tier);
+    if (entry !== undefined) return entry;
+  }
+  return null;
 }

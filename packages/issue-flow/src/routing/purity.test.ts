@@ -15,6 +15,8 @@ describe('routing purity', () => {
       'decide.ts',
       'budget.ts',
       'escalation.ts',
+      'models.ts',
+      'policy.ts',
     ];
     for (const file of files) {
       const text = await readFile(join(dir, file), 'utf-8');

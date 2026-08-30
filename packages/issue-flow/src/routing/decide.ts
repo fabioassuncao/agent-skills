@@ -7,6 +7,8 @@ import {
 } from '../agents/types.js';
 import { analyzeTask } from './analyze.js';
 import { filterEligible } from './capabilities.js';
+import { modelsFor } from './models.js';
+import { recommendedFor } from './policy.js';
 import { PRIORS_VERSION } from './priors.js';
 import { pickSelected, scoreCandidates } from './score.js';
 import type { RoutingDecision, RoutingMode, RoutingProfile, TaskSignals } from './types.js';
@@ -29,10 +31,13 @@ export function decideRouting(input: {
   signals?: TaskSignals;
   phase: AgentPhase;
   actualHarness: string;
+  actualProvider?: string;
+  actualModel?: string | null;
   mode: RoutingMode;
   profile?: RoutingProfile;
   requiresExtraDirectories?: boolean;
   skipScore?: boolean;
+  policy?: 'recommended';
 }): RoutingDecision | null {
   if (input.mode === 'off') return null;
   const analyzed = analyzeTask(input.signals ?? {});
@@ -46,28 +51,58 @@ export function decideRouting(input: {
       risk: analyzed.risk,
       mode: input.mode,
       candidates: [],
-      selected: input.actualHarness,
-      actual: input.actualHarness,
+      selected: {
+        harness: input.actualHarness,
+        provider: input.actualProvider ?? PROVIDER[input.actualHarness] ?? input.actualHarness,
+        model: input.actualModel ?? null,
+      },
+      actual: {
+        harness: input.actualHarness,
+        provider: input.actualProvider ?? PROVIDER[input.actualHarness] ?? input.actualHarness,
+        model: input.actualModel ?? null,
+      },
       reasonCodes: ['EXPLICIT_CONFIG'],
     };
   }
 
   const scored = scoreCandidates(
-    (Object.keys(CAPS) as (keyof typeof CAPS)[]).map((harness) => {
+    (Object.keys(CAPS) as (keyof typeof CAPS)[]).flatMap((harness) => {
       const eligibility = filterEligible({
         harness,
         capabilities: CAPS[harness],
         phase: input.phase,
         requiresExtraDirectories: input.requiresExtraDirectories === true,
       });
-      return {
+      const recommendation = input.policy === 'recommended' ? recommendedFor(input.phase) : null;
+      return modelsFor(harness, CAPS[harness]).map((model) => ({
         harness,
         provider: PROVIDER[harness] ?? harness,
-        eligible: eligibility.eligible,
-        reasonCodes: eligibility.reasonCodes,
+        model: model.id,
+        tier: model.tier,
+        relativeCost: model.relativeCost,
+        relativeLatency: model.relativeLatency,
+        eligible:
+          eligibility.eligible &&
+          (recommendation === null ||
+            (model.tier === recommendation.tier &&
+              (recommendation.preferHarness === undefined ||
+                recommendation.preferHarness === harness))),
+        reasonCodes: [
+          ...eligibility.reasonCodes,
+          ...(recommendation !== null &&
+          model.tier === recommendation.tier &&
+          (recommendation.preferHarness === undefined || recommendation.preferHarness === harness)
+            ? ['RECOMMENDED_POLICY']
+            : []),
+          ...(model.tier === 'fast' && analyzed.risk !== 'high' ? ['CHEAPER_TIER_SUFFICIENT'] : []),
+          ...(model.tier === 'strong' && (analyzed.risk === 'high' || profile === 'quality')
+            ? ['STRONGER_TIER_FOR_RISK']
+            : []),
+        ],
         taskClass: analyzed.taskClass,
         profile,
-      };
+        costStatus: 'reported' as const,
+      }));
     }),
   );
   const selected = pickSelected(scored);
@@ -78,8 +113,17 @@ export function decideRouting(input: {
     risk: analyzed.risk,
     mode: input.mode,
     candidates: scored,
-    selected: selected.harness,
-    actual: input.actualHarness,
+    selected: {
+      harness: selected.harness,
+      provider: selected.provider,
+      model: selected.model ?? null,
+      tier: selected.tier,
+    },
+    actual: {
+      harness: input.actualHarness,
+      provider: input.actualProvider ?? PROVIDER[input.actualHarness] ?? input.actualHarness,
+      model: input.actualModel ?? null,
+    },
     reasonCodes: selected.reasonCodes.includes('COLD_START')
       ? ['HIGH_PRIOR', ...selected.reasonCodes]
       : selected.reasonCodes,

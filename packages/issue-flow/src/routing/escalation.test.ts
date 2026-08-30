@@ -4,6 +4,7 @@ import {
   classifyAttempt,
   detectNonConvergence,
   failureFingerprint,
+  nextModelTier,
   nextRung,
   unusedHarness,
 } from './escalation.js';
@@ -42,6 +43,20 @@ describe('classifyAttempt', () => {
         failureKind: 'provider_down',
       }),
     ).toBe('availability');
+  });
+});
+
+describe('nextModelTier', () => {
+  const catalog = [
+    { id: 'fast', tier: 'fast' as const, relativeCost: 1, relativeLatency: 1 },
+    { id: 'mid', tier: 'mid' as const, relativeCost: 2, relativeLatency: 2 },
+    { id: 'strong', tier: 'strong' as const, relativeCost: 3, relativeLatency: 3 },
+  ];
+
+  it('returns a concrete stronger target and never repeats a tried tier', () => {
+    expect(nextModelTier('fast', [], catalog)?.id).toBe('mid');
+    expect(nextModelTier('fast', ['mid'], catalog)?.id).toBe('strong');
+    expect(nextModelTier('mid', ['strong'], catalog)).toBeNull();
   });
 });
 

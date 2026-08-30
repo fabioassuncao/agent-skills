@@ -1,20 +1,27 @@
+import type { ModelTier } from './models.js';
 import { priorFor } from './priors.js';
 import type { Candidate, RoutingProfile, TaskClass } from './types.js';
 
 export const DELTA = 0.2;
 export const MIN_SAMPLE_SIZE = 8;
 
-const PROFILE_MULTIPLIER: Record<RoutingProfile, number> = {
-  economy: 0.9,
-  balanced: 1,
-  quality: 1.05,
-  speed: 1.02,
+export const PROFILE_WEIGHTS: Record<
+  RoutingProfile,
+  { quality: number; cost: number; latency: number }
+> = {
+  economy: { quality: 0.5, cost: 0.4, latency: 0.1 },
+  balanced: { quality: 0.6, cost: 0.25, latency: 0.15 },
+  quality: { quality: 0.85, cost: 0.05, latency: 0.1 },
+  speed: { quality: 0.45, cost: 0.1, latency: 0.45 },
 };
 
 export interface ScoreInput {
   harness: string;
   provider: string;
   model?: string | null;
+  tier: ModelTier;
+  relativeCost: number;
+  relativeLatency: number;
   eligible: boolean;
   reasonCodes: string[];
   taskClass: TaskClass;
@@ -32,12 +39,18 @@ export function clampLearned(value: number): number {
 export function scoreCandidates(inputs: readonly ScoreInput[]): Candidate[] {
   const profile = inputs[0]?.profile ?? 'balanced';
   const scored: Candidate[] = inputs.map((input) => {
-    const prior = priorFor(input.taskClass, input.harness);
+    const prior = priorFor(input.taskClass, input.harness, input.tier);
     const samples = input.samples ?? 0;
     const rawLearned = samples >= MIN_SAMPLE_SIZE ? (input.learned ?? 0) : 0;
     const learned = clampLearned(rawLearned);
-    const multiplier = PROFILE_MULTIPLIER[profile];
-    const score = input.eligible ? (prior + learned) * multiplier : 0;
+    const weights = PROFILE_WEIGHTS[profile];
+    const costScore = input.costStatus === 'unknown' ? 0 : 1 / input.relativeCost;
+    const latencyScore = 1 / input.relativeLatency;
+    const score = input.eligible
+      ? (prior + learned) * weights.quality +
+        costScore * weights.cost +
+        latencyScore * weights.latency
+      : 0;
     const reasonCodes = [...input.reasonCodes];
     if (input.eligible && samples === 0) reasonCodes.push('COLD_START');
     if (input.eligible && learned > 0) reasonCodes.push('HIGH_HISTORICAL_SUCCESS');
@@ -48,6 +61,9 @@ export function scoreCandidates(inputs: readonly ScoreInput[]): Candidate[] {
       harness: input.harness,
       provider: input.provider,
       model: input.model ?? null,
+      tier: input.tier,
+      relativeCost: input.relativeCost,
+      relativeLatency: input.relativeLatency,
       eligible: input.eligible,
       prior,
       learned,

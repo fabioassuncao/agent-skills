@@ -17,12 +17,16 @@ export interface ExecutionTarget {
   harness: string;
   provider: string;
   model?: string | null;
+  tier?: import('./models.js').ModelTier;
 }
 
 export interface Candidate {
   harness: string;
   provider: string;
   model?: string | null;
+  tier: import('./models.js').ModelTier;
+  relativeCost: number;
+  relativeLatency: number;
   eligible: boolean;
   prior: number;
   learned: number;
@@ -38,8 +42,8 @@ export interface RoutingDecision {
   risk: RiskLevel;
   mode: RoutingMode;
   candidates: Candidate[];
-  selected: string;
-  actual: string;
+  selected: ExecutionTarget;
+  actual: ExecutionTarget;
   reasonCodes: string[];
 }
 
@@ -52,6 +56,9 @@ export const REASON_CODES = [
   'EXPLICIT_CONFIG',
   'TIE_BREAK',
   'COLD_START',
+  'CHEAPER_TIER_SUFFICIENT',
+  'STRONGER_TIER_FOR_RISK',
+  'RECOMMENDED_POLICY',
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
