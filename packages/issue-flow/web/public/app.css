@@ -41,7 +41,8 @@
   /* Estado: a cor do texto/ícone e a superfície que a acompanha no badge.
      No tema claro as quatro cores ficam no nível 700 da escala — é o mais
      claro que atende 4,5:1 sobre a própria superfície do badge. O limiar é
-     4,5:1 e não 3:1 porque `.badge` é 0.78rem/600, abaixo de texto grande. */
+     4,5:1 e não 3:1 porque `.badge` é `--font-size-sm`/600, abaixo de texto
+     grande. */
   --state-ok: #15803d;
   --state-ok-surface: #dcfce7;
   --state-run: #1d4ed8;
@@ -55,6 +56,25 @@
      estiver adjacente (a superfície ao redor do anel), não de 4,5:1 — é um
      componente gráfico, não texto. */
   --focus-ring: #4f46e5;
+
+  /* Escalas visuais fechadas. Componentes escolhem um degrau existente em vez
+     de criar valores locais; isso mantém a densidade previsível nos dois temas. */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.875rem;
+  --font-size-base: 0.9375rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.25rem;
+
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+
+  --radius-small: 6px;
+  --radius-medium: 10px;
+  --radius-pill: 999px;
 
   --shadow: 0 1px 2px rgb(0 0 0 / 0.06);
   --overlay: rgb(0 0 0 / 0.45);
@@ -144,15 +164,19 @@ body {
   margin: 0;
   background: var(--surface-page);
   color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: var(--font-size-base);
+  line-height: 1.5;
 }
 
 main {
   max-width: 960px;
   margin: 0 auto;
-  padding: 16px 16px 48px;
+  /* O rodape usa dois degraus de 24px para separar o fim do conteúdo sem
+     introduzir um sexto token de espaçamento. */
+  padding: var(--space-16) var(--space-16) calc(var(--space-24) * 2);
   display: grid;
-  gap: 16px;
+  gap: var(--space-16);
 }
 
 /* Itens de grid têm min-width automático: sem isto, um conteúdo largo
@@ -164,7 +188,7 @@ main > *,
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.86em;
+  font-size: var(--font-size-md);
 }
 
 .muted {
@@ -174,25 +198,23 @@ main > *,
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: var(--radius-medium);
+  padding: var(--space-16);
   box-shadow: var(--shadow);
 }
 
 h1 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: var(--font-size-xl);
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 h2 {
-  margin: 0 0 10px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  margin: 0 0 var(--space-8);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
   color: var(--text-muted);
 }
 
@@ -209,7 +231,7 @@ a:hover {
 
 .tabs {
   display: flex;
-  gap: 4px;
+  gap: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 
@@ -218,13 +240,14 @@ a:hover {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
+  /* Compensa a borda das abas; é alinhamento matemático, não espaçamento. */
   margin-bottom: -1px;
-  padding: 8px 14px;
+  padding: var(--space-8) var(--space-12);
   font: inherit;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--radius-small) var(--radius-small) 0 0;
 }
 
 .tab:hover {
@@ -241,7 +264,7 @@ a:hover {
    eram filhos diretos de main e dependem desse espaçamento. */
 .tab-panel {
   display: grid;
-  gap: 16px;
+  gap: var(--space-16);
 }
 
 .tab-panel[hidden] {
@@ -259,7 +282,7 @@ a:hover {
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-12);
 }
 
 .brand {
@@ -270,10 +293,10 @@ a:hover {
    --surface-sunken (6,10 claro / 5,33 escuro). */
 .app-version {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   font-weight: 500;
-  padding: 1px 7px;
-  border-radius: 999px;
+  padding: var(--space-4) var(--space-8);
+  border-radius: var(--radius-pill);
   background: var(--surface-sunken);
   color: var(--text-muted);
   vertical-align: middle;
@@ -284,49 +307,49 @@ a:hover {
 }
 
 #branch-line {
-  margin: 4px 0 0;
+  margin: var(--space-4) 0 0;
 }
 
 .header-side {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
+  gap: var(--space-8);
 }
 
 .timers {
   display: flex;
-  gap: 10px;
+  gap: var(--space-12);
   font-variant-numeric: tabular-nums;
 }
 
 .refresh-control,
 .theme-control,
 .log-filter-control {
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-8);
 }
 
 select {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 6px;
+  border-radius: var(--radius-small);
+  padding: var(--space-4) var(--space-8);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
 }
 
 /* ---- Badges de status ---- */
 
 .badge {
   display: inline-block;
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 0.78rem;
+  padding: var(--space-4) var(--space-8);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -361,7 +384,7 @@ select {
   background: var(--state-error);
   color: var(--accent-text);
   text-align: center;
-  padding: 8px 16px;
+  padding: var(--space-8) var(--space-16);
   font-weight: 600;
 }
 
@@ -373,9 +396,9 @@ select {
 
 .alert-entry {
   border-left: 3px solid var(--state-error);
-  padding: 4px 10px;
-  margin: 6px 0;
-  border-radius: 0 6px 6px 0;
+  padding: var(--space-4) var(--space-12);
+  margin: var(--space-8) 0;
+  border-radius: 0 var(--radius-small) var(--radius-small) 0;
   background: var(--state-error-surface);
 }
 
@@ -385,15 +408,15 @@ select {
 }
 
 .alert-count {
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-4);
 }
 
 /* ---- Resumo da issue ---- */
 
 .issue-summary-title {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-8);
   font-weight: 600;
 }
 
@@ -401,15 +424,15 @@ select {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: var(--space-12);
+  margin-bottom: var(--space-8);
 }
 
 .badge-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: var(--space-8);
+  margin-bottom: var(--space-8);
 }
 
 .label-badge {
@@ -449,8 +472,8 @@ select {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--space-8);
+  margin-top: var(--space-4);
 }
 
 .story-status-backlog {
@@ -474,7 +497,7 @@ select {
 }
 
 .story-deps {
-  font-size: 0.84rem;
+  font-size: var(--font-size-md);
 }
 
 /* ---- Progresso ---- */
@@ -482,7 +505,7 @@ select {
 .progress-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
 }
 
 progress {
@@ -499,8 +522,8 @@ progress {
 }
 
 #progress-counters {
-  margin: 8px 0 0;
-  font-size: 0.86rem;
+  margin: var(--space-8) 0 0;
+  font-size: var(--font-size-md);
 }
 
 /* ---- Executando agora ---- */
@@ -508,12 +531,12 @@ progress {
 .now-grid {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 4px 14px;
+  gap: var(--space-4) var(--space-12);
 }
 
 .now-grid dt {
   color: var(--text-muted);
-  font-size: 0.86rem;
+  font-size: var(--font-size-md);
 }
 
 .now-grid dd {
@@ -527,9 +550,9 @@ progress {
   display: inline-block;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--state-run);
-  margin-right: 6px;
+  margin-right: var(--space-8);
   animation: pulse 1.4s ease-in-out infinite;
 }
 
@@ -556,8 +579,8 @@ progress {
 .plain-list li {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 5px 0;
+  gap: var(--space-8);
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -605,9 +628,10 @@ progress {
    deslocar o conteúdo do item ao ganhar/perder a classe. */
 .story-executing {
   background: var(--state-run-surface);
-  border-radius: 6px;
+  border-radius: var(--radius-small);
   box-shadow: inset 3px 0 0 0 var(--state-run);
-  padding-left: 9px;
+  /* A sombra interna ocupa 3px; a subtração preserva o ritmo total de 12px. */
+  padding-left: calc(var(--space-12) - 3px);
 }
 
 .icon-completed {
@@ -639,7 +663,7 @@ progress {
 
 .item-error {
   color: var(--state-error);
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -647,7 +671,7 @@ progress {
 .item-side {
   flex: none;
   color: var(--text-muted);
-  font-size: 0.84rem;
+  font-size: var(--font-size-md);
   font-variant-numeric: tabular-nums;
   /* Com duração + tokens + custo o slot fica bem mais largo; alinhar à
      direita e limitar a largura mantém o título legível. Sem métricas o
@@ -658,22 +682,22 @@ progress {
 
 .story-id {
   font-weight: 600;
-  margin-right: 6px;
+  margin-right: var(--space-8);
 }
 
 .commit-hash {
-  margin-right: 8px;
+  margin-right: var(--space-8);
 }
 
 /* ---- Próximos passos ---- */
 
 #next-steps ol {
   margin: 0;
-  padding-left: 20px;
+  padding-left: var(--space-24);
 }
 
 #next-steps li {
-  padding: 2px 0;
+  padding: var(--space-4) 0;
 }
 
 /* ---- Logs ---- */
@@ -682,19 +706,19 @@ progress {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--space-12);
 }
 
 .logs {
   max-height: 320px;
   overflow-y: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
 }
 
 .logs li {
   border-bottom: none;
-  padding: 2px 0;
+  padding: var(--space-4) 0;
   align-items: flex-start;
 }
 
@@ -733,17 +757,17 @@ progress {
 .kanban {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-12);
   align-items: start;
 }
 
 .kanban-column {
   background: var(--surface-page);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: var(--radius-medium);
+  padding: var(--space-12);
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
   min-width: 0;
 }
 
@@ -751,12 +775,12 @@ progress {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 .kanban-column-title {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -767,23 +791,23 @@ progress {
   flex: none;
   background: var(--surface-sunken);
   color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0 7px;
-  font-size: 0.74rem;
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-8);
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .kanban-card {
   appearance: none;
   display: grid;
-  gap: 6px;
+  gap: var(--space-8);
   justify-items: start;
   width: 100%;
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: var(--radius-medium);
+  padding: var(--space-12);
   font: inherit;
   color: inherit;
   cursor: pointer;
@@ -797,9 +821,9 @@ progress {
 .kanban-card-head {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-4);
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
 }
 
 .kanban-card-title {
@@ -814,7 +838,7 @@ progress {
 .kanban-card-desc {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.84rem;
+  font-size: var(--font-size-md);
   line-height: 1.4;
   overflow: hidden;
   display: -webkit-box;
@@ -825,7 +849,7 @@ progress {
 }
 
 .kanban-empty {
-  font-size: 0.84rem;
+  font-size: var(--font-size-md);
 }
 
 @media (max-width: 719px) {
@@ -855,8 +879,8 @@ progress {
   flex-direction: column;
   background: var(--surface);
   border-left: 1px solid var(--border);
-  padding: 16px;
-  gap: 12px;
+  padding: var(--space-16);
+  gap: var(--space-12);
 }
 
 .drawer[hidden],
@@ -868,14 +892,14 @@ progress {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-12);
 }
 
 .drawer-head h2 {
   margin: 0;
   /* O título carrega o id + o título da story: fora do padrão caixa-alta das
      demais seções, que são rótulos fixos e curtos. */
-  font-size: 0.95rem;
+  font-size: var(--font-size-base);
   text-transform: none;
   letter-spacing: normal;
   color: var(--text);
@@ -887,11 +911,11 @@ progress {
   flex: none;
   background: none;
   border: none;
-  padding: 2px 6px;
+  padding: var(--space-4) var(--space-8);
   font: inherit;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-small);
 }
 
 .drawer-close:hover {
@@ -903,25 +927,25 @@ progress {
 .drawer-body {
   overflow-y: auto;
   display: grid;
-  gap: 14px;
+  gap: var(--space-12);
   align-content: start;
   justify-items: start;
 }
 
 .drawer-timing {
   margin: 0;
-  font-size: 0.84rem;
+  font-size: var(--font-size-md);
 }
 
 .drawer-section {
   width: 100%;
   display: grid;
-  gap: 6px;
+  gap: var(--space-8);
 }
 
 .drawer-section-title {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -936,9 +960,9 @@ progress {
 
 .drawer-list {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-16);
   display: grid;
-  gap: 4px;
+  gap: var(--space-4);
 }
 
 .drawer-list li {
@@ -947,7 +971,7 @@ progress {
 
 .detail-row {
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-small);
   transition: background 120ms ease, box-shadow 120ms ease;
 }
 
@@ -963,10 +987,12 @@ progress {
 
 .config-phase-grid {
   display: grid;
+  /* O fundo `--border` aparece pelo gap: é a linha divisória entre as células,
+     não espaçamento — daí ficar fora da escala. */
   gap: 1px;
-  margin-top: 1rem;
+  margin-top: var(--space-16);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-medium);
   overflow: hidden;
   background: var(--border);
 }
@@ -974,9 +1000,9 @@ progress {
 .config-phase-row {
   display: grid;
   grid-template-columns: minmax(5rem, 0.7fr) minmax(6rem, 1fr) minmax(8rem, 1.4fr) minmax(10rem, 1.4fr);
-  gap: 0.75rem;
+  gap: var(--space-12);
   align-items: center;
-  padding: 0.65rem 0.8rem;
+  padding: var(--space-12);
   border: 0;
   color: var(--text);
   background: var(--surface);
@@ -1010,10 +1036,10 @@ progress {
 .config-form {
   display: grid;
   grid-template-columns: minmax(8rem, 0.7fr) minmax(12rem, 1fr) auto minmax(10rem, 1fr);
-  gap: 0.65rem;
+  gap: var(--space-12);
   align-items: center;
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: var(--space-16);
+  padding-top: var(--space-16);
   border-top: 1px solid var(--border);
 }
 
@@ -1022,8 +1048,8 @@ progress {
 }
 
 .config-routing-summary {
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: var(--space-16);
+  padding-top: var(--space-16);
   border-top: 1px solid var(--border);
 }
 
@@ -1037,8 +1063,8 @@ progress {
 .config-save {
   min-height: 2.25rem;
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  padding: 0.4rem 0.65rem;
+  border-radius: var(--radius-small);
+  padding: var(--space-8) var(--space-12);
   color: var(--text);
   background: var(--surface);
 }
@@ -1056,29 +1082,29 @@ progress {
 
 .execution-timeline {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--space-12);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .execution-entry {
-  padding: 0.8rem;
+  padding: var(--space-12);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-medium);
   background: var(--surface-sunken);
 }
 
 .execution-entry-head {
   display: flex;
-  gap: 0.6rem;
+  gap: var(--space-8);
   align-items: center;
-  margin-bottom: 0.65rem;
+  margin-bottom: var(--space-12);
 }
 
 .execution-grid,
 .drawer-summary-grid {
-  margin-top: 0.75rem;
+  margin-top: var(--space-12);
 }
 
 .process-output summary {
@@ -1089,20 +1115,20 @@ progress {
 .process-output-body {
   max-height: 22rem;
   overflow: auto;
-  padding: 0.8rem;
-  border-radius: 8px;
+  padding: var(--space-12);
+  border-radius: var(--radius-small);
   color: var(--text);
   background: var(--surface-sunken);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
 }
 
 .commit-meta {
   display: block;
-  margin-top: 0.2rem;
-  font-size: 0.76rem;
+  margin-top: var(--space-4);
+  font-size: var(--font-size-xs);
   font-weight: 400;
 }
 
@@ -1130,27 +1156,27 @@ progress {
 
 .footer {
   text-align: center;
-  font-size: 0.78rem;
+  font-size: var(--font-size-sm);
 }
 
 .noscript {
   max-width: 960px;
-  margin: 16px auto;
-  padding: 0 16px;
+  margin: var(--space-16) auto;
+  padding: 0 var(--space-16);
 }
 
 @media (min-width: 720px) {
   .columns {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 16px;
+    gap: var(--space-16);
   }
 }
 
 @media (max-width: 719px) {
   .columns {
     display: grid;
-    gap: 16px;
+    gap: var(--space-16);
   }
 
   .header-side {
@@ -1166,7 +1192,7 @@ progress {
 
 .view {
   display: grid;
-  gap: 16px;
+  gap: var(--space-16);
   min-width: 0;
 }
 
@@ -1183,9 +1209,9 @@ progress {
   background: none;
   border: none;
   padding: 0;
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-8);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--accent);
   cursor: pointer;
@@ -1199,7 +1225,7 @@ progress {
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  gap: var(--space-16);
 }
 
 .dashboard-card {
@@ -1207,8 +1233,8 @@ progress {
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: var(--radius-medium);
+  padding: var(--space-16);
   box-shadow: var(--shadow);
   color: inherit;
   font: inherit;
@@ -1220,7 +1246,7 @@ progress {
      uma 4ª linha cortada por baixo do reticente. Empacotar no topo manda a
      sobra para o fim do card, que é onde ela não engana ninguém. */
   align-content: start;
-  gap: 10px;
+  gap: var(--space-12);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -1244,11 +1270,11 @@ progress {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 .dashboard-project {
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
   overflow-wrap: anywhere;
@@ -1258,7 +1284,7 @@ progress {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 .dashboard-issue {
@@ -1274,7 +1300,7 @@ progress {
 
 .dashboard-summary {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--font-size-md);
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -1286,8 +1312,8 @@ progress {
 .dashboard-meta-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  font-size: 0.82rem;
+  gap: var(--space-12);
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -1296,7 +1322,7 @@ progress {
   display: block;
   height: 6px;
   background: var(--surface-sunken);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 
@@ -1304,12 +1330,12 @@ progress {
   display: block;
   height: 100%;
   background: var(--state-run);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   transition: width 0.3s ease;
 }
 
 .dashboard-live-dot {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--state-run);
   text-transform: uppercase;
@@ -1321,8 +1347,8 @@ progress {
   display: inline-block;
   width: 7px;
   height: 7px;
-  margin-right: 6px;
-  border-radius: 50%;
+  margin-right: var(--space-8);
+  border-radius: var(--radius-pill);
   background: var(--state-run);
   vertical-align: middle;
   animation: dashboard-pulse 1.4s ease-in-out infinite;

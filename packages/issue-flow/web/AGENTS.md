@@ -75,6 +75,36 @@ grid`/`flex` da regra base vence o atributo `hidden`. E o overlay/drawer ficam
 em `z-index` 20/21 para cobrir o `.banner` de desconexão, que é `sticky` com
 `z-index: 10`.
 
+## Escalas de tipografia, espaçamento e raio
+
+Ao lado das cores, `:root` declara três escalas **fechadas**. Um componente
+novo escolhe um degrau que já existe; não introduz um valor local.
+
+| Escala | Tokens |
+| --- | --- |
+| Tipografia | `--font-size-xs` 0.75rem · `sm` 0.8125 · `md` 0.875 · `base` 0.9375 · `lg` 1 · `xl` 1.25 |
+| Espaçamento | `--space-4` · `--space-8` · `--space-12` · `--space-16` · `--space-24` |
+| Raio | `--radius-small` 6px · `--radius-medium` 10px · `--radius-pill` 999px |
+
+`--font-size-base` é o tamanho do `body`; `xl` é o `h1` e `lg` o `h2`. O
+espaçamento cobre `gap`, `padding` e `margin` — os quatro valores de rem que
+existiam (`0.65rem`, `0.75rem`, `0.8rem`, `1rem`) foram arredondados para o
+degrau mais próximo, e é isso que se faz com qualquer valor novo. Raio:
+`medium` para superfícies com cara de cartão (`.card`, `.kanban-card`,
+`.kanban-column`, `.execution-entry`), `small` para linhas, controles e caixas
+internas, `pill` para badges, trilhas de progresso e pontos — inclusive no
+lugar do antigo `border-radius: 50%`.
+
+**Três exceções, e só elas**, cada uma com comentário no `app.css`: o
+`margin-bottom: -1px` das abas (compensa a borda, é alinhamento), o `gap: 1px`
+de `.config-phase-grid` (o fundo `--border` vazando pelo gap é a linha
+divisória) e o `calc(var(--space-12) - 3px)` de `.story-executing` (desconta a
+`box-shadow` interna para preservar o ritmo). Um valor solto sem um motivo
+dessa ordem é dívida — troque pelo degrau.
+
+Múltiplos são escritos como `calc()` sobre um token (`calc(var(--space-24) *
+2)` no rodapé do `main`), não como um sexto token de espaçamento.
+
 ## Paleta e tema
 
 As cores do `app.css` são **tokens nomeados por papel**, não por local de uso:
@@ -169,7 +199,7 @@ correspondente** — a maior parte da paleta clara passa com pouca folga.
 | `--accent-text` | `--state-error`         | 4,5:1  | 6,47  | 6,78   |
 
 O limiar dos badges de estado é **4,5:1 e não 3:1** porque `.badge` é
-`font-size: 0.78rem; font-weight: 600` — abaixo do que a WCAG chama de texto
+`font-size: var(--font-size-sm); font-weight: 600` — abaixo do que a WCAG chama de texto
 grande. Já `--focus-ring` é um componente gráfico, não texto: 3:1 basta.
 
 No tema claro as quatro cores de estado ficam no nível 700 da escala — é o tom
