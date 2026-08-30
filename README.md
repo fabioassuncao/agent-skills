@@ -457,11 +457,39 @@ The `policy` key both **declares** what discovery cannot infer and **turns off**
 |---|---|
 | `enabled` | `false` runs no discovery at all -- not a single `stat()` or network call |
 | `issues.titleConvention` | Declares an issue title convention; nothing discovers one |
+| `issues.allowLabelCreation` | `true` lets Issue Flow create a label the repository does not have. **Defaults to `false`**, which is a deliberate change of behavior -- see below |
 | `pullRequests.baseBranch` | Overrides the branch discovered from git |
 | `pullRequests.titleConvention`, `git.branchConvention`, `git.commitConvention` | Declared only; no repository exposes these in a machine-readable form |
+| `contextBudget` | Token budget for the policy summary injected into prompts (default `1500`). Over it, a whole section is replaced by a pointer -- never truncated mid-rule |
 | `discovery.{issueTemplates,pullRequestTemplate,docs,codeowners,labels,issueTypes}` | Turns a single discovery pass off, leaving the others running |
 
-The environment variables are `ISSUE_FLOW_POLICY` (the `enabled` toggle), `ISSUE_FLOW_POLICY_BASE_BRANCH`, `ISSUE_FLOW_POLICY_BRANCH_CONVENTION`, `ISSUE_FLOW_POLICY_COMMIT_CONVENTION`, `ISSUE_FLOW_POLICY_PR_TITLE_CONVENTION` and `ISSUE_FLOW_POLICY_ISSUE_TITLE_CONVENTION`. A declaration you do not write stays absent rather than becoming `null`, so it never erases what discovery found. A file with no `policy` key is unchanged, and an invalid one degrades to the defaults with a warning.
+The environment variables are `ISSUE_FLOW_POLICY` (the `enabled` toggle), `ISSUE_FLOW_POLICY_CONTEXT_BUDGET`, `ISSUE_FLOW_POLICY_BASE_BRANCH`, `ISSUE_FLOW_POLICY_BRANCH_CONVENTION`, `ISSUE_FLOW_POLICY_COMMIT_CONVENTION`, `ISSUE_FLOW_POLICY_PR_TITLE_CONVENTION` and `ISSUE_FLOW_POLICY_ISSUE_TITLE_CONVENTION`. A declaration you do not write stays absent rather than becoming `null`, so it never erases what discovery found. A file with no `policy` key is unchanged, and an invalid one degrades to the defaults with a warning.
+
+#### What consumes the policy
+
+| Flow | What it does with the policy |
+|---|---|
+| `generate` | Follows the applicable Issue Template, picks an Issue Type, uses only labels that exist, applies the title convention |
+| `analyze` | Judges completeness against the template's required fields, and reads the policy documents rather than guessing |
+| `plan` | Names the branch by the repository's convention |
+| `execute` | Chooses the commit type by the repository's convention instead of always `feat` |
+| `pr` | Diffs and targets the **resolved base branch**, and writes the body to the repository's Pull Request template |
+| `review`, `pr-review` | Add repository-policy conformance as an explicit axis, citing the document behind every rule |
+
+**Labels are never created.** A label the draft suggests but the repository does not have is dropped with a warning. This is intentional: a team that deleted `high`/`medium`/`low` in favor of a native priority field, or `bug`/`enhancement` in favor of Issue Types, made a decision, and silently recreating those labels undoes it repository-wide. `issues.allowLabelCreation: true` restores the previous behavior.
+
+#### Per-repository prompt overrides
+
+A repository can adjust any prompt without forking:
+
+| File | Effect |
+|---|---|
+| `.issue-flow/prompts/<name>.append.md` | Appended to the packaged prompt. **The recommended form** |
+| `.issue-flow/prompts/<name>.md` | Replaces the packaged prompt entirely |
+
+`append` is recommended because replacing a whole prompt makes the repository inherit its maintenance: improvements shipped by later releases stop reaching it, silently. With both present the replacement wins, with a warning. With none, the prompt is exactly the packaged one.
+
+A repository that declares no policy renders every prompt **byte for byte** as it did before this layer existed -- pinned by a test over every file in `prompts/`.
 
 ## Issue Sources (Providers)
 
