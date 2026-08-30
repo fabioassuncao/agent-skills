@@ -333,6 +333,20 @@ export const globalCommitConfigSchema = z
   .partial();
 
 /**
+ * SQLite adoption controls. They deliberately live in a separate `storage`
+ * object so choosing the compatibility driver cannot be confused with the
+ * location of the global storage tree (`storageDir`).
+ */
+export const storageConfigInputSchema = z
+  .object({
+    /** Keep legacy JSON as the active driver, for recovery or a staged rollout. */
+    driver: z.enum(['sqlite', 'json']),
+    /** Number of pre-migration database snapshots to retain. */
+    backupRetention: z.number().int().nonnegative(),
+  })
+  .partial();
+
+/**
  * `~/.issue-flow/config.json`.
  *
  * **Every key is optional and no key carries a `.default()`.** This is a design
@@ -348,6 +362,7 @@ export const globalConfigSchema = z
     schemaVersion: z.number().int().positive(),
     /** Override for the directory holding `projects/`. */
     storageDir: z.string().min(1),
+    storage: storageConfigInputSchema,
     web: globalWebConfigSchema,
     retry: globalRetryConfigSchema,
     commit: globalCommitConfigSchema,
@@ -476,6 +491,7 @@ export type ValidatedExecutionPlan = z.infer<typeof executionPlanSchema>;
 export type GlobalWebConfig = z.infer<typeof globalWebConfigSchema>;
 export type GlobalRetryConfig = z.infer<typeof globalRetryConfigSchema>;
 export type GlobalCommitConfig = z.infer<typeof globalCommitConfigSchema>;
+export type StorageConfigInput = z.infer<typeof storageConfigInputSchema>;
 export type ResilienceRetryConfig = z.infer<typeof resilienceRetryConfigSchema>;
 export type ResilienceProvidersConfig = z.infer<typeof resilienceProvidersConfigSchema>;
 export type ProviderHealthStatus = z.infer<typeof providerHealthStatusSchema>;

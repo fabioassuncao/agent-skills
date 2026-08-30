@@ -20,14 +20,27 @@ export function isoNow(): string {
  */
 export async function loadTaskPlan(path: string): Promise<TaskPlan> {
   const repository = getPlanRepository(path);
-  const content = repository === undefined ? await readFile(path, 'utf-8') : null;
-  const raw = content === null ? null : JSON.parse(content);
 
   try {
-    const parsed =
-      repository === undefined
-        ? (taskPlanSchema.parse(raw) as TaskPlan)
-        : await loadStoredPlan(repository);
+    let parsed: TaskPlan;
+    if (repository === undefined) {
+      parsed = taskPlanSchema.parse(JSON.parse(await readFile(path, 'utf-8'))) as TaskPlan;
+    } else {
+      try {
+        parsed = await loadStoredPlan(repository);
+      } catch (error) {
+        // The plan phase (and compatible test/embedding callers) writes the
+        // agent-facing projection after resolution. Until it is promoted there
+        // is deliberately no pipeline row, so bootstrap it exactly once from
+        // that validated phase output instead of treating SQLite as an empty
+        // plan that masks the file.
+        if (!(error instanceof Error) || !error.message.startsWith('No SQLite task plan exists')) {
+          throw error;
+        }
+        parsed = taskPlanSchema.parse(JSON.parse(await readFile(path, 'utf-8'))) as TaskPlan;
+        await saveStoredPlan(repository, parsed);
+      }
+    }
     const reconciled = reconcileInterruptedExecutions(parsed);
     if (reconciled !== parsed) {
       try {

@@ -488,7 +488,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         // observes the next state, so a concurrent execution row cannot erase
         // `passes` or `notes`.
         const repository = getPlanRepository(paths.prdFile);
-        if (repository !== undefined && result.exitCode === 0) {
+        if (repository !== undefined) {
           plan = await ingestAgentPlan(repository);
         }
         const seconds = elapsedSecondsSince(startedAtMs);

@@ -292,6 +292,7 @@ indistinguishable from a value you actually wrote.
 {
   "schemaVersion": 1,
   "storageDir": "/mnt/data/issue-flow",
+  "storage": { "driver": "sqlite", "backupRetention": 5 },
   "web": { "port": 3737, "host": "127.0.0.1", "refreshSeconds": 5, "logLimit": 200 },
   "retry": { "retryLimit": 10, "retryForever": false, "backoffBaseSeconds": 30, "backoffMaxSeconds": 900 },
   "commit": { "signoff": false, "conventional": true },
@@ -306,6 +307,7 @@ indistinguishable from a value you actually wrote.
 |-----|---------|
 | `schemaVersion` | Format version of the file |
 | `storageDir` | Alternative directory holding `projects/` |
+| `storage` | Structured-state driver (`sqlite` by default; `json` keeps the compatibility path active) and the number of pre-migration backups to retain (5 by default) |
 | `web` | Machine-wide web defaults. Deliberately a subset of the project key: `enabled` and `includeLogs` stay a per-project decision |
 | `retry` | Retry and backoff preferences, mirroring the engine defaults |
 | `commit` | Commit preferences. `signoff` is consumed by `commitMessage()` |

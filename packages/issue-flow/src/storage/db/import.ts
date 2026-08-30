@@ -418,10 +418,9 @@ async function retainBackups(directory: string, retention: number): Promise<void
   }
 }
 
-async function prepareDatabase(
-  options: ImportProjectOptions,
-  hasArtifacts: boolean,
-): Promise<void> {
+export const DEFAULT_BACKUP_RETENTION = 5;
+
+async function prepareDatabase(options: ImportProjectOptions): Promise<void> {
   const path = getDatabasePath(options);
   if (!existsSync(path)) return;
   const raw = await openDatabase(path, options);
@@ -439,14 +438,17 @@ async function prepareDatabase(
     const version = Number(
       raw.prepare('PRAGMA user_version').get<{ user_version: number }>()?.user_version ?? 0,
     );
-    if (hasArtifacts && version < CURRENT_SCHEMA_VERSION) {
+    // A database upgrade is destructive enough to deserve a recovery point
+    // even when there are no JSON artifacts to import. An empty project may
+    // still contain the only copy of its SQLite state.
+    if (version < CURRENT_SCHEMA_VERSION) {
       const backupDirectory = join(
         getDatabasePath(options).replace(/[/\\][^/\\]+$/, ''),
         'backups',
       );
       const backup = join(backupDirectory, `issue-flow-${Date.now()}.db`);
       raw.backup(backup);
-      await retainBackups(backupDirectory, options.backupRetention ?? 5);
+      await retainBackups(backupDirectory, options.backupRetention ?? DEFAULT_BACKUP_RETENTION);
     }
   } finally {
     try {
@@ -468,7 +470,7 @@ export async function importProjectArtifacts(
   const counts = { ...EMPTY_COUNTS };
   try {
     const artifacts = await collectArtifacts(options.projectDir);
-    await prepareDatabase(options, artifacts.length > 0);
+    await prepareDatabase(options);
     const database = await openIssueFlowDatabase(options);
     try {
       let imported = 0;

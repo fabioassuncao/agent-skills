@@ -629,8 +629,10 @@ JSON, JSONL,
 Markdown, locks and logs remain the diagnostic/source artifacts during this
 transition — none is renamed, rewritten or removed.
 
-Before a schema upgrade of an existing database, Issue Flow takes a consistent
-snapshot under `backups/` (five generations by default). If an import fails,
+Before a schema upgrade of any existing database, Issue Flow takes a consistent
+snapshot under `backups/` (five generations by default, configurable with
+`storage.backupRetention`). Set `storage.driver` to `json` to keep the
+compatibility driver active deliberately. If an import fails,
 the database is preserved as `issue-flow.db.failed-<timestamp>` and the command
 continues with the JSON storage. A failed `integrity_check` is similarly
 isolated as `issue-flow.db.corrupt-<timestamp>` before rebuilding from the

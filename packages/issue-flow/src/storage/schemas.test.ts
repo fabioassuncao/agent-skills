@@ -107,11 +107,13 @@ describe('globalConfigSchema', () => {
       web: { host: 'localhost' },
       retry: { retryForever: true },
       commit: { signoff: true },
+      storage: { driver: 'json', backupRetention: 2 },
     });
 
     expect(parsed.web).toEqual({ host: 'localhost' });
     expect(parsed.retry).toEqual({ retryForever: true });
     expect(parsed.commit).toEqual({ signoff: true });
+    expect(parsed.storage).toEqual({ driver: 'json', backupRetention: 2 });
   });
 
   it('exposes only the machine-wide subset of the web configuration', () => {
@@ -187,6 +189,8 @@ describe('globalConfigSchema', () => {
     ['retry.retryLimit negative', { retry: { retryLimit: -1 } }],
     ['retry.retryForever not a boolean', { retry: { retryForever: 'yes' } }],
     ['commit.signoff not a boolean', { commit: { signoff: 'true' } }],
+    ['storage.driver unknown', { storage: { driver: 'memory' } }],
+    ['storage.backupRetention negative', { storage: { backupRetention: -1 } }],
   ])('rejects %s', (_label, value) => {
     expect(globalConfigSchema.safeParse(value).success).toBe(false);
   });

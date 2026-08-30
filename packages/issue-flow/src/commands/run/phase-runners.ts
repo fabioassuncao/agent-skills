@@ -71,7 +71,7 @@ function createPlanRunner(
     // alternate runners may only write the established file contract. Ingest
     // that projection before queue logic reads the canonical state back.
     const repository = getPlanRepository(tasksPath);
-    if (repository !== undefined) {
+    if (repository !== undefined && existsSync(tasksPath)) {
       await ingestGeneratedPlan(repository);
     }
     // Read the newly-created plan once: publish its stories immediately so
