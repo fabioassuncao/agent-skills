@@ -2,6 +2,7 @@ import { mkdir, rename, utimes, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { FailureKind } from '../resilience/errors.js';
+import { setTelemetrySessionId } from '../telemetry/session-id.js';
 import type { StoryStage, UserStory, UserStoryStatus } from '../types.js';
 
 /**
@@ -620,6 +621,7 @@ function applyEvent(
 ): SessionSnapshot {
   switch (event.type) {
     case 'session:start': {
+      setTelemetrySessionId(event.sessionId);
       const initial = createInitialSnapshot();
       return {
         ...initial,

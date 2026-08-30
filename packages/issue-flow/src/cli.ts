@@ -448,6 +448,36 @@ withGlobalOptions(
 });
 
 withGlobalOptions(
+  program
+    .command('usage')
+    .description('Aggregate execution telemetry from tasks.json')
+    .argument('[issue]', 'Restrict the report to one issue')
+    .option('--issue <issue>', 'Same as the positional argument')
+    .option('--since <date>', 'Only executions started on or after this ISO date')
+    .option('--by <key>', 'Group by harness, provider, model, purpose or status')
+    .option('--json', 'Emit the assembled totals as JSON'),
+).action(
+  async (
+    issue: string | undefined,
+    options: { issue?: string; since?: string; by?: string; json?: boolean },
+  ) => {
+    const { runUsage, USAGE_GROUP_KEYS } = await import('./commands/usage.js');
+    const by = options.by;
+    if (by !== undefined && !(USAGE_GROUP_KEYS as readonly string[]).includes(by)) {
+      printError('Must be one of: harness, provider, model, purpose, status.');
+      process.exit(1);
+    }
+    process.exit(
+      await runUsage(issue ?? options.issue, {
+        ...(options.since === undefined ? {} : { since: options.since }),
+        ...(by === undefined ? {} : { by: by as (typeof USAGE_GROUP_KEYS)[number] }),
+        ...(options.json === undefined ? {} : { json: options.json }),
+      }),
+    );
+  },
+);
+
+withGlobalOptions(
   program.command('runs').description('History of the runs of this project, with how each ended'),
 ).action(async () => {
   const { runRuns } = await import('./commands/operations.js');

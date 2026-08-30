@@ -26,6 +26,13 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Telemetria por invocação em `tasks.json`** (#78). Cada chamada de agente
+  grava um `ExecutionRecord` com harness, provider, modelo, propósito,
+  tentativa, tokens, custo (informado / estimado / desconhecido) e status.
+  Estimativa de preço é opt-in (`telemetry.pricing.estimate`). Novo comando
+  `issue-flow usage`. Git continua descrevendo o que mudou; a telemetria
+  descreve como foi produzido.
+
 - **Camada de agentes (`src/agents/`)** (#62). `AgentRunner` desacopla o
   pipeline do binário `claude`. `runHeadless` e `executeClaude` continuam as
   fachadas; o runner é a peça trocável dentro delas. Default continua

@@ -1,5 +1,8 @@
 # src/commands
 
+`usage` is a reader, like `status` / `runs` / `logs`: it only aggregates
+`tasks.json.executions`. It never writes an `executionSummary`.
+
 ## Contract of a single-invocation phase
 
 `analyze`, `generate`, `prd`, `plan`, `review`, `pr` and `pr-review` each own

@@ -349,6 +349,7 @@ issue-flow status 42 --json       # the same, assembled as JSON
 issue-flow runs                   # history: how each issue ended, and why
 issue-flow logs 42 --kind retry   # the journal, filtered to what matters
 issue-flow logs --follow          # …and kept open as it grows
+issue-flow usage 42 --by harness  # cost and tokens per invocation, from tasks.json
 issue-flow pause                  # ask the run to stop, with a checkpoint
 issue-flow cancel 42              # stop it, and mark it so `resume` reports it
 ```
@@ -358,6 +359,7 @@ issue-flow cancel 42              # stop it, and mark it so `resume` reports it
 | `status [issue] [--json]` | Who owns the run (pid, host, last heartbeat), which phase and attempt each issue is on, how long since the last activity, and where a queue stands |
 | `runs` | One line per issue: status, duration and the first line of the failure |
 | `logs [issue] [--follow] [--tail n] [--kind a,b]` | The append-only journal, in order and filtered. Needs the journal enabled (`resilience.journal.enabled`, or `--continuous`) |
+| `usage [issue] [--since date] [--by harness\|provider\|model\|purpose\|status] [--json]` | Reader over `tasks.json.executions`. Never stores an aggregate. Absence of telemetry prints a message, it does not crash |
 | `pause` | Sends `SIGTERM` to the owner, which writes a checkpoint, stops the agent with a grace period and closes its journal before exiting |
 | `cancel [issue]` | The same stop, plus marking the issue so a later `resume` reports it instead of silently continuing |
 
@@ -1118,7 +1120,7 @@ All of them are `number | null`, and `null` means **not reported** -- never zero
 Two limitations are worth knowing:
 
 - **Per-story attribution is an approximation.** The CLI reports usage per invocation, not per story, and one iteration of the execute loop can flip more than one story to `passes: true`. When it does, that iteration's tokens, cost and duration are split **evenly** among the stories that completed in it (tokens rounded to integers) -- so a cheap story finishing alongside an expensive one gets the same share. When an iteration completes no story, nothing is attributed to any story and the numbers stay in the `execute` phase total only. Phase totals and `metrics.total*` never double-count the split: they come from the iteration itself, never from summing `stories[]`. Because each story's share is rounded independently, **summing the token fields across `stories[]` for one iteration can differ by a few tokens from that iteration's real total** -- do not treat `sum(stories[].inputTokens)` as authoritative; the `execute` phase total and `metrics.total*` are.
-- **USD cost only appears when the CLI provides it.** `costUsd` and `metrics.totalCostUsd` are passed through from the `claude` CLI's own accounting (`total_cost_usd`). If your CLI version, model or plan does not report it, token counts still show up and every cost field stays `null` -- Issue Flow never estimates a price from token counts.
+- **USD cost only appears when the CLI provides it.** `costUsd` and `metrics.totalCostUsd` are passed through from the `claude` CLI's own accounting (`total_cost_usd`). If your CLI version, model or plan does not report it, token counts still show up and every cost field stays `null`. Issue Flow never estimates a price from token counts unless you set `telemetry.pricing.estimate: true`, and an estimate is never labelled as a charge.
 
 ## Pipeline State & File Structure
 
@@ -1224,6 +1226,40 @@ The execute loop also writes what each user story cost back into `tasks.json`, s
 They carry the same meaning as their [`session.json` counterparts](#tokens-and-cost), including both limitations: the values are the story's **even share** of the iteration that completed it, and `costUsd` is absent whenever the `claude` CLI did not report a price. Values accumulate across iterations, so a story that took two passes to finish shows the sum of both.
 
 A `tasks.json` written before this feature keeps loading unchanged -- missing fields stay missing rather than being filled with zeros, which is what keeps "not reported" distinguishable from "cost nothing".
+
+### Execution telemetry in `tasks.json`
+
+Story metrics answer "what did this story cost". They do not say **who** produced the number, on which attempt, or whether a failed try spent tokens too. `plan.executions` is one row per agent invocation:
+
+```json
+{
+  "executions": [
+    {
+      "id": "…",
+      "purpose": "prd",
+      "attempt": 1,
+      "trigger": "initial",
+      "agent": {
+        "harness": "claude-code",
+        "provider": "anthropic",
+        "model": { "requested": null, "resolved": null, "source": "unavailable" }
+      },
+      "status": "failed",
+      "usage": { "inputTokens": 412, "source": "provider" },
+      "cost": { "status": "reported", "amount": 0.31, "currency": "USD" }
+    }
+  ]
+}
+```
+
+- A task is not a single execution. Retries and failovers stay in the file.
+- `{ "status": "reported", "amount": 0 }` is a real zero. `{ "status": "unknown" }` is not.
+- Estimation is opt-in (`telemetry.pricing.estimate`). An estimate stores the rates it used and is never added to reported cost.
+- `usage: null` means the provider reported nothing — never artificial zeros.
+- Git (branch, commit, PR, changelog) never reads this field. Provider and model do not leak into those artefacts.
+- A plan written before this field keeps loading; a round-trip does not materialize `executions: []`.
+
+Read it with `issue-flow usage [--issue N] [--by harness]`. Disable writes with `telemetry.enabled: false` or `ISSUE_FLOW_TELEMETRY=0`.
 
 ### Pull Request and review state
 

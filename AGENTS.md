@@ -48,6 +48,7 @@ the code, and was learned the hard way.
 | The agent layer (Claude / Codex, selection by phase) | [`packages/issue-flow/src/agents/AGENTS.md`](packages/issue-flow/src/agents/AGENTS.md) |
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
+| Execution telemetry in `tasks.json` | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |
 | Git conventions (branch, commit, PR title) | [`docs/git-conventions.md`](docs/git-conventions.md) |
 | Failure taxonomy and retry policy | [`packages/issue-flow/src/resilience/AGENTS.md`](packages/issue-flow/src/resilience/AGENTS.md) |

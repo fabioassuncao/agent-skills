@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ClaudeUsage } from './core/metrics.js';
 import type { SessionSnapshot } from './core/session-state.js';
 import type { IssueMetadata, IssuesConfig } from './issues/types.js';
+import type { ExecutionRecord } from './telemetry/types.js';
 
 /**
  * Zod schemas for validating tasks.json structure, Issue metadata, headless
@@ -167,6 +168,134 @@ export const issueRunStateSchema = z.object({
   owner: runOwnerSchema.nullable().default(null),
 });
 
+const failureKindSchema = z.enum([
+  'network',
+  'timeout',
+  'stalled',
+  'rate_limit',
+  'provider_down',
+  'provider_crash',
+  'authentication',
+  'configuration',
+  'repository_state',
+  'task_execution',
+  'internal',
+  'unknown',
+]);
+
+const normalizedUsageSchema = z.object({
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  cacheReadTokens: z.number().optional(),
+  cacheCreationTokens: z.number().optional(),
+  reasoningTokens: z.number().optional(),
+  details: z.record(z.string(), z.number()).optional(),
+  source: z.enum(['provider', 'unavailable']),
+});
+
+const pricingSnapshotSchema = z.object({
+  tableVersion: z.string(),
+  modelKey: z.string(),
+  inputPerMillion: z.number(),
+  outputPerMillion: z.number(),
+  cacheReadPerMillion: z.number().optional(),
+  cacheWritePerMillion: z.number().optional(),
+  capturedAt: z.string(),
+});
+
+const costRecordSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('reported'), amount: z.number(), currency: z.literal('USD') }),
+  z.object({
+    status: z.literal('estimated'),
+    amount: z.number(),
+    currency: z.literal('USD'),
+    pricing: pricingSnapshotSchema,
+  }),
+  z.object({
+    status: z.literal('unknown'),
+    reason: z.enum(['not_reported', 'no_pricing', 'unknown_model', 'subscription', 'zero_rated']),
+  }),
+]);
+
+/**
+ * One agent invocation. Optional on the plan and without a default array:
+ * a plan that never recorded executions must not gain `[]` on rewrite.
+ */
+export const executionRecordSchema = z.object({
+  id: z.string(),
+  sessionId: z.string().nullable(),
+  purpose: z.enum([
+    'analyze',
+    'generate',
+    'prd',
+    'plan',
+    'execute',
+    'review',
+    'pr',
+    'pr-review',
+    'verify',
+  ]),
+  attempt: z.number().int().positive(),
+  trigger: z.enum(['initial', 'retry', 'fallback', 'correction', 'escalation']),
+  triggerReason: failureKindSchema.nullable(),
+  agent: z.object({
+    harness: z.string(),
+    provider: z.string().nullable(),
+    harnessVersion: z.string().nullable().optional(),
+    model: z.object({
+      requested: z.string().nullable(),
+      resolved: z.string().nullable(),
+      source: z.enum(['provider', 'config', 'unavailable']),
+    }),
+    providerSessionId: z.string().nullable(),
+  }),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  durationMs: z.number().nullable(),
+  usage: normalizedUsageSchema.nullable(),
+  cost: costRecordSchema,
+  status: z.enum(['running', 'completed', 'failed', 'timeout', 'cancelled', 'interrupted']),
+  failure: z
+    .object({
+      kind: failureKindSchema,
+      message: z.string(),
+      exitCode: z.number().nullable(),
+    })
+    .nullable(),
+  stopReason: z
+    .enum([
+      'completed',
+      'failed',
+      'timeout',
+      'cancelled',
+      'max_attempts',
+      'max_cost',
+      'max_duration',
+    ])
+    .nullable()
+    .optional(),
+  iteration: z.number().int().optional(),
+  storyIds: z.array(z.string()).optional(),
+  owner: z.object({ pid: z.number().int(), host: z.string() }).nullable().optional(),
+  routingDecision: z
+    .object({
+      selected: z.string(),
+      actual: z.string().optional(),
+      candidates: z.array(z.string()).optional(),
+      reasonCodes: z.array(z.string()).optional(),
+    })
+    .passthrough()
+    .nullable()
+    .optional(),
+  verdict: z
+    .object({
+      status: z.enum(['passed', 'failed', 'unverified']),
+      level: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+}) satisfies z.ZodType<ExecutionRecord>;
+
 export const taskPlanSchema = z.object({
   project: z.string(),
   issueNumber: z.union([z.number().int().positive(), z.string().min(1)]),
@@ -197,6 +326,11 @@ export const taskPlanSchema = z.object({
   pullRequest: pullRequestRefSchema.optional(),
   prReview: prReviewStateSchema.optional(),
   userStories: z.array(userStorySchema),
+  /**
+   * Per-invocation history. `.optional()` and no `.default([])`: a plan that
+   * predates the field must not grow an empty array just because it was saved.
+   */
+  executions: z.array(executionRecordSchema).optional(),
 });
 
 export const headlessResultSchema = z.object({

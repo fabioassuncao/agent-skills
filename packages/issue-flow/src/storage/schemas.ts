@@ -298,6 +298,32 @@ export const resilienceConfigSchema = z
   })
   .partial();
 
+/**
+ * Intermediate `telemetry` key. Every field optional, no `.default()` — this
+ * file is a middle rung of the config ladder.
+ */
+export const telemetryPricingOverrideSchema = z
+  .object({
+    inputPerMillion: z.number(),
+    outputPerMillion: z.number(),
+    cacheReadPerMillion: z.number(),
+    cacheWritePerMillion: z.number(),
+  })
+  .partial();
+
+export const telemetryConfigInputSchema = z
+  .object({
+    enabled: z.boolean(),
+    maxExecutions: z.number().int().positive(),
+    pricing: z
+      .object({
+        estimate: z.boolean(),
+        overrides: z.record(z.string(), telemetryPricingOverrideSchema),
+      })
+      .partial(),
+  })
+  .partial();
+
 /** Global commit preferences. `signoff` is consumed by `commitMessage()`. */
 export const globalCommitConfigSchema = z
   .object({
@@ -327,6 +353,7 @@ export const globalConfigSchema = z
     commit: globalCommitConfigSchema,
     resilience: resilienceConfigSchema,
     agent: agentConfigInputSchema,
+    telemetry: telemetryConfigInputSchema,
   })
   .partial();
 
@@ -453,6 +480,7 @@ export type ResilienceJournalConfig = z.infer<typeof resilienceJournalConfigSche
 export type ResilienceDecomposeConfig = z.infer<typeof resilienceDecomposeConfigSchema>;
 export type ResilienceConfig = z.infer<typeof resilienceConfigSchema>;
 export type GlobalConfig = z.infer<typeof globalConfigSchema>;
+export type TelemetryConfigInput = z.infer<typeof telemetryConfigInputSchema>;
 
 /**
  * The file format is a *superset* of what `resolvePolicy()` reads: it also

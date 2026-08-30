@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import { bindTelemetry } from '../telemetry/recorder.js';
 import { printInfo } from '../ui/logger.js';
 import { getProjectRoot } from '../utils/git.js';
 import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
@@ -269,5 +270,6 @@ export async function resolveIssuePaths(
     checkedIssues.add(paths.issueDir);
   }
 
+  bindTelemetry({ tasksPath: paths.tasksFile });
   return paths;
 }

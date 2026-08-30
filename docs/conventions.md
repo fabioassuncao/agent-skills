@@ -215,6 +215,12 @@ opts back in.
 Documented in [`docs/git-conventions.md`](git-conventions.md). Default branch:
 `{type}/{N}-{slug}`. Commits follow Conventional Commits.
 
+Git artefacts describe **what changed in the software**. Execution telemetry
+in `tasks.json` (`plan.executions`) describes **how the change was produced**.
+Provider, harness, model, tokens and cost never appear in a branch name, a
+commit message, a Pull Request body or a changelog. See
+[`src/telemetry/AGENTS.md`](../packages/issue-flow/src/telemetry/AGENTS.md).
+
 ## Agent entry points
 
 ```text

@@ -352,4 +352,42 @@ describe('execute loop — non-regression of the JSON output format', () => {
     expect(plan.issueStatus).not.toBe('completed');
     expect(plan.lastError?.category).toBe('invalid_completion_signal');
   });
+
+  it('writes one execution record for a successful iteration', async () => {
+    const { bindTelemetry, resetTelemetryState } = await import('../telemetry/recorder.js');
+    const { DEFAULT_TELEMETRY_CONFIG } = await import('../telemetry/types.js');
+    bindTelemetry({ tasksPath: paths.prdFile, config: DEFAULT_TELEMETRY_CONFIG });
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    agentCompleting(['US-001'], jsonEnvelope('<promise>COMPLETE</promise>', REPORTED_USAGE));
+
+    const code = await runEngine(baseConfig, paths);
+    resetTelemetryState();
+
+    expect(code).toBe(0);
+    const recorded = (await readPlan()).executions ?? [];
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.purpose).toBe('execute');
+    expect(recorded[0]?.trigger).toBe('initial');
+    expect(recorded[0]?.status).toBe('completed');
+    expect(recorded[0]?.cost).toEqual({ status: 'reported', amount: 0.5, currency: 'USD' });
+  });
+
+  it('keeps the failed attempt when the phase retries', async () => {
+    const { bindTelemetry, resetTelemetryState } = await import('../telemetry/recorder.js');
+    const { DEFAULT_TELEMETRY_CONFIG } = await import('../telemetry/types.js');
+    bindTelemetry({ tasksPath: paths.prdFile, config: DEFAULT_TELEMETRY_CONFIG });
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    mockExeca.mockResolvedValue(
+      cliResult({ stdout: '', stderr: 'API Error: rate limit exceeded', exitCode: 1 }),
+    );
+
+    await runEngine({ ...baseConfig, retryLimit: 1 }, paths);
+    resetTelemetryState();
+
+    const recorded = (await readPlan()).executions ?? [];
+    expect(recorded.length).toBeGreaterThanOrEqual(2);
+    expect(recorded[0]?.trigger).toBe('initial');
+    expect(recorded[1]?.trigger).toBe('retry');
+    expect(recorded.every((row) => row.status === 'failed')).toBe(true);
+  });
 });

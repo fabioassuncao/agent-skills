@@ -264,6 +264,8 @@ to **2×**, never more: the multiplier is capped, not compounded, and
 All token/cost parsing goes through `core/metrics.ts` (`parseUsage`,
 `sumUsage`, `formatTokens`). Do not read `total_cost_usd` / `usage.*` directly
 from a call site — that is exactly how the three call sites diverged before.
+Per-invocation history lives in `src/telemetry/` and is written only by
+`recorder.ts`; see that module's `AGENTS.md`.
 
 `runHeadless` only ever returns a non-null `cost` when it can see the CLI's
 JSON: `outputFormat: 'json'`, or the verbose path (`stream-json`).
