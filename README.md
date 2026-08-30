@@ -438,7 +438,7 @@ Where reports are published is configuration, not code. Precedence is **CLI > en
 
 | Environment variable | `.issue-flow.json` key | Values | Default |
 |----------------------|------------------------|--------|---------|
-| `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` | `local` | `local` |
+| `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` | `local`, `github` | `local` |
 
 ```json
 {
@@ -448,7 +448,9 @@ Where reports are published is configuration, not code. Precedence is **CLI > en
 }
 ```
 
-`local` writes the `.md` report and `index.json` under `~/.issue-flow/…/issues/<N>/pr-review/`. Publishing back to GitHub is not implemented in v1 -- the publisher port exists so that adding it is a configuration change. An unknown value degrades to `local` with a warning instead of throwing.
+`local` writes the `.md` report and `index.json` under `~/.issue-flow/…/issues/<N>/pr-review/`. An unknown value degrades to `local` with a warning instead of throwing.
+
+`github` does all of that **and** posts the report as a comment on the Pull Request. It composes rather than replaces: the local artifacts are what the correction cycle and `resume` read, and the comment is an additional audience. Each round's comment carries an invisible marker (`<!-- issue-flow:review:<round> -->`), so republishing a round -- a retried phase, a re-run after a correction, a resume -- **updates** that comment instead of stacking another copy on the Pull Request. A later round is a different statement and gets its own comment.
 
 ### `web` -- Manage the monitoring server
 

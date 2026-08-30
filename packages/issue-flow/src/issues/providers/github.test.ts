@@ -425,3 +425,26 @@ describe('fetchRelations', () => {
     expect(mockRun).not.toHaveBeenCalled();
   });
 });
+
+
+describe('closing an Issue is idempotent (US-023)', () => {
+  it('does not throw when gh reports the Issue was already closed', async () => {
+    // What `gh issue close` actually does for an Issue that is already closed:
+    // a notice on stderr and exit 0. No code change was needed for this — the
+    // test exists to pin it, because a retry of the `pr`/`close` step depends
+    // on it staying true.
+    mockRun.mockResolvedValueOnce(
+      result({ exitCode: 0, stderr: '! Issue #23 (Abstract issue providers) is already closed' }),
+    );
+
+    await expect(provider.close('23')).resolves.toBeUndefined();
+  });
+
+  it('closes twice in a row without a second failure', async () => {
+    mockRun.mockResolvedValue(result({ exitCode: 0 }));
+
+    await expect(provider.close('23')).resolves.toBeUndefined();
+    await expect(provider.close('23')).resolves.toBeUndefined();
+    expect(mockRun).toHaveBeenCalledTimes(2);
+  });
+});

@@ -389,13 +389,16 @@ export const issuesConfigSchema = z.object({
 /**
  * Resolved `pr-review` configuration (the `prReview` key of .issue-flow.json).
  *
- * `publisher` selects the implementation `createPrReviewPublisher()` builds. v1
- * ships only the local one, so the enum has a single member on purpose: adding
- * a GitHub adapter is a new entry here plus a new factory, never a change to
- * the phase.
+ * `publisher` selects the implementation `createPrReviewPublisher()` builds:
+ * `local` writes the artifacts under the issue directory, and `github` does
+ * that **and** comments on the Pull Request, updating the comment of the same
+ * round instead of stacking a new one on every republication.
+ *
+ * `local` stays the default, so a repository that configures nothing publishes
+ * exactly where it always did and never writes to GitHub by surprise.
  */
 export const prReviewConfigSchema = z.object({
-  publisher: z.enum(['local']).default('local'),
+  publisher: z.enum(['local', 'github']).default('local'),
 });
 
 /**
