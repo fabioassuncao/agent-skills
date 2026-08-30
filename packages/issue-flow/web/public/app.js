@@ -345,15 +345,34 @@
   // Troca apenas visibilidade e estado ARIA. Não toca no polling: render()
   // segue atualizando os dois painéis, então a aba inativa nunca fica defasada.
 
-  function setActiveTab(tabId) {
+  function setActiveTab(tabId, options) {
     state.activeTab = tabId;
+    let focused = null;
     for (const tab of els.tabs) {
       const active = tab.id === tabId;
       tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      tab.tabIndex = active ? 0 : -1;
       tab.classList.toggle('is-active', active);
       const panel = document.getElementById(tab.getAttribute('aria-controls'));
       if (panel) panel.hidden = !active;
+      if (active) focused = tab;
     }
+    if (options && options.focus && focused) focused.focus();
+  }
+
+  // Padrão ARIA de tablist: setas movem entre as abas, Home/End vão às pontas.
+  // Só a aba ativa fica no fluxo do Tab (roving tabindex).
+  function onTabListKeydown(event) {
+    const current = els.tabs.indexOf(event.target);
+    if (current === -1) return;
+    let next = -1;
+    if (event.key === 'ArrowRight') next = (current + 1) % els.tabs.length;
+    else if (event.key === 'ArrowLeft') next = (current - 1 + els.tabs.length) % els.tabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = els.tabs.length - 1;
+    else return;
+    event.preventDefault();
+    setActiveTab(els.tabs[next].id, { focus: true });
   }
 
   // ---- Tema ------------------------------------------------------------------
@@ -2005,6 +2024,8 @@
   }
 
   async function init() {
+    const tablist = document.querySelector('[role="tablist"]');
+    if (tablist) tablist.addEventListener('keydown', onTabListKeydown);
     for (const tab of els.tabs) {
       tab.addEventListener('click', () => setActiveTab(tab.id));
     }

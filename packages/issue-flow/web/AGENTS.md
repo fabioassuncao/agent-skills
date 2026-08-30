@@ -46,7 +46,9 @@ do snapshot.
 ## Abas, Kanban e drawer
 
 O painel tem três abas ("Execução", "Kanban" e "Histórico") e um único drawer de detalhes
-para fases e stories (inclusive cards do Kanban). Três regras seguram esse conjunto:
+para fases e stories (inclusive cards do Kanban). As abas seguem o padrão ARIA de
+tablist: setas ←/→ movem o foco, Home/End vão às pontas, e só a aba ativa tem
+`tabindex="0"` (as demais `-1`). Três regras seguram esse conjunto:
 
 - **Acesso a story sempre por `getStoryById()` / `getStories()`.** Elas são a
   camada de leitura: normalizam num lugar só o que pode faltar num
@@ -256,11 +258,13 @@ mais claro que ainda atende 4,5:1 sobre a superfície do próprio badge; `--stat
 preenchimentos sólidos são claros, então `--accent-text` inverte para
 `#0f1218`: era branco sobre `--state-error` no banner de desconexão, 2,98:1.
 
-Hover e foco por teclado precisam ser **distinguíveis um do outro**. Em
-`.dashboard-card` o hover só acende a borda (`--accent`); o foco desenha
-`outline: 2px solid var(--focus-ring)` com `outline-offset: 2px`, que continua
-visível em cima do hover. É a única regra do `app.css` que mexe em `outline` —
-antes ela o suprimia e dava a mesma aparência aos dois estados.
+Hover e foco por teclado precisam ser **distinguíveis um do outro**. Uma
+única regra `:focus-visible` compartilhada desenha `outline: 2px solid
+var(--focus-ring)` com `outline-offset: 2px` em todo interativo (abas, cards
+do dashboard e do Kanban, `<select>`s, fechar do drawer, "Todas as execuções",
+linhas de fase/story). O hover só muda cor, borda ou fundo — nunca o anel.
+Inclusive em `.dashboard-card.is-live`, que já tem `border-color` própria: o
+foco precisa do outline, não de outra troca de borda.
 
 ## Como verificar uma mudança aqui
 

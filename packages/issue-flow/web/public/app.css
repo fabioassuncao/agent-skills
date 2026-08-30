@@ -260,6 +260,21 @@ a:hover {
   border-bottom-color: var(--accent);
 }
 
+/* Anel de foco compartilhado: um só tratamento, contraste ≥ 3:1 via
+   `--focus-ring`, nunca igual ao hover (que só muda cor/borda/fundo). */
+.tab:focus-visible,
+.dashboard-card:focus-visible,
+.kanban-card:focus-visible,
+.back-link:focus-visible,
+.drawer-close:focus-visible,
+select:focus-visible,
+.detail-row:focus-visible,
+.config-phase-row:focus-visible,
+.config-phase-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* O painel repete o grid de main: as seções dentro dele são os cards que antes
    eram filhos diretos de main e dependem desse espaçamento. */
 .tab-panel {
@@ -1070,12 +1085,6 @@ progress {
   background: var(--surface-sunken);
 }
 
-.detail-row:focus-visible,
-.config-phase-row:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
 .config-phase-grid {
   display: grid;
   /* O fundo `--border` aparece pelo gap: é a linha divisória entre as células,
@@ -1113,11 +1122,6 @@ progress {
   color: var(--accent);
   background: transparent;
   cursor: pointer;
-}
-
-.config-phase-open:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 3px;
 }
 
 .config-phase-row:hover {
@@ -1348,11 +1352,6 @@ progress {
   border-color: var(--accent);
 }
 
-.dashboard-card:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
 .dashboard-card.is-live {
   border-color: var(--state-run);
 }
@@ -1423,5 +1422,16 @@ progress {
   background: var(--state-run);
   border-radius: var(--radius-pill);
   transition: width 0.3s ease;
+}
+
+/* Qualquer animação ou transição do painel para quando o usuário pede menos
+   movimento — inclusive as que um componente novo esquecer de guardar. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
