@@ -327,7 +327,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(existsSync(join(tmp, 'issues'))).toBe(false);
   });
 
-  it('sem --web o reducer roda em memória e o disco continua intocado', async () => {
+  it('sem --web o reducer persiste no SQLite sem criar projeções de arquivo', async () => {
     let publisherName = '';
     vi.mocked(runExecute).mockImplementationOnce(async () => {
       publisherName = getSessionPublisher().constructor.name;
@@ -337,7 +337,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     const { code } = await runCaptured();
 
     expect(code).toBe(0);
-    expect(publisherName).toBe('MemoryPublisher');
+    expect(publisherName).toBe('SqliteSessionPublisher');
     expect(existsSync((await globalPaths()).sessionFile)).toBe(false);
     expect(existsSync((await globalPaths()).issueDir)).toBe(false);
   });

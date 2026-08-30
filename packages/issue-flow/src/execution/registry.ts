@@ -1,15 +1,14 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { listStoredRunSnapshots, type StoredSession } from '../storage/db/repository.js';
 import { isProcessAlive, isRunLockStale, readRunLock } from '../storage/lock.js';
 import {
   type GetGlobalRootOptions,
   getGlobalRoot,
-  getIssuePaths,
   PROJECTS_DIR_NAME,
   RUN_LOCK_FILENAME,
 } from '../storage/paths.js';
 import type { RunLock } from '../storage/schemas.js';
-import { readSessionFile } from '../storage/session-file.js';
 
 export type LiveRunStatus = 'running' | 'unsignaled' | 'orphan';
 
@@ -37,9 +36,9 @@ export function classifyRunLock(lock: RunLock): LiveRunStatus {
 }
 
 /**
- * Every run.lock under the global projects tree, enriched with session.json
- * when one exists. The lock is the source of truth for existence; the
- * snapshot only fills phase and progress.
+ * Every run.lock under the global projects tree, enriched from indexed SQLite
+ * run/snapshot rows. The lock remains the source of truth for existence and
+ * liveness; the database only fills phase and progress.
  */
 export async function listLiveRuns(options: GetGlobalRootOptions = {}): Promise<LiveRun[]> {
   const root = getGlobalRoot(options);
@@ -52,12 +51,23 @@ export async function listLiveRuns(options: GetGlobalRootOptions = {}): Promise<
     return [];
   }
 
+  const stored = await listStoredRunSnapshots({
+    ...(options.env === undefined ? {} : { databaseOptions: { env: options.env } }),
+  }).catch(() => []);
+  const byProjectIssue = new Map(
+    stored.map((session) => [`${session.projectId}:${session.issueId}`, session]),
+  );
   const runs = await Promise.all(
     projectIds.map(async (projectId) => {
       const lockFile = join(projectsDir, projectId, RUN_LOCK_FILENAME);
       const lock = await readRunLock(lockFile);
       if (lock === null) return null;
-      return enrichRun(projectId, lockFile, lock, options);
+      return enrichRun(
+        projectId,
+        lockFile,
+        lock,
+        byProjectIssue.get(`${projectId}:${lock.target}`),
+      );
     }),
   );
 
@@ -66,14 +76,12 @@ export async function listLiveRuns(options: GetGlobalRootOptions = {}): Promise<
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
-async function enrichRun(
+function enrichRun(
   projectId: string,
   lockFile: string,
   lock: RunLock,
-  options: GetGlobalRootOptions,
-): Promise<LiveRun> {
-  const session = await readSessionFile(getIssuePaths(projectId, lock.target, options).sessionFile);
-
+  session: StoredSession | undefined,
+): LiveRun {
   return {
     projectId,
     target: lock.target,

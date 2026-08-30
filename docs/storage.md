@@ -69,8 +69,8 @@ needs to write it, so a given run leaves most of these absent:
   prd.md            # Product requirements
   tasks.json        # Agent-facing projection of plan, pipeline state and stories
   progress.txt      # Execution log
-  session.json      # Live session snapshot (web monitoring)
-  events.jsonl      # Append-only event journal (opt-in)
+  session.json      # Compatibility projection of the live session
+  events.jsonl      # Compatibility projection of the ordered event history (opt-in)
   events.1.jsonl    # Optional previous generation when rotation is explicitly configured
   verify.json       # Acceptance-contract evidence, redacted
   decomposition.md  # "This issue looks larger than one run" report
@@ -316,9 +316,11 @@ All three are **absent** until the corresponding phase runs.
 ## `session.json`
 
 When web monitoring is enabled — or when a run is detached with `--background` —
-the snapshot served over HTTP is also persisted here (atomic writes, throttled to
-~1s, final state flushed at the end of the run). It is a runtime artifact,
-rewritten from scratch on every run.
+the snapshot is also persisted here (atomic writes, throttled to ~1s, final state
+flushed at the end of the run). It is a compatibility projection, rewritten from
+scratch on every run. The detached monitor reads the canonical SQLite `runs`,
+`snapshots` and `events` rows instead; those rows retain event order and a 10s
+database heartbeat without traversing project files.
 
 `schemaVersion` stays `1`: every field is additive, and a `session.json` written
 by an earlier version still parses — absent sections are filled with their

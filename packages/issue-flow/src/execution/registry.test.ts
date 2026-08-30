@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { PlanRepositoryContext } from '../storage/db/repository.js';
+import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { classifyRunLock, listLiveRuns } from './registry.js';
 
@@ -86,5 +88,45 @@ describe('listLiveRuns', () => {
     expect(runs).toHaveLength(1);
     expect(runs[0]?.status).toBe('orphan');
     expect(runs[0]?.pid).toBe(2_147_483_647);
+  });
+
+  it('enriches a lock from SQLite snapshots without a session.json projection', async () => {
+    const projectId = 'sqlite-project';
+    const issueId = '55';
+    const context: PlanRepositoryContext = {
+      tasksPath: join(tmp, 'projects', projectId, 'issues', issueId, 'tasks.json'),
+      projectId,
+      issueId,
+      projectRoot: '/project/sqlite',
+      databaseOptions: { env: env() },
+    };
+    const publisher = new SqliteSessionPublisher(context, { onWarn: () => {} });
+    const at = new Date().toISOString();
+    publisher.publish({
+      type: 'session:start',
+      at,
+      sessionId: 'session-55',
+      issueNumber: 55,
+      phases: ['execute'],
+    });
+    publisher.publish({ type: 'phase:start', at, phase: 'execute' });
+    await publisher.flush();
+    await publisher.close();
+
+    await mkdir(join(tmp, 'projects', projectId), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', projectId, 'run.lock'),
+      JSON.stringify(lock({ target: issueId })),
+    );
+
+    await expect(listLiveRuns({ env: env() })).resolves.toEqual([
+      expect.objectContaining({
+        projectId,
+        issue: 55,
+        phase: 'execute',
+        storiesCompleted: 0,
+        storiesTotal: 0,
+      }),
+    ]);
   });
 });

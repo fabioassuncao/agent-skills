@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import type { SessionEvent, SessionSnapshot } from '../../core/session-state.js';
 import { taskPlanSchema } from '../../schemas.js';
 import type { ExecutionRecord } from '../../telemetry/types.js';
 import type { TaskPlan } from '../../types.js';
@@ -532,6 +533,209 @@ export async function saveExecution(
   ) {
     await materializePlan(context);
   }
+}
+
+/** A current session snapshot and its indexed identity for monitor readers. */
+export interface StoredSession {
+  projectId: string;
+  issueId: string;
+  sessionId: string;
+  snapshot: SessionSnapshot;
+  updatedAt: string;
+}
+
+/**
+ * Persist one reduced session event and its resulting projection together.
+ *
+ * The session publisher deliberately queues this work after its synchronous
+ * reducer has accepted the event, so monitoring storage can never interrupt a
+ * pipeline. The event sequence is the publisher version and is unique per run.
+ */
+export async function saveSessionEvent(
+  context: PlanRepositoryContext,
+  input: { sessionId: string; sequence: number; event: SessionEvent; snapshot: SessionSnapshot },
+): Promise<void> {
+  await withDatabase(
+    (database) =>
+      database.transaction(() => {
+        const updatedAt = input.snapshot.updatedAt ?? input.event.at;
+        const startedAt = input.snapshot.startedAt ?? input.event.at;
+        database
+          .prepare(
+            `INSERT INTO projects (id, root, remote_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+          )
+          .run(context.projectId, context.projectRoot, startedAt, updatedAt);
+        database
+          .prepare(
+            `INSERT INTO issues (project_id, id, title, status, branch_name, created_at, updated_at)
+             VALUES (?, ?, NULL, ?, NULL, ?, ?)
+             ON CONFLICT(project_id, id) DO UPDATE SET updated_at = excluded.updated_at`,
+          )
+          .run(context.projectId, context.issueId, 'in_progress', startedAt, updatedAt);
+        database
+          .prepare(
+            `INSERT INTO runs (id, project_id, issue_id, status, started_at, finished_at, session_id, heartbeat_at, pid, host)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET status = excluded.status, finished_at = excluded.finished_at,
+             heartbeat_at = excluded.heartbeat_at, pid = excluded.pid, host = excluded.host`,
+          )
+          .run(
+            input.sessionId,
+            context.projectId,
+            context.issueId,
+            input.snapshot.status,
+            startedAt,
+            input.snapshot.endedAt,
+            input.sessionId,
+            updatedAt,
+            process.pid,
+            process.env.HOSTNAME ?? null,
+          );
+        database
+          .prepare(
+            `INSERT INTO events (id, project_id, run_id, occurred_at, kind, payload_json, session_id, sequence)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            context.projectId,
+            input.sessionId,
+            input.event.at,
+            input.event.type,
+            JSON.stringify(input.event),
+            input.sessionId,
+            input.sequence,
+          );
+        database
+          .prepare(
+            `INSERT INTO snapshots (id, project_id, run_id, created_at, payload_json, issue_id, session_id, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            randomUUID(),
+            context.projectId,
+            input.sessionId,
+            updatedAt,
+            JSON.stringify(input.snapshot),
+            context.issueId,
+            input.sessionId,
+            updatedAt,
+          );
+      }),
+    context.databaseOptions,
+  );
+}
+
+/** Read the most recent snapshot for every session active within a time window. */
+export async function listStoredSessions(input: {
+  activeSince: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+}): Promise<StoredSession[]> {
+  return withDatabase((database) => {
+    return database
+      .prepare(
+        `SELECT project_id, issue_id, session_id, payload_json, updated_at FROM snapshots AS current
+         WHERE current.session_id IS NOT NULL AND current.updated_at >= ?
+         AND current.id = (
+           SELECT newer.id FROM snapshots AS newer
+           WHERE newer.project_id = current.project_id AND newer.session_id = current.session_id
+           ORDER BY newer.updated_at DESC, newer.rowid DESC LIMIT 1
+         )
+         ORDER BY current.updated_at DESC, current.rowid DESC`,
+      )
+      .all<{
+        project_id: string;
+        issue_id: string;
+        session_id: string;
+        payload_json: string;
+        updated_at: string;
+      }>(input.activeSince)
+      .map((row) => ({
+        projectId: row.project_id,
+        issueId: row.issue_id,
+        sessionId: row.session_id,
+        snapshot: JSON.parse(row.payload_json) as SessionSnapshot,
+        updatedAt: row.updated_at,
+      }));
+  }, input.databaseOptions);
+}
+
+/** Latest snapshot for each durable run, used to enrich the live lock registry. */
+export async function listStoredRunSnapshots(
+  input: { databaseOptions?: OpenIssueFlowDatabaseOptions } = {},
+): Promise<StoredSession[]> {
+  return withDatabase((database) => {
+    return database
+      .prepare(
+        `SELECT run.project_id, run.issue_id, run.session_id, snapshot.payload_json, snapshot.updated_at
+         FROM runs AS run
+         JOIN snapshots AS snapshot ON snapshot.id = (
+           SELECT latest.id FROM snapshots AS latest
+           WHERE latest.run_id = run.id ORDER BY latest.updated_at DESC, latest.rowid DESC LIMIT 1
+         )
+         WHERE run.session_id IS NOT NULL`,
+      )
+      .all<{
+        project_id: string;
+        issue_id: string;
+        session_id: string;
+        payload_json: string;
+        updated_at: string;
+      }>()
+      .map((row) => ({
+        projectId: row.project_id,
+        issueId: row.issue_id,
+        sessionId: row.session_id,
+        snapshot: JSON.parse(row.payload_json) as SessionSnapshot,
+        updatedAt: row.updated_at,
+      }));
+  }, input.databaseOptions);
+}
+
+/** Event history for one monitor session, in its original publisher order. */
+export async function listStoredSessionEvents(input: {
+  projectId: string;
+  sessionId: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+}): Promise<Array<{ seq: number; event: SessionEvent }>> {
+  return withDatabase(
+    (database) =>
+      database
+        .prepare(
+          `SELECT sequence, payload_json FROM events
+         WHERE project_id = ? AND session_id = ? ORDER BY sequence, rowid`,
+        )
+        .all<{ sequence: number; payload_json: string }>(input.projectId, input.sessionId)
+        .map((row) => ({ seq: row.sequence, event: JSON.parse(row.payload_json) as SessionEvent })),
+    input.databaseOptions,
+  );
+}
+
+/** Keep a quiet, live session discoverable without creating a synthetic event. */
+export async function touchStoredSession(
+  context: PlanRepositoryContext,
+  sessionId: string,
+  updatedAt = new Date().toISOString(),
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      database
+        .prepare('UPDATE runs SET heartbeat_at = ? WHERE id = ? AND project_id = ?')
+        .run(updatedAt, sessionId, context.projectId);
+      const latest = database
+        .prepare(
+          `SELECT id FROM snapshots WHERE project_id = ? AND session_id = ?
+           ORDER BY updated_at DESC, rowid DESC LIMIT 1`,
+        )
+        .get<{ id: string }>(context.projectId, sessionId);
+      if (latest !== undefined) {
+        database
+          .prepare('UPDATE snapshots SET updated_at = ? WHERE id = ?')
+          .run(updatedAt, latest.id);
+      }
+    });
+  }, context.databaseOptions);
 }
 
 export async function loadExecution(

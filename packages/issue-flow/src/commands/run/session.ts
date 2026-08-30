@@ -7,6 +7,8 @@ import { FilePublisher, MemoryPublisher, type SessionPublisher } from '../../cor
 import { onShutdown } from '../../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
 import { getInactivityTimeout, setInactivityTimeout } from '../../core/verbose.js';
+import { getPlanRepository } from '../../storage/db/repository.js';
+import { SqliteSessionPublisher } from '../../storage/db/session-publisher.js';
 import {
   bindDiagnosticContext,
   flushDiagnostics,
@@ -147,6 +149,15 @@ async function createSessionPublisher(input: {
 }): Promise<SessionPublisher> {
   const { paths, persistSnapshot, journalEnabled, webConfig, maxFileBytes } = input;
   const surfaces: SessionPublisher[] = [];
+  const repository = getPlanRepository(paths.tasksFile);
+  if (repository !== undefined) {
+    surfaces.push(
+      new SqliteSessionPublisher(repository, {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+      }),
+    );
+  }
   if (persistSnapshot || journalEnabled) {
     // resolveIssuePaths never creates directories, and a run may well be the
     // first thing to touch this issue's global folder — so the writer creates

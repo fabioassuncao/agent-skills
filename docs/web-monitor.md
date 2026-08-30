@@ -215,12 +215,11 @@ no detached process. A warning is printed when this happens.
 ## Multiple sessions
 
 Because the server is decoupled from any one run, it cannot rely on that run's
-in-memory state. It polls
-`~/.issue-flow/projects/*/issues/*/session.json` on disk (the same file each run
-already writes) every 3 seconds, validates each one, and keeps every well-formed,
-recently-updated one as an **active session**. While a run is live, a 10-second
-mtime-only heartbeat keeps it visible without changing the snapshot content or
-its ETag; after **90 seconds** without a heartbeat, the session is no longer
+in-memory state. It polls indexed `runs`, `snapshots` and `events` rows in the
+global SQLite database every 3 seconds and keeps every recently-heartbeated one
+as an **active session**. While a run is live, a 10-second database heartbeat
+keeps it visible without changing the snapshot content or its ETag; after
+**90 seconds** without a heartbeat, the session is no longer
 reported.
 
 Polling rather than `fs.watch` is deliberate: `fs.watch`'s `recursive` option is
@@ -330,8 +329,7 @@ Tailscale IP over `0.0.0.0` when remote monitoring is needed.
 
 ## Rebuilding the screenshots
 
-The images above were produced by serving real `session.json` and `events.jsonl`
-files — written through the pipeline's own publishers and reducer, not hand-made
-fixtures — from a throwaway `ISSUE_FLOW_HOME`, then driving the real server with
+The images above were produced from real pipeline snapshots and events in a
+throwaway `ISSUE_FLOW_HOME`, then captured through the real server with
 Playwright. To reproduce them, point `ISSUE_FLOW_HOME` at a scratch directory,
 run any pipeline with `--web`, and screenshot `http://localhost:3737`.
