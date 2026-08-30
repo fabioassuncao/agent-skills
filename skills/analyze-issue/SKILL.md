@@ -34,7 +34,25 @@ Also fetch any linked PRs or referenced issues if mentioned in the body.
 
 Before analyzing the issue, orient yourself in the codebase:
 
-1. Read `CLAUDE.md` if it exists (project conventions, patterns, setup)
+1. Read the repository's declared policy — the single source for its
+   conventions, covering every file an ad-hoc read would miss:
+
+   ```bash
+   issue-flow policy 2>/dev/null
+   ```
+
+   It reports the Issue Templates, labels, Issue Types, base branch and the
+   **paths** of the policy documents this repository actually has (`AGENTS.md`,
+   `CLAUDE.md`, `CONTRIBUTING.md`, and whatever `AGENTS.md` points at). Read the
+   ones a decision depends on — `AGENTS.md` first when it exists, since it is the
+   open standard and the primary source in repositories that adopted it.
+
+   When the CLI is not installed, fall back to reading `AGENTS.md` and
+   `CLAUDE.md` from the repository root yourself.
+
+   When the issue was filed against an Issue Template, judge its completeness
+   against **that template's** required fields, and name the field that is
+   missing rather than asking for more detail in general.
 2. Identify the tech stack from `package.json`, `pyproject.toml`, `Cargo.toml`, etc.
 3. Identify the testing setup: `jest`, `vitest`, `pytest`, `cargo test`, etc.
 4. Identify the linting/typecheck commands available

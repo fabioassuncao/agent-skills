@@ -27,6 +27,19 @@ export const policyDiscoveryConfigSchema = z.object({
 
 const policyIssuesDeclarationSchema = z.object({
   titleConvention: z.string().min(1).optional(),
+  /**
+   * Whether Issue Flow may create a label the repository does not have.
+   *
+   * `.optional()` rather than `.default(false)`: the resolved declarations must
+   * stay "only what was written", or the group would always look declared and
+   * `sources` would report a provenance nobody asked for. The effective default
+   * — false — lives at the call site.
+   *
+   * That default is a deliberate change of behaviour: creating taxonomy without
+   * asking is the defect this exists to stop. A repository that wants the old
+   * behaviour opts back into it.
+   */
+  allowLabelCreation: z.boolean().optional(),
 });
 
 const policyPullRequestsDeclarationSchema = z.object({
@@ -81,7 +94,9 @@ export const policyConfigInputSchema = z.object({
       issueTypes: z.boolean().optional(),
     })
     .optional(),
-  issues: z.object({ titleConvention: z.string().nullish() }).optional(),
+  issues: z
+    .object({ titleConvention: z.string().nullish(), allowLabelCreation: z.boolean().optional() })
+    .optional(),
   pullRequests: z
     .object({ baseBranch: z.string().nullish(), titleConvention: z.string().nullish() })
     .optional(),

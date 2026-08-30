@@ -170,6 +170,32 @@ describe('create', () => {
     expect(mockRun.mock.calls[0]?.[1]).not.toContain('--label');
   });
 
+  it('passes --type when the draft chose an Issue Type', async () => {
+    mockRun.mockResolvedValueOnce(
+      result({ stdout: 'https://github.com/fabioassuncao/issue-flow/issues/23' }),
+    );
+    mockRun.mockResolvedValueOnce(result({ stdout: JSON.stringify(ghPayload) }));
+
+    await provider.create({ title: 'T', body: 'B', labels: [], type: 'Bug' });
+
+    const args = mockRun.mock.calls[0]?.[1] ?? [];
+    expect(args).toContain('--type');
+    expect(args[args.indexOf('--type') + 1]).toBe('Bug');
+  });
+
+  it('omits --type when the draft chose none', async () => {
+    mockRun.mockResolvedValueOnce(
+      result({ stdout: 'https://github.com/fabioassuncao/issue-flow/issues/23' }),
+    );
+    mockRun.mockResolvedValueOnce(result({ stdout: JSON.stringify(ghPayload) }));
+
+    await provider.create({ title: 'T', body: 'B', labels: [] });
+
+    // An organization without Issue Types rejects the flag outright, so it can
+    // never be sent speculatively.
+    expect(mockRun.mock.calls[0]?.[1]).not.toContain('--type');
+  });
+
   it('throws when gh issue create fails', async () => {
     mockRun.mockResolvedValueOnce(
       result({ exitCode: 1, stderr: 'could not add label: not found' }),

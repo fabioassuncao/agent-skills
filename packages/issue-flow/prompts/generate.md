@@ -27,6 +27,8 @@ with no surrounding commentary:
 <issue-draft>
 <title>Concise, descriptive title</title>
 <labels>label-one, label-two</labels>
+<type>Issue Type, when the repository has them</type>
+<template>path of the Issue Template followed, when there is one</template>
 <body>
 Full issue body in markdown, including context and acceptance criteria.
 </body>
@@ -35,8 +37,12 @@ Full issue body in markdown, including context and acceptance criteria.
 Rules for the block:
 - `<title>` and `<body>` are required; an empty one aborts the command
 - `<labels>` is a comma-separated list; leave it empty when no label applies
-- Only suggest labels that already exist in the repository, or that are
-  conventional (`bug`, `enhancement`, `documentation`)
+- **Only suggest labels that already exist in this repository.** Never invent
+  one, and never create one. A label that does not exist is dropped before the
+  issue is created, so inventing one silently loses the classification. When the
+  section below lists the repository's labels, that list is exhaustive.
+- `<type>` and `<template>` are optional: omit them entirely unless the section
+  below shows that this repository has Issue Types or Issue Templates
 - Write the body as plain markdown — do not wrap it in a code fence
 
 <!-- if:__REPO_POLICY__ -->
@@ -54,4 +60,21 @@ silent, the defaults above still apply.
 
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
+
+### Drafting against this repository's conventions
+
+- **Issue Templates.** When the section above lists them, pick the one that fits
+  the request — by its name and description — and write the body to *its*
+  structure, filling every field it marks as required. Report the one you chose
+  in `<template>`. The default structure described earlier in this prompt is the
+  fallback for a repository with no template, not a floor to add on top of one.
+  If two templates fit equally well, say so in the body and pick the more
+  specific: choosing a type is the author's call, and a wrong guess is easier to
+  correct when it is stated.
+- **Issue Types.** When the section above lists them, choose one and put it in
+  `<type>`. A repository with Issue Types has usually *removed* the equivalent
+  textual prefix from titles (`[Bug]`, `[Enhancement]`) precisely because the
+  information moved into a structured field — do not reintroduce it.
+- **Labels.** Use only the ones listed. Anything else is dropped.
+- **Title.** Follow the convention shown above when there is one.
 <!-- /if -->

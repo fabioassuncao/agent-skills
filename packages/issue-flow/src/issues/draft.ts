@@ -81,5 +81,16 @@ export function parseIssueDraft(output: string): IssueDraft {
     throw new IssueDraftParseError(`The <${DRAFT_TAG}> block has no <body>.`);
   }
 
-  return { title, body, labels: parseLabels(extractTag(block, 'labels')) };
+  // Optional, and deliberately so: a repository with no Issue Types and no
+  // templates emits neither, and the draft is exactly what it was before.
+  const type = (extractTag(block, 'type') ?? '').trim();
+  const template = (extractTag(block, 'template') ?? '').trim();
+
+  return {
+    title,
+    body,
+    labels: parseLabels(extractTag(block, 'labels')),
+    ...(type === '' || type.toLowerCase() === '(none)' ? {} : { type }),
+    ...(template === '' || template.toLowerCase() === '(none)' ? {} : { template }),
+  };
 }
