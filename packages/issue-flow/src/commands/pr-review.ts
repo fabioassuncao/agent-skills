@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { loadPrReviewConfig } from '../config.js';
-import { runHeadless } from '../core/headless.js';
+import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
 import {
   PrDiscoveryError,
   type ResolvedPullRequest,
@@ -227,7 +227,7 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
   const result = await runHeadless({
     prompt,
     maxTurns: 40,
-    timeout: getGlobalTimeout() ?? 900_000,
+    timeout: getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS,
     // json (not text) so the CLI reports usage: the envelope's `result` field
     // carries the same assistant text the parsers below already consumed.
     outputFormat: 'json',

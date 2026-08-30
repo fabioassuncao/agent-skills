@@ -67,7 +67,7 @@ npx issue-flow run 42 --timeout 0
 npx issue-flow analyze 42 -v -t 600
 ```
 
-Default timeouts vary per command (5 min for most, 3 min for `generate` and `pr`). Use `--timeout` to override when working with large or complex issues.
+Every phase that invokes Claude once (`analyze`, `prd`, `plan`, `review`, `pr`, `pr-review`, `generate`) shares a default limit of **15 minutes** per invocation; `execute` has no limit, since its iteration budget is what bounds it. Use `--timeout` to raise it on a large issue, or `--timeout 0` to remove it. When an invocation is cut short the phase reports it as a timeout and retries with backoff, so the limit is the first thing to raise if a phase keeps dying at the same elapsed time.
 
 ## Commands
 

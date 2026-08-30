@@ -24,7 +24,8 @@ vi.mock('execa', () => ({
 const headlessOutput = vi.hoisted(() => ({ current: '' }));
 const headlessOptions = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
 const headlessCost = vi.hoisted(() => ({ current: null as Record<string, number> | null }));
-vi.mock('../core/headless.js', () => ({
+vi.mock('../core/headless.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core/headless.js')>()),
   runHeadless: vi.fn(async (options: Record<string, unknown>) => {
     headlessOptions.last = options;
     return { success: true, result: headlessOutput.current, cost: headlessCost.current };

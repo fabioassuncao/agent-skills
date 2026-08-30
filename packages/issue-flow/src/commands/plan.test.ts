@@ -27,7 +27,8 @@ const nextPlanUserStoryId = vi.hoisted(() => ({ current: 'US-001' }));
 const headlessOptions = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
 const tasksPathBox = vi.hoisted(() => ({ current: '' }));
 
-vi.mock('../core/headless.js', () => ({
+vi.mock('../core/headless.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core/headless.js')>()),
   runHeadless: vi.fn(async (options: Record<string, unknown>) => {
     headlessOptions.last = options;
     // Simulate Claude honoring __NEXT_US_NUMBER__ by writing a minimal, valid
