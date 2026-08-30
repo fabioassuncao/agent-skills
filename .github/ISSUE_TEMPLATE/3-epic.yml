@@ -1,0 +1,31 @@
+name: "🗺️ Epic"
+description: "An umbrella objective delivered through sub-issues."
+type: "Epic"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An Epic is never executed directly: it is delivered through its sub-issues.
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: The state of the product this Epic describes.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What this Epic deliberately does not cover. Absence here is what makes scope creep arguable.
+  - type: textarea
+    id: children
+    attributes:
+      label: Known sub-issues
+      description: Add them as sub-issues once they exist; list what you already foresee.
