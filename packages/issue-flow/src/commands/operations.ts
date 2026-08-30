@@ -6,9 +6,15 @@ import type { SessionEvent, SessionSnapshot } from '../core/session-state.js';
 import { loadTaskPlan } from '../core/state-manager.js';
 import { loadExecutionPlan } from '../execution/plan.js';
 import type { ExecutionPlan } from '../execution/types.js';
+import {
+  latestStoredIssueSnapshot,
+  listStoredIssueEvents,
+  listStoredIssueIds,
+  listStoredQueues,
+} from '../storage/db/queries.js';
 import { describeRunLockOwner, isRunLockStale, readRunLock } from '../storage/lock.js';
 import { getIssuePaths, QUEUES_DIR_NAME } from '../storage/paths.js';
-import { resolveProjectPaths } from '../storage/resolve.js';
+import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import type { RunLock } from '../storage/schemas.js';
 import type { TaskPlan } from '../types.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
@@ -30,6 +36,7 @@ import { printError, printInfo, printWarning } from '../ui/logger.js';
 
 interface ProjectPaths {
   projectId: string;
+  storageDriver: 'sqlite' | 'json';
   projectDir: string;
   issuesDir: string;
   runLockFile: string;
@@ -61,10 +68,13 @@ async function readJson<T>(path: string): Promise<T | null> {
   }
 }
 
-async function loadIssueState(projectId: string, id: string): Promise<IssueState | null> {
+async function loadIssueState(project: ProjectPaths, id: string): Promise<IssueState | null> {
   let paths: ReturnType<typeof getIssuePaths>;
   try {
-    paths = getIssuePaths(projectId, id);
+    paths =
+      project.storageDriver === 'sqlite'
+        ? await resolveIssuePaths(id)
+        : getIssuePaths(project.projectId, id);
   } catch {
     return null;
   }
@@ -77,7 +87,10 @@ async function loadIssueState(projectId: string, id: string): Promise<IssueState
   }
   if (plan === null) return null;
 
-  const snapshot = await readJson<SessionSnapshot>(paths.sessionFile);
+  const snapshot =
+    project.storageDriver === 'sqlite'
+      ? await latestStoredIssueSnapshot({ projectId: project.projectId, issueId: id })
+      : await readJson<SessionSnapshot>(paths.sessionFile);
   const phases: PipelinePhase[] =
     plan.noBranch === true
       ? PIPELINE_PHASES.filter((phase) => phase !== 'pr')
@@ -97,14 +110,17 @@ async function loadIssueState(projectId: string, id: string): Promise<IssueState
 async function allIssues(paths: ProjectPaths): Promise<IssueState[]> {
   let ids: string[];
   try {
-    ids = await readdir(paths.issuesDir);
+    ids =
+      paths.storageDriver === 'sqlite'
+        ? await listStoredIssueIds({ projectId: paths.projectId })
+        : await readdir(paths.issuesDir);
   } catch {
     return [];
   }
 
   const states: IssueState[] = [];
   for (const id of ids) {
-    const state = await loadIssueState(paths.projectId, id);
+    const state = await loadIssueState(paths, id);
     if (state !== null) states.push(state);
   }
   return states.sort((a, b) => attemptedAt(b.plan) - attemptedAt(a.plan));
@@ -117,6 +133,9 @@ function attemptedAt(plan: TaskPlan | null): number {
 
 /** Every queue plan of the project. */
 async function allQueues(paths: ProjectPaths): Promise<ExecutionPlan[]> {
+  if (paths.storageDriver === 'sqlite') {
+    return listStoredQueues({ projectId: paths.projectId });
+  }
   const dir = join(paths.projectDir, QUEUES_DIR_NAME);
   let entries: string[];
   try {
@@ -172,9 +191,7 @@ export async function runStatus(issue?: string, options: StatusOptions = {}): Pr
   const issues =
     issue === undefined
       ? await allIssues(paths)
-      : [await loadIssueState(paths.projectId, issue)].filter(
-          (state): state is IssueState => state !== null,
-        );
+      : [await loadIssueState(paths, issue)].filter((state): state is IssueState => state !== null);
   const queues = await allQueues(paths);
 
   if (options.json === true) {
@@ -339,16 +356,27 @@ export async function runLogs(issue?: string, options: LogsOptions = {}): Promis
     return 0;
   }
 
-  const issuePaths = getIssuePaths(paths.projectId, target);
   const kinds = new Set(options.kind ?? []);
   const tail = options.tail ?? DEFAULT_TAIL;
 
   const shown = new Set<number>();
-  const render = (content: string, limit: number | null): void => {
-    const entries = parseJournal(content).filter(
-      (entry) => kinds.size === 0 || kinds.has(entry.event.type),
-    );
-    const slice = limit === null ? entries : entries.slice(-limit);
+  const readEntries = async (): Promise<Array<{ seq: number; event: SessionEvent }>> => {
+    if (paths.storageDriver === 'sqlite') {
+      return (await listStoredIssueEvents({ projectId: paths.projectId, issueId: target })).map(
+        ({ seq, event }) => ({ seq, event: event as SessionEvent }),
+      );
+    }
+    const issuePaths = getIssuePaths(paths.projectId, target);
+    const content = `${await readIfPresent(issuePaths.rotatedEventsFile)}${await readIfPresent(issuePaths.eventsFile)}`;
+    return parseJournal(content);
+  };
+
+  const renderEntries = (
+    entries: Array<{ seq: number; event: SessionEvent }>,
+    limit: number | null,
+  ) => {
+    const filtered = entries.filter((entry) => kinds.size === 0 || kinds.has(entry.event.type));
+    const slice = limit === null ? filtered : filtered.slice(-limit);
     for (const entry of slice) {
       if (shown.has(entry.seq)) continue;
       shown.add(entry.seq);
@@ -356,17 +384,14 @@ export async function runLogs(issue?: string, options: LogsOptions = {}): Promis
     }
   };
 
-  const readAll = async (): Promise<string> =>
-    `${await readIfPresent(issuePaths.rotatedEventsFile)}${await readIfPresent(issuePaths.eventsFile)}`;
-
-  const initial = await readAll();
-  if (initial === '') {
+  const initial = await readEntries();
+  if (initial.length === 0) {
     printInfo(
       `Issue #${target} has no journal. Enable it with resilience.journal.enabled or --continuous.`,
     );
     return 0;
   }
-  render(initial, tail);
+  renderEntries(initial, tail);
 
   if (options.follow !== true) return 0;
 
@@ -375,7 +400,7 @@ export async function runLogs(issue?: string, options: LogsOptions = {}): Promis
   while (signal === undefined || !signal.aborted) {
     await sleep(poll, signal);
     if (signal?.aborted === true) break;
-    render(await readAll(), null);
+    renderEntries(await readEntries(), null);
   }
   return 0;
 }
@@ -458,7 +483,7 @@ export async function runCancel(issue?: string, options: ControlOptions = {}): P
   const target = issue ?? (await allIssues(paths))[0]?.id;
   if (target === undefined) return 0;
 
-  const state = await loadIssueState(paths.projectId, target);
+  const state = await loadIssueState(paths, target);
   if (state === null || state.plan === null) return 0;
 
   const { saveTaskPlan, isoNow } = await import('../core/state-manager.js');

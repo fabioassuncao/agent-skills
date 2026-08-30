@@ -2,6 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createInitialSnapshot, type SessionEvent } from '../core/session-state.js';
+import { saveTaskPlan } from '../core/state-manager.js';
+import { getPlanRepository, saveSessionEvent } from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import type { TaskPlan } from '../types.js';
 
@@ -24,7 +27,9 @@ vi.mock('../ui/logger.js', async (importOriginal) => {
 });
 
 const { runCancel, runLogs, runPause, runRuns, runStatus } = await import('./operations.js');
-const { resetStorageResolutionCache, resolveProjectPaths } = await import('../storage/resolve.js');
+const { resetStorageResolutionCache, resolveIssuePaths, resolveProjectPaths } = await import(
+  '../storage/resolve.js'
+);
 const { getIssuePaths } = await import('../storage/paths.js');
 
 let globalHome: string;
@@ -88,15 +93,33 @@ async function writeIssue(
   taskPlan: TaskPlan,
   extras: { journal?: string[]; session?: Record<string, unknown> } = {},
 ): Promise<void> {
-  const { projectId } = await resolveProjectPaths();
-  const paths = getIssuePaths(projectId, issue);
-  await mkdir(paths.issueDir, { recursive: true });
-  await writeFile(paths.tasksFile, JSON.stringify(taskPlan, null, 2), 'utf-8');
-  if (extras.journal !== undefined) {
-    await writeFile(paths.eventsFile, `${extras.journal.join('\n')}\n`, 'utf-8');
-  }
-  if (extras.session !== undefined) {
-    await writeFile(paths.sessionFile, JSON.stringify(extras.session), 'utf-8');
+  const paths = await resolveIssuePaths(issue);
+  await saveTaskPlan(paths.tasksFile, taskPlan);
+  const repository = getPlanRepository(paths.tasksFile);
+  if (repository !== undefined && (extras.journal !== undefined || extras.session !== undefined)) {
+    const now = new Date().toISOString();
+    const initial = createInitialSnapshot();
+    const execution = extras.session?.execution as Partial<typeof initial.execution> | undefined;
+    const snapshot = {
+      ...initial,
+      sessionId: `operations-${issue}`,
+      status: 'running' as const,
+      startedAt: now,
+      updatedAt: now,
+      elapsedSeconds: (extras.session?.elapsedSeconds as number | undefined) ?? null,
+      execution: { ...initial.execution, ...execution },
+      issue: { ...initial.issue, number: Number(issue) },
+    };
+    const journal = extras.journal ?? [entry(1, { type: 'session:start', at: now })];
+    for (const line of journal) {
+      const parsed = JSON.parse(line) as { seq: number; event: SessionEvent };
+      await saveSessionEvent(repository, {
+        sessionId: snapshot.sessionId,
+        sequence: parsed.seq,
+        event: parsed.event,
+        snapshot,
+      });
+    }
   }
 }
 

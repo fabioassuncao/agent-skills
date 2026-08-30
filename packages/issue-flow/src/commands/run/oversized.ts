@@ -6,6 +6,8 @@ import {
   proposeSubIssues,
 } from '../../core/decompose.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
+import { listStoredIssueEvents } from '../../storage/db/queries.js';
+import { getPlanRepository } from '../../storage/db/repository.js';
 import type { IssuePaths } from '../../storage/paths.js';
 import type { TaskPlan } from '../../types.js';
 import { printInfo, printWarning } from '../../ui/logger.js';
@@ -33,7 +35,7 @@ export async function reportIfOversized(
   result: IssueRunResult,
 ): Promise<void> {
   try {
-    const journal = `${await readFileIfPresent(paths.rotatedEventsFile)}${await readFileIfPresent(paths.eventsFile)}`;
+    const journal = await readJournal(paths);
     const plan = await loadTaskPlan(paths.tasksFile).catch(() => null);
 
     const assessment = assessDecomposition({
@@ -78,6 +80,21 @@ export async function reportIfOversized(
     // A report is a courtesy. Failing to write one must not change the exit
     // code of a run that already failed for its own reasons.
   }
+}
+
+async function readJournal(paths: IssuePaths): Promise<string> {
+  const repository = getPlanRepository(paths.tasksFile);
+  if (repository === undefined) {
+    return `${await readFileIfPresent(paths.rotatedEventsFile)}${await readFileIfPresent(paths.eventsFile)}`;
+  }
+  const events = await listStoredIssueEvents({
+    projectId: repository.projectId,
+    issueId: repository.issueId,
+    ...(repository.databaseOptions === undefined
+      ? {}
+      : { databaseOptions: repository.databaseOptions }),
+  });
+  return events.map((entry) => JSON.stringify(entry)).join('\n');
 }
 
 /**

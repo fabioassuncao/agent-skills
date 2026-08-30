@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createInitialSnapshot } from '../core/session-state.js';
 import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
@@ -128,5 +130,30 @@ describe('listLiveRuns', () => {
         storiesTotal: 0,
       }),
     ]);
+  });
+
+  it('uses compatibility snapshots without opening SQLite in JSON mode', async () => {
+    const issueDir = join(tmp, 'projects', 'json-project', 'issues', '63');
+    await mkdir(issueDir, { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'json-project', 'run.lock'),
+      JSON.stringify(lock({ target: '63' })),
+    );
+    await writeFile(
+      join(issueDir, 'session.json'),
+      JSON.stringify({
+        ...createInitialSnapshot(),
+        sessionId: 'json-session',
+        status: 'running',
+        currentPhase: 'execute',
+        updatedAt: new Date().toISOString(),
+        issue: { ...createInitialSnapshot().issue, number: 63 },
+      }),
+    );
+
+    await expect(listLiveRuns({ env: env(), storageDriver: 'json' })).resolves.toEqual([
+      expect.objectContaining({ projectId: 'json-project', issue: 63, phase: 'execute' }),
+    ]);
+    expect(existsSync(join(tmp, 'issue-flow.db'))).toBe(false);
   });
 });

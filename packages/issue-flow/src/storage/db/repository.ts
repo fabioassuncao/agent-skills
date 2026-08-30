@@ -377,7 +377,7 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
       .all<{ payload_json: string }>(context.projectId, context.issueId)
       .map((execution) => JSON.parse(execution.payload_json));
     return executions.length > 0 ? { ...plan, executions } : plan;
-  });
+  }, context.databaseOptions);
 }
 
 export function writePlanRows(

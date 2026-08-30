@@ -1,7 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createInitialSnapshot } from '../core/session-state.js';
 import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import { touchStoredSession } from '../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
@@ -117,7 +119,44 @@ describe('web/session-directory', () => {
     await waitFor(() => handle.sessions().length === 1);
     await waitFor(() => handle.sessions().length === 0);
 
-    await touchStoredSession(context('proj-a', '42'), 'sess-a');
+    // Keep the assertion independent from CI scheduling: the production window
+    // is 90 seconds, while this test compresses it to 30 ms.
+    await touchStoredSession(
+      context('proj-a', '42'),
+      'sess-a',
+      new Date(Date.now() + 1000).toISOString(),
+    );
     await waitFor(() => handle.sessions().length === 1);
+  });
+
+  it('reads compatibility sessions and journals without SQLite in JSON mode', async () => {
+    const issueDir = join(home, 'projects', 'json-project', 'issues', '42');
+    await mkdir(issueDir, { recursive: true });
+    const now = new Date().toISOString();
+    await writeFile(
+      join(issueDir, 'session.json'),
+      JSON.stringify({
+        ...createInitialSnapshot(),
+        sessionId: 'json-session',
+        status: 'running',
+        updatedAt: now,
+        issue: { ...createInitialSnapshot().issue, number: 42 },
+      }),
+    );
+    await writeFile(
+      join(issueDir, 'events.jsonl'),
+      `${JSON.stringify({ seq: 1, event: { type: 'phase:start', at: now, phase: 'execute' } })}\n`,
+    );
+    const handle = watch({ storageDriver: 'json' });
+
+    await handle.refresh();
+    expect(handle.getSession('json-session')).toMatchObject({
+      projectId: 'json-project',
+      issueId: '42',
+    });
+    await expect(handle.events('json-session')).resolves.toMatchObject([
+      { seq: 1, event: { type: 'phase:start', phase: 'execute' } },
+    ]);
+    expect(existsSync(join(home, 'issue-flow.db'))).toBe(false);
   });
 });

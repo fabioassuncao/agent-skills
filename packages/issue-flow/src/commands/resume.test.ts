@@ -2,6 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createInitialSnapshot, type SessionEvent } from '../core/session-state.js';
+import { saveTaskPlan } from '../core/state-manager.js';
+import { getPlanRepository, saveSessionEvent } from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import type { TaskPlan } from '../types.js';
 
@@ -37,8 +40,9 @@ vi.mock('execa', () => ({
 
 const { runPipeline } = await import('./run.js');
 const { runResume } = await import('./resume.js');
-const { resetStorageResolutionCache, resolveProjectPaths } = await import('../storage/resolve.js');
-const { getIssuePaths } = await import('../storage/paths.js');
+const { resetStorageResolutionCache, resolveIssuePaths, resolveProjectPaths } = await import(
+  '../storage/resolve.js'
+);
 
 const mockRunPipeline = vi.mocked(runPipeline);
 
@@ -106,12 +110,29 @@ async function writeIssue(
   taskPlan: TaskPlan,
   journalLines: string[] = [],
 ): Promise<void> {
-  const { projectId } = await resolveProjectPaths();
-  const paths = getIssuePaths(projectId, issue);
-  await mkdir(paths.issueDir, { recursive: true });
-  await writeFile(paths.tasksFile, JSON.stringify(taskPlan, null, 2), 'utf-8');
-  if (journalLines.length > 0) {
-    await writeFile(paths.eventsFile, `${journalLines.join('\n')}\n`, 'utf-8');
+  const paths = await resolveIssuePaths(issue);
+  await saveTaskPlan(paths.tasksFile, taskPlan);
+  const repository = getPlanRepository(paths.tasksFile);
+  if (repository !== undefined && journalLines.length > 0) {
+    const now = new Date().toISOString();
+    const initial = createInitialSnapshot();
+    const snapshot = {
+      ...initial,
+      sessionId: `resume-${issue}`,
+      status: 'running' as const,
+      startedAt: now,
+      updatedAt: now,
+      issue: { ...initial.issue, number: Number(issue) },
+    };
+    for (const line of journalLines) {
+      const parsed = JSON.parse(line) as { seq: number; event: SessionEvent };
+      await saveSessionEvent(repository, {
+        sessionId: snapshot.sessionId,
+        sequence: parsed.seq,
+        event: parsed.event,
+        snapshot,
+      });
+    }
   }
 }
 
