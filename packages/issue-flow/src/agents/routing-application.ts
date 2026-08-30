@@ -1,5 +1,6 @@
 import type { RoutingDecision } from '../routing/types.js';
-import { type AgentAvailability, probeAgent } from './availability.js';
+import type { AgentAvailability } from './availability.js';
+import { probeAgent } from './availability.js';
 import { runnerFor } from './registry.js';
 import type { AgentSelection } from './select.js';
 import type { AgentPhase, AgentProviderId } from './types.js';
@@ -9,6 +10,8 @@ export interface RoutingApplicationResult {
   selection: AgentSelection;
   applied: boolean;
   warning: string | null;
+  /** Candidates tried before the applied (or final failed) target. */
+  fallbackFrom: Array<{ provider: string; model: string | null; reason: string }>;
 }
 
 export function routingRecommendationLine(
@@ -26,9 +29,18 @@ export function routingRecommendationLine(
   return `Routing suggests ${decision.selected.provider}:${decision.selected.model ?? 'default'}${tier} for ${phase} (${decision.reasonCodes.join(', ')}) · apply with routing.mode active`;
 }
 
+function isAttemptable(availability: AgentAvailability): boolean {
+  return (
+    availability.installed &&
+    availability.authentication !== 'failed' &&
+    availability.state !== 'unavailable'
+  );
+}
+
 /**
- * Apply an active decision without changing invocation permission. Any invalid
- * or unavailable target falls back to the already-resolved selection.
+ * Apply an active decision without changing invocation permission. Walks the
+ * ranked eligible list when the top target is unavailable; explicit config is
+ * never overridden. Fail-open to the original selection when nothing works.
  */
 export async function applyRoutingDecision(
   original: AgentSelection,
@@ -42,68 +54,85 @@ export async function applyRoutingDecision(
     decision.reasonCodes.includes('EXPLICIT_CONFIG') ||
     original.failover
   ) {
-    return { selection: original, applied: false, warning: null };
+    return { selection: original, applied: false, warning: null, fallbackFrom: [] };
   }
 
-  const target = decision.selected;
-  if (!isAgentProviderId(target.provider)) {
-    return {
-      selection: original,
-      applied: false,
-      warning: `Routing target '${target.provider}' is not a registered provider for ${phase}; using ${original.provider}.`,
-    };
-  }
-  const selectedCandidate = decision.candidates.find(
-    (candidate) =>
-      candidate.eligible &&
-      candidate.harness === target.harness &&
-      candidate.provider === target.provider &&
-      candidate.model === (target.model ?? null),
-  );
-  if (selectedCandidate === undefined) {
-    return {
-      selection: original,
-      applied: false,
-      warning: `Routing target ${target.provider}:${target.model ?? 'default'} is not an eligible catalog entry for ${phase}; using ${original.provider}.`,
-    };
-  }
-  if (
-    target.model !== null &&
-    target.model !== undefined &&
-    !runnerFor(target.provider).capabilities.modelSelection
-  ) {
-    return {
-      selection: original,
-      applied: false,
-      warning: `Routing target ${target.provider} rejects model selection for ${phase}; using ${original.provider}.`,
-    };
-  }
+  const probe = options.probe ?? probeAgent;
+  const ranked = decision.candidates
+    .filter((candidate) => candidate.eligible)
+    .sort((a, b) => b.score - a.score);
+  const fallbackFrom: RoutingApplicationResult['fallbackFrom'] = [];
 
-  const availability = await (options.probe ?? probeAgent)(target.provider);
-  if (!availability.installed || !availability.authenticated) {
-    return {
-      selection: original,
-      applied: false,
-      warning: `Routing target ${target.provider} is ${availability.installed ? 'not authenticated' : 'not installed'} for ${phase}; using ${original.provider}.`,
-    };
-  }
+  for (const candidate of ranked) {
+    if (!isAgentProviderId(candidate.provider)) {
+      fallbackFrom.push({
+        provider: candidate.provider,
+        model: candidate.model ?? null,
+        reason: 'unregistered provider',
+      });
+      continue;
+    }
+    if (
+      candidate.model !== null &&
+      candidate.model !== undefined &&
+      !runnerFor(candidate.provider).capabilities.modelSelection
+    ) {
+      fallbackFrom.push({
+        provider: candidate.provider,
+        model: candidate.model,
+        reason: 'rejects model selection',
+      });
+      continue;
+    }
 
-  return {
-    applied: true,
-    warning: null,
-    selection: {
-      ...original,
-      primary: target.provider,
-      provider: target.provider,
-      settings: {
-        ...original.settings,
-        provider: target.provider,
-        model: target.model ?? null,
-        origin: { provider: 'default', model: 'default' },
+    const availability = await probe(candidate.provider);
+    if (!isAttemptable(availability)) {
+      fallbackFrom.push({
+        provider: candidate.provider,
+        model: candidate.model ?? null,
+        reason: availability.installed
+          ? availability.authentication === 'failed'
+            ? 'not authenticated'
+            : `state=${availability.state}`
+          : 'not installed',
+      });
+      continue;
+    }
+
+    const warning =
+      fallbackFrom.length > 0
+        ? `Routing fell back to ${candidate.provider}:${candidate.model ?? 'default'} for ${phase} after ${fallbackFrom.map((entry) => `${entry.provider} (${entry.reason})`).join(', ')}.`
+        : null;
+
+    return {
+      applied: true,
+      warning,
+      fallbackFrom,
+      selection: {
+        ...original,
+        primary: candidate.provider,
+        provider: candidate.provider,
+        settings: {
+          ...original.settings,
+          provider: candidate.provider,
+          model: candidate.model ?? null,
+          origin: { provider: 'default', model: 'default' },
+        },
+        failover: false,
+        reason: null,
+        cooldownUntil: null,
       },
-      failover: false,
-      reason: null,
-      cooldownUntil: null,
-    },
+    };
+  }
+
+  const tried =
+    fallbackFrom.length > 0
+      ? fallbackFrom.map((entry) => `${entry.provider} (${entry.reason})`).join(', ')
+      : 'no eligible candidates';
+  return {
+    selection: original,
+    applied: false,
+    fallbackFrom,
+    warning: `Routing found no usable ranked target for ${phase} (${tried}); using ${original.provider}.`,
   };
 }

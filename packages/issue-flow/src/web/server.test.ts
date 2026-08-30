@@ -322,9 +322,15 @@ describe('startWebServer', () => {
         probeAvailability: async (id) => ({
           id,
           installed: id === 'claude' || id === 'codex',
-          authenticated: true,
+          authenticated: id === 'claude' || id === 'codex',
+          authentication: id === 'claude' || id === 'codex' ? 'confirmed' : 'failed',
+          state: id === 'claude' || id === 'codex' ? 'ready' : 'unavailable',
           version: 'test',
           detail: 'test',
+          observedAt: '2026-08-30T12:00:00.000Z',
+          expiresAt: '2026-08-30T12:05:00.000Z',
+          source: 'probe',
+          cooldownUntil: null,
         }),
       });
       const response = await fetch(`${handle.url}/api/config/routing`, {

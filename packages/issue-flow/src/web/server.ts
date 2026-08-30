@@ -431,13 +431,22 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         effective: snapshot?.configuration ?? null,
         capturedForSession: snapshot?.sessionId ?? null,
         routing: await loadRoutingConfig(),
-        catalog: harnesses.map((harness, index) => ({
-          harness,
-          provider: providers[index],
-          installed: availability[index]?.installed ?? false,
-          authenticated: availability[index]?.authenticated ?? false,
-          models: MODEL_CATALOG[harness] ?? [],
-        })),
+        catalog: harnesses.map((harness, index) => {
+          const entry = availability[index];
+          return {
+            harness,
+            provider: providers[index],
+            installed: entry?.installed ?? false,
+            authenticated: entry?.authenticated ?? false,
+            authentication: entry?.authentication ?? 'failed',
+            state: entry?.state ?? 'unavailable',
+            source: entry?.source ?? 'probe',
+            observedAt: entry?.observedAt ?? null,
+            expiresAt: entry?.expiresAt ?? null,
+            detail: entry?.detail ?? null,
+            models: MODEL_CATALOG[harness] ?? [],
+          };
+        }),
         writable: isLoopbackHost(options.host),
         writeScope: 'global preferences for future executions',
       });

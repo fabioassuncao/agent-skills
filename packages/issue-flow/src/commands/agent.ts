@@ -1,6 +1,6 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { probeAgent } from '../agents/availability.js';
+import { probeReadinessInventory } from '../agents/availability.js';
 import { describeRunAgents } from '../agents/resolve.js';
 import {
   AGENT_PHASES,
@@ -61,12 +61,8 @@ function formatPhaseLine(
 export async function runAgent(options: AgentCommandOptions = {}): Promise<number> {
   const config = await loadAgentConfig();
   const summary = await describeRunAgents();
-  const [claude, codex, cursor, antigravity] = await Promise.all([
-    probeAgent('claude'),
-    probeAgent('codex'),
-    probeAgent('cursor'),
-    probeAgent('antigravity'),
-  ]);
+  const inventory = await probeReadinessInventory();
+  const providers = Object.values(inventory.providers);
 
   if (options.json === true) {
     const phases: Record<string, unknown> = {};
@@ -90,33 +86,23 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
             origin: summary.defaultOrigin,
           },
           phases,
-          availability: [
-            {
-              id: 'claude',
-              installed: claude.installed,
-              version: claude.version,
-              authenticated: claude.authenticated,
-            },
-            {
-              id: 'codex',
-              installed: codex.installed,
-              version: codex.version,
-              authenticated: codex.authenticated,
-            },
-            {
-              id: 'cursor',
-              installed: cursor.installed,
-              version: cursor.version,
-              authenticated: cursor.authenticated,
-            },
-            {
-              id: 'antigravity',
-              installed: antigravity.installed,
-              version: antigravity.version,
-              authenticated: antigravity.authenticated,
-              authProbe: 'none',
-            },
-          ],
+          inventory,
+          availability: providers.map((entry) => ({
+            id: entry.provider,
+            harness: entry.harness,
+            installed: entry.installed,
+            version: entry.version,
+            authenticated: entry.authentication !== 'failed' && entry.installed,
+            authentication: entry.authentication,
+            state: entry.state,
+            source: entry.source,
+            observedAt: entry.observedAt,
+            expiresAt: entry.expiresAt,
+            detail: entry.detail,
+            ...(entry.provider === 'antigravity' || entry.provider === 'claude'
+              ? { authProbe: 'none' as const }
+              : {}),
+          })),
         },
         null,
         2,
@@ -147,13 +133,13 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
   }
   console.log('');
   console.log('Disponibilidade');
-  console.log(`  claude        ${(claude.version ?? '—').padEnd(16)} ${claude.detail}`);
-  console.log(`  codex         ${(codex.version ?? '—').padEnd(16)} ${codex.detail}`);
-  console.log(`  cursor        ${(cursor.version ?? '—').padEnd(16)} ${cursor.detail}`);
-  console.log(
-    `  antigravity   ${(antigravity.version ?? '—').padEnd(16)} ${antigravity.detail} (no auth probe)`,
-  );
-  if (antigravity.installed) {
+  for (const entry of providers) {
+    const authNote = entry.authentication === 'unverified' ? ' (auth unverified)' : '';
+    console.log(
+      `  ${entry.provider.padEnd(12)} ${(entry.version ?? '—').padEnd(16)} ${entry.state.padEnd(12)} ${entry.detail}${authNote}`,
+    );
+  }
+  if (inventory.providers.antigravity?.installed) {
     console.log(
       '  Warning: every Antigravity invocation passes --dangerously-skip-permissions. --mode plan is the write containment.',
     );

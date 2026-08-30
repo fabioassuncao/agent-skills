@@ -194,7 +194,11 @@ See [Verification and routing](verification.md#shadow-routing).
 `~/.issue-flow/config.json`. Resolution is
 `default → global → project → CLI`; there is no environment-variable rung.
 The recommended policy and `active` remain independent opt-ins: writing the
-policy does not change the default `shadow` mode.
+policy does not change the default `shadow` mode. In `recommend` / `active`,
+the router receives a readiness inventory (install, authentication, model
+access, cooldown) as an injected snapshot — it never probes itself — and ranks
+only attemptable harnesses. Affinity in `RECOMMENDED_POLICY` is a soft prior,
+not a pin.
 
 ### `resilience`
 

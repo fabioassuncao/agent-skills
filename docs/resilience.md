@@ -146,6 +146,9 @@ persisted in the project's `providers.json`.
 
 An unavailable provider enters exponential cooldown (60s, 120s, 240s, up to 30
 minutes) and admits exactly one `half_open` probe when the cooldown expires. A
+cooldown also marks the provider `unavailable` in the routing readiness
+inventory (`PROVIDER_COOLDOWN`), so opinionated routing will not select it
+while the circuit is open. A
 provider trips after `failuresToTrip` failures (default 3) inside
 `failureWindowMs` (default 5 minutes). **If every provider is cooling down, the
 run waits for the shortest remaining cooldown instead of failing.**

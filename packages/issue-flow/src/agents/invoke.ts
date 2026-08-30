@@ -16,6 +16,7 @@ import { redactSecrets } from '../telemetry/redact.js';
 import type { ExecutionPurpose, ExecutionRecord, ExecutionTrigger } from '../telemetry/types.js';
 import { printInfo } from '../ui/logger.js';
 import { resolveAntigravityTimeoutMs } from './antigravity.js';
+import { probeReadinessInventory } from './availability.js';
 import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
 import { ensureCursorStorageGrant } from './permissions.js';
@@ -115,6 +116,20 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
   const originalIdentity = declaredAgentIdentity(selection.provider);
   const routingCfg = await loadRoutingConfig();
   const agentCfg = await loadAgentConfig();
+  let readiness = null;
+  if (routingCfg.mode === 'recommend' || routingCfg.mode === 'active') {
+    try {
+      readiness = await probeReadinessInventory({
+        cooldowns: selection.cooldownUntil
+          ? { [selection.provider]: selection.cooldownUntil }
+          : undefined,
+      });
+    } catch {
+      // Inventory is best-effort. A probe failure must not block the run —
+      // decideRouting falls back to catalog-only scoring.
+      readiness = null;
+    }
+  }
   const routingDecision = decideRouting({
     phase: invocation.phase,
     actualHarness: originalIdentity.harness,
@@ -125,6 +140,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     policy: routingCfg.policy,
     skipScore: hasExplicitAgentSelection(agentCfg, getAgentCliOverrides(), invocation.phase),
     requiresExtraDirectories: (invocation.addDirs?.length ?? 0) > 0,
+    readiness,
   });
   const recommendation = routingRecommendationLine(routingDecision, invocation.phase);
   if (recommendation !== null) printInfo(recommendation);
@@ -134,6 +150,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     writeDiagnostic({
       level: 'warning',
       message: routed.warning,
+      context: { fallbackFrom: routed.fallbackFrom },
       fields: {
         phase: invocation.phase,
         harness: originalIdentity.harness,

@@ -204,18 +204,27 @@ so a large PRD cannot hit `ARG_MAX`.
 | `prd`, `generate`, `pr` | structured writing | mid-tier model |
 
 This table is executable policy in `src/routing/policy.ts`, backed by the
-versioned model catalog in `src/routing/models.ts`. It remains opt-in:
+versioned model catalog in `src/routing/models.ts`. Affinity per phase is a
+soft prior — never a hard pin that eliminates other installed harnesses.
+When `routing.mode` is `recommend` or `active`, the router receives a readiness
+inventory from `src/agents/availability.ts` (installed vs authentication vs
+model access, with confidence and TTL) and ranks only what this machine can
+actually attempt. Providers with `authProbe: 'none'` (Claude, Antigravity) stay
+`conditional` / `unverified`, not confirmed. It remains opt-in:
 
 ```bash
 issue-flow routing use recommended --global
 issue-flow routing use recommended --global --active
 issue-flow routing explain
+issue-flow agent --json
 ```
 
 Set `routing.mode` to `recommend` to print the target without applying it, or
 to `active` to apply it where the phase has no explicit `agent` selection.
-The `--active` shortcut above persists both the recommended policy and active
-mode for future runs.
+In `active`, if the top ranked target becomes unavailable between decision and
+invocation, the next ranked candidate is tried before falling back to the
+original selection. The `--active` shortcut above persists both the recommended
+policy and active mode for future runs.
 The factory default remains `shadow`.
 
 A homogeneous run (every phase on the same agent) prints the same `Tokens:`

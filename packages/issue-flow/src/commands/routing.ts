@@ -1,5 +1,6 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { probeReadinessInventory } from '../agents/availability.js';
 import { AGENT_PHASES } from '../agents/types.js';
 import { GLOBAL_CONFIG_FILENAME, loadRoutingConfig } from '../config.js';
 import { loadTaskPlan } from '../core/state-manager.js';
@@ -107,6 +108,7 @@ export async function runRoutingReport(options: {
 
 export async function runRoutingExplain(options: { json?: boolean } = {}): Promise<number> {
   const config = await loadRoutingConfig();
+  const inventory = await probeReadinessInventory();
   const phases = AGENT_PHASES.map((phase) => {
     const decision = decideRouting({
       phase,
@@ -115,20 +117,49 @@ export async function runRoutingExplain(options: { json?: boolean } = {}): Promi
       mode: config.mode === 'off' ? 'shadow' : config.mode,
       profile: config.profile,
       policy: config.policy,
+      readiness: inventory,
     });
+    const ranking = (decision?.candidates ?? [])
+      .filter((candidate) => candidate.eligible)
+      .slice(0, 5)
+      .map((candidate) => ({
+        harness: candidate.harness,
+        provider: candidate.provider,
+        model: candidate.model,
+        tier: candidate.tier,
+        score: candidate.score,
+        reasonCodes: candidate.reasonCodes,
+      }));
     return {
       phase,
       target: decision?.selected ?? null,
       origin: config.policy === 'recommended' ? 'recommended policy' : 'adaptive score',
+      reasonCodes: decision?.reasonCodes ?? [],
+      ranking,
     };
   });
   if (options.json === true) {
     console.log(
-      JSON.stringify({ schemaVersion: ROUTING_COMMAND_SCHEMA_VERSION, config, phases }, null, 2),
+      JSON.stringify(
+        {
+          schemaVersion: ROUTING_COMMAND_SCHEMA_VERSION,
+          config,
+          inventory,
+          phases,
+        },
+        null,
+        2,
+      ),
     );
     return 0;
   }
   printInfo(`routing policy: ${config.policy ?? 'adaptive'} (${config.mode})`);
+  printInfo('inventory');
+  for (const provider of Object.values(inventory.providers)) {
+    printInfo(
+      `  ${provider.provider.padEnd(12)} ${provider.state.padEnd(12)} auth=${provider.authentication} · ${provider.detail}`,
+    );
+  }
   for (const phase of phases) {
     printInfo(
       `${phase.phase.padEnd(12)} ${targetLabel(phase.target ?? undefined)} (${phase.origin})`,

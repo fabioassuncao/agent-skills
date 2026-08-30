@@ -1,3 +1,4 @@
+import type { ReadinessSnapshot } from '../agents/availability.js';
 import type { AgentPhase } from '../agents/types.js';
 import {
   ANTIGRAVITY_CAPABILITIES,
@@ -38,6 +39,8 @@ export function decideRouting(input: {
   requiresExtraDirectories?: boolean;
   skipScore?: boolean;
   policy?: 'recommended';
+  /** Injected inventory — router stays pure (no probes). */
+  readiness?: ReadinessSnapshot | null;
 }): RoutingDecision | null {
   if (input.mode === 'off') return null;
   const analyzed = analyzeTask(input.signals ?? {});
@@ -66,43 +69,53 @@ export function decideRouting(input: {
     };
   }
 
+  const recommendation = input.policy === 'recommended' ? recommendedFor(input.phase) : null;
+  const allowConditional = recommendation?.allowConditional !== false;
+
   const scored = scoreCandidates(
     (Object.keys(CAPS) as (keyof typeof CAPS)[]).flatMap((harness) => {
+      const providerId = PROVIDER[harness] as 'claude' | 'codex' | 'cursor' | 'antigravity';
+      const readiness =
+        input.readiness === undefined || input.readiness === null
+          ? null
+          : (input.readiness.providers[providerId] ?? null);
       const eligibility = filterEligible({
         harness,
         capabilities: CAPS[harness],
         phase: input.phase,
         requiresExtraDirectories: input.requiresExtraDirectories === true,
+        readiness,
+        allowConditional,
       });
-      const recommendation = input.policy === 'recommended' ? recommendedFor(input.phase) : null;
-      return modelsFor(harness, CAPS[harness]).map((model) => ({
-        harness,
-        provider: PROVIDER[harness] ?? harness,
-        model: model.id,
-        tier: model.tier,
-        relativeCost: model.relativeCost,
-        relativeLatency: model.relativeLatency,
-        eligible:
-          eligibility.eligible &&
-          (recommendation === null ||
-            (model.tier === recommendation.tier &&
-              (recommendation.preferHarness === undefined ||
-                recommendation.preferHarness === harness))),
-        reasonCodes: [
-          ...eligibility.reasonCodes,
-          ...(recommendation !== null &&
-          model.tier === recommendation.tier &&
-          (recommendation.preferHarness === undefined || recommendation.preferHarness === harness)
-            ? ['RECOMMENDED_POLICY']
-            : []),
-          ...(model.tier === 'fast' && analyzed.risk !== 'high' ? ['CHEAPER_TIER_SUFFICIENT'] : []),
-          ...(model.tier === 'strong' && (analyzed.risk === 'high' || profile === 'quality')
-            ? ['STRONGER_TIER_FOR_RISK']
-            : []),
-        ],
-        taskClass: analyzed.taskClass,
-        profile,
-      }));
+      return modelsFor(harness, CAPS[harness]).map((model) => {
+        const reasonCodes = [...eligibility.reasonCodes];
+        const preferredTierMatch =
+          recommendation !== null && model.tier === recommendation.preferredTier;
+        const affinityMatch = recommendation !== null && recommendation.affinityHarness === harness;
+        if (preferredTierMatch) reasonCodes.push('RECOMMENDED_POLICY');
+        if (affinityMatch) reasonCodes.push('HARNESS_AFFINITY');
+        if (model.tier === 'fast' && analyzed.risk !== 'high') {
+          reasonCodes.push('CHEAPER_TIER_SUFFICIENT');
+        }
+        if (model.tier === 'strong' && (analyzed.risk === 'high' || profile === 'quality')) {
+          reasonCodes.push('STRONGER_TIER_FOR_RISK');
+        }
+        return {
+          harness,
+          provider: providerId,
+          model: model.id,
+          tier: model.tier,
+          relativeCost: model.relativeCost,
+          relativeLatency: model.relativeLatency,
+          eligible: eligibility.eligible,
+          reasonCodes,
+          taskClass: analyzed.taskClass,
+          profile,
+          readinessState: readiness?.state ?? null,
+          preferredTierMatch,
+          affinityMatch,
+        };
+      });
     }),
   );
   const selected = pickSelected(scored);

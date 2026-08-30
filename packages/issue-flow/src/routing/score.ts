@@ -30,10 +30,20 @@ export interface ScoreInput {
   profile?: RoutingProfile;
   /** Observed cost status from #78; catalog-relative cost is always available. */
   costStatus?: 'reported' | 'estimated' | 'unknown';
+  readinessState?: 'ready' | 'conditional' | 'unavailable' | null;
+  preferredTierMatch?: boolean;
+  affinityMatch?: boolean;
 }
 
 export function clampLearned(value: number): number {
   return Math.max(-DELTA, Math.min(DELTA, value));
+}
+
+function readinessMultiplier(state: ScoreInput['readinessState']): number {
+  if (state === 'ready') return 1;
+  if (state === 'conditional') return 0.72;
+  if (state === 'unavailable') return 0;
+  return 1;
 }
 
 export function scoreCandidates(inputs: readonly ScoreInput[]): Candidate[] {
@@ -49,10 +59,14 @@ export function scoreCandidates(inputs: readonly ScoreInput[]): Candidate[] {
     // remains available to economy/balanced profiles.
     const costScore = 1 / input.relativeCost;
     const latencyScore = 1 / input.relativeLatency;
+    const preferenceBonus =
+      (input.preferredTierMatch === true ? 0.12 : 0) + (input.affinityMatch === true ? 0.08 : 0);
     const score = input.eligible
-      ? (prior + learned) * weights.quality +
-        costScore * weights.cost +
-        latencyScore * weights.latency
+      ? ((prior + learned) * weights.quality +
+          costScore * weights.cost +
+          latencyScore * weights.latency +
+          preferenceBonus) *
+        readinessMultiplier(input.readinessState)
       : 0;
     const reasonCodes = [...input.reasonCodes];
     if (input.eligible && samples === 0) reasonCodes.push('COLD_START');

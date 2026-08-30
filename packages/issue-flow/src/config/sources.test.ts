@@ -144,8 +144,9 @@ describe('loadGlobalConfig', () => {
     });
 
     // The home directory is resolvable on any supported dev machine, so this
-    // only asserts the call is total: a value, never a throw.
-    expect(config).toEqual({});
+    // only asserts the call is total: a value, never a throw. The contents
+    // depend on whatever the developer already has under ~/.issue-flow.
+    expect(config).toEqual(expect.any(Object));
   });
 
   it('keeps a project-level web.port when the global file omits it', async () => {

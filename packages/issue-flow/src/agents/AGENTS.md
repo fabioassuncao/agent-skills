@@ -70,4 +70,7 @@ only argv and stream parsing move here.
   `ensureHarnessVersion` — those spawn `claude --version` / `codex --version`
   and steal the first mock call from the invocation under test.
   Antigravity's probe is `agy --version`; `authProbe: 'none'` means
-  `issue-flow agent` can only report install, never login.
+  authentication is `unverified` and readiness is `conditional` — never
+  reported as confirmed. Issue Flow may still attempt it when it is the only
+  usable harness; the first real run confirms or the structured failover
+  reacts.

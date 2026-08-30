@@ -1370,7 +1370,14 @@
 
   function fillProviderSelect(select, selected) {
     clear(select);
-    const entries = catalog().filter((entry) => entry.installed && entry.authenticated);
+    const entries = catalog().filter((entry) => {
+      if (!entry.installed) return false;
+      if (entry.state === 'unavailable') return false;
+      if (entry.authentication === 'failed') return false;
+      return (
+        entry.authenticated !== false || entry.state === 'conditional' || entry.state === 'ready'
+      );
+    });
     const providers = entries.length
       ? entries.map((entry) => entry.provider)
       : ['claude', 'codex', 'cursor', 'antigravity'];

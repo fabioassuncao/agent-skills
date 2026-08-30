@@ -236,7 +236,7 @@ local.
 | `GET /api/sessions` | Every active session, with the summary fields the dashboard cards need |
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
 | `GET /api/events?session=<id>` | Journal entries for that session |
-| `GET /api/config?session=<id>` | Captured effective configuration, resolved routing settings and the installed-harness model catalog |
+| `GET /api/config?session=<id>` | Captured effective configuration, resolved routing settings and the harness catalog with readiness (`installed`, `authentication`, `state`, models) |
 | `GET /api/diagnostics?session=<id>` | Correlated records from the global diagnostic log |
 | `POST /api/config/agent` | Save a global provider/model preference for future runs; loopback only |
 | `POST /api/config/routing` | Save global routing mode/profile/policy for future runs; loopback only |
