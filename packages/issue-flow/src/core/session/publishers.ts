@@ -1,6 +1,6 @@
-import { mkdir, rename, utimes, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { utimes } from 'node:fs/promises';
 import { reduceSessionEvent } from '../session-state.js';
+import { writeFileAtomic } from '../../utils/fs.js';
 import {
   DEFAULT_SESSION_HEARTBEAT_MS,
   DEFAULT_THROTTLE_MS,
@@ -185,7 +185,7 @@ export class FilePublisher extends MemoryPublisher {
       if (version === this.lastWrittenVersion) return;
       const payload = `${JSON.stringify(this.state, null, 2)}\n`;
       try {
-        await atomicWriteFile(this.filePath, payload);
+        await writeFileAtomic(this.filePath, payload);
         this.lastWrittenVersion = version;
       } catch (err) {
         this.warnOnce(err);
@@ -231,24 +231,5 @@ export class FilePublisher extends MemoryPublisher {
     this.closed = true;
     await this.flush();
   }
-}
-
-/**
- * Atomic write: write to a temp file next to the target, then rename. The
- * same-directory temp keeps the rename on a single filesystem (rename is
- * atomic; no EXDEV fallback needed, unlike an os.tmpdir() temp on Linux
- * tmpfs) and leaves nothing behind. The FilePublisher write chain is the
- * single writer, so the fixed .tmp name never races.
- *
- * The target directory (issues/N/) may not exist yet the first time a fresh
- * issue publishes — pipeline phases create it lazily, and this can be the
- * very first write. mkdir recursive is idempotent, so it's cheap to ensure
- * on every write rather than relying on call order elsewhere.
- */
-async function atomicWriteFile(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tmpFile = `${path}.tmp`;
-  await writeFile(tmpFile, content, 'utf-8');
-  await rename(tmpFile, path);
 }
 
