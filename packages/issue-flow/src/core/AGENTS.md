@@ -2,6 +2,10 @@
 
 ## session-state.ts ↔ schemas.ts are in lockstep
 
+`session-state.ts` is a façade over [`session/`](session/AGENTS.md). The
+snapshot contract lives in `session/events.ts` and `session/snapshot.ts`;
+the reducer is `session/reducer.ts` (cases in `session/reducer-*.ts`).
+
 `sessionSnapshotSchema` ends with `satisfies z.ZodType<SessionSnapshot>`. Any
 field added to `SessionSnapshot`, `SessionPhaseSnapshot` or
 `SessionStorySnapshot` **must** be added to the matching zod schema in

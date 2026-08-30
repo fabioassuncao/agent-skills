@@ -20,7 +20,7 @@ export type UserStoryStatus = 'backlog' | 'in_progress' | 'in_review' | 'done';
  * (execute -> review -> correction when needed -> done) instead of the
  * binary `passes`. Unlike {@link UserStoryStatus} (a board-style summary),
  * `stage` is derived only from real pipeline events — see
- * `core/session-state.ts`'s `applyEvent` for the transition rules.
+ * `core/session/reducer.ts`'s `applyEvent` for the transition rules.
  *
  * - `pending`: not yet the story `execute` is working on.
  * - `executing`: the story `iteration:start` published as the active one.
