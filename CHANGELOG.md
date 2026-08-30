@@ -14,6 +14,120 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-30
+
+Execução autônoma de longa duração: a camada de resiliência da issue #63. O
+pipeline deixa de assumir execução perfeita — uma queda de rede de trinta
+segundos, um `Ctrl+C` ou um agente travado passam a ter resposta, e o que
+não tem resposta automática vira uma pergunta explícita a um humano.
+
+Três limites valem para tudo o que segue: **falha lógica de implementação nunca
+entra em retry** (um teste que quebra tem o ciclo de correção, não backoff);
+**nenhuma operação destrutiva é executada para "consertar" estado**; e todo
+comportamento novo é opt-in ou tem default idêntico ao de antes.
+
+### Added
+
+- **Camada de resiliência (`src/resilience/`)** (#63, #64). `errors.ts`
+  classifica a falha a partir de sinal estruturado — `errno`, status HTTP, como
+  o processo terminou, exit code — e só recorre ao texto em último caso;
+  `policy.ts` traz a política por tipo de falha (tentativas, backoff exponencial
+  com full jitter, teto, `Retry-After`); `retry.ts` é o **único executor de
+  retry do projeto**, para onde `core/phase-runner.ts` e o loop do `execute`
+  passaram a delegar.
+- **Chave `resilience` na escada de configuração** (#64). CLI > env
+  (`ISSUE_FLOW_RESILIENCE_*`) > `.issue-flow.json` > `~/.issue-flow/config.json`
+  > defaults, com o `retry` mesclado dois níveis — por tipo de falha *e* por
+  campo. Ausência de configuração resolve para `{}`, que é exatamente o
+  comportamento de todas as versões anteriores.
+- **`--retry-limit` e `--retry-forever` no `run`** (#64), até então exclusivos
+  do `execute` — o modo que a maioria usa era o que tinha menos controle.
+- **Journal append-only (`events.jsonl`)** (#66). Uma linha JSON por
+  `SessionEvent`, com `seq` monotônico e rotação por tamanho. Fica **ao lado**
+  do `session.json`: o snapshot continua sendo a projeção, o journal é a
+  história — e relê-lo pelo mesmo reducer reconstrói o snapshot. Opt-in via
+  `resilience.journal.enabled`.
+- **`run.lock` com heartbeat** (#66). Dono de execução por projeto: uma segunda
+  invocação recusa nomeando pid, host e horário do último heartbeat, em vez de
+  disputar o `tasks.json` e a branch. Um lock cujo dono morreu é assumido e
+  registrado como run interrompida.
+- **`issue-flow resume`** (#66). Retomada explícita: lê o lock, os planos e o
+  journal (o último `phase:start` sem `phase:end` diz o que estava rodando),
+  roda o preflight e retoma da primeira fase incompleta. O auto-resume do `run`
+  continua igual.
+- **Preflight de repositório** (#66). Rebase, merge, cherry-pick ou revert em
+  curso, conflito não resolvido, HEAD destacado ou branch diferente da do plano
+  **param** a fase com o comando de saída sugerido. Nada é consertado
+  automaticamente: sem `reset --hard`, sem `--abort`, sem stash implícito.
+- **Encerramento gracioso** (#67). `Ctrl+C` agora aborta o sinal do processo
+  (cortando qualquer backoff pendente), grava o checkpoint com a issue em
+  `paused`, manda `SIGTERM` ao agente com 15s de tolerância antes do `SIGKILL`,
+  publica `session:end` e fecha o journal. Um segundo `Ctrl+C` encerra na hora.
+- **Watchdog de inatividade** (#70). `--inactivity-timeout <s>` (default 600,
+  `0` desliga) distingue "tarefa longa" de "travado": sem nenhum evento no
+  stream por tempo demais, o agente é parado e a falha é classificada como
+  `stalled` — retentável. O timeout absoluto continua existindo como teto.
+- **`--on-issue-failure <stop|skip|block>`** (#70). Numa fila, `skip` põe a
+  issue de lado, segue com as independentes e volta a ela no fim; `block` a
+  reserva para um humano. `stop` continua o default.
+- **`--continuous` / `--resilient`** (#70): um perfil, não um mecanismo. Liga
+  retry infinito para rede e rate limit, failover, `--on-issue-failure skip`,
+  journal e watchdog — e cada um deles continua ajustável em separado, com
+  qualquer flag granular vencendo o perfil.
+- **Superfície de operação** (#70): `issue-flow status` (quem está rodando, em
+  que fase, em que tentativa, há quanto tempo sem atividade), `runs` (histórico
+  com status, duração e causa), `logs` (o journal, com `--follow` e `--kind`),
+  `pause` e `cancel`. Os dois últimos apenas sinalizam o dono da run — que já
+  sabe parar bem.
+- **Relatório de decomposição** (#71). Dois ou mais sinais de "issue grande
+  demais" (timeouts repetidos na mesma fase, mais de 15 stories, 5 iterações
+  seguidas sem concluir nada, mais de 40 arquivos tocados, corpo com mais de
+  20 000 caracteres, `execute` esgotando as iterações) geram
+  `decomposition.md` e marcam a issue `blocked`. Quebrar a issue é decisão de
+  produto: o default é relatar. `--auto-decompose` cria as sub-issues, e recusa
+  fazê-lo quando a branch já tem trabalho commitado.
+
+### Changed
+
+- **Toda chamada `gh` passa a ter política de retry** (#65). Uma oscilação de
+  DNS durante `resolveCommandIssue()` — chamado no início de *toda* fase —
+  deixa de derrubar a run: a falha é classificada e ganha o orçamento do seu
+  tipo (rede: 8 tentativas, 2s a 120s com jitter; rate limit: o `Retry-After`
+  do servidor). Uma credencial expirada **não** é retentada: para na hora e diz
+  o que fazer (`gh auth login`).
+- **`utils/shell.ts:run()` aceita `retry` opcional** (#65). Sem ele o
+  comportamento é byte a byte o de antes. Operações destrutivas de git
+  (`push --force`, `reset --hard`, `rebase`, `cherry-pick`, …) nunca são
+  repetidas, mesmo sob `retryForever`.
+- **O stream de eventos é sempre pedido à CLI** (#70). `--output-format json`
+  entregava uma única escrita no fim, o que deixava o modo não-verbose sem
+  sinal nenhum enquanto o agente trabalhava. Agora é sempre `stream-json`, e
+  só a renderização muda: verbose imprime, não-verbose alimenta spinner e
+  heartbeat. O que o chamador recebe é o mesmo.
+- **A fase `pr` adota um Pull Request já aberto para a branch** (#68) em vez de
+  abrir um segundo — risco que cresceu quando o timeout passou a ser
+  corretamente classificado como transitório e a fase ganhou suas retentativas.
+- **Checkpoint pós-commit de story no `execute`** (#68). Se o commit da story
+  já está na branch e a árvore está limpa, ela é adotada em vez de reexecutada:
+  a janela entre o commit e a escrita do `passes` deixa de custar trabalho
+  refeito. O `passes` do agente continua sendo a fonte primária.
+- **`prReview.publisher` aceita `github`** (#68), que comenta no Pull Request
+  **atualizando** o comentário da mesma rodada em vez de empilhar cópias. O
+  default segue `local`.
+- **`tasks.json` ganha `runState` e a fila ganha `blocked`/`skipped`,
+  `attempts` e `blockedReason`** (#66) — tudo aditivo, `schemaVersion`
+  inalterado, e um arquivo escrito por versão anterior continua sendo lido.
+
+### Known limitations
+
+- **Failover entre providers de agente não entrou.** Saúde, cooldown e cadeia
+  de fallback (`src/agents/health.ts` e `select.ts`) dependem da camada de
+  agentes da #62, ainda aberta. A configuração já existe
+  (`resilience.providers.*`, `--no-failover`, e `--continuous` ligando
+  `failover: true`), então falta apenas a implementação em cima da #62.
+- No dashboard, os campos de *provider* e *cooldown* dependem da mesma #62; a
+  aba de histórico lendo o journal ainda não existe.
+
 ## [0.11.1] - 2026-08-29
 
 ### Fixed
@@ -661,6 +775,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.12.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.12.0
 [0.11.1]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.1
 [0.11.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.0
 [0.10.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.10.0
