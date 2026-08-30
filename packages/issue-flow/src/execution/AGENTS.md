@@ -27,6 +27,10 @@ Runtime ownership of "run this queue" lives in
 - **Resume hand-out order:** `in_progress` → `failed` → `pending` →
   `skipped`. Never hand out `blocked`. `skipped` is not terminal for
   queue status; `blocked` makes the queue `failed`.
+- **Closed discovered Issues are satisfied context, not work.** New plans leave
+  them out of the execution order; resumed plans refresh unfinished discovered
+  entries and complete the ones now closed. Explicitly requested Issues remain
+  in scope regardless of state.
 - **Topology first.** Parent/child is tie-break only, not a hard edge.
   Cycles are reported, never papered over.
 - **`registry.ts` is the only cross-project `run.lock` reader.** Lock

@@ -147,6 +147,14 @@ dependencies breadth-first from the issues you asked for. Plain mentions are
 recorded but never expanded. Traversal is bounded by **25 nodes and depth 3**;
 hitting either limit is reported rather than silently truncating.
 
+Issues already closed when they are discovered remain visible as context, but
+are not added to the execution order. A closed dependency is already satisfied;
+it must not create a session or send an agent back through work that has been
+resolved. An Issue named explicitly on the command line is still honored. When
+an existing queue is resumed, unfinished discovered entries are refreshed and
+ones closed since the plan was created are marked complete before the next item
+is selected.
+
 The `local` provider does not implement discovery: a local issue simply has no
 relations.
 

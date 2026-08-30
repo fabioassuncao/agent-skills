@@ -124,6 +124,7 @@ overrides an explicit `agent.phases` or `--agent`.
 issue-flow routing           # the resolved configuration
 issue-flow routing explain   # target and source for every phase
 issue-flow routing use recommended --global
+issue-flow routing use recommended --global --active
 issue-flow routing report    # agreement between the selected and actual target
 ```
 
@@ -155,6 +156,11 @@ The embedded `recommended` policy is the token-economy table from
 command, JSON, or the loopback dashboard; the factory default remains
 `shadow` with no policy. `issue-flow routing report` reads recorded decisions
 and reports how often the selected and actual targets agreed.
+
+`routing use recommended` selects the policy without changing the current mode;
+`routing use recommended --active` is the one-command opt-in that selects the
+policy and activates it for future runs. Use `--project` instead of `--global`
+to scope both settings to the current repository.
 
 ## Escalation
 

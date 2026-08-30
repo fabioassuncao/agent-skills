@@ -1,3 +1,4 @@
+import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueSource } from '../issues/types.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 import { type ConfirmQueueOptions, confirmQueue, QueueConfirmationError } from './confirm.js';
@@ -8,6 +9,7 @@ import {
   buildExecutionPlan,
   isQueueComplete,
   loadExecutionPlan,
+  markQueueIssueCompleted,
   saveExecutionPlan,
 } from './plan.js';
 import type { ExecutionPlan } from './types.js';
@@ -79,6 +81,54 @@ async function loadResumableQueue(
 }
 
 /**
+ * Closed relations are context, not work. Keep explicitly requested Issues in
+ * scope, but do not schedule an Issue that discovery found after it was
+ * already resolved.
+ *
+ * An unreadable Issue stays eligible: discovery is best effort, and absence of
+ * state must never silently discard work.
+ */
+function executableGraphIds(
+  graph: Awaited<ReturnType<typeof discoverIssueGraph>>,
+  requested: readonly string[],
+): string[] {
+  const roots = new Set(requested);
+  return [...graph.nodes.values()]
+    .filter((node) => roots.has(node.id) || node.issue?.state !== 'closed')
+    .map((node) => node.id);
+}
+
+/**
+ * A persisted queue may outlive one of its discovered Issues. Refresh only
+ * unfinished, discovered entries and treat those now closed as satisfied, so
+ * resuming an old plan cannot start already-resolved work.
+ */
+async function reconcileClosedDiscoveredIssues(
+  plan: ExecutionPlan,
+  warn: (message: string) => void,
+): Promise<{ plan: ExecutionPlan; closed: string[] }> {
+  let next = plan;
+  const closed: string[] = [];
+
+  for (const entry of plan.issues) {
+    if (entry.origin !== 'discovered' || entry.status === 'completed') continue;
+
+    try {
+      const issue = await getProvider(entry.source).get(entry.id);
+      if (issue?.state !== 'closed') continue;
+      next = markQueueIssueCompleted(next, entry.id);
+      closed.push(entry.id);
+    } catch (err) {
+      warn(
+        `Could not refresh issue #${entry.id} before resuming the queue: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  return { plan: next, closed };
+}
+
+/**
  * Work out what this invocation runs.
  *
  * The order of the checks is what keeps the feature additive:
@@ -96,7 +146,19 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
   const warn = input.warn ?? printWarning;
   const single = input.requested.length === 1;
 
-  const resumable = await loadResumableQueue(input.planFile, input.requested);
+  let resumable = await loadResumableQueue(input.planFile, input.requested);
+  if (resumable !== null) {
+    const reconciled = await reconcileClosedDiscoveredIssues(resumable, warn);
+    resumable = reconciled.plan;
+    if (reconciled.closed.length > 0) {
+      await saveExecutionPlan(input.planFile, resumable);
+      info(
+        `Skipping already closed issue(s) in the resumed queue: ${reconciled.closed
+          .map((id) => `#${id}`)
+          .join(', ')}.`,
+      );
+    }
+  }
   // A queue that already finished has nothing left to run, and re-planning it
   // would overwrite its `execution-plan.json` — losing the Pull Request and
   // the record of what ran. Report it and stop successfully instead.
@@ -134,11 +196,8 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
     warn,
   });
 
-  if (single && graph.nodes.size <= 1) {
-    return { kind: 'single' };
-  }
-
-  const suggested = computeExecutionOrder(graph);
+  const schedulable = executableGraphIds(graph, input.requested);
+  const suggested = computeExecutionOrder(graph, { include: schedulable });
   if (!suggested.ok) {
     // A cycle anywhere in the discovered hierarchy must not take down a run
     // the user asked for on a single issue: they never opted into the
@@ -170,6 +229,17 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
     prReview: input.prReview,
   });
 
+  // Closed discovered relations do not turn a normal single-Issue run into a
+  // queue. A container is the exception: it still needs the explicit scope
+  // decision that prevents an umbrella Issue from being implemented directly.
+  if (
+    single &&
+    suggestedPlan.issues.length === 1 &&
+    suggestedPlan.issues[0]?.role !== 'container'
+  ) {
+    return { kind: 'single' };
+  }
+
   let choice: 'all' | 'requested' | 'cascade' | 'cancel';
   try {
     choice = await confirmQueue(suggestedPlan, requestedCount, {
@@ -191,7 +261,8 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
 
   let plan = suggestedPlan;
   if (choice === 'cascade') {
-    const include = collectCascadeIds(graph, input.requested);
+    const eligible = new Set(schedulable);
+    const include = collectCascadeIds(graph, input.requested).filter((id) => eligible.has(id));
     const cascadeOrder = computeExecutionOrder(graph, { include });
     if (!cascadeOrder.ok) {
       warn(`Dependency cycle between issues: ${describeCycles(cascadeOrder.cycles)}.`);

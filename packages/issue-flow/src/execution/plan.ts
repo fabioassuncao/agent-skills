@@ -102,7 +102,8 @@ export function buildExecutionPlan(input: BuildExecutionPlanInput): ExecutionPla
       origin: requested.has(id) ? 'requested' : 'discovered',
       role,
       externalDependencies: (relations?.blockedBy ?? []).filter(
-        (blocker) => !scheduled.has(blocker),
+        (blocker) =>
+          !scheduled.has(blocker) && input.graph.nodes.get(blocker)?.issue?.state !== 'closed',
       ),
       // Only the constraints that survive inside the queue: a blocker left out
       // of it is reported in `excluded`, not enforced as a dependency.
@@ -128,7 +129,10 @@ export function buildExecutionPlan(input: BuildExecutionPlanInput): ExecutionPla
       number: described.number,
       title: described.title,
       url: described.url,
-      reason: 'Discovered in the hierarchy but not selected for this run',
+      reason:
+        node.issue?.state === 'closed'
+          ? 'Already closed before this run'
+          : 'Discovered in the hierarchy but not selected for this run',
     });
   }
 

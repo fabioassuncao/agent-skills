@@ -270,6 +270,21 @@ describe('single issue — no behaviour change', () => {
     const queue = await resolveQueuePaths('42');
     expect(existsSync(queue.planFile)).toBe(false);
   });
+
+  it('does not turn a closed discovered dependency into queue work', async () => {
+    relations.set('98', { ...emptyRelations('98'), blockedBy: ['97'] });
+    relations.set('97', { ...emptyRelations('97'), blocking: ['98'] });
+    issues.set('98', makeIssue('98'));
+    issues.set('97', { ...makeIssue('97'), state: 'closed' });
+
+    expect(await run('98')).toBe(0);
+
+    const executed = vi
+      .mocked(runExecute)
+      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+    expect(executed).toEqual(['98']);
+    expect(existsSync((await resolveQueuePaths('98')).planFile)).toBe(false);
+  });
 });
 
 describe('queue of several issues', () => {
@@ -511,6 +526,34 @@ describe('failure and resume', () => {
 
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
     expect(plan.status).toBe('completed');
+  });
+
+  it('does not resume a discovered issue that was closed after the plan was created', async () => {
+    relations.set('50', { ...emptyRelations('50'), blockedBy: ['49'] });
+    relations.set('49', { ...emptyRelations('49'), blocking: ['50'] });
+    issues.set('50', makeIssue('50'));
+    issues.set('49', makeIssue('49'));
+    vi.mocked(runExecute).mockImplementation(async (_max, options) =>
+      (options as { issue?: string }).issue === '49' ? 1 : 0,
+    );
+
+    expect(await run('50')).not.toBe(0);
+
+    issues.set('49', { ...makeIssue('49'), state: 'closed' });
+    vi.mocked(runExecute).mockClear();
+    vi.mocked(runExecute).mockImplementation(async () => 0);
+    resetStorageResolutionCache();
+
+    expect(await run('50', {})).toBe(0);
+
+    const executed = vi
+      .mocked(runExecute)
+      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+    expect(executed).toEqual(['50']);
+    const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
+    expect(plan.issues.find((entry) => entry.id === '49')).toMatchObject({
+      status: 'completed',
+    });
   });
 });
 
