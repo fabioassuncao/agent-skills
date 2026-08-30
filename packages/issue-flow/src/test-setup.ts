@@ -35,5 +35,11 @@ const sandboxHome = mkdtempSync(join(tmpdir(), 'issue-flow-test-home-'));
 process.env[GLOBAL_ROOT_ENV] = sandboxHome;
 
 afterAll(() => {
-  rmSync(sandboxHome, { recursive: true, force: true });
+  // Best-effort: a leftover temp dir must never fail the suite. macOS runners
+  // occasionally report ENOTEMPTY while a sibling test still holds a handle.
+  try {
+    rmSync(sandboxHome, { recursive: true, force: true });
+  } catch {
+    // ignore
+  }
 });

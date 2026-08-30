@@ -151,8 +151,21 @@ describe('runPrReview', () => {
     if (previousHome === undefined) delete process.env[GLOBAL_ROOT_ENV];
     else process.env[GLOBAL_ROOT_ENV] = previousHome;
 
-    await rm(tmpDir, { recursive: true, force: true });
-    await rm(globalHome, { recursive: true, force: true });
+    // macOS runners occasionally leave a child entry mid-unlink; retrying
+    // ENOTEMPTY keeps the suite from failing on cleanup rather than assertion.
+    for (const dir of [tmpDir, globalHome]) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          await rm(dir, { recursive: true, force: true });
+          break;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== 'ENOTEMPTY' && code !== 'EBUSY') throw error;
+          if (attempt === 4) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+      }
+    }
     // There is no "unset"; the cast restores the module's initial state so the
     // phase default applies again in the next test.
     setGlobalTimeout(undefined as unknown as number);

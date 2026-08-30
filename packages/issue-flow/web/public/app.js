@@ -177,7 +177,7 @@
 
   // Ícone textual (○ ● ✓ ✗): a cor e o rótulo ao lado já dizem o estado.
   function statusIcon(status, symbol) {
-    const icon = el('span', 'item-icon icon-' + status, symbol || PHASE_ICONS[status] || '○');
+    const icon = el('span', `item-icon icon-${status}`, symbol || PHASE_ICONS[status] || '○');
     icon.setAttribute('aria-hidden', 'true');
     return icon;
   }
@@ -203,17 +203,17 @@
   function formatDuration(totalSeconds) {
     if (totalSeconds === null || totalSeconds === undefined || totalSeconds < 0) return '—';
     const seconds = Math.round(totalSeconds);
-    if (seconds < 60) return seconds + 's';
+    if (seconds < 60) return `${seconds}s`;
     const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return minutes + 'min ' + String(seconds % 60).padStart(2, '0') + 's';
+    if (minutes < 60) return `${minutes}min ${String(seconds % 60).padStart(2, '0')}s`;
     const hours = Math.floor(minutes / 60);
-    return hours + 'h ' + String(minutes % 60).padStart(2, '0') + 'min';
+    return `${hours}h ${String(minutes % 60).padStart(2, '0')}min`;
   }
 
   function formatAgo(iso) {
     const ms = parseIso(iso);
     if (ms === null) return '';
-    return 'há ' + formatDuration((Date.now() - ms) / 1000);
+    return `há ${formatDuration((Date.now() - ms) / 1000)}`;
   }
 
   function formatClock(iso) {
@@ -233,8 +233,8 @@
   // 1523 → 1.5k, 2400000 → 2.4M (mesma regra do resumo no terminal).
   function compactTokens(value) {
     const abs = Math.abs(value);
-    if (abs >= 1000000) return (value / 1000000).toFixed(1) + 'M';
-    if (abs >= 1000) return (value / 1000).toFixed(1) + 'k';
+    if (abs >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+    if (abs >= 1000) return `${(value / 1000).toFixed(1)}k`;
     return String(Math.round(value));
   }
 
@@ -253,14 +253,14 @@
     const input = metric(usage.inputTokens);
     const output = metric(usage.outputTokens);
     const io = [];
-    if (input !== null) io.push(compactTokens(input) + ' in');
-    if (output !== null) io.push(compactTokens(output) + ' out');
+    if (input !== null) io.push(`${compactTokens(input)} in`);
+    if (output !== null) io.push(`${compactTokens(output)} out`);
     if (io.length > 0) segments.push(io.join(' / '));
 
     const cacheRead = metric(usage.cacheReadTokens);
     const cacheCreation = metric(usage.cacheCreationTokens);
     if (cacheRead !== null || cacheCreation !== null) {
-      segments.push(compactTokens((cacheRead || 0) + (cacheCreation || 0)) + ' cache');
+      segments.push(`${compactTokens((cacheRead || 0) + (cacheCreation || 0))} cache`);
     }
 
     const cost = metric(usage.costUsd);
@@ -289,7 +289,7 @@
 
   // URL do repositório derivada da URL da issue (…/issues/N → raiz do repo).
   function repoUrl(snapshot) {
-    const url = snapshot.issue && snapshot.issue.url;
+    const url = snapshot.issue?.url;
     if (!url) return null;
     const match = url.match(/^(https?:\/\/\S+?)\/issues\/\d+\/?$/);
     return match ? match[1] : null;
@@ -357,7 +357,7 @@
       if (panel) panel.hidden = !active;
       if (active) focused = tab;
     }
-    if (options && options.focus && focused) focused.focus();
+    if (options?.focus && focused) focused.focus();
   }
 
   // Padrão ARIA de tablist: setas movem entre as abas, Home/End vão às pontas.
@@ -386,7 +386,7 @@
     let raw = null;
     try {
       raw = window.localStorage.getItem(THEME_STORAGE_KEY);
-    } catch (err) {
+    } catch (_err) {
       // localStorage indisponível (ex.: bloqueado) — segue no modo sistema.
     }
     return raw === 'light' || raw === 'dark' ? raw : 'system';
@@ -395,7 +395,7 @@
   function storeTheme(value) {
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, value);
-    } catch (err) {
+    } catch (_err) {
       // Persistência é conveniência; falha é ignorada. Sem gravar, a escolha
       // continua valendo nesta aba — só não sobrevive ao reload.
     }
@@ -463,7 +463,7 @@
     let raw = null;
     try {
       raw = window.localStorage.getItem(STORAGE_KEY);
-    } catch (err) {
+    } catch (_err) {
       // localStorage indisponível (ex.: bloqueado) — segue com o default.
     }
     if (raw === null) return null;
@@ -474,7 +474,7 @@
   function storeRefresh(value) {
     try {
       window.localStorage.setItem(STORAGE_KEY, String(value));
-    } catch (err) {
+    } catch (_err) {
       // Persistência é conveniência; falha é ignorada.
     }
   }
@@ -488,7 +488,7 @@
     }
     clear(select);
     for (const value of values) {
-      const option = el('option', null, value + 's');
+      const option = el('option', null, `${value}s`);
       option.value = String(value);
       select.appendChild(option);
     }
@@ -561,14 +561,14 @@
   }
 
   function statusUrlFor(session) {
-    if (!session || !session.statusUrl) return 'api/status';
+    if (!session?.statusUrl) return 'api/status';
     // statusUrl vem com barra inicial (/api/status?session=…); o fetch relativo
     // ao path do painel precisa da forma sem a barra absoluta do host.
     return session.statusUrl.replace(/^\//, '');
   }
 
   function eventsUrlFor(session) {
-    if (!session || !session.eventsUrl) return null;
+    if (!session?.eventsUrl) return null;
     return session.eventsUrl.replace(/^\//, '');
   }
 
@@ -586,7 +586,7 @@
   // então é ela que explica o que está na tela. As duas aparecem juntas no card
   // de configuração quando divergem.
   function renderMonitorVersion(version) {
-    const label = typeof version === 'string' && version !== '' ? 'v' + version : null;
+    const label = typeof version === 'string' && version !== '' ? `v${version}` : null;
     state.monitorVersion = label === null ? null : version;
     for (const node of [els.appVersion, els.appVersionDashboard]) {
       if (!node) continue;
@@ -643,7 +643,7 @@
     try {
       const sessionsRes = await fetch('api/sessions', { cache: 'no-store' });
       if (serverInstanceChanged(sessionsRes)) return;
-      if (!sessionsRes.ok) throw new Error('HTTP ' + sessionsRes.status);
+      if (!sessionsRes.ok) throw new Error(`HTTP ${sessionsRes.status}`);
       const sessions = await sessionsRes.json();
       if (!Array.isArray(sessions)) throw new Error('sessions payload invalid');
 
@@ -701,12 +701,12 @@
         return;
       }
       if (res.status !== 304) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         state.etag = res.headers.get('ETag');
         state.snapshot = await res.json();
         render();
       }
-      const configUrl = 'api/config?session=' + encodeURIComponent(state.detailSessionId || '');
+      const configUrl = `api/config?session=${encodeURIComponent(state.detailSessionId || '')}`;
       const configRes = await fetch(configUrl, { cache: 'no-store' });
       if (configRes.ok) {
         state.configData = await configRes.json();
@@ -714,11 +714,10 @@
       }
       if (state.eventsUrl) {
         const eventsRes = await fetch(state.eventsUrl, { cache: 'no-store' });
-        if (!eventsRes.ok) throw new Error('HTTP ' + eventsRes.status);
+        if (!eventsRes.ok) throw new Error(`HTTP ${eventsRes.status}`);
         const entries = await eventsRes.json();
         state.events = Array.isArray(entries) ? entries : [];
-        const diagnosticUrl =
-          'api/diagnostics?session=' + encodeURIComponent(state.detailSessionId || '');
+        const diagnosticUrl = `api/diagnostics?session=${encodeURIComponent(state.detailSessionId || '')}`;
         const diagnosticsRes = await fetch(diagnosticUrl, { cache: 'no-store' });
         if (diagnosticsRes.ok) {
           const diagnostics = await diagnosticsRes.json();
@@ -730,7 +729,7 @@
       setViewMode('detail');
       state.failures = 0;
       els.banner.hidden = true;
-    } catch (err) {
+    } catch (_err) {
       state.failures += 1;
       els.banner.hidden = false;
     } finally {
@@ -761,7 +760,7 @@
     if (!text) return '';
     const normalized = String(text).replace(/\s+/g, ' ').trim();
     if (normalized.length <= max) return normalized;
-    return normalized.slice(0, max - 1).trimEnd() + '…';
+    return `${normalized.slice(0, max - 1).trimEnd()}…`;
   }
 
   // Linha secundária do header do dashboard: quantas execuções e em que
@@ -777,16 +776,16 @@
       const count = counts[status];
       if (!count) continue;
       const label = SUMMARY_STATUS_LABELS[status];
-      parts.push(count + ' ' + (count === 1 ? label[0] : label[1]));
+      parts.push(`${count} ${count === 1 ? label[0] : label[1]}`);
     }
     const total = sessions.length + (sessions.length === 1 ? ' execução' : ' execuções');
-    els.dashboardSummary.textContent = parts.length > 0 ? total + ' · ' + parts.join(' · ') : total;
+    els.dashboardSummary.textContent = parts.length > 0 ? `${total} · ${parts.join(' · ')}` : total;
   }
 
   function renderDashboard(sessions) {
     const active = document.activeElement;
     const focusedId =
-      active && active.dataset && els.dashboard.contains(active) && active.dataset.sessionId
+      active?.dataset && els.dashboard.contains(active) && active.dataset.sessionId
         ? active.dataset.sessionId
         : null;
 
@@ -815,7 +814,7 @@
         'dashboard-project',
         session.repositoryName || 'Projeto desconhecido',
       );
-      const badge = el('span', 'badge status-' + (session.status || 'idle'));
+      const badge = el('span', `badge status-${session.status || 'idle'}`);
       badge.textContent = STATUS_LABELS[session.status] || session.status || '—';
       head.appendChild(project);
       head.appendChild(badge);
@@ -823,7 +822,7 @@
 
       const titleRow = el('span', 'dashboard-title-row');
       if (session.issueNumber !== null && session.issueNumber !== undefined) {
-        titleRow.appendChild(el('span', 'dashboard-issue', '#' + session.issueNumber));
+        titleRow.appendChild(el('span', 'dashboard-issue', `#${session.issueNumber}`));
       }
       titleRow.appendChild(el('span', 'dashboard-title', session.issueTitle || 'Sem título'));
       card.appendChild(titleRow);
@@ -832,9 +831,9 @@
       card.appendChild(el('span', 'dashboard-summary muted', summary || 'Sem descrição'));
 
       const meta = el('span', 'dashboard-meta-row');
-      meta.appendChild(el('span', null, 'Fase: ' + (session.currentPhase || '—')));
+      meta.appendChild(el('span', null, `Fase: ${session.currentPhase || '—'}`));
       const percent = typeof session.progressPercent === 'number' ? session.progressPercent : 0;
-      meta.appendChild(el('span', null, percent + '%'));
+      meta.appendChild(el('span', null, `${percent}%`));
       const elapsed =
         typeof session.elapsedSeconds === 'number'
           ? formatDuration(session.elapsedSeconds)
@@ -846,25 +845,25 @@
       // A card that only shows a percentage cannot tell a run that is
       // progressing from one that has been retrying for twenty minutes.
       if (typeof session.retries === 'number' && session.retries > 0) {
-        meta.appendChild(el('span', null, session.retries + ' retry(s)'));
+        meta.appendChild(el('span', null, `${session.retries} retry(s)`));
       }
       if (typeof session.correctionCycle === 'number' && session.correctionCycle > 0) {
-        meta.appendChild(el('span', null, 'correção ' + session.correctionCycle));
+        meta.appendChild(el('span', null, `correção ${session.correctionCycle}`));
       }
       if (session.updatedAt) {
         meta.appendChild(
-          el('span', null, 'atividade ' + formatAgo(session.lastActivityAt || session.updatedAt)),
+          el('span', null, `atividade ${formatAgo(session.lastActivityAt || session.updatedAt)}`),
         );
       }
-      if (session.provider) meta.appendChild(el('span', null, 'provider ' + session.provider));
+      if (session.provider) meta.appendChild(el('span', null, `provider ${session.provider}`));
       if (typeof session.attempt === 'number' && session.attempt > 0) {
-        meta.appendChild(el('span', null, 'tentativa ' + session.attempt));
+        meta.appendChild(el('span', null, `tentativa ${session.attempt}`));
       }
       card.appendChild(meta);
 
       const progress = el('span', 'dashboard-progress');
       const bar = el('span', 'dashboard-progress-bar');
-      bar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+      bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
       progress.appendChild(bar);
       card.appendChild(progress);
 
@@ -884,11 +883,11 @@
 
     els.dashboardMeta.textContent =
       sessions.length + (sessions.length === 1 ? ' execução' : ' execuções');
-    document.title = sessions.length + ' execuções · issue-flow';
+    document.title = `${sessions.length} execuções · issue-flow`;
 
     if (focusedId) {
       const card = els.dashboard.querySelector(
-        '[data-session-id="' + focusedId.replace(/"/g, '') + '"]',
+        `[data-session-id="${focusedId.replace(/"/g, '')}"]`,
       );
       if (card) card.focus();
     }
@@ -922,12 +921,12 @@
   }
 
   function renderTitle(snapshot) {
-    const issue = snapshot.issue.number !== null ? '#' + snapshot.issue.number : '';
+    const issue = snapshot.issue.number !== null ? `#${snapshot.issue.number}` : '';
     let prefix = '';
-    if (snapshot.status === 'running') prefix = snapshot.progress.percent + '% · ';
+    if (snapshot.status === 'running') prefix = `${snapshot.progress.percent}% · `;
     else if (snapshot.status === 'completed') prefix = '✓ ';
     else if (snapshot.status === 'failed') prefix = '✗ ';
-    document.title = (prefix + issue + ' · issue-flow').replace(/^ · /, '');
+    document.title = `${prefix + issue} · issue-flow`.replace(/^ · /, '');
   }
 
   // O h1 é a execução — número, título, e ao lado status, tempo decorrido e
@@ -936,7 +935,7 @@
     const hasIssue = snapshot.issue.number !== null && snapshot.issue.number !== undefined;
     if (hasIssue) {
       els.issueLink.hidden = false;
-      els.issueLink.textContent = '#' + snapshot.issue.number;
+      els.issueLink.textContent = `#${snapshot.issue.number}`;
       if (snapshot.issue.url) els.issueLink.href = snapshot.issue.url;
       else els.issueLink.removeAttribute('href');
     } else {
@@ -956,11 +955,11 @@
           ? 'criada pelo Issue Flow'
           : 'origem da branch não informada';
     els.branchLine.textContent = branch
-      ? (base ? branch + ' ← ' + base : branch) + ' · ' + branchMode
+      ? `${base ? `${branch} ← ${base}` : branch} · ${branchMode}`
       : '';
 
     els.statusBadge.textContent = STATUS_LABELS[snapshot.status] || snapshot.status;
-    els.statusBadge.className = 'badge status-' + snapshot.status;
+    els.statusBadge.className = `badge status-${snapshot.status}`;
   }
 
   function renderAlerts(snapshot) {
@@ -973,8 +972,8 @@
     if (!any) return;
 
     const counts = [];
-    if (errors.length > 0) counts.push(errors.length + ' erro(s)');
-    if (warnings.length > 0) counts.push(warnings.length + ' aviso(s)');
+    if (errors.length > 0) counts.push(`${errors.length} erro(s)`);
+    if (warnings.length > 0) counts.push(`${warnings.length} aviso(s)`);
     if (counts.length > 0) {
       els.alertsBody.appendChild(el('p', 'alert-count', counts.join(' · ')));
     }
@@ -987,13 +986,13 @@
     }
     for (const log of errors.slice(-ALERT_PREVIEW)) {
       const entry = el('div', 'alert-entry level-error');
-      entry.appendChild(el('span', 'mono', formatClock(log.at) + ' '));
+      entry.appendChild(el('span', 'mono', `${formatClock(log.at)} `));
       entry.appendChild(document.createTextNode(log.message));
       els.alertsBody.appendChild(entry);
     }
     for (const log of warnings.slice(-ALERT_PREVIEW)) {
       const entry = el('div', 'alert-entry level-warn');
-      entry.appendChild(el('span', 'mono', formatClock(log.at) + ' '));
+      entry.appendChild(el('span', 'mono', `${formatClock(log.at)} `));
       entry.appendChild(document.createTextNode(log.message));
       els.alertsBody.appendChild(entry);
     }
@@ -1012,7 +1011,7 @@
     const state = issue.state || null;
     const stateClass =
       state === 'open' ? 'state-open' : state === 'closed' ? 'state-closed' : 'state-unknown';
-    meta.appendChild(el('span', 'badge ' + stateClass, state || 'estado desconhecido'));
+    meta.appendChild(el('span', `badge ${stateClass}`, state || 'estado desconhecido'));
     els.issueSummary.appendChild(meta);
 
     const labels = issue.labels || [];
@@ -1054,7 +1053,7 @@
   function renderProgress(snapshot) {
     const progress = snapshot.progress;
     els.progressBar.value = progress.percent;
-    els.progressPercent.textContent = progress.percent + '%';
+    els.progressPercent.textContent = `${progress.percent}%`;
     const counters =
       'Fases ' +
       progress.phasesCompleted +
@@ -1065,7 +1064,7 @@
       '/' +
       progress.storiesTotal;
     const totals = formatTotals(snapshot.metrics);
-    els.progressCounters.textContent = totals ? counters + ' · ' + totals : counters;
+    els.progressCounters.textContent = totals ? `${counters} · ${totals}` : counters;
   }
 
   function nowRow(grid, label, value) {
@@ -1123,7 +1122,7 @@
       resilience.cooldownUntil ? formatClock(resilience.cooldownUntil) : '—',
     );
     const activity = resilience.lastActivityAt
-      ? formatClock(resilience.lastActivityAt) + ' (' + formatAgo(resilience.lastActivityAt) + ')'
+      ? `${formatClock(resilience.lastActivityAt)} (${formatAgo(resilience.lastActivityAt)})`
       : '—';
     nowRow(grid, 'Última atividade', activity);
     els.resilience.appendChild(grid);
@@ -1149,16 +1148,16 @@
     // estar em versões diferentes; este é o único lugar onde as duas aparecem
     // lado a lado, então a divergência é dita aqui.
     const env = snapshot.environment;
-    const runVersion = env && env.cliVersion ? env.cliVersion : null;
+    const runVersion = env?.cliVersion ? env.cliVersion : null;
     const runtime = el('dl', 'now-grid');
-    const runtimeBits = [runVersion ? 'v' + runVersion : 'versão não registrada'];
-    if (env && env.node) runtimeBits.push(env.node);
-    if (env && env.platform) runtimeBits.push(env.platform);
+    const runtimeBits = [runVersion ? `v${runVersion}` : 'versão não registrada'];
+    if (env?.node) runtimeBits.push(env.node);
+    if (env?.platform) runtimeBits.push(env.platform);
     nowRow(runtime, 'Issue Flow (execução)', runtimeBits.join(' · '));
     nowRow(
       runtime,
       'Monitor (este painel)',
-      state.monitorVersion ? 'v' + state.monitorVersion : '—',
+      state.monitorVersion ? `v${state.monitorVersion}` : '—',
     );
     els.configuration.appendChild(runtime);
     if (runVersion !== null && state.monitorVersion && runVersion !== state.monitorVersion) {
@@ -1197,10 +1196,10 @@
     nowRow(summary, 'Precedência', list(config.precedence).join(' → '));
     els.configuration.appendChild(summary);
 
-    const liveRouting = state.configData && state.configData.routing;
+    const liveRouting = state.configData?.routing;
     if (liveRouting) {
       const routingSummary = el('dl', 'now-grid config-routing-summary');
-      nowRow(routingSummary, 'Routing', liveRouting.mode + ' · perfil ' + liveRouting.profile);
+      nowRow(routingSummary, 'Routing', `${liveRouting.mode} · perfil ${liveRouting.profile}`);
       nowRow(
         routingSummary,
         'Política',
@@ -1266,10 +1265,10 @@
         phaseButton.addEventListener('click', () => openDrawer('phase', phase.phase));
         row.appendChild(phaseButton);
         const provider = el('select');
-        provider.setAttribute('aria-label', 'Harness para ' + phase.phase);
+        provider.setAttribute('aria-label', `Harness para ${phase.phase}`);
         fillProviderSelect(provider, phase.provider.value || 'claude');
         const model = el('select');
-        model.setAttribute('aria-label', 'Tier e modelo para ' + phase.phase);
+        model.setAttribute('aria-label', `Tier e modelo para ${phase.phase}`);
         fillModelSelect(model, provider.value, phase.model.value || '');
         provider.addEventListener('change', () => fillModelSelect(model, provider.value, ''));
         const save = el('button', 'config-save', 'Salvar');
@@ -1365,7 +1364,7 @@
   }
 
   function catalog() {
-    return list(state.configData && state.configData.catalog);
+    return list(state.configData?.catalog);
   }
 
   function fillProviderSelect(select, selected) {
@@ -1396,9 +1395,9 @@
     defaultOption.value = '';
     select.appendChild(defaultOption);
     const entry = catalog().find((candidate) => candidate.provider === provider);
-    for (const model of list(entry && entry.models)) {
+    for (const model of list(entry?.models)) {
       if (!model.id) continue;
-      const option = el('option', null, model.tier + ' · ' + model.id);
+      const option = el('option', null, `${model.tier} · ${model.id}`);
       option.value = model.id;
       select.appendChild(option);
     }
@@ -1406,7 +1405,7 @@
       selected &&
       !Array.prototype.some.call(select.options, (option) => option.value === selected)
     ) {
-      const current = el('option', null, 'configurado · ' + selected);
+      const current = el('option', null, `configurado · ${selected}`);
       current.value = selected;
       select.appendChild(current);
     }
@@ -1505,13 +1504,13 @@
       meta.appendChild(
         el(
           'span',
-          'badge story-status-' + storyStatus,
+          `badge story-status-${storyStatus}`,
           STORY_STATUS_LABELS[storyStatus] || storyStatus,
         ),
       );
       const dependencies = story.dependencies || [];
       if (dependencies.length > 0) {
-        meta.appendChild(el('span', 'muted story-deps', 'depende de: ' + dependencies.join(', ')));
+        meta.appendChild(el('span', 'muted story-deps', `depende de: ${dependencies.join(', ')}`));
       }
       main.appendChild(meta);
 
@@ -1519,11 +1518,11 @@
       const duration = metric(story.durationSeconds);
       const stageLabel = STORY_STAGE_LABELS[storyStage] || storyStage;
       const stageText = story.stageSince
-        ? stageLabel + ' ' + formatAgo(story.stageSince)
+        ? `${stageLabel} ${formatAgo(story.stageSince)}`
         : stageLabel;
       const side = itemSideText([
         stageText,
-        story.completedAt ? 'concluída ' + formatClock(story.completedAt) : '',
+        story.completedAt ? `concluída ${formatClock(story.completedAt)}` : '',
         duration !== null ? formatDuration(duration) : '',
         formatUsage(story),
       ]);
@@ -1556,7 +1555,7 @@
     card.appendChild(el('span', 'kanban-card-title', story.title));
     if (story.description) card.appendChild(el('span', 'kanban-card-desc', story.description));
     card.appendChild(
-      el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
+      el('span', `badge story-status-${story.status}`, STORY_STATUS_LABELS[story.status]),
     );
     card.addEventListener('click', () => openDrawer('story', story.id));
     return card;
@@ -1601,10 +1600,10 @@
     if (cost.status === 'reported' || cost.status === 'estimated') {
       return formatCost(cost.amount, cost.status === 'estimated');
     }
-    return cost.reason ? 'não informado (' + cost.reason + ')' : 'não informado';
+    return cost.reason ? `não informado (${cost.reason})` : 'não informado';
   }
 
-  function renderExecutionHistory(snapshot, executions) {
+  function renderExecutionHistory(_snapshot, executions) {
     drawerSection('Tentativas, revisões e correções', (body) => {
       if (executions.length === 0) {
         body.appendChild(el('p', 'empty', 'Nenhuma invocação associada.'));
@@ -1617,7 +1616,7 @@
         title.appendChild(
           el(
             'span',
-            'badge status-' + (execution.status === 'completed' ? 'completed' : execution.status),
+            `badge status-${execution.status === 'completed' ? 'completed' : execution.status}`,
             execution.status,
           ),
         );
@@ -1625,7 +1624,7 @@
           el(
             'strong',
             null,
-            execution.purpose + ' · tentativa ' + execution.attempt + ' · ' + execution.trigger,
+            `${execution.purpose} · tentativa ${execution.attempt} · ${execution.trigger}`,
           ),
         );
         item.appendChild(title);
@@ -1650,7 +1649,7 @@
         nowRow(grid, 'Tokens', formatUsage(execution.usage || {}) || '—');
         nowRow(grid, 'Custo', executionCost(execution));
         if (execution.correctionCycle)
-          nowRow(grid, 'Correção', 'ciclo ' + execution.correctionCycle);
+          nowRow(grid, 'Correção', `ciclo ${execution.correctionCycle}`);
         if (execution.verdict?.status) nowRow(grid, 'Veredito', execution.verdict.status);
         item.appendChild(grid);
         if (execution.failure?.message)
@@ -1668,7 +1667,7 @@
     );
     drawerSection('Saída do processo', (body) => {
       const details = el('details', 'process-output');
-      const summary = el('summary', null, logs.length + ' linha(s) sanitizada(s)');
+      const summary = el('summary', null, `${logs.length} linha(s) sanitizada(s)`);
       details.appendChild(summary);
       if (logs.length === 0) {
         details.appendChild(el('p', 'empty', 'Nenhuma saída capturada.'));
@@ -1676,7 +1675,7 @@
         const output = el('pre', 'process-output-body');
         output.textContent = logs
           .slice(-200)
-          .map((entry) => formatClock(entry.at) + ' ' + entry.message)
+          .map((entry) => `${formatClock(entry.at)} ${entry.message}`)
           .join('\n');
         details.appendChild(output);
       }
@@ -1695,12 +1694,12 @@
     drawerSection('Diagnóstico global persistente', (body) => {
       const details = el('details', 'process-output');
       details.appendChild(
-        el('summary', null, entries.length + ' registro(s) em ~/.issue-flow/logs'),
+        el('summary', null, `${entries.length} registro(s) em ~/.issue-flow/logs`),
       );
       const output = el('pre', 'process-output-body');
       output.textContent = entries
         .slice(0, 200)
-        .map((entry) => formatClock(entry.timestamp) + ' ' + entry.level + ' ' + entry.message)
+        .map((entry) => `${formatClock(entry.timestamp)} ${entry.level} ${entry.message}`)
         .join('\n');
       details.appendChild(output);
       body.appendChild(details);
@@ -1722,8 +1721,8 @@
 
     clear(els.drawerBody);
     if (kind === 'phase') {
-      els.drawerTitle.textContent = 'Fase · ' + phase.name;
-      els.drawerBody.appendChild(el('span', 'badge status-' + phase.status, phase.status));
+      els.drawerTitle.textContent = `Fase · ${phase.name}`;
+      els.drawerBody.appendChild(el('span', `badge status-${phase.status}`, phase.status));
       const grid = el('dl', 'now-grid drawer-summary-grid');
       nowRow(grid, 'Início', phase.startedAt ? formatClock(phase.startedAt) : '—');
       nowRow(grid, 'Fim', phase.endedAt ? formatClock(phase.endedAt) : '—');
@@ -1750,13 +1749,13 @@
       return;
     }
 
-    els.drawerTitle.textContent = story.id + ' · ' + story.title;
+    els.drawerTitle.textContent = `${story.id} · ${story.title}`;
     els.drawerBody.appendChild(
-      el('span', 'badge story-status-' + story.status, STORY_STATUS_LABELS[story.status]),
+      el('span', `badge story-status-${story.status}`, STORY_STATUS_LABELS[story.status]),
     );
 
     const timing = itemSideText([
-      story.completedAt ? 'concluída ' + formatClock(story.completedAt) : '',
+      story.completedAt ? `concluída ${formatClock(story.completedAt)}` : '',
       metric(story.durationSeconds) !== null ? formatDuration(story.durationSeconds) : '',
     ]);
     if (timing) els.drawerBody.appendChild(el('p', 'muted drawer-timing', timing));
@@ -1804,7 +1803,7 @@
           item.appendChild(
             document.createTextNode(
               (STORY_STAGE_LABELS[entry.stage] || entry.stage || '') +
-                (entry.detail ? ' · ' + entry.detail : ''),
+                (entry.detail ? ` · ${entry.detail}` : ''),
             ),
           );
           entries.appendChild(item);
@@ -1845,7 +1844,7 @@
     // referência guardada na abertura.
     const card =
       selected && selected.kind === 'story'
-        ? els.kanban.querySelector('[data-story-id="' + selected.id + '"]')
+        ? els.kanban.querySelector(`[data-story-id="${selected.id}"]`)
         : null;
     if (card) card.focus();
   }
@@ -1860,7 +1859,7 @@
       for (const commit of snapshot.git.commits) {
         const item = el('li');
         const hash = repo
-          ? link(repo + '/commit/' + commit.hash, commit.hash, 'mono commit-hash')
+          ? link(`${repo}/commit/${commit.hash}`, commit.hash, 'mono commit-hash')
           : el('span', 'mono commit-hash', commit.hash);
         item.appendChild(hash);
         const subject = el('div', 'item-main item-title', commit.subject);
@@ -1880,7 +1879,7 @@
     } else {
       for (const pr of snapshot.pullRequests) {
         const item = el('li');
-        item.appendChild(link(pr.url, '#' + pr.number));
+        item.appendChild(link(pr.url, `#${pr.number}`));
         item.appendChild(el('div', 'item-main item-title', pr.title));
         els.pullRequests.appendChild(item);
       }
@@ -1897,7 +1896,7 @@
     }
     // Mais recentes primeiro: monitoramento lê o topo, sem gerenciar scroll.
     for (const entry of entries.slice().reverse()) {
-      const item = el('li', 'level-' + entry.level);
+      const item = el('li', `level-${entry.level}`);
       item.appendChild(el('span', 'log-time', formatClock(entry.at)));
       item.appendChild(el('span', 'log-level', entry.level));
       item.appendChild(el('span', 'log-message', entry.message));
@@ -1918,27 +1917,27 @@
       case 'session:start':
         return 'Sessão iniciada';
       case 'session:end':
-        return 'Sessão encerrada: ' + event.status;
+        return `Sessão encerrada: ${event.status}`;
       case 'phase:start':
-        return 'Fase iniciada: ' + event.phase;
+        return `Fase iniciada: ${event.phase}`;
       case 'phase:end':
-        return 'Fase encerrada: ' + event.phase + (event.success ? ' (ok)' : ' (falhou)');
+        return `Fase encerrada: ${event.phase}${event.success ? ' (ok)' : ' (falhou)'}`;
       case 'iteration:start':
-        return 'Iteração ' + event.iteration + ' iniciada';
+        return `Iteração ${event.iteration} iniciada`;
       case 'iteration:end':
-        return 'Iteração ' + event.iteration + ' encerrada';
+        return `Iteração ${event.iteration} encerrada`;
       case 'retry':
-        return 'Retry ' + event.attempt + (event.kind ? ': ' + event.kind : '');
+        return `Retry ${event.attempt}${event.kind ? `: ${event.kind}` : ''}`;
       case 'agent:attempt':
-        return 'Tentativa ' + event.attempt + ' com ' + event.provider;
+        return `Tentativa ${event.attempt} com ${event.provider}`;
       case 'agent:activity':
-        return 'Atividade recebida de ' + event.provider;
+        return `Atividade recebida de ${event.provider}`;
       case 'agent:result':
         return (
           event.provider +
           (event.success
             ? ' concluiu a tentativa'
-            : ' falhou: ' + (event.failureKind || 'desconhecida'))
+            : ` falhou: ${event.failureKind || 'desconhecida'}`)
         );
       case 'failover':
         return (
@@ -1946,10 +1945,10 @@
           event.from +
           ' para ' +
           event.to +
-          (event.reason ? ': ' + event.reason : '')
+          (event.reason ? `: ${event.reason}` : '')
         );
       case 'correction:cycle':
-        return 'Ciclo de correção ' + event.cycle + '/' + event.maxCycles;
+        return `Ciclo de correção ${event.cycle}/${event.maxCycles}`;
       case 'log':
         return event.message;
       default:
@@ -1960,7 +1959,7 @@
   function renderHistory() {
     clear(els.history);
     const entries = state.events.filter((entry) => {
-      const type = entry && entry.event && entry.event.type;
+      const type = entry?.event?.type;
       if (!type) return false;
       if (state.historyFilter === 'resilience') return RESILIENCE_EVENTS.has(type);
       if (state.historyFilter === 'pipeline') return !RESILIENCE_EVENTS.has(type);
@@ -1982,8 +1981,8 @@
 
   function renderMeta(snapshot) {
     const parts = [];
-    if (snapshot.sessionId) parts.push('execução ' + snapshot.sessionId);
-    if (snapshot.updatedAt) parts.push('atualizado ' + formatClock(snapshot.updatedAt));
+    if (snapshot.sessionId) parts.push(`execução ${snapshot.sessionId}`);
+    if (snapshot.updatedAt) parts.push(`atualizado ${formatClock(snapshot.updatedAt)}`);
     parts.push('somente leitura');
     els.sessionMeta.textContent = parts.join(' · ');
   }
@@ -2006,7 +2005,7 @@
     const estimate = snapshot.estimatedRemainingSeconds;
     if (snapshot.status === 'running' && estimate !== null) {
       els.estimate.hidden = false;
-      els.estimate.textContent = '~' + formatDuration(estimate) + ' restantes (estimativa)';
+      els.estimate.textContent = `~${formatDuration(estimate)} restantes (estimativa)`;
     } else {
       els.estimate.hidden = true;
     }
@@ -2087,7 +2086,7 @@
       if (stored === null && Number.isFinite(suggested) && suggested > 0) {
         state.refreshSeconds = suggested;
       }
-    } catch (err) {
+    } catch (_err) {
       // Sem /api/health segue o default local (5s).
     }
     if (stored !== null) state.refreshSeconds = stored;
