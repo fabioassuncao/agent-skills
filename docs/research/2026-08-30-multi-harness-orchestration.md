@@ -1217,10 +1217,10 @@ Each needs an experiment before it can be decided.
 |---|---|---|
 | **P0** | Security corrections absorbed into #62 / #76 (deny-list, `--permission-mode plan`, `--setting-sources`) | nothing — they are edits to open issues |
 | P1 | #62 → #76 → #78 stage 1 → #79 phase 1 (the foundations, already planned and ordered) | — |
-| P1 | **Routing engine in shadow mode** (new) | #62, #76, #78, #79 |
-| P1 | **Cross-model verification with an acceptance contract** (new) | #62, #76 |
-| P1 | **Non-convergence escalation with cost/duration ceilings** (new) | #64 (landed), #69, #78 |
-| P2 | Bounded adaptive adjustment; version-keyed affinity | routing engine + corpus data |
+| P1 | **Routing engine in shadow mode** (#84) | #62, #76, #78, #79 |
+| P1 | **Cross-model verification with an acceptance contract** (#85) | #62, #76 |
+| P1 | **Non-convergence escalation with cost/duration ceilings** (#86) | #64 (landed), #69, #78 |
+| P2 | Bounded adaptive adjustment; version-keyed affinity | #84 + corpus data |
 | P2 | Offline policy replay | #78 records |
 | P3 | Worktrees, parallel candidates, race, resource leasing | #66, #67, and evidence that they pay |
 
@@ -1232,10 +1232,10 @@ Created from this research:
 
 | Issue | Purpose | Depends on |
 |---|---|---|
-| Epic — Orquestração adaptativa multi-harness | umbrella; scope, rollout stages, quality gates | #62, #69, #76, #78, #79 |
-| Routing engine (shadow-first) | task analysis, capability filter, scoring, decision record, shadow mode, overrides | #62, #76, #78, #79 |
-| Cross-Model Verification | acceptance contract, `unverified`, verification levels, risk triggers | #62, #76 |
-| Non-convergence escalation | class-B failures, escalation ladder, cost/duration/attempt ceilings | #64, #69, #78 |
+| **#83** — Epic: Orquestração adaptativa multi-harness | umbrella; scope, rollout stages, quality gates | #62, #69, #76, #78, #79 |
+| **#84** — Routing engine (shadow-first) | task analysis, capability filter, scoring, decision record, shadow mode, overrides | #62, #76, #78, #79 |
+| **#85** — Cross-Model Verification | acceptance contract, `unverified`, verification levels, risk triggers | #62, #76 |
+| **#86** — Non-convergence escalation | class-B failures, escalation ladder, cost/duration/attempt ceilings | #64, #69, #78, #85 |
 
 Updated with findings from this research: **#62**, **#69**, **#76**, **#78**,
 **#79**.
