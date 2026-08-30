@@ -179,7 +179,7 @@ export async function writeRoutingPreference(input: {
 
 export async function runRoutingUse(
   policy: string,
-  options: { global?: boolean; project?: boolean } = {},
+  options: { active?: boolean; global?: boolean; project?: boolean } = {},
 ): Promise<number> {
   if (policy !== 'recommended') {
     printError(`Unknown routing policy '${policy}'. Valid policy: recommended.`);
@@ -188,9 +188,14 @@ export async function runRoutingUse(
   try {
     const file = await writeRoutingPreference({
       target: options.project === true ? 'project' : 'global',
-      values: { policy: 'recommended' },
+      values: {
+        policy: 'recommended',
+        ...(options.active === true ? { mode: 'active' as const } : {}),
+      },
     });
-    printSuccess(`Wrote recommended routing policy to ${file}`);
+    printSuccess(
+      `Wrote recommended routing policy${options.active === true ? ' in active mode' : ''} to ${file}`,
+    );
     return 0;
   } catch (error) {
     printError(error instanceof Error ? error.message : String(error));

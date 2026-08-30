@@ -44,8 +44,10 @@ USD is not. Minimum version: **1.1.22**.
 
 `issue-flow init` verifies only the **selected** agent. A first-run prompt
 appears only on a TTY, outside CI, and only when no `agent` configuration
-exists. `--no-agent-prompt` skips it. Non-interactive runs never ask and never
-write a preference.
+exists. Active routing also suppresses it: the router owns the harness/model
+choice per phase, so asking for one default agent would be misleading.
+`--no-agent-prompt` skips it explicitly. Non-interactive runs never ask and
+never write a preference.
 
 ## Authentication
 
@@ -206,11 +208,14 @@ versioned model catalog in `src/routing/models.ts`. It remains opt-in:
 
 ```bash
 issue-flow routing use recommended --global
+issue-flow routing use recommended --global --active
 issue-flow routing explain
 ```
 
 Set `routing.mode` to `recommend` to print the target without applying it, or
 to `active` to apply it where the phase has no explicit `agent` selection.
+The `--active` shortcut above persists both the recommended policy and active
+mode for future runs.
 The factory default remains `shadow`.
 
 A homogeneous run (every phase on the same agent) prints the same `Tokens:`

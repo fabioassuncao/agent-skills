@@ -21,4 +21,14 @@ describe('routing configuration commands', () => {
   it('rejects unknown embedded policies', async () => {
     await expect(runRoutingUse('magic')).resolves.toBe(1);
   });
+
+  it('enables the recommended policy and active mode in one command', async () => {
+    const home = process.env.ISSUE_FLOW_HOME;
+    if (!home) throw new Error('ISSUE_FLOW_HOME must be set by test-setup');
+
+    await expect(runRoutingUse('recommended', { active: true, global: true })).resolves.toBe(0);
+
+    const written = JSON.parse(await readFile(join(home, 'config.json'), 'utf-8'));
+    expect(written.routing).toEqual({ policy: 'recommended', mode: 'active' });
+  });
 });

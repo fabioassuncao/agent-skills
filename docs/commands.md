@@ -460,6 +460,7 @@ issue-flow routing --json
 issue-flow routing explain      # resolved target and origin for every phase
 issue-flow routing explain --json
 issue-flow routing use recommended --global
+issue-flow routing use recommended --global --active
 issue-flow routing report       # agreement between selected and actual targets
 issue-flow routing report --issue 42 --json
 ```
@@ -469,7 +470,9 @@ default: it records `selected` and `actual` and changes nothing. `recommend`
 prints the target; `active` applies it only where the phase has no explicit
 agent selection. `use recommended` writes the embedded token-economy policy to
 `~/.issue-flow/config.json` by default (`--project` writes `.issue-flow.json`),
-without changing the mode. See
+without changing the mode. Add `--active` to save `policy: recommended` and
+`mode: active` together, applying the opinionated phase routing to future runs.
+See
 [Verification and routing](verification.md#shadow-routing).
 
 ### `bench` — synthetic or real corpus

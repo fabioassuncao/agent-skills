@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('execa', () => ({ execa: vi.fn() }));
 
 import { execa } from 'execa';
-import { runInit, summarizePreflight } from './init.js';
+import { runInit, shouldOfferAgentPrompt, summarizePreflight } from './init.js';
 
 type GhState = 'ok' | 'missing' | 'failed' | 'unauthenticated';
 
@@ -192,6 +192,21 @@ describe('summarizePreflight', () => {
         actions: [{ kind: 'keep' }, { kind: 'keep' }, { kind: 'keep' }],
       }),
     ).toBe('Preflight: environment ok · 3 conventions kept · nothing to create');
+  });
+});
+
+describe('first-run agent prompt', () => {
+  it('is suppressed when active routing owns the per-phase choice', () => {
+    expect(shouldOfferAgentPrompt(false, 'active')).toBe(false);
+  });
+
+  it('is preserved for non-active routing without an explicit agent', () => {
+    expect(shouldOfferAgentPrompt(false, 'shadow')).toBe(true);
+    expect(shouldOfferAgentPrompt(false, 'recommend')).toBe(true);
+  });
+
+  it('is suppressed by an explicit agent in every routing mode', () => {
+    expect(shouldOfferAgentPrompt(true, 'shadow')).toBe(false);
   });
 });
 

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { hasExplicitAgentSelection } from '../agents/resolve.js';
 import { AGENT_PHASES } from '../agents/types.js';
-import { getAgentCliOverrides, loadAgentConfig } from '../config.js';
+import { getAgentCliOverrides, loadAgentConfig, loadRoutingConfig } from '../config.js';
 import type { IssueSource } from '../issues/types.js';
 import type { ScaffoldActionKind, ScaffoldPlan } from '../scaffold/plan.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
@@ -436,13 +436,29 @@ function isInteractiveInit(): boolean {
   return Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !inCi;
 }
 
+/**
+ * An active router owns the per-phase harness choice, so asking for one agent
+ * at startup would immediately contradict the resolved configuration.
+ */
+export function shouldOfferAgentPrompt(
+  hasExplicitSelection: boolean,
+  routingMode: string,
+): boolean {
+  return !hasExplicitSelection && routingMode !== 'active';
+}
+
 async function maybeOfferAgentChoice(
   options: InitOptions,
   agent: Awaited<ReturnType<typeof loadAgentConfig>>,
 ): Promise<void> {
   if (options.json === true || options.noAgentPrompt === true) return;
   if (!isInteractiveInit()) return;
-  if (hasExplicitAgentSelection(agent, getAgentCliOverrides())) return;
+  const routing = await loadRoutingConfig();
+  if (
+    !shouldOfferAgentPrompt(hasExplicitAgentSelection(agent, getAgentCliOverrides()), routing.mode)
+  ) {
+    return;
+  }
 
   const { createInterface } = await import('node:readline');
   const rl = createInterface({ input: process.stdin, output: process.stdout });

@@ -783,6 +783,7 @@ routingCommand
   .argument('<policy>', 'Policy name (recommended)')
   .option('--global', 'Write ~/.issue-flow/config.json (default)')
   .option('--project', 'Write .issue-flow.json instead')
+  .option('--active', 'Apply the policy to future runs instead of leaving routing in shadow mode')
   .action(async (policy: string, _options: unknown, command: Command) => {
     const { runRoutingUse } = await import('./commands/routing.js');
     process.exit(await runRoutingUse(policy, command.optsWithGlobals()));
