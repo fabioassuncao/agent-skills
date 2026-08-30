@@ -295,9 +295,6 @@ export async function runPr(
     __ISSUE_NUMBER__: issueNumber,
     __BRANCH_NAME__: branchName,
     __TASKS_PATH__: tasksPath,
-    __ISSUE_CLOSES__: consolidating
-      ? issueClosesLines(queue.issues)
-      : issueClosesLine(resolution.resolved.issue, issueNumber, planComplete),
     __PR_TITLE_CONVENTION__: prTitle,
     __ISSUE_REFERENCE__: consolidating
       ? issueClosesLines(queue.issues)
