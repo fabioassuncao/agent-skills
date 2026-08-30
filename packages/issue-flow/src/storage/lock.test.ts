@@ -1,0 +1,279 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  acquireRunLock,
+  describeRunLockOwner,
+  isRunLockStale,
+  RUN_LOCK_HEARTBEAT_MS,
+  RUN_LOCK_STALE_INTERVALS,
+  readRunLock,
+  removeRunLock,
+  touchRunLock,
+} from './lock.js';
+import type { RunLock } from './schemas.js';
+
+const HOST = hostname();
+
+/** A pid that is certainly not running: pid 1 is init, and this is not it. */
+const DEAD_PID = 0x7ffffffe;
+
+let dir: string;
+let lockFile: string;
+
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdirOf(), 'issue-flow-lock-'));
+  lockFile = join(dir, 'run.lock');
+});
+
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true });
+});
+
+function tmpdirOf(): string {
+  return process.env.TMPDIR ?? '/tmp';
+}
+
+function lockOf(overrides: Partial<RunLock> = {}): RunLock {
+  return {
+    pid: process.pid,
+    host: HOST,
+    target: '63',
+    startedAt: '2026-08-30T03:00:00.000Z',
+    lastHeartbeatAt: '2026-08-30T03:00:00.000Z',
+    ...overrides,
+  };
+}
+
+async function writeLock(lock: RunLock): Promise<void> {
+  await writeFile(lockFile, JSON.stringify(lock, null, 2), 'utf-8');
+}
+
+/** A clock pinned to the lock timestamps above, in ms. */
+const AT = Date.parse('2026-08-30T03:00:00.000Z');
+const clockAt = (offsetMs: number) => () => AT + offsetMs;
+
+describe('readRunLock', () => {
+  it('reads a lock its owner wrote', async () => {
+    await writeLock(lockOf());
+    await expect(readRunLock(lockFile)).resolves.toEqual(lockOf());
+  });
+
+  it('reads an absent file as no lock', async () => {
+    await expect(readRunLock(lockFile)).resolves.toBeNull();
+  });
+
+  it.each([
+    ['truncated JSON', '{"pid": 12'],
+    ['not an object', '"hello"'],
+    ['a shape it does not know', '{"owner":"someone"}'],
+    ['an empty file', ''],
+  ])('degrades %s to no lock', async (_name, content) => {
+    await writeFile(lockFile, content, 'utf-8');
+    await expect(readRunLock(lockFile)).resolves.toBeNull();
+  });
+});
+
+describe('isRunLockStale', () => {
+  it('is false for a live pid beating on time', () => {
+    expect(isRunLockStale(lockOf(), { clock: clockAt(RUN_LOCK_HEARTBEAT_MS) })).toBe(false);
+  });
+
+  it('is true once the heartbeat is older than the tolerated intervals', () => {
+    const justInside = RUN_LOCK_HEARTBEAT_MS * RUN_LOCK_STALE_INTERVALS;
+
+    expect(isRunLockStale(lockOf(), { clock: clockAt(justInside) })).toBe(false);
+    expect(isRunLockStale(lockOf(), { clock: clockAt(justInside + 1) })).toBe(true);
+  });
+
+  it('is true for a dead pid even with a fresh heartbeat', () => {
+    expect(isRunLockStale(lockOf({ pid: DEAD_PID }), { clock: clockAt(0) })).toBe(true);
+  });
+
+  it('judges a lock from another host by its heartbeat alone', () => {
+    // Our pid table says nothing about a process on another machine, so a
+    // fresh heartbeat from `builder-02` is a live owner however dead that
+    // number looks here.
+    const foreign = lockOf({ pid: DEAD_PID, host: 'builder-02' });
+
+    expect(isRunLockStale(foreign, { clock: clockAt(0) })).toBe(false);
+    expect(
+      isRunLockStale(foreign, {
+        clock: clockAt(RUN_LOCK_HEARTBEAT_MS * RUN_LOCK_STALE_INTERVALS + 1),
+      }),
+    ).toBe(true);
+  });
+
+  it('treats an unparseable heartbeat as silence', () => {
+    expect(isRunLockStale(lockOf({ lastHeartbeatAt: 'whenever' }), { clock: clockAt(0) })).toBe(
+      true,
+    );
+  });
+});
+
+describe('acquireRunLock', () => {
+  it('claims a free lock and writes the owner to disk', async () => {
+    const result = await acquireRunLock(lockFile, { target: '63', heartbeat: false });
+
+    expect(result.ok).toBe(true);
+    const written = await readRunLock(lockFile);
+    expect(written).toMatchObject({ pid: process.pid, host: HOST, target: '63' });
+  });
+
+  it('creates the project directory when nothing has written there yet', async () => {
+    const nested = join(dir, 'projects', 'widgets-abc', 'run.lock');
+
+    const result = await acquireRunLock(nested, { target: '63', heartbeat: false });
+
+    expect(result.ok).toBe(true);
+    await expect(readRunLock(nested)).resolves.not.toBeNull();
+  });
+
+  it('refuses when a live owner holds it, naming pid, host and heartbeat', async () => {
+    // Another process on this host, beating right now.
+    const owner = lockOf({ pid: 1, target: '101' });
+    await writeLock(owner);
+
+    const result = await acquireRunLock(lockFile, {
+      target: '63',
+      heartbeat: false,
+      clock: clockAt(0),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.owner).toEqual(owner);
+
+    const description = describeRunLockOwner(result.owner);
+    expect(description).toContain('pid 1');
+    expect(description).toContain(HOST);
+    expect(description).toContain('101');
+    expect(description).toContain('2026-08-30T03:00:00.000Z');
+    // The live owner's file is left exactly as it was.
+    await expect(readRunLock(lockFile)).resolves.toEqual(owner);
+  });
+
+  it('takes over a lock whose pid is gone, and reports the previous owner', async () => {
+    const dead = lockOf({ pid: DEAD_PID, target: '101' });
+    await writeLock(dead);
+    const onTakeover = vi.fn();
+
+    const result = await acquireRunLock(lockFile, {
+      target: '63',
+      heartbeat: false,
+      clock: clockAt(0),
+      onTakeover,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Non-null `reclaimedFrom` is the fact the caller records as an
+    // interrupted run: something was executing here and never finished.
+    expect(result.handle.reclaimedFrom).toEqual(dead);
+    expect(onTakeover).toHaveBeenCalledWith(dead);
+    await expect(readRunLock(lockFile)).resolves.toMatchObject({ target: '63' });
+  });
+
+  it('takes over a lock that stopped beating, even with a live pid', async () => {
+    // Our own pid, so liveness is not the reason — only the silence is.
+    await writeLock(lockOf({ pid: 1, target: '101' }));
+
+    const result = await acquireRunLock(lockFile, {
+      target: '63',
+      heartbeat: false,
+      clock: clockAt(RUN_LOCK_HEARTBEAT_MS * RUN_LOCK_STALE_INTERVALS + 1),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.handle.reclaimedFrom).toMatchObject({ pid: 1, target: '101' });
+  });
+
+  it('clears an unreadable lock instead of refusing forever', async () => {
+    await writeFile(lockFile, '{"pid": 12', 'utf-8');
+
+    const result = await acquireRunLock(lockFile, { target: '63', heartbeat: false });
+
+    expect(result.ok).toBe(true);
+    // Nothing was "taken over": there was no owner to name.
+    if (result.ok) expect(result.handle.reclaimedFrom).toBeNull();
+  });
+
+  it('re-entering from the same process is not a conflict', async () => {
+    const first = await acquireRunLock(lockFile, { target: '63', heartbeat: false });
+    const second = await acquireRunLock(lockFile, { target: '63', heartbeat: false });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+
+    // The nested handle must not remove the file the outer one still owns.
+    if (second.ok) await second.handle.release();
+    await expect(readRunLock(lockFile)).resolves.not.toBeNull();
+
+    if (first.ok) await first.handle.release();
+    await expect(readRunLock(lockFile)).resolves.toBeNull();
+  });
+
+  it('releases by removing the file, and tolerates a double release', async () => {
+    const result = await acquireRunLock(lockFile, { target: '63', heartbeat: false });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    await result.handle.release();
+    await expect(readRunLock(lockFile)).resolves.toBeNull();
+    await expect(result.handle.release()).resolves.toBeUndefined();
+  });
+
+  it('lets a second acquisition through once the first released', async () => {
+    const first = await acquireRunLock(lockFile, { target: '63', heartbeat: false, pid: 1 });
+    expect(first.ok).toBe(true);
+    if (first.ok) await first.handle.release();
+
+    const second = await acquireRunLock(lockFile, { target: '64', heartbeat: false });
+    expect(second.ok).toBe(true);
+  });
+});
+
+describe('the heartbeat', () => {
+  it('rewrites the lock with a newer timestamp, keeping the owner', async () => {
+    const lock = lockOf();
+    await writeLock(lock);
+
+    const next = await touchRunLock(lockFile, lock, '2026-08-30T03:00:30.000Z');
+
+    expect(next).toEqual({ ...lock, lastHeartbeatAt: '2026-08-30T03:00:30.000Z' });
+    await expect(readRunLock(lockFile)).resolves.toEqual(next);
+  });
+
+  it('never rejects when the file cannot be written', async () => {
+    await removeRunLock(lockFile);
+    const unwritable = join(dir, 'missing-dir', 'run.lock');
+
+    await expect(touchRunLock(unwritable, lockOf(), 'x')).resolves.toMatchObject({
+      lastHeartbeatAt: 'x',
+    });
+  });
+
+  it('runs on a timer that never keeps the process alive', async () => {
+    vi.useFakeTimers();
+    try {
+      const result = await acquireRunLock(lockFile, { target: '63', heartbeatMs: 10 });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const before = await readFile(lockFile, 'utf-8');
+      await vi.advanceTimersByTimeAsync(35);
+      const after = await readFile(lockFile, 'utf-8');
+
+      expect(after).not.toBe(before);
+      await result.handle.release();
+      // Released: the timer is cleared and the file is gone, so a later tick
+      // cannot resurrect a lock this process no longer owns.
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(readRunLock(lockFile)).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

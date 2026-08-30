@@ -233,3 +233,222 @@ export async function getCommitsSince(base: string): Promise<CommitInfo[]> {
         : { hash: line.slice(0, tab), subject: line.slice(tab + 1) };
     });
 }
+
+/* ── repository preflight ───────────────────────────────────────────────── */
+
+/**
+ * A repository state that stops the pipeline.
+ *
+ * The whole point of this type is that it is *reported*, never acted on: the
+ * second explicit limit of the resilience Epic is that **no destructive
+ * operation is ever run automatically to fix state**. A repository mid-rebase
+ * is a person's unfinished work, and an `--abort` issued by a tool at 3am is
+ * indistinguishable from data loss.
+ */
+export type PreflightBlockKind =
+  | 'rebase_in_progress'
+  | 'merge_in_progress'
+  | 'cherry_pick_in_progress'
+  | 'revert_in_progress'
+  | 'unmerged_paths'
+  | 'detached_head'
+  | 'branch_mismatch'
+  | 'dirty_tree';
+
+export interface PreflightBlock {
+  kind: PreflightBlockKind;
+  /** What is wrong, in one line. */
+  message: string;
+  /** The command a human would run. Printed, never executed. */
+  suggestion: string;
+}
+
+export interface PreflightResult {
+  ok: boolean;
+  blocks: PreflightBlock[];
+  /** Current branch, or `null` on a detached HEAD. */
+  branch: string | null;
+  /** Whether the working tree has uncommitted changes. */
+  dirty: boolean;
+}
+
+/** What the caller is about to do, which decides how a dirty tree is read. */
+export type PreflightIntent =
+  | /** Continuing the phase that produced the changes. */ 'resume-same-phase'
+  | /** Starting a different phase, or a different issue. */ 'new-phase';
+
+export interface PreflightOptions {
+  /** Branch the plan says this work belongs to. `null` skips the check. */
+  expectedBranch?: string | null;
+  /** Default `new-phase`, the strict reading. */
+  intent?: PreflightIntent;
+  cwd?: string;
+}
+
+/** `git rev-parse --verify --quiet <ref>` — exit 0 means the ref exists. */
+async function refExists(ref: string, cwd?: string): Promise<boolean> {
+  const result = await run('git', ['rev-parse', '--verify', '--quiet', ref], {
+    ...(cwd === undefined ? {} : { cwd }),
+  });
+  return result.exitCode === 0;
+}
+
+/** The in-progress sequencer operations, by the ref each one leaves behind. */
+const SEQUENCER_REFS: readonly {
+  ref: string;
+  kind: PreflightBlockKind;
+  name: string;
+  suggestion: string;
+}[] = [
+  {
+    ref: 'REBASE_HEAD',
+    kind: 'rebase_in_progress',
+    name: 'a rebase',
+    suggestion: 'git rebase --continue (or git rebase --abort)',
+  },
+  {
+    ref: 'MERGE_HEAD',
+    kind: 'merge_in_progress',
+    name: 'a merge',
+    suggestion: 'git merge --continue (or git merge --abort)',
+  },
+  {
+    ref: 'CHERRY_PICK_HEAD',
+    kind: 'cherry_pick_in_progress',
+    name: 'a cherry-pick',
+    suggestion: 'git cherry-pick --continue (or git cherry-pick --abort)',
+  },
+  {
+    ref: 'REVERT_HEAD',
+    kind: 'revert_in_progress',
+    name: 'a revert',
+    suggestion: 'git revert --continue (or git revert --abort)',
+  },
+];
+
+/**
+ * Describe the repository and decide whether it is safe to write to it.
+ *
+ * Every check is a *read*: `rev-parse`, `symbolic-ref`, `diff --name-only`,
+ * `status --porcelain`, `branch --show-current`. Nothing here checks anything
+ * out, resets anything, aborts anything or stashes anything — not on a resume,
+ * not under a continuous profile, not ever. A repository in an ambiguous state
+ * escalates to a human, which is the only correct answer for a tool that did
+ * not put it there.
+ *
+ * A **dirty tree is not always a problem**: resuming the phase that produced
+ * those changes is exactly the case where uncommitted work is expected. It
+ * blocks only when the run is about to move on to something else, where the
+ * changes would be carried into work they do not belong to.
+ */
+export async function preflightRepository(
+  options: PreflightOptions = {},
+): Promise<PreflightResult> {
+  const { cwd, expectedBranch, intent = 'new-phase' } = options;
+  const at = cwd === undefined ? {} : { cwd };
+  const blocks: PreflightBlock[] = [];
+
+  for (const sequencer of SEQUENCER_REFS) {
+    if (await refExists(sequencer.ref, cwd)) {
+      blocks.push({
+        kind: sequencer.kind,
+        message: `The repository is in the middle of ${sequencer.name} (${sequencer.ref} is present).`,
+        suggestion: sequencer.suggestion,
+      });
+    }
+  }
+
+  const unmerged = await run('git', ['diff', '--name-only', '--diff-filter=U'], at);
+  const conflicted = unmerged.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (conflicted.length > 0) {
+    blocks.push({
+      kind: 'unmerged_paths',
+      message: `${conflicted.length} file(s) still have unresolved conflicts: ${conflicted.slice(0, 5).join(', ')}${conflicted.length > 5 ? ', …' : ''}.`,
+      suggestion: 'Resolve them, then git add the files',
+    });
+  }
+
+  // `symbolic-ref -q HEAD` fails on a detached HEAD, which is the whole test.
+  const symbolic = await run('git', ['symbolic-ref', '-q', 'HEAD'], at);
+  const detached = symbolic.exitCode !== 0;
+  const branch = detached ? null : symbolic.stdout.trim().replace(/^refs\/heads\//, '');
+
+  if (detached) {
+    blocks.push({
+      kind: 'detached_head',
+      message: 'HEAD is detached, so a commit would belong to no branch.',
+      suggestion: `git switch ${expectedBranch ?? '<branch>'}`,
+    });
+  } else if (
+    expectedBranch !== undefined &&
+    expectedBranch !== null &&
+    expectedBranch !== '' &&
+    branch !== expectedBranch
+  ) {
+    blocks.push({
+      kind: 'branch_mismatch',
+      message: `The plan works on '${expectedBranch}' but the repository is on '${branch}'.`,
+      suggestion: `git switch ${expectedBranch}`,
+    });
+  }
+
+  const status = await run('git', ['status', '--porcelain'], at);
+  const dirty = status.stdout.trim() !== '';
+  if (dirty && intent !== 'resume-same-phase') {
+    blocks.push({
+      kind: 'dirty_tree',
+      message: 'The working tree has uncommitted changes that do not belong to this phase.',
+      suggestion: 'Commit or stash them yourself, then run again',
+    });
+  }
+
+  return { ok: blocks.length === 0, blocks, branch, dirty };
+}
+
+/** The report a caller prints when the preflight blocks. Never a fix. */
+export function describePreflight(result: PreflightResult): string[] {
+  return result.blocks.map((block) => `${block.message} Suggested: ${block.suggestion}`);
+}
+
+/* ── story-level idempotence ────────────────────────────────────────────── */
+
+/** A story id as it appears in a commit subject: `feat(issue-63): US-012 - …`. */
+const STORY_ID_IN_SUBJECT = /\bUS-\d+\b/g;
+
+/**
+ * The story ids already committed on this branch.
+ *
+ * The execute prompt commits one story per commit, with the id in the subject
+ * (`<type>(scope): US-001 - Title`), so the branch's own history is a record of
+ * what is done — and it is the *only* record that survives a crash between the
+ * commit and the agent writing `passes: true` into the plan.
+ *
+ * Read-only, and deliberately so: this answers a question, it never fixes
+ * anything. Never throws — an unreadable history means "nothing known", which
+ * leaves the engine doing exactly what it did before.
+ */
+export async function committedStoryIds(baseBranch: string, cwd?: string): Promise<Set<string>> {
+  const at = cwd === undefined ? {} : { cwd };
+  const range = baseBranch === '' ? 'HEAD' : `${baseBranch}..HEAD`;
+  const result = await run('git', ['log', range, '--format=%s'], at);
+  if (result.exitCode !== 0) return new Set();
+
+  const ids = new Set<string>();
+  for (const subject of result.stdout.split('\n')) {
+    for (const match of subject.matchAll(STORY_ID_IN_SUBJECT)) {
+      ids.add(match[0]);
+    }
+  }
+  return ids;
+}
+
+/** Whether the working tree has no uncommitted change. Never throws. */
+export async function isWorkingTreeClean(cwd?: string): Promise<boolean> {
+  const at = cwd === undefined ? {} : { cwd };
+  const result = await run('git', ['status', '--porcelain'], at);
+  if (result.exitCode !== 0) return false;
+  return result.stdout.trim() === '';
+}

@@ -1,6 +1,11 @@
-import { run } from '../../utils/shell.js';
+import { getActiveResilienceConfig } from '../../config.js';
+import type { ClassifiedFailure } from '../../resilience/errors.js';
+import { ClassifiedError, requiresHumanAction } from '../../resilience/errors.js';
+import { type PolicyConfig, resolvePolicy } from '../../resilience/policy.js';
+import type { RetryPolicyFor } from '../../resilience/retry.js';
+import { type ExecResult, run } from '../../utils/shell.js';
 import { hashIssueContent } from '../hash.js';
-import type { IssueProvider } from '../provider.js';
+import type { IssueProvider, ProviderAvailability } from '../provider.js';
 import { emptyRelations, mergeRelations, parseTextualRelations, uniqueIds } from '../relations.js';
 import type { Issue, IssueDraft, IssueRelations, IssueState } from '../types.js';
 
@@ -9,6 +14,51 @@ const VIEW_FIELDS = 'number,title,body,labels,state,url,createdAt,updatedAt';
 
 /** Timeout for the availability probes, matching the `init` prerequisite checks. */
 const PROBE_TIMEOUT_MS = 10_000;
+
+/**
+ * Every `gh` invocation carries the resilience policy of the failure it hits:
+ * the `network` budget for a DNS blip, the `rate_limit` budget (and the
+ * server's `Retry-After`) for a rate limit, and — because `resolvePolicy()`
+ * clamps them — **no** attempt at all for an authentication or configuration
+ * failure. This is the one place `gh` failures stop being fatal on sight.
+ */
+function ghPolicy(): RetryPolicyFor {
+  return (failure: ClassifiedFailure) =>
+    resolvePolicy(failure.kind, getActiveResilienceConfig() as PolicyConfig);
+}
+
+/**
+ * The budget of the availability probes, capped well below the full one.
+ *
+ * A probe answers a question about liveness; the answer must not take minutes.
+ * The real read (`get`, `create`, `close`) keeps the full policy, so a blip
+ * during the work is still absorbed at its documented budget — what is capped
+ * here is only how long an *unreachable* GitHub delays a `local` Issue that
+ * would have resolved instantly.
+ */
+const PROBE_MAX_ATTEMPTS = 3;
+const PROBE_MAX_DELAY_MS = 5_000;
+
+function ghProbePolicy(): RetryPolicyFor {
+  const policyFor = ghPolicy();
+  return (failure) => {
+    const policy = policyFor(failure);
+    return {
+      ...policy,
+      maxAttempts: Math.min(policy.maxAttempts, PROBE_MAX_ATTEMPTS),
+      maxDelayMs: Math.min(policy.maxDelayMs, PROBE_MAX_DELAY_MS),
+      retryForever: false,
+    };
+  };
+}
+
+/** `gh <args>` under the full resilience policy. */
+function gh(args: string[], options: { timeout?: number } = {}): Promise<ExecResult> {
+  return run('gh', args, {
+    retry: ghPolicy(),
+    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+  });
+}
 
 /**
  * gh reports a missing Issue on stderr with one of these phrasings. The match
@@ -90,7 +140,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 async function ghApiJson(path: string): Promise<unknown> {
   try {
-    const result = await run('gh', ['api', path]);
+    const result = await gh(['api', path]);
     if (result.exitCode !== 0) return null;
     return JSON.parse(result.stdout) as unknown;
   } catch {
@@ -140,6 +190,46 @@ function extractIssueNumber(output: string): string | null {
 }
 
 /**
+ * A failed `gh` result turned into an error that still carries its verdict.
+ *
+ * `run()` already classified it — every `gh` call here goes through the retry
+ * chokepoint — so the kind, and with it the "retry or escalate" decision, must
+ * not be flattened back into a message by the throw.
+ */
+function ghError(message: string, result: ExecResult): Error {
+  const failure = result.failure;
+  if (failure === undefined) return new Error(message);
+  return new ClassifiedError(message, failure, ghAction(failure));
+}
+
+/** The action a human has to take, for the kinds that need one. */
+function ghAction(failure: ClassifiedFailure): string | undefined {
+  if (!requiresHumanAction(failure.kind)) return undefined;
+  if (failure.kind === 'authentication') {
+    return 'Run `gh auth login` to authenticate the GitHub CLI';
+  }
+  return undefined;
+}
+
+/**
+ * A failed probe as an availability answer, keeping the classification.
+ *
+ * `action` is only attached when the failure actually needs a human: telling
+ * someone to run `gh auth login` because their Wi-Fi dropped is worse than
+ * saying nothing, and the caller uses the presence of an action to decide that
+ * waiting will not help.
+ */
+function unavailable(result: ExecResult, action: string): ProviderAvailability {
+  const failure = result.failure;
+  const needsHuman = failure === undefined || requiresHumanAction(failure.kind);
+  return {
+    available: false,
+    ...(failure === undefined ? {} : { failure }),
+    ...(needsHuman ? { action } : {}),
+  };
+}
+
+/**
  * Issue provider backed by the GitHub CLI.
  *
  * Every call goes through `run` (execa, no shell) so tests can mock the shell
@@ -151,26 +241,47 @@ export class GitHubIssueProvider implements IssueProvider {
 
   /** True when gh is installed and authenticated. Never throws. */
   async isAvailable(): Promise<boolean> {
-    try {
-      const version = await run('gh', ['--version'], { timeout: PROBE_TIMEOUT_MS });
-      if (version.exitCode !== 0) return false;
+    return (await this.checkAvailability()).available;
+  }
 
-      const auth = await run('gh', ['auth', 'status'], { timeout: PROBE_TIMEOUT_MS });
-      return auth.exitCode === 0;
+  /**
+   * Whether gh is installed and authenticated, with the reason when it is not.
+   *
+   * Both probes retry on the capped probe budget, so a DNS blip during a long
+   * run no longer reports GitHub as unavailable and takes the whole run down
+   * with it — while an authentication failure is clamped to zero attempts by
+   * `resolvePolicy()` and comes back immediately, with the action to take.
+   */
+  async checkAvailability(): Promise<ProviderAvailability> {
+    try {
+      const retry = ghProbePolicy();
+
+      const version = await run('gh', ['--version'], { retry, timeout: PROBE_TIMEOUT_MS });
+      if (version.exitCode !== 0) {
+        return unavailable(version, 'Install the GitHub CLI: https://cli.github.com');
+      }
+
+      const auth = await run('gh', ['auth', 'status'], { retry, timeout: PROBE_TIMEOUT_MS });
+      if (auth.exitCode !== 0) {
+        return unavailable(auth, 'Run `gh auth login` to authenticate the GitHub CLI');
+      }
+
+      return { available: true };
     } catch {
-      return false;
+      return { available: false };
     }
   }
 
   async get(id: string): Promise<Issue | null> {
     const issueId = normalizeId(id);
-    const result = await run('gh', ['issue', 'view', issueId, '--json', VIEW_FIELDS]);
+    const result = await gh(['issue', 'view', issueId, '--json', VIEW_FIELDS]);
 
     if (result.exitCode !== 0) {
       const detail = (result.stderr || result.stdout).trim();
       if (NOT_FOUND_PATTERN.test(detail)) return null;
-      throw new Error(
+      throw ghError(
         `Failed to fetch GitHub issue #${issueId}: ${detail || 'gh issue view failed'}`,
+        result,
       );
     }
 
@@ -197,10 +308,10 @@ export class GitHubIssueProvider implements IssueProvider {
       args.push('--type', draft.type);
     }
 
-    const result = await run('gh', args);
+    const result = await gh(args);
     if (result.exitCode !== 0) {
       const detail = (result.stderr || result.stdout).trim();
-      throw new Error(`Failed to create GitHub issue: ${detail || 'gh issue create failed'}`);
+      throw ghError(`Failed to create GitHub issue: ${detail || 'gh issue create failed'}`, result);
     }
 
     const number = extractIssueNumber(result.stdout);
@@ -281,12 +392,13 @@ export class GitHubIssueProvider implements IssueProvider {
 
   async close(id: string): Promise<void> {
     const issueId = normalizeId(id);
-    const result = await run('gh', ['issue', 'close', issueId]);
+    const result = await gh(['issue', 'close', issueId]);
 
     if (result.exitCode !== 0) {
       const detail = (result.stderr || result.stdout).trim();
-      throw new Error(
+      throw ghError(
         `Failed to close GitHub issue #${issueId}: ${detail || 'gh issue close failed'}`,
+        result,
       );
     }
   }

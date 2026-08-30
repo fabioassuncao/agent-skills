@@ -614,6 +614,18 @@
             ? formatAgo(session.startedAt)
             : '—';
       meta.appendChild(el('span', null, elapsed));
+      // Resilience: how hard this run has had to work, and when it last moved.
+      // A card that only shows a percentage cannot tell a run that is
+      // progressing from one that has been retrying for twenty minutes.
+      if (typeof session.retries === 'number' && session.retries > 0) {
+        meta.appendChild(el('span', null, session.retries + ' retry(s)'));
+      }
+      if (typeof session.correctionCycle === 'number' && session.correctionCycle > 0) {
+        meta.appendChild(el('span', null, 'correção ' + session.correctionCycle));
+      }
+      if (session.updatedAt) {
+        meta.appendChild(el('span', null, 'atividade ' + formatAgo(session.updatedAt)));
+      }
       card.appendChild(meta);
 
       const progress = el('span', 'dashboard-progress');

@@ -61,6 +61,30 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
 - **No `.default()` in an intermediate precedence layer.** `globalConfigSchema` is a middle layer
   (CLI > env > `.issue-flow.json` > `config.json` > defaults); a default materialized there is
   indistinguishable from a value the user wrote and silently overrides the layer above it.
+  `resilienceConfigSchema` is the same kind of middle layer and follows the same rule — it is the
+  format of the `resilience` key in **both** `config.json` and `.issue-flow.json`, which are two
+  rungs of one ladder rather than two formats. Its enums are pinned to the types of
+  `resilience/policy.ts` with `satisfies`, and `ResilienceConfigIsPolicyConfig` fails to compile if
+  the file format ever stops being a superset of what `resolvePolicy()` reads.
+- **`TaskPlan.runState` and the queue's `attempts`/`blockedReason` are additive, and
+  `schemaVersion` stays `1`.** `runState` is `.optional()` with **no** default at the top
+  level — absent means "this plan predates the field", which is not the same statement as
+  `idle` — while every field *inside* it defaults, so a process killed mid-write leaves a
+  half-object that still parses. On the queue the two new fields do carry `.default()`
+  (`0` and `null`), because a plan written before them meant exactly "never attempted, not
+  blocked". The `pipeline` booleans stay the resumption contract: `PipelineManager` reads
+  them and nothing else, and `runState` is additional information, never a replacement.
+- **`lock.ts` owns run ownership, and `web/lock.ts` now shares its liveness probe.** Same
+  guard as the monitoring server — atomic `wx` create, `process.kill(pid, 0)` where **only
+  `ESRCH` means dead** (`EPERM` is a live process owned by another user), and a read that
+  degrades anything malformed to "no lock". What a long run adds is the **heartbeat**: a
+  server proves it is alive by answering a health probe, a pipeline has no port, so it says
+  so in the file every 10s and is stale after three missed beats. A lock written on another
+  host is judged by the heartbeat **alone** — our pid table says nothing about a process
+  over there. The lock is project-level (`<projectDir>/run.lock`): two runs in one
+  repository share a working tree and a branch, so "a different issue" is not a different
+  lock. Re-entering from the same pid+host is not a conflict and its release is a no-op —
+  a nested acquisition must never remove the file the outer one still owns.
 - Schemas read from disk are never `.strict()`: a file written by a newer version must stay
   readable by an older one.
 - The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other

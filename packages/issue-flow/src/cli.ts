@@ -6,14 +6,16 @@ import {
   resolveRunPhaseFlags,
   resolveUserStoryNumberingFlags,
 } from './cli-options.js';
-import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
-import { setGlobalTimeout, setVerbose } from './core/verbose.js';
+import { setIssuesCliOverrides, setResilienceCliOverrides, setWebCliOverrides } from './config.js';
+import { installShutdownHandlers } from './core/shutdown.js';
+import { setGlobalTimeout, setInactivityTimeout, setVerbose } from './core/verbose.js';
 import {
   IssueFlagError,
   resolveGenerateTarget,
   resolveIssuesOverrides,
 } from './issues/cli-flags.js';
 import type { IssueGenerateTarget } from './issues/types.js';
+import { resolveResilienceOverrides } from './resilience/cli-flags.js';
 import type { WebConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
 
@@ -29,6 +31,12 @@ function parseInteger(value: string): number {
     throw new InvalidArgumentError('Must be a non-negative integer.');
   }
   return parsed;
+}
+
+/** Parse `--on-issue-failure <mode>`, rejecting anything but the three modes. */
+function parseQueueFailureMode(value: string): 'stop' | 'skip' | 'block' {
+  if (value === 'stop' || value === 'skip' || value === 'block') return value;
+  throw new InvalidArgumentError('Must be one of: stop, skip, block.');
 }
 
 /**
@@ -61,13 +69,36 @@ function withUserStoryNumberingOptions(cmd: Command): Command {
  * Add shared options (--verbose) to a subcommand.
  */
 function withGlobalOptions(cmd: Command): Command {
+  return (
+    cmd
+      .option('-v, --verbose', 'Show Claude progress output in real time')
+      .option(
+        '-t, --timeout <seconds>',
+        'Override headless timeout in seconds (0 = no limit)',
+        parseInteger,
+      )
+      // The second, tighter instrument beside the absolute timeout: a phase that
+      // has said nothing for this long is stuck, not slow. `0` turns it off.
+      .option(
+        '--inactivity-timeout <seconds>',
+        'Stop the agent after this many seconds with no output (0 = no watchdog)',
+        parseInteger,
+      )
+  );
+}
+
+/**
+ * Add the resilience options to a subcommand, in the shape `--web` and
+ * `--pr-review` already follow: declared here, resolved into configuration
+ * overrides by the preAction hook, and applied through the same ladder every
+ * other key climbs.
+ */
+function withResilienceOptions(cmd: Command): Command {
   return cmd
-    .option('-v, --verbose', 'Show Claude progress output in real time')
-    .option(
-      '-t, --timeout <seconds>',
-      'Override headless timeout in seconds (0 = no limit)',
-      parseInteger,
-    );
+    .option('--continuous', 'Long-running profile: keep going without supervision')
+    .option('--resilient', 'Alias of --continuous')
+    .option('--no-failover', 'Never migrate a phase to another agent provider')
+    .option('--auto-decompose', 'Act on a decomposition report instead of only writing it');
 }
 
 /**
@@ -139,6 +170,11 @@ program
   .version(version);
 
 program.hook('preAction', (_thisCommand, actionCommand) => {
+  // Installed once, before any command runs: a `Ctrl+C` during a six-hour run
+  // has to write a checkpoint and stop the agent, not kill the process
+  // mid-phase and leave `session.json` on `running` forever.
+  installShutdownHandlers();
+
   const opts = actionCommand.opts();
   if (opts.verbose) {
     setVerbose(true);
@@ -146,7 +182,22 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
   if (opts.timeout !== undefined) {
     setGlobalTimeout(opts.timeout * 1000);
   }
+  if (opts.inactivityTimeout !== undefined) {
+    setInactivityTimeout(opts.inactivityTimeout * 1000);
+  }
   setWebCliOverrides(resolveWebOverrides(opts));
+  // The CLI rung of the `resilience` ladder. `--continuous` expands here into
+  // the settings it implies, with every granular flag applied on top of it.
+  setResilienceCliOverrides(
+    resolveResilienceOverrides({
+      continuous: opts.continuous,
+      resilient: opts.resilient,
+      failover: opts.failover,
+      autoDecompose: opts.autoDecompose,
+      inactivityTimeout: opts.inactivityTimeout,
+      onIssueFailure: opts.onIssueFailure,
+    }),
+  );
   try {
     setIssuesCliOverrides(resolveIssuesOverrides(opts));
   } catch (error) {
@@ -209,24 +260,42 @@ withGlobalOptions(
 
 // ── run ─────────────────────────────────────────────────────────────────────
 withUserStoryNumberingOptions(
-  withWebOptions(
-    withIssueOptions(
-      withGlobalOptions(
-        program
-          .command('run')
-          .description(
-            'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
-          )
-          .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
-          .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
-          .option('--from <phase>', 'Resume from a specific phase')
-          .option(
-            '--no-branch',
-            'Run pipeline on current branch without creating a new branch or PR',
-          )
-          .option('--pr-review', 'Review the created Pull Request after the pr phase')
-          .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
-          .option('--only', 'Run just the issues informed, without their hierarchy'),
+  withResilienceOptions(
+    withWebOptions(
+      withIssueOptions(
+        withGlobalOptions(
+          program
+            .command('run')
+            .description(
+              'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
+            )
+            .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
+            .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
+            .option('--from <phase>', 'Resume from a specific phase')
+            .option(
+              '--no-branch',
+              'Run pipeline on current branch without creating a new branch or PR',
+            )
+            .option('--pr-review', 'Review the created Pull Request after the pr phase')
+            .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
+            .option('--only', 'Run just the issues informed, without their hierarchy')
+            // Same two flags `execute` has always had, forwarded to the execute
+            // phase of the pipeline: a `run` is the only way most users reach that
+            // loop, and had no way to widen its retry budget.
+            .option(
+              '--retry-limit <number>',
+              'Retry transient Claude failures up to N consecutive times',
+              parseInteger,
+            )
+            .option('--retry-forever', 'Retry transient Claude failures indefinitely')
+            // What one failing issue does to the rest of a queue. `stop` is what
+            // every release before this flag did, and stays the default.
+            .option(
+              '--on-issue-failure <mode>',
+              'In a queue, on a failing issue: stop | skip | block',
+              parseQueueFailureMode,
+            ),
+        ),
       ),
     ),
   ),
@@ -242,6 +311,9 @@ withUserStoryNumberingOptions(
       only?: boolean;
       continue?: boolean;
       startUs?: number;
+      retryLimit?: number;
+      retryForever?: boolean;
+      onIssueFailure?: 'stop' | 'skip' | 'block';
     },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
@@ -271,11 +343,108 @@ withUserStoryNumberingOptions(
         only: scope.only,
         continueNumbering: numbering.continueFlag,
         startUs: numbering.startUs,
+        retryLimit: options.retryLimit,
+        retryForever: options.retryForever,
+        onIssueFailure: options.onIssueFailure,
       },
     );
     process.exit(code);
   },
 );
+
+// ── resume ──────────────────────────────────────────────────────────────────
+withIssueOptions(
+  withGlobalOptions(
+    program
+      .command('resume')
+      .description('Resume an interrupted pipeline from the phase it stopped at')
+      .argument('[issue]', 'Issue to resume. Omitted: the most recently attempted one')
+      .option('--all', 'Resume every unfinished issue of this project, in order')
+      .option('--mode <mode>', 'Execution mode: auto | manual', 'auto'),
+  ),
+).action(async (issue: string | undefined, options: { all?: boolean; mode?: string }) => {
+  const { runResume } = await import('./commands/resume.js');
+  const code = await runResume(issue, {
+    ...(options.all === undefined ? {} : { all: options.all }),
+    ...(options.mode === undefined ? {} : { mode: options.mode }),
+  });
+  process.exit(code);
+});
+
+// ── status / runs / logs / pause / cancel ───────────────────────────────────
+// The operation surface of a long run. Every one of them reads state that
+// already exists; only pause and cancel write anything, and what they write is
+// a signal to the process that owns the run.
+withGlobalOptions(
+  program
+    .command('status')
+    .description('What is running right now, in which phase, and since when')
+    .argument('[issue]', 'Restrict the report to one issue')
+    .option('--json', 'Emit the assembled state as JSON'),
+).action(async (issue: string | undefined, options: { json?: boolean }) => {
+  const { runStatus } = await import('./commands/operations.js');
+  process.exit(
+    await runStatus(issue, { ...(options.json === undefined ? {} : { json: options.json }) }),
+  );
+});
+
+withGlobalOptions(
+  program.command('runs').description('History of the runs of this project, with how each ended'),
+).action(async () => {
+  const { runRuns } = await import('./commands/operations.js');
+  process.exit(await runRuns());
+});
+
+withGlobalOptions(
+  program
+    .command('logs')
+    .description('Read the execution journal (events.jsonl), filtered and readable')
+    .argument('[issue]', 'Issue to read. Omitted: the most recently attempted one')
+    .option('--issue <issue>', 'Same as the positional argument')
+    .option('--follow', 'Keep reading as the journal grows')
+    .option('--tail <n>', 'How many entries to show first (default 50)', parseInteger)
+    .option('--kind <kinds>', 'Only these event types, comma separated (retry, phase:end, …)'),
+).action(
+  async (
+    issue: string | undefined,
+    options: { issue?: string; follow?: boolean; tail?: number; kind?: string },
+  ) => {
+    const { runLogs } = await import('./commands/operations.js');
+    const kinds =
+      options.kind === undefined
+        ? undefined
+        : options.kind
+            .split(',')
+            .map((kind) => kind.trim())
+            .filter((kind) => kind !== '');
+    process.exit(
+      await runLogs(issue ?? options.issue, {
+        ...(kinds === undefined ? {} : { kind: kinds }),
+        ...(options.follow === undefined ? {} : { follow: options.follow }),
+        ...(options.tail === undefined ? {} : { tail: options.tail }),
+      }),
+    );
+  },
+);
+
+withGlobalOptions(
+  program
+    .command('pause')
+    .description('Ask the running pipeline to stop after writing a checkpoint'),
+).action(async () => {
+  const { runPause } = await import('./commands/operations.js');
+  process.exit(await runPause());
+});
+
+withGlobalOptions(
+  program
+    .command('cancel')
+    .description('Stop the run and mark the issue so a resume does not pick it up')
+    .argument('[issue]', 'Issue to cancel. Omitted: the most recently attempted one'),
+).action(async (issue: string | undefined) => {
+  const { runCancel } = await import('./commands/operations.js');
+  process.exit(await runCancel(issue));
+});
 
 // ── analyze ─────────────────────────────────────────────────────────────────
 withIssueOptions(

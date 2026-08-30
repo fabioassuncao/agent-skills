@@ -562,3 +562,81 @@ describe('webConfigSchema', () => {
     expect(webConfigSchema.safeParse({ refreshSeconds: 0 }).success).toBe(false);
   });
 });
+
+describe('TaskPlan.runState (US-016)', () => {
+  it('is absent — not defaulted — in a plan written before it existed', () => {
+    const parsed = taskPlanSchema.parse(validTaskPlan());
+
+    // Absent means "this plan predates the field", which is a different
+    // statement from `idle`. Materialising a default here would make a plan
+    // from an older release indistinguishable from one that ran and idled.
+    expect(parsed.runState).toBeUndefined();
+    expect('runState' in parsed).toBe(false);
+  });
+
+  it('round-trips a fully written state', () => {
+    const runState = {
+      status: 'retrying' as const,
+      currentPhase: 'prd',
+      attempt: 2,
+      lastHeartbeatAt: '2026-08-30T03:00:00.000Z',
+      blockedReason: null,
+      owner: { pid: 4242, host: 'laptop.local', startedAt: '2026-08-30T02:00:00.000Z' },
+    };
+
+    const parsed = taskPlanSchema.parse({ ...validTaskPlan(), runState });
+
+    expect(parsed.runState).toEqual(runState);
+  });
+
+  it('fills every field of a half-written state instead of invalidating the plan', () => {
+    // What a process killed mid-write leaves behind.
+    const parsed = taskPlanSchema.parse({ ...validTaskPlan(), runState: { status: 'paused' } });
+
+    expect(parsed.runState).toEqual({
+      status: 'paused',
+      currentPhase: null,
+      attempt: 0,
+      lastHeartbeatAt: null,
+      blockedReason: null,
+      owner: null,
+    });
+  });
+
+  it('accepts every status of the issue-level projection', () => {
+    for (const status of [
+      'idle',
+      'running',
+      'waiting',
+      'retrying',
+      'paused',
+      'blocked',
+      'failed',
+    ]) {
+      expect(taskPlanSchema.safeParse({ ...validTaskPlan(), runState: { status } }).success).toBe(
+        true,
+      );
+    }
+  });
+
+  it('rejects a status that belongs to the run machine but not to an issue', () => {
+    // `completed` and `cancelled` live on `RunStatus`; on an issue the answer
+    // is `issueStatus`, and two answers to one question is the bug.
+    for (const status of ['completed', 'cancelled', 'queued']) {
+      expect(taskPlanSchema.safeParse({ ...validTaskPlan(), runState: { status } }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('keeps the pipeline booleans untouched beside it', () => {
+    const parsed = taskPlanSchema.parse({
+      ...validTaskPlan(),
+      runState: { status: 'running' },
+    });
+
+    // PipelineManager reads these and nothing else; runState is additional
+    // information, never a replacement.
+    expect(parsed.pipeline).toEqual(validTaskPlan().pipeline);
+  });
+});

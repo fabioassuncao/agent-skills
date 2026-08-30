@@ -39,6 +39,58 @@ The Issue data published there comes from the `ResolvedIssue` the run already
 holds (`resolveCommandIssue` runs once, at the top), never from a fresh provider
 call.
 
+## What one failing issue does to a queue
+
+`--on-issue-failure` picks between three answers, and `stop` — ending the run
+where it failed — stays the default and the behaviour of every release before
+the flag existed.
+
+- **`skip` sets the issue aside and comes back to it.** `nextQueueIssue()` hands
+  out `skipped` entries **last**, which is what "go on with the independent work
+  and return at the end" means in one line. `attempts` is what keeps that from
+  becoming "come back forever": past `resilience.queue.maxIssueAttempts` (2 by
+  default) the entry becomes `failed`.
+- **`block` is for a failure a person has to look at.** `nextQueueIssue()` never
+  hands a `blocked` entry back out — waiting cannot fix a missing credential —
+  so the queue finishes the rest and reports it.
+- **`exhausted` is per invocation, and it has to be.** The resumption policy
+  puts `failed` before `pending`, which is right *across* invocations (re-run
+  and it picks up where it stopped) and wrong *inside* one, where it would hand
+  the same spent issue back out on the very next lookup.
+- **Dependencies are enforced at hand-out, not only in the order.**
+  `computeExecutionOrder` already places blockers first; the check in
+  `nextQueueIssue()` only bites once an entry stops being `completed`, which is
+  exactly when handing out its dependents would produce work that cannot build.
+- **A queue that ends with unfinished issues exits non-zero**, even though the
+  independent work landed: the run did not do what it was asked.
+
+## The repository is described, never repaired
+
+`ensureRepositoryWritable()` runs `preflightRepository()` (in `utils/git.ts`)
+before every phase that writes to the repository — `plan`, `execute`, `pr`. A
+rebase, merge, cherry-pick or revert in progress, an unresolved conflict or a
+detached HEAD **fails the phase with the command that gets out of it**, printed
+for a human to run.
+
+**Nothing in that path is destructive, and nothing may become so.** No
+`reset --hard`, no `checkout -f`, no `--abort`, no implicit `stash` — not on a
+resume, not under a continuous profile, not ever. `utils/shell.ts` enforces the
+same rule one level down by refusing to retry a destructive `git` invocation;
+this is the same limit stated at the pipeline level. "The tool aborted my rebase
+overnight" is the outcome both exist to make impossible.
+
+Two checks the preflight supports are deliberately **not** used here and belong
+to `resume`: the dirty tree (the phases of one run follow each other by design,
+and uncommitted work between them is the pipeline's own doing) and the branch
+comparison (within a run, `plan` is what creates and checks the branch out, and
+a queue adopts a shared one after its own plan ran). A resume has none of those
+guarantees and passes both.
+
+A test that mocks `execa` wholesale must answer the preflight's probes, or the
+pipeline reads the silence as a detached HEAD and blocks: `git symbolic-ref -q
+HEAD` needs a `refs/heads/...` on exit 0, and `git rev-parse --verify --quiet
+<REF>` must **fail** — a blanket success claims the repository is mid-rebase.
+
 ## The multi-issue queue
 
 `run` may coordinate several issues in one process (`src/execution/`). Three

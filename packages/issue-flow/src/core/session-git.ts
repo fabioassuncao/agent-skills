@@ -47,7 +47,19 @@ export interface GitStateSources {
  * List PRs whose head is the given branch via the GitHub CLI. Never throws;
  * returns [] when gh is unavailable, unauthenticated or returns bad JSON.
  */
-export async function listPullRequests(branch: string): Promise<SessionPullRequest[]> {
+export interface ListPullRequestsOptions {
+  /**
+   * `all` — the default, and what the session snapshot reports — or `open`,
+   * which is the question "is there already a Pull Request I would be
+   * duplicating".
+   */
+  state?: 'all' | 'open';
+}
+
+export async function listPullRequests(
+  branch: string,
+  options: ListPullRequestsOptions = {},
+): Promise<SessionPullRequest[]> {
   if (!branch) return [];
 
   const result = await run('gh', [
@@ -56,7 +68,7 @@ export async function listPullRequests(branch: string): Promise<SessionPullReque
     '--head',
     branch,
     '--state',
-    'all',
+    options.state ?? 'all',
     '--json',
     'number,url,title',
     '--limit',

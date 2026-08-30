@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeClaude } from './executor.js';
 import { setOutputCallback } from './verbose.js';
@@ -19,6 +20,28 @@ function cliResult(overrides: Partial<{ stdout: string; stderr: string; exitCode
     exitCode: 0,
     ...overrides,
   } as unknown as ExecaResult;
+}
+
+/**
+ * An execa subprocess: a promise for the finished result that also carries the
+ * live `stdout` stream, which is what `--output-format stream-json` writes to.
+ *
+ * `lines` are the stream-json events; `finished` is what the process resolves
+ * to once it exits. They are separate because they are separate in reality —
+ * the stream is consumed while the process runs, and `result.stdout` is what is
+ * left over (nothing, for a consumed stream).
+ */
+function claudeSubprocess(
+  lines: string[],
+  finished: Partial<{ stdout: string; stderr: string; exitCode: number }> = {},
+) {
+  const subprocess = Promise.resolve(cliResult(finished)) as unknown as ExecaResult & {
+    stdout: Readable;
+    kill: (signal?: NodeJS.Signals) => boolean;
+  };
+  subprocess.stdout = Readable.from(lines.map((line) => `${line}\n`));
+  subprocess.kill = () => true;
+  return subprocess;
 }
 
 /** Payload shape of `claude --print --output-format json` (CLI 2.1.220). */
@@ -47,14 +70,16 @@ describe('executeClaude', () => {
     setOutputCallback(undefined);
   });
 
-  it('requests the JSON output format while keeping the prompt on stdin', async () => {
-    mockExeca.mockResolvedValue(cliResult({ stdout: jsonEnvelope('done') }));
+  it('requests the stream-json output format while keeping the prompt on stdin', async () => {
+    mockExeca.mockReturnValue(claudeSubprocess([jsonEnvelope('done')]));
 
     await executeClaude('do the thing');
 
+    // The stream is what makes the loop observable (US-026): it is now always
+    // requested, and only the rendering differs between verbose and not.
     expect(mockExeca).toHaveBeenCalledWith(
       'claude',
-      ['--dangerously-skip-permissions', '--print', '--output-format', 'json'],
+      ['--dangerously-skip-permissions', '--print', '--output-format', 'stream-json', '--verbose'],
       {
         input: 'do the thing',
         reject: false,
@@ -65,7 +90,7 @@ describe('executeClaude', () => {
   });
 
   it('unwraps the result text and captures metrics on valid JSON', async () => {
-    mockExeca.mockResolvedValue(cliResult({ stdout: jsonEnvelope('Story US-003 implemented') }));
+    mockExeca.mockReturnValue(claudeSubprocess([jsonEnvelope('Story US-003 implemented')]));
 
     const result = await executeClaude('prompt');
 
@@ -81,8 +106,8 @@ describe('executeClaude', () => {
   });
 
   it('reports no metrics when the JSON envelope carries no usage data', async () => {
-    mockExeca.mockResolvedValue(
-      cliResult({ stdout: JSON.stringify({ type: 'result', result: 'plain' }) }),
+    mockExeca.mockReturnValue(
+      claudeSubprocess([JSON.stringify({ type: 'result', result: 'plain' })]),
     );
 
     const result = await executeClaude('prompt');
@@ -92,7 +117,9 @@ describe('executeClaude', () => {
   });
 
   it('falls back to the raw combined output when stdout is not JSON', async () => {
-    mockExeca.mockResolvedValue(cliResult({ stdout: 'free-form text', stderr: 'a warning' }));
+    mockExeca.mockReturnValue(
+      claudeSubprocess([], { stdout: 'free-form text', stderr: 'a warning' }),
+    );
 
     const result = await executeClaude('prompt');
 
@@ -102,7 +129,9 @@ describe('executeClaude', () => {
   });
 
   it('falls back to stdout when the JSON envelope has no result field', async () => {
-    mockExeca.mockResolvedValue(cliResult({ stdout: '{"type":"result"}' }));
+    mockExeca.mockReturnValue(
+      claudeSubprocess(['{"type":"result"}'], { stdout: '{"type":"result"}' }),
+    );
 
     const result = await executeClaude('prompt');
 
@@ -111,8 +140,8 @@ describe('executeClaude', () => {
   });
 
   it('keeps stdout+stderr verbatim and reports no metrics on a non-zero exit code', async () => {
-    mockExeca.mockResolvedValue(
-      cliResult({
+    mockExeca.mockReturnValue(
+      claudeSubprocess([jsonEnvelope('partial')], {
         stdout: jsonEnvelope('partial'),
         stderr: 'Overloaded (529)',
         exitCode: 1,
@@ -129,7 +158,9 @@ describe('executeClaude', () => {
   });
 
   it('defaults a null exit code to 1', async () => {
-    mockExeca.mockResolvedValue(cliResult({ stdout: 'boom', exitCode: null as unknown as number }));
+    mockExeca.mockReturnValue(
+      claudeSubprocess([], { stdout: 'boom', exitCode: null as unknown as number }),
+    );
 
     const result = await executeClaude('prompt');
 
@@ -137,8 +168,8 @@ describe('executeClaude', () => {
   });
 
   it('exposes the completion signal through the unwrapped result text', async () => {
-    mockExeca.mockResolvedValue(
-      cliResult({ stdout: jsonEnvelope('All done.\n<promise>COMPLETE</promise>') }),
+    mockExeca.mockReturnValue(
+      claudeSubprocess([jsonEnvelope('All done.\n<promise>COMPLETE</promise>')]),
     );
 
     const result = await executeClaude('prompt');
@@ -149,7 +180,7 @@ describe('executeClaude', () => {
   it('forwards the result text to the output callback, not the raw JSON', async () => {
     const lines: string[] = [];
     setOutputCallback((line) => lines.push(line));
-    mockExeca.mockResolvedValue(cliResult({ stdout: jsonEnvelope('  human readable  ') }));
+    mockExeca.mockReturnValue(claudeSubprocess([jsonEnvelope('  human readable  ')]));
 
     await executeClaude('prompt');
 
@@ -159,10 +190,102 @@ describe('executeClaude', () => {
   it('does not invoke the output callback when the result text is empty', async () => {
     const onOutput = vi.fn();
     setOutputCallback(onOutput);
-    mockExeca.mockResolvedValue(cliResult({ stdout: jsonEnvelope('   ') }));
+    mockExeca.mockReturnValue(claudeSubprocess([jsonEnvelope('   ')]));
 
     await executeClaude('prompt');
 
     expect(onOutput).not.toHaveBeenCalled();
+  });
+});
+
+describe('executeClaude — the inactivity watchdog (US-026)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    setOutputCallback(undefined);
+  });
+
+  /** A stream that stays silent forever, like a hung agent. */
+  function silentSubprocess() {
+    const killed: string[] = [];
+    const stdout = new Readable({ read() {} });
+    const subprocess = new Promise((resolve) => {
+      // Resolves only once the watchdog kills it, exactly as execa would.
+      const check = setInterval(() => {
+        if (killed.length > 0) {
+          clearInterval(check);
+          stdout.push(null);
+          resolve(cliResult({ exitCode: 143 }));
+        }
+      }, 5);
+      check.unref?.();
+    }) as unknown as ExecaResult & {
+      stdout: Readable;
+      kill: (signal?: NodeJS.Signals) => boolean;
+    };
+    subprocess.stdout = stdout;
+    subprocess.kill = (signal?: NodeJS.Signals) => {
+      killed.push(signal ?? 'SIGTERM');
+      return true;
+    };
+    return { subprocess, killed };
+  }
+
+  it('stops an agent that produced nothing, and reports it as stalled', async () => {
+    const { subprocess, killed } = silentSubprocess();
+    mockExeca.mockReturnValue(subprocess);
+
+    const result = await executeClaude('prompt', { inactivityTimeoutMs: 20 });
+
+    expect(killed).toContain('SIGTERM');
+    // The wording is the contract that carries `stalled` through `classify()`.
+    expect(result.output).toContain('produced no output for');
+    expect(result.output).toContain('(stalled)');
+    expect(result.exitCode).not.toBe(0);
+  });
+
+  it('leaves a slow but talking agent alone', async () => {
+    const stdout = new Readable({ read() {} });
+    const subprocess = new Promise((resolve) => {
+      let beats = 0;
+      const tick = setInterval(() => {
+        beats++;
+        stdout.push(`${JSON.stringify({ type: 'assistant', n: beats })}\n`);
+        if (beats === 6) {
+          clearInterval(tick);
+          stdout.push(`${jsonEnvelope('slow but finished')}\n`);
+          stdout.push(null);
+          resolve(cliResult({ exitCode: 0 }));
+        }
+      }, 5);
+      tick.unref?.();
+    }) as unknown as ExecaResult & {
+      stdout: Readable;
+      kill: (signal?: NodeJS.Signals) => boolean;
+    };
+    subprocess.stdout = stdout;
+    subprocess.kill = () => true;
+    mockExeca.mockReturnValue(subprocess);
+
+    // Each event resets the clock, so 30ms of tolerance survives 6 beats at 5ms.
+    const result = await executeClaude('prompt', { inactivityTimeoutMs: 30 });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('slow but finished');
+  });
+
+  it('is off when the timeout is 0, which is the behaviour before it existed', async () => {
+    const { subprocess, killed } = silentSubprocess();
+    mockExeca.mockReturnValue(subprocess);
+
+    const running = executeClaude('prompt', { inactivityTimeoutMs: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(killed).toEqual([]);
+
+    // Let the test finish: nothing else would ever stop this process.
+    subprocess.kill('SIGTERM');
+    await running;
   });
 });

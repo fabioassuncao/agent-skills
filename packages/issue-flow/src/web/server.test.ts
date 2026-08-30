@@ -196,6 +196,10 @@ describe('startWebServer', () => {
       currentPhase: null,
       progressPercent: 0,
       elapsedSeconds: expect.any(Number),
+      // Resilience fields (US-029): a card that only shows a percentage cannot
+      // tell a run that is progressing from one that has been retrying.
+      retries: 0,
+      correctionCycle: 0,
     });
   });
 

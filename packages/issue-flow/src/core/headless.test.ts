@@ -54,7 +54,9 @@ describe('runHeadless', () => {
 
     expect(mockExeca).toHaveBeenCalledWith(
       'claude',
-      ['-p', 'test prompt', '--output-format', 'json', '--max-turns', '10'],
+      // The stream is always requested now (US-026); only the rendering
+      // differs between verbose and not.
+      ['-p', 'test prompt', '--output-format', 'stream-json', '--verbose', '--max-turns', '10'],
       expect.objectContaining({ reject: false }),
     );
   });
@@ -245,7 +247,8 @@ describe('runHeadless', () => {
         '-p',
         'test',
         '--output-format',
-        'json',
+        'stream-json',
+        '--verbose',
         '--max-turns',
         '10',
         '--add-dir',
@@ -264,7 +267,15 @@ describe('runHeadless', () => {
       exitCode: 0,
     } as unknown as ExecaResult);
 
-    const baseline = ['-p', 'test', '--output-format', 'json', '--max-turns', '10'];
+    const baseline = [
+      '-p',
+      'test',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--max-turns',
+      '10',
+    ];
 
     await runHeadless({ prompt: 'test' });
     expect(mockExeca).toHaveBeenLastCalledWith('claude', baseline, expect.anything());

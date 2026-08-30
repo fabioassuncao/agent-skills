@@ -4,8 +4,17 @@ import { execa } from 'execa';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
 import { type ClaudeUsage, parseUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
+import { registerChild } from './shutdown.js';
 import { isoNow } from './state-manager.js';
-import { getOutputCallback, isVerbose } from './verbose.js';
+import { readClaudeStream } from './stream.js';
+import { getInactivityTimeout, getOutputCallback, isVerbose } from './verbose.js';
+import { createWatchdog, describeStall } from './watchdog.js';
+
+/** The watchdog budget of one invocation, from the process-wide setting. */
+function inactivityOptions(): { inactivityTimeoutMs?: number } {
+  const configured = getInactivityTimeout();
+  return configured === undefined ? {} : { inactivityTimeoutMs: configured };
+}
 
 export interface HeadlessOptions {
   prompt: string;
@@ -102,11 +111,11 @@ function wasTimedOut(proc: FinishedProcess, timeoutMs: number, elapsedMs: number
  * The error text of a failed invocation.
  *
  * A timeout gets a message of its own, and it has to keep saying "timed out":
- * `utils/retry.ts` classifies a failure as transient by matching that text, and
- * it is what earns the phase its retries in `core/phase-runner.ts`. Reporting a
- * timeout as a bare `claude exited with code 143` — which is what the CLI
- * leaves behind when it handles the SIGTERM itself — both hid the cause and
- * cost the phase every retry it had.
+ * `resilience/errors.ts` falls back to matching that text when no structured
+ * evidence survived, and it is what earns the phase its retries in
+ * `core/phase-runner.ts`. Reporting a timeout as a bare `claude exited with
+ * code 143` — which is what the CLI leaves behind when it handles the SIGTERM
+ * itself — both hid the cause and cost the phase every retry it had.
  */
 function describeFailure(
   proc: FinishedProcess,
@@ -289,6 +298,16 @@ async function runHeadlessVerbose(options: {
     timeout,
     stripFinalNewline: false,
   });
+  // A `Ctrl+C` must reach the agent, not just this process: without this the
+  // child is orphaned and keeps writing to the repository after the pipeline
+  // that started it is gone.
+  const unregisterChild = registerChild({
+    kill: (signal) => subprocess.kill(signal),
+    done: subprocess.then(
+      () => undefined,
+      () => undefined,
+    ),
+  });
 
   let resultText = '';
   let isError = false;
@@ -317,6 +336,7 @@ async function runHeadlessVerbose(options: {
 
   // Wait for the process to finish
   const proc = await subprocess;
+  unregisterChild();
 
   // Close connector with elapsed time
   const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
@@ -392,11 +412,17 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     }).start();
   }
 
+  // The stream is always what is asked for, whatever the caller requested as
+  // `outputFormat`: a single envelope arrives in one write at the very end, so
+  // an invocation that hangs is indistinguishable from one that is thinking.
+  // The rendering is what differs — here it feeds a spinner and a watchdog
+  // heartbeat instead of being printed line by line.
   const args: string[] = [
     '-p',
     prompt,
     '--output-format',
-    outputFormat,
+    'stream-json',
+    '--verbose',
     '--max-turns',
     String(maxTurns),
   ];
@@ -404,15 +430,56 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   pushRepeatedFlag(args, '--allowedTools', allowedTools);
   pushRepeatedFlag(args, '--add-dir', addDirs);
 
-  try {
-    const proc = await execa('claude', args, {
-      stdin: 'ignore',
-      reject: false,
-      timeout,
-      stripFinalNewline: false,
-    });
+  const subprocess = execa('claude', args, {
+    stdin: 'ignore',
+    reject: false,
+    timeout,
+    stripFinalNewline: false,
+  });
+  const unregisterChild = registerChild({
+    kill: (signal) => subprocess.kill(signal),
+    done: subprocess.then(
+      () => undefined,
+      () => undefined,
+    ),
+  });
+  const watchdog = createWatchdog({
+    ...inactivityOptions(),
+    child: {
+      kill: (signal) => subprocess.kill(signal),
+      done: subprocess.then(
+        () => undefined,
+        () => undefined,
+      ),
+    },
+  });
 
-    const stdout = proc.stdout?.toString() ?? '';
+  try {
+    const streamed = subprocess.stdout
+      ? await readClaudeStream(subprocess.stdout, { onLine: () => watchdog.beat() })
+      : { result: '', isError: false, usage: null, events: 0, raw: '' };
+
+    const proc = await subprocess;
+    watchdog.stop();
+    unregisterChild();
+
+    if (watchdog.stalled) {
+      const elapsed = timer?.stop() ?? 0;
+      const dur = useColor()
+        ? chalk.dim(` (${formatDuration(elapsed)})`)
+        : ` (${formatDuration(elapsed)})`;
+      spinner?.fail(`${statusMessage}${dur}`);
+      return {
+        success: false,
+        result: '',
+        cost: null,
+        error: describeStall(watchdog.silentMs),
+      };
+    }
+
+    // The stream is consumed by the time the process finishes, so what it
+    // printed lives here rather than in `proc.stdout`.
+    const stdout = streamed.raw === '' ? (proc.stdout?.toString() ?? '') : streamed.raw;
     const stderr = proc.stderr?.toString() ?? '';
 
     if (proc.exitCode !== 0) {
@@ -436,6 +503,14 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     spinner?.succeed(`${statusMessage}${dur}`);
 
     if (outputFormat === 'json') {
+      if (streamed.result !== '') {
+        return {
+          success: !streamed.isError,
+          result: streamed.result,
+          cost: streamed.usage,
+          error: streamed.isError ? streamed.result : null,
+        };
+      }
       try {
         const parsed = JSON.parse(stdout);
         return {
@@ -461,6 +536,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
       error: null,
     };
   } catch (err) {
+    unregisterChild();
     const message = err instanceof Error ? err.message : String(err);
     const catchElapsed = timer?.stop() ?? 0;
     const catchDur = useColor()

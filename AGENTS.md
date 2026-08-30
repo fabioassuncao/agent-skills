@@ -17,6 +17,17 @@ those live in the documents referenced below, which are the source of truth.
 - [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
   usage model, and the parity contract between the skills and the CLI
 
+## Research
+
+Investigations that produced knowledge rather than rules. They are dated,
+because what they describe changes in weeks, and they are evidence for
+decisions — never a source of truth for behaviour.
+
+- [`docs/research/2026-08-30-multi-harness-orchestration.md`](docs/research/2026-08-30-multi-harness-orchestration.md)
+  — the multi-harness orchestration landscape, the gap between configurable and
+  adaptive selection, and the target architecture behind the routing,
+  verification and escalation issues
+
 ## Developing
 
 - [`packages/issue-flow/CONTRIBUTING.md`](packages/issue-flow/CONTRIBUTING.md) —
@@ -33,6 +44,7 @@ the code, and was learned the hard way.
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |
+| Failure taxonomy and retry policy | [`packages/issue-flow/src/resilience/AGENTS.md`](packages/issue-flow/src/resilience/AGENTS.md) |
 | Global storage and artifact paths | [`packages/issue-flow/src/storage/AGENTS.md`](packages/issue-flow/src/storage/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
