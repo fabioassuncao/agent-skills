@@ -86,6 +86,10 @@ export async function runPlan(
         prompt,
         maxTurns: 25,
         timeout: getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS,
+        timeoutHistory: {
+          phase: 'plan',
+          journalFiles: [paths.rotatedEventsFile, paths.eventsFile],
+        },
         // json (not text) so the CLI reports usage: the envelope's `result`
         // field carries the same assistant text this phase already consumed.
         outputFormat: 'json',

@@ -286,6 +286,11 @@ row that finish nothing: each is ambiguous alone and any one of them can be a
 slow afternoon. Two or more of them agreeing is the same thing said twice, and
 what it is saying is that the demand was never one issue.
 
+Before proposing a split, Issue Flow tries the cheaper remedy: after the journal
+records the second timeout in the same phase, its next attempt gets **2×** the
+configured/default timeout. The widening is capped at 2× and never compounds;
+`--timeout 0` remains unlimited.
+
 When a **failed** run carries at least two of these signals, Issue Flow writes
 `decomposition.md` in the issue directory and marks the issue `blocked` with a
 pointer to it:

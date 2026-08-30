@@ -1,7 +1,9 @@
+import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import { execa } from 'execa';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
+import { DECOMPOSITION_THRESHOLDS, timeoutsByPhase } from './decompose.js';
 import { type ClaudeUsage, parseUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
 import { registerChild } from './shutdown.js';
@@ -33,6 +35,12 @@ export interface HeadlessOptions {
   statusMessage?: string;
   /** Optional callback for routing verbose output (e.g., through listr2 task.output). When provided, verbose stream events are sent here instead of directly to stderr. */
   onOutput?: (line: string) => void;
+  /** Journal-backed identity used to apply the one-time 2× timeout escalation. */
+  timeoutHistory?: {
+    phase: string;
+    /** Oldest generation first, current journal last. Missing files are ignored. */
+    journalFiles: string[];
+  };
 }
 
 /**
@@ -62,6 +70,34 @@ export interface HeadlessResult {
  * because its iteration budget is what bounds it.
  */
 export const DEFAULT_HEADLESS_TIMEOUT_MS = 900_000;
+
+/**
+ * Try the cheap alternative before decomposition: after two timeouts in this
+ * issue's same phase, widen the configured/default ceiling to 2×. The journal
+ * is the durable counter, and the multiplier is capped rather than compounded,
+ * so three, ten or a hundred recorded timeouts still produce exactly 2×.
+ */
+async function escalatedTimeout(
+  timeoutMs: number,
+  history: HeadlessOptions['timeoutHistory'],
+): Promise<number> {
+  if (timeoutMs === 0 || history === undefined) return timeoutMs;
+
+  const journal = (
+    await Promise.all(
+      history.journalFiles.map(async (file) => {
+        try {
+          return await readFile(file, 'utf-8');
+        } catch {
+          return '';
+        }
+      }),
+    )
+  ).join('');
+  const timeouts = timeoutsByPhase(journal).get(history.phase) ?? 0;
+  if (timeouts < DECOMPOSITION_THRESHOLDS.timeoutsPerPhase) return timeoutMs;
+  return Math.min(timeoutMs * 2, Number.MAX_SAFE_INTEGER);
+}
 
 /**
  * The subset of an execa result this module inspects. Declared structurally so
@@ -379,13 +415,14 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   const {
     prompt,
     maxTurns = 10,
-    timeout = DEFAULT_HEADLESS_TIMEOUT_MS,
+    timeout: configuredTimeout = DEFAULT_HEADLESS_TIMEOUT_MS,
     outputFormat = 'json',
     allowedTools,
     addDirs,
     statusMessage,
     onOutput,
   } = options;
+  const timeout = await escalatedTimeout(configuredTimeout, options.timeoutHistory);
 
   if (isVerbose()) {
     // Use explicit onOutput, fall back to global output callback, or default to stderr

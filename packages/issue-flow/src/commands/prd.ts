@@ -45,6 +45,10 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
         prompt,
         maxTurns: 25,
         timeout: getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS,
+        timeoutHistory: {
+          phase: 'prd',
+          journalFiles: [paths.rotatedEventsFile, paths.eventsFile],
+        },
         // json (not text) so the CLI reports usage: the envelope's `result`
         // field carries the same assistant text this phase already consumed.
         outputFormat: 'json',

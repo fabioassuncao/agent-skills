@@ -242,6 +242,13 @@ and the README documented a third number. The execute loop is the deliberate
 exception, running with `timeout: 0` (`executor.ts`) because its iteration
 budget is what bounds it.
 
+Before decomposition, `runHeadless` reads the issue journal for the phase's
+timeout history. Two recorded timeouts widen that shared/user-provided ceiling
+to **2×**, never more: the multiplier is capped, not compounded, and
+`--timeout 0` remains the off switch. The phase and journal paths arrive via
+`HeadlessOptions.timeoutHistory`; inferring either from prompt text or an
+`addDirs` entry would couple execution policy to presentation/path ordering.
+
 ## Parsing CLI metrics
 
 All token/cost parsing goes through `core/metrics.ts` (`parseUsage`,
