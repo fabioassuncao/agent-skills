@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { resetAgentInvocationState } from '../agents/invoke.js';
@@ -13,11 +13,6 @@ import {
   loadRoutingConfig,
   loadWebConfig,
 } from '../config.js';
-import {
-  assessDecomposition,
-  buildDecompositionReport,
-  proposeSubIssues,
-} from '../core/decompose.js';
 import { JournalPublisher, MultiPublisher } from '../core/journal.js';
 import {
   PIPELINE_PHASES,
@@ -60,8 +55,7 @@ import { planQueue, type QueueDecision } from '../execution/queue.js';
 import type { ExecutionPlan } from '../execution/types.js';
 import { parseIssueArguments } from '../issues/args.js';
 import { resolveCommandIssue } from '../issues/context.js';
-import { getProvider } from '../issues/registry.js';
-import type { IssueSource, ResolvedIssue } from '../issues/types.js';
+import type { ResolvedIssue } from '../issues/types.js';
 import { recommendedTarget } from '../routing/policy.js';
 import {
   bindDiagnosticContext,
@@ -72,36 +66,40 @@ import { acquireRunLock, describeRunLockOwner } from '../storage/lock.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
 import type { RunLock } from '../storage/schemas.js';
-import type { PullRequestRef, TaskPlan, UserStory } from '../types.js';
+import type { UserStory } from '../types.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { printQueueSummary, printRunSummary, type QueueIssueSummary } from '../ui/summary.js';
 import {
-  committedStoryIds,
   describePreflight,
-  getBaseBranch,
   getCurrentBranch,
   getHeadCommit,
   getProjectRoot,
   localBranchExists,
   preflightRepository,
 } from '../utils/git.js';
-import { run } from '../utils/shell.js';
 import { getPackageVersion } from '../version.js';
 import { ensureWebMonitor } from '../web/lock.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
 import { runPlan } from './plan.js';
-import { type PrQueueContext, runPr } from './pr.js';
+import { runPr } from './pr.js';
 import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
+import { reportIfOversized } from './run/oversized.js';
 import {
   publishInstrumentedPhaseEnd,
   publishIssueDetails,
   publishStorySeed,
   toIssueNumber,
 } from './run/publish.js';
+import {
+  buildPrQueueContext,
+  closeIssue,
+  primaryPrCreated,
+  propagatePullRequest,
+} from './run/pull-request.js';
 import {
   type IssueRunResult,
   type PrReviewOutcome,
@@ -550,149 +548,6 @@ async function runIssueSession(
     });
     await flushDiagnostics();
     setSessionPublisher(undefined);
-  }
-}
-
-/**
- * Write a decomposition report when the failure looks like "too much work",
- * and say nothing when it does not.
- *
- * The guard that matters is the one *before* the assessment: a run that died
- * because the network went down is not too large, and reacting to that with
- * "have you considered splitting this issue?" is worse than silence. Only a
- * failure the resilience layer could not absorb — and that carries at least two
- * independent size signals — gets a report.
- *
- * Nothing is split here. The report is written and the issue is marked
- * `blocked` with a pointer to it, because splitting an issue is a product
- * decision and the tool does not get to make it.
- */
-async function reportIfOversized(
-  issueNumber: string,
-  paths: IssuePaths,
-  result: IssueRunResult,
-): Promise<void> {
-  try {
-    const journal = `${await readFileIfPresent(paths.rotatedEventsFile)}${await readFileIfPresent(paths.eventsFile)}`;
-    const plan = await loadTaskPlan(paths.tasksFile).catch(() => null);
-
-    const assessment = assessDecomposition({
-      journal,
-      plan,
-      filesTouched: await countChangedFiles(),
-      hitMaxIterations: result.failedPhase === 'execute' && plan?.issueStatus !== 'completed',
-    });
-    if (!assessment.oversized) return;
-
-    const report = buildDecompositionReport({
-      issueNumber,
-      assessment,
-      plan,
-      at: isoNow(),
-    });
-    const reportFile = paths.decompositionFile;
-    await mkdir(paths.issueDir, { recursive: true });
-    await writeFile(reportFile, report, 'utf-8');
-
-    printWarning(`Issue #${issueNumber} looks larger than one run. Report: ${reportFile}`);
-    for (const signal of assessment.signals) {
-      printWarning(`  ${signal.detail}`);
-    }
-
-    await maybeCreateSubIssues(issueNumber, plan, reportFile);
-
-    if (plan !== null) {
-      await saveTaskPlan(paths.tasksFile, {
-        ...plan,
-        runState: {
-          currentPhase: plan.runState?.currentPhase ?? result.failedPhase,
-          attempt: plan.runState?.attempt ?? 0,
-          owner: null,
-          status: 'blocked',
-          blockedReason: `Looks larger than one run; see ${reportFile}`,
-          lastHeartbeatAt: isoNow(),
-        },
-      });
-    }
-  } catch {
-    // A report is a courtesy. Failing to write one must not change the exit
-    // code of a run that already failed for its own reasons.
-  }
-}
-
-/**
- * Create the proposed sub-issues, but only when asked and only when it is safe.
- *
- * Two conditions, and the second is the one that matters: `--auto-decompose`
- * has to be on, **and** the branch must carry no committed story yet. Splitting
- * an issue whose work is half done leaves commits that belong to no issue and
- * sub-issues that describe work already merged — a mess nobody asked for, made
- * automatically at 3am. With commits present the report still stands; only the
- * acting stops.
- */
-async function maybeCreateSubIssues(
-  issueNumber: string,
-  plan: TaskPlan | null,
-  reportFile: string,
-): Promise<void> {
-  if (getActiveResilienceConfig().decompose?.auto !== true) {
-    printInfo(`Nothing was split. Read ${reportFile} and decide.`);
-    return;
-  }
-
-  const committed = await committedStoryIds(await getBaseBranch()).catch(() => new Set<string>());
-  if (committed.size > 0) {
-    printWarning(
-      `--auto-decompose did not run: ${committed.size} story(ies) are already committed on this branch. ` +
-        'Splitting on top of committed work needs a person.',
-    );
-    return;
-  }
-
-  const proposals = proposeSubIssues(plan);
-  if (proposals.length === 0) {
-    printInfo('Nothing left to split: no pending story.');
-    return;
-  }
-
-  const { runGenerate } = await import('./generate.js');
-  for (const proposal of proposals) {
-    const instruction = [
-      `Create a sub-issue of #${issueNumber}: ${proposal.title}.`,
-      proposal.dependsOn.length === 0 ? '' : `It depends on: ${proposal.dependsOn.join(', ')}.`,
-      'It covers exactly these user stories, and nothing else:',
-      ...proposal.stories.map((story) => `- ${story.id} ${story.title}: ${story.description}`),
-    ]
-      .filter((line) => line !== '')
-      .join('\n');
-
-    const code = await runGenerate(instruction);
-    if (code !== 0) {
-      printWarning(
-        `Could not create "${proposal.title}". The report at ${reportFile} still stands.`,
-      );
-      return;
-    }
-  }
-}
-
-/** Files changed on this branch, or `0` when git cannot say. */
-async function countChangedFiles(): Promise<number> {
-  try {
-    const base = await getBaseBranch();
-    const result = await run('git', ['diff', '--name-only', `${base}...HEAD`]);
-    if (result.exitCode !== 0) return 0;
-    return result.stdout.split('\n').filter((line) => line.trim() !== '').length;
-  } catch {
-    return 0;
-  }
-}
-
-async function readFileIfPresent(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf-8');
-  } catch {
-    return '';
   }
 }
 
@@ -1786,127 +1641,9 @@ async function finishQueue(
   return 0;
 }
 
-/**
- * Whether the `pr` phase already ran for this queue, even if it could not
- * report a URL.
- *
- * `plan.pullRequest` on the queue is the happy path; this is the safety net for
- * the case where the phase succeeded but no URL could be parsed from its output
- * — re-running it on a resume would open a second Pull Request for the same
- * branch, which is exactly what the whole feature exists to avoid.
- */
-async function primaryPrCreated(plan: ExecutionPlan): Promise<boolean> {
-  try {
-    const paths = await resolveIssuePaths(plan.id);
-    return (await loadTaskPlan(paths.tasksFile)).pipeline.prCreated;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The context the consolidated Pull Request needs: what was implemented, in
- * which order, and what is knowingly left pending.
- *
- * "Pending" is the honest half of the report — the issues the user chose not to
- * run, and any review findings still recorded on an issue's plan. Both would
- * otherwise be invisible to whoever reviews the Pull Request.
- */
-async function buildPrQueueContext(plan: ExecutionPlan): Promise<PrQueueContext> {
-  const pending: string[] = [];
-
-  for (const entry of plan.issues) {
-    try {
-      const paths = await resolveIssuePaths(entry.id);
-      const taskPlan = await loadTaskPlan(paths.tasksFile);
-      if (taskPlan.lastReviewFindings !== null && taskPlan.lastReviewFindings !== '') {
-        pending.push(`Issue #${entry.id} has unresolved review findings`);
-      }
-    } catch {
-      // No plan on disk for this issue: nothing to report about it.
-    }
-  }
-
-  return {
-    issues: plan.issues.map((entry) => ({
-      id: entry.id,
-      number: entry.number,
-      title: entry.title,
-      url: entry.url,
-      source: entry.source,
-      parent: entry.parent,
-      role: entry.role,
-      complete: entry.status === 'completed',
-    })),
-    excluded: plan.excluded.map((entry) => ({
-      id: entry.id,
-      number: entry.number,
-      title: entry.title,
-      reason: entry.reason,
-    })),
-    pending,
-  };
-}
-
-/**
- * Copy the Pull Request the `pr` phase recorded on the primary issue's plan
- * onto every other issue of the queue.
- *
- * The queue's `execution-plan.json` is the source of truth, but `pr-review`
- * discovers a Pull Request from `plan.pullRequest` in `tasks.json`
- * (`core/pr-review/discovery.ts`), so replicating it is what keeps
- * `pr-review --issue <any issue of the queue>` working without a special case.
- * A write that fails is reported and skipped: the Pull Request exists either
- * way, and the queue file already records it.
- */
-async function propagatePullRequest(plan: ExecutionPlan): Promise<PullRequestRef | null> {
-  let pullRequest: PullRequestRef | null = null;
-  try {
-    const primaryPaths = await resolveIssuePaths(plan.id);
-    pullRequest = (await loadTaskPlan(primaryPaths.tasksFile)).pullRequest ?? null;
-  } catch {
-    return null;
-  }
-  if (pullRequest === null) return null;
-
-  for (const entry of plan.issues) {
-    if (entry.id === plan.id) continue;
-    try {
-      const paths = await resolveIssuePaths(entry.id);
-      const taskPlan = await loadTaskPlan(paths.tasksFile);
-      taskPlan.pullRequest = pullRequest;
-      taskPlan.pipeline.prCreated = true;
-      await saveTaskPlan(paths.tasksFile, taskPlan);
-    } catch {
-      printWarning(`Could not record the Pull Request on issue #${entry.id}'s task plan.`);
-    }
-  }
-
-  return pullRequest;
-}
-
 /** An {@link IssueRunResult} carrying nothing but an exit code. */
 function failure(code: number): IssueRunResult {
   return { code, failedPhase: null, branchName: null, storyCount: 0, elapsedSeconds: 0 };
-}
-
-/**
- * Close an Issue through whoever owns it.
- *
- * A provider without `close()` (a read-only origin) has nothing to do here, so
- * the step is simply skipped, and a failure is a warning: the work is done
- * either way, and an Issue left open is a nuisance, not a broken pipeline.
- */
-async function closeIssue(issueNumber: string, source: IssueSource): Promise<void> {
-  try {
-    const provider = getProvider(source);
-    if (provider.close !== undefined) {
-      printInfo('Closing issue...');
-      await provider.close(issueNumber);
-    }
-  } catch {
-    printWarning('Failed to close issue automatically');
-  }
 }
 
 /**
