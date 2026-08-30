@@ -7,6 +7,9 @@ import { sessionSnapshotSchema } from '../schemas.js';
 import { summarizePhaseTiming } from '../telemetry/timing.js';
 import type { ExecutionRecord } from '../telemetry/types.js';
 import { CORPUS } from './corpus.js';
+import { p50, p95 } from './stats.js';
+
+export { p50, p95 };
 
 /** Derived from the #79 investigation: orchestration must stay a rounding error. */
 export const SYNTHETIC_BUDGETS = {
@@ -31,21 +34,6 @@ export interface SyntheticResult {
   attemptCount: number;
   retryDurationMs: number;
   verdict: 'unverified';
-}
-
-function percentile(values: number[], p: number): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (sorted.length === 0) return 0;
-  const index = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
-  return sorted[index] ?? 0;
-}
-
-export function p50(values: number[]): number {
-  return percentile(values, 50);
-}
-
-export function p95(values: number[]): number {
-  return percentile(values, 95);
 }
 
 function scriptedEvents(): SessionEvent[] {

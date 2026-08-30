@@ -3,6 +3,11 @@
 `usage` is a reader, like `status` / `runs` / `logs`: it only aggregates
 `tasks.json.executions`. It never writes an `executionSummary`.
 
+`bench` measures the #79 corpus. `synthetic` is free and what CI runs.
+`real` spends money, requires confirmation or `--yes`, isolates
+`ISSUE_FLOW_HOME`, and is refused under `npm test`. Rules live in
+`src/benchmark/AGENTS.md`.
+
 `run` always installs a `MemoryPublisher`. Disk surfaces (`FilePublisher`,
 `JournalPublisher`) stay opt-in. `activity` events are published in every
 mode so the clean terminal and the dashboard share `currentActivity`;

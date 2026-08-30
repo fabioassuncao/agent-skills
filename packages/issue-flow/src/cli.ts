@@ -50,6 +50,10 @@ function parseUsd(value: string): number {
   return parsed;
 }
 
+function collectString(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 /** Parse `--on-issue-failure <mode>`, rejecting anything but the three modes. */
 function parseQueueFailureMode(value: string): 'stop' | 'skip' | 'block' {
   if (value === 'stop' || value === 'skip' || value === 'block') return value;
@@ -903,6 +907,61 @@ withGlobalOptions(
     const { runPrReview } = await import('./commands/pr-review.js');
     const code = await runPrReview(pr, options);
     process.exit(code);
+  },
+);
+
+// ── bench ───────────────────────────────────────────────────────────────────
+withGlobalOptions(
+  program
+    .command('bench')
+    .description('Measure the corpus: synthetic (CI) or real (paid, on demand)')
+    .option('--mode <mode>', 'synthetic (default, free) or real (fixtures + harness)')
+    .option(
+      '--task <class>',
+      'Corpus class (repeatable): trivial, small, medium, analysis',
+      collectString,
+      [],
+    )
+    .option('--arm <name>', 'Experiment arm (repeatable). Default: baseline', collectString, [])
+    .option('--repeats <n>', 'Repetitions per cell (default 5)', parseInteger)
+    .option('--max-cost <usd>', 'Cost ceiling in USD (evaluateCeilings)', parseUsd)
+    .option('--max-duration <ms>', 'Duration ceiling in milliseconds', parseInteger)
+    .option('--out <path>', 'Write the markdown report to this path')
+    .option('--yes', 'Skip the paid-campaign confirmation')
+    .option('--repo <path>', 'Investigation escape; does not produce a publishable row')
+    .option('--json', 'Also emit the campaign JSON'),
+).action(
+  async (options: {
+    mode?: string;
+    task?: string[];
+    arm?: string[];
+    repeats?: number;
+    maxCost?: number;
+    maxDuration?: number;
+    out?: string;
+    yes?: boolean;
+    repo?: string;
+    json?: boolean;
+  }) => {
+    if (options.mode !== undefined && options.mode !== 'synthetic' && options.mode !== 'real') {
+      printError("Unknown bench mode. Use 'synthetic' or 'real'.");
+      process.exit(1);
+    }
+    const { runBench } = await import('./commands/bench.js');
+    process.exit(
+      await runBench({
+        ...(options.mode === undefined ? {} : { mode: options.mode }),
+        ...(options.task === undefined || options.task.length === 0 ? {} : { task: options.task }),
+        ...(options.arm === undefined || options.arm.length === 0 ? {} : { arm: options.arm }),
+        ...(options.repeats === undefined ? {} : { repeats: options.repeats }),
+        ...(options.maxCost === undefined ? {} : { maxCost: options.maxCost }),
+        ...(options.maxDuration === undefined ? {} : { maxDuration: options.maxDuration }),
+        ...(options.out === undefined ? {} : { out: options.out }),
+        ...(options.yes === undefined ? {} : { yes: options.yes }),
+        ...(options.repo === undefined ? {} : { repo: options.repo }),
+        ...(options.json === undefined ? {} : { json: options.json }),
+      }),
+    );
   },
 );
 

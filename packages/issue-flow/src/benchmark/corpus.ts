@@ -13,7 +13,9 @@ export interface CorpusTask {
 
 /**
  * Four representative tasks. The synthetic runner never opens a real repo;
- * `real` mode uses the same ids against a checkout the operator points at.
+ * `real` mode materializes a disposable git fixture per repetition via
+ * `fixtures/materialize.ts`. `--repo` is an investigation escape and does
+ * not produce a publishable row.
  */
 export const CORPUS: readonly CorpusTask[] = [
   {

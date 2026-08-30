@@ -60,6 +60,7 @@ the code, and was learned the hard way.
 | Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |
 | Acceptance contract and independent review | [`packages/issue-flow/src/verify/AGENTS.md`](packages/issue-flow/src/verify/AGENTS.md) |
 | Shadow routing | [`packages/issue-flow/src/routing/AGENTS.md`](packages/issue-flow/src/routing/AGENTS.md) |
+| Real / synthetic benchmark | [`packages/issue-flow/src/benchmark/AGENTS.md`](packages/issue-flow/src/benchmark/AGENTS.md) |
 
 ## Agent entry points
 

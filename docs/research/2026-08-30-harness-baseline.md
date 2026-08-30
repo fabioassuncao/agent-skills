@@ -78,6 +78,11 @@ overhead absoluto por iteração <  5s
 O synthetic em CI trava regressão do reducer e do parse do snapshot
 (`src/benchmark/synthetic.ts`). Ele não substitui a tabela `real`.
 
+O instrumento que coleta a tabela `real` é `issue-flow bench --mode real`
+(#90): fixtures descartáveis, N repetições, p50/p95, tupla de
+comparabilidade e `ISSUE_FLOW_HOME` isolado. Ver
+[`src/benchmark/AGENTS.md`](../../packages/issue-flow/src/benchmark/AGENTS.md).
+
 ## O que esta baseline deliberadamente não muda
 
 `--strict-mcp-config`, remoção do `sleep(2)`, `gh pr list` só em fronteira de
