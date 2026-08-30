@@ -26,6 +26,8 @@ import {
   policyConfigInputSchema,
   policyConfigSchema,
   prReviewConfigSchema,
+  type RoutingConfig,
+  routingConfigSchema,
   type VerifyConfig,
   verifyConfigSchema,
   type WebConfig,
@@ -72,6 +74,7 @@ export function createConfig(options: Partial<EngineConfig>): EngineConfig {
     // Left absent (rather than defaulted to an empty string) so the execute
     // prompt keeps its historical commit format unless a queue asks otherwise.
     ...(options.commitScope === undefined ? {} : { commitScope: options.commitScope }),
+    storiesPerIteration: options.storiesPerIteration ?? 1,
   };
 }
 
@@ -1568,4 +1571,28 @@ export async function loadVerifyConfig(
     `Invalid verify configuration (${result.error.issues[0]?.message ?? 'invalid value'}); using defaults.`,
   );
   return verifyConfigSchema.parse({});
+}
+
+let routingCliOverrides: Partial<RoutingConfig> = {};
+
+export function setRoutingCliOverrides(overrides: Partial<RoutingConfig>): void {
+  routingCliOverrides = overrides;
+}
+
+export async function loadRoutingConfig(
+  options: {
+    projectRoot?: string;
+    warn?: (message: string) => void;
+    cli?: Partial<RoutingConfig>;
+  } = {},
+): Promise<RoutingConfig> {
+  const warn = options.warn ?? printWarning;
+  const file = await readProjectConfigFile(options.projectRoot, warn);
+  const raw = file?.routing;
+  const parsed = raw === undefined ? {} : (routingConfigSchema.partial().safeParse(raw).data ?? {});
+  const result = routingConfigSchema.safeParse({
+    ...parsed,
+    ...(options.cli ?? routingCliOverrides),
+  });
+  return result.success ? result.data : routingConfigSchema.parse({});
 }

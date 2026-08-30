@@ -88,6 +88,7 @@ export interface BeginExecutionInput {
   modelResolved?: string | null;
   modelSource?: ExecutionRecord['agent']['model']['source'];
   iteration?: number;
+  routingDecision?: ExecutionRecord['routingDecision'];
 }
 
 export async function beginExecution(input: BeginExecutionInput): Promise<string | null> {
@@ -124,6 +125,9 @@ export async function beginExecution(input: BeginExecutionInput): Promise<string
     failure: null,
     owner: { pid: process.pid, host: hostname() },
     ...(input.iteration === undefined ? {} : { iteration: input.iteration }),
+    ...(input.routingDecision === undefined || input.routingDecision === null
+      ? {}
+      : { routingDecision: input.routingDecision }),
   };
 
   try {

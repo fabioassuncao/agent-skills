@@ -742,6 +742,27 @@ withGlobalOptions(
   process.exit(code);
 });
 
+const routingCommand = withGlobalOptions(
+  program
+    .command('routing')
+    .description('Inspect the shadow router (records a recommendation, does not act)'),
+);
+routingCommand
+  .option('--json', 'Emit the resolved routing config as JSON')
+  .action(async (options: { json?: boolean }) => {
+    const { runRoutingInspect } = await import('./commands/routing.js');
+    process.exit(await runRoutingInspect(options));
+  });
+routingCommand
+  .command('report')
+  .description('Shadow agreement between selected and actual harness')
+  .option('--issue <n>', 'Issue number')
+  .option('--json', 'Emit JSON')
+  .action(async (options: { issue?: string; json?: boolean }) => {
+    const { runRoutingReport } = await import('./commands/routing.js');
+    process.exit(await runRoutingReport(options));
+  });
+
 const conventionsCommand = withGlobalOptions(
   program
     .command('conventions')

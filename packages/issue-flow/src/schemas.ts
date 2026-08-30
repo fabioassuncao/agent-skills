@@ -286,7 +286,7 @@ export const executionRecordSchema = z.object({
     .object({
       selected: z.string(),
       actual: z.string().optional(),
-      candidates: z.array(z.string()).optional(),
+      candidates: z.array(z.unknown()).optional(),
       reasonCodes: z.array(z.string()).optional(),
     })
     .passthrough()
@@ -635,4 +635,10 @@ export const verifyConfigSchema = z.object({
 
 export type WebConfig = z.infer<typeof webConfigSchema>;
 export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
+export const routingConfigSchema = z.object({
+  mode: z.enum(['off', 'shadow', 'recommend', 'active']).default('shadow'),
+  profile: z.enum(['economy', 'balanced', 'quality', 'speed']).default('balanced'),
+});
+
 export type VerifyConfig = z.infer<typeof verifyConfigSchema>;
+export type RoutingConfig = z.infer<typeof routingConfigSchema>;

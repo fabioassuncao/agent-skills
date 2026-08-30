@@ -1,15 +1,21 @@
-import { getActiveResilienceConfig } from '../config.js';
+import {
+  getActiveResilienceConfig,
+  getAgentCliOverrides,
+  loadAgentConfig,
+  loadRoutingConfig,
+} from '../config.js';
 import { getSessionPublisher } from '../core/session-publisher.js';
 import { isoNow } from '../core/state-manager.js';
 import { type ClassifiedFailure, classify, type FailureKind } from '../resilience/errors.js';
+import { decideRouting } from '../routing/decide.js';
 import type { ProviderHealthRecord } from '../storage/schemas.js';
 import { beginExecution, endExecution } from '../telemetry/recorder.js';
-import type { ExecutionPurpose, ExecutionTrigger } from '../telemetry/types.js';
+import type { ExecutionPurpose, ExecutionRecord, ExecutionTrigger } from '../telemetry/types.js';
 import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
 import { ensureCursorStorageGrant } from './permissions.js';
 import { runnerFor } from './registry.js';
-import { resolveAgentFor } from './resolve.js';
+import { hasExplicitAgentSelection, resolveAgentFor } from './resolve.js';
 import { type AgentSelection, selectAgentForInvocation } from './select.js';
 import type { AgentInvocation, AgentProviderId, AgentRunResult } from './types.js';
 
@@ -105,6 +111,16 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
 
   const identity = declaredAgentIdentity(selection.provider);
   const requested = selection.settings.model;
+  const routingCfg = await loadRoutingConfig();
+  const agentCfg = await loadAgentConfig();
+  const routingDecision = decideRouting({
+    phase: invocation.phase,
+    actualHarness: identity.harness,
+    mode: routingCfg.mode,
+    profile: routingCfg.profile,
+    skipScore: hasExplicitAgentSelection(agentCfg, getAgentCliOverrides()),
+    requiresExtraDirectories: (invocation.addDirs?.length ?? 0) > 0,
+  });
   const executionId = await beginExecution({
     purpose: (invocation.purpose ?? invocation.phase) as ExecutionPurpose,
     attempt,
@@ -120,6 +136,9 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     modelRequested: requested,
     modelResolved: null,
     modelSource: requested ? 'config' : 'unavailable',
+    ...(routingDecision === null
+      ? {}
+      : { routingDecision: routingDecision as unknown as ExecutionRecord['routingDecision'] }),
   });
 
   const runner = runnerFor(selection.provider);

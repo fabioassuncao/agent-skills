@@ -89,7 +89,7 @@ export interface ExecutionVerdict {
 export interface RoutingDecision {
   selected: string;
   actual?: string;
-  candidates?: string[];
+  candidates?: unknown[];
   reasonCodes?: string[];
   [key: string]: unknown;
 }
