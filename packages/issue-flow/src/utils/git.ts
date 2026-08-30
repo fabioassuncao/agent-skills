@@ -32,9 +32,21 @@ export async function getCurrentBranch(): Promise<string> {
   return result.stdout.trim();
 }
 
+/** Whether a local branch exists, without consulting or mutating remotes. */
+export async function localBranchExists(name: string, cwd?: string): Promise<boolean> {
+  if (name.trim() === '') return false;
+  const result = await run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${name}`], {
+    ...(cwd === undefined ? {} : { cwd }),
+    diagnostics: false,
+  });
+  return result.exitCode === 0;
+}
+
 export interface CommitInfo {
   hash: string;
   subject: string;
+  committedAt?: string | null;
+  storyId?: string | null;
 }
 
 /**
@@ -43,14 +55,20 @@ export interface CommitInfo {
  * Never throws; defaults to 'main'.
  */
 export async function getBaseBranch(): Promise<string> {
-  const remoteHead = await run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+  const remoteHead = await run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
+    diagnostics: false,
+  });
   if (remoteHead.exitCode === 0) {
     const name = remoteHead.stdout.trim().replace(/^origin\//, '');
     if (name) return name;
   }
 
   for (const candidate of ['main', 'master']) {
-    const check = await run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${candidate}`]);
+    const check = await run(
+      'git',
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${candidate}`],
+      { diagnostics: false },
+    );
     if (check.exitCode === 0) return candidate;
   }
 
@@ -71,7 +89,7 @@ export async function getBaseBranch(): Promise<string> {
 export async function getRemoteUrl(cwd?: string): Promise<string | null> {
   let result: ExecResult;
   try {
-    result = await run('git', ['remote', 'get-url', 'origin'], { cwd });
+    result = await run('git', ['remote', 'get-url', 'origin'], { cwd, diagnostics: false });
   } catch {
     return null;
   }
@@ -95,7 +113,7 @@ export async function getRemoteUrl(cwd?: string): Promise<string | null> {
 export async function getHeadCommit(cwd?: string): Promise<string | null> {
   let result: ExecResult;
   try {
-    result = await run('git', ['rev-parse', '--short', 'HEAD'], { cwd });
+    result = await run('git', ['rev-parse', '--short', 'HEAD'], { cwd, diagnostics: false });
   } catch {
     return null;
   }
@@ -220,18 +238,41 @@ export function stripRemoteUrlCredentials(url: string | null | undefined): strin
  * resolved (e.g. unknown base branch or shallow clone).
  */
 export async function getCommitsSince(base: string): Promise<CommitInfo[]> {
-  const result = await run('git', ['log', '--pretty=format:%h%x09%s', `${base}..HEAD`]);
+  const result = await run('git', [
+    'log',
+    '--pretty=format:%h%x09%cI%x09%s%x09%b%x1e',
+    `${base}..HEAD`,
+  ]);
   if (result.exitCode !== 0) return [];
 
-  return result.stdout
-    .split('\n')
-    .filter((line) => line.trim() !== '')
-    .map((line) => {
-      const tab = line.indexOf('\t');
-      return tab === -1
-        ? { hash: line.trim(), subject: '' }
-        : { hash: line.slice(0, tab), subject: line.slice(tab + 1) };
-    });
+  if (!result.stdout.includes('\x1e')) {
+    return result.stdout
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => {
+        const tab = line.indexOf('\t');
+        return tab === -1
+          ? { hash: line.trim(), subject: '' }
+          : { hash: line.slice(0, tab), subject: line.slice(tab + 1) };
+      });
+  }
+  const records = result.stdout.split('\x1e');
+  return records.flatMap((raw) => {
+    const record = raw.trim();
+    if (record === '') return [];
+    const fields = record.split('\t');
+    const [hash = '', committedAt = '', subject = '', ...bodyParts] = fields;
+    const body = bodyParts.join('\t');
+    const storyId = /(?:Story:\s*|\[)(US-\d+)/i.exec(`${subject}\n${body}`)?.[1] ?? null;
+    return [
+      {
+        hash,
+        subject,
+        committedAt: committedAt || null,
+        storyId: storyId?.toUpperCase() ?? null,
+      },
+    ];
+  });
 }
 
 /* ── repository preflight ───────────────────────────────────────────────── */
@@ -289,6 +330,7 @@ export interface PreflightOptions {
 async function refExists(ref: string, cwd?: string): Promise<boolean> {
   const result = await run('git', ['rev-parse', '--verify', '--quiet', ref], {
     ...(cwd === undefined ? {} : { cwd }),
+    diagnostics: false,
   });
   return result.exitCode === 0;
 }

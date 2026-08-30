@@ -32,7 +32,12 @@ import {
 import { listPullRequests, publishGitState } from '../core/session-git.js';
 import { beginUsageScope, getRunUsageTotals } from '../core/session-metrics.js';
 import { getSessionPublisher, setSessionPublisher } from '../core/session-publisher.js';
-import { FilePublisher, MemoryPublisher, type SessionPublisher } from '../core/session-state.js';
+import {
+  FilePublisher,
+  MemoryPublisher,
+  type SessionConfigurationSnapshot,
+  type SessionPublisher,
+} from '../core/session-state.js';
 import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getInactivityTimeout, isVerbose, setInactivityTimeout } from '../core/verbose.js';
@@ -54,6 +59,11 @@ import { parseIssueArguments } from '../issues/args.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import {
+  bindDiagnosticContext,
+  flushDiagnostics,
+  writeDiagnostic,
+} from '../storage/diagnostics.js';
 import { acquireRunLock, describeRunLockOwner } from '../storage/lock.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
@@ -72,6 +82,10 @@ import {
   committedStoryIds,
   describePreflight,
   getBaseBranch,
+  getCurrentBranch,
+  getHeadCommit,
+  getProjectRoot,
+  localBranchExists,
   preflightRepository,
 } from '../utils/git.js';
 import { run } from '../utils/shell.js';
@@ -503,6 +517,20 @@ async function runIssueSession(
   // cache, so the git call and the legacy migration happen a single time for
   // the whole run instead of once per phase.
   const paths = await resolveIssuePaths(issueNumber);
+  try {
+    const project = await resolveProjectPaths();
+    bindDiagnosticContext({
+      project: project.projectId,
+      projectRoot: await getProjectRoot(),
+      issue: issueNumber,
+      sessionId: null,
+      executionId: null,
+      phase: null,
+      story: null,
+      harness: null,
+      model: null,
+    });
+  } catch {}
 
   // The `resilience` key, installed once for the whole run. Every `gh` call
   // below reads it synchronously (`getActiveResilienceConfig()`), so it has to
@@ -650,6 +678,12 @@ async function runIssueSession(
     // detached, single machine-wide instance meant to outlive the pipeline
     // and serve other invocations. Only this run's own publication ends here.
     await publisher.close();
+    writeDiagnostic({
+      level: result.code === 0 ? 'info' : 'error',
+      message: `Issue Flow session ${result.code === 0 ? 'completed' : 'failed'}`,
+      context: { code: result.code, failedPhase: result.failedPhase },
+    });
+    await flushDiagnostics();
     setSessionPublisher(undefined);
   }
 }
@@ -857,6 +891,19 @@ async function runPipelinePhases(
   };
   const tasksPath = paths.tasksFile;
   const sessionId = randomUUID();
+  bindDiagnosticContext({
+    sessionId,
+    issue: issueNumber,
+    executionId: null,
+    phase: null,
+    story: null,
+    harness: null,
+    model: null,
+  });
+  const [initialBranch, initialCommit] = await Promise.all([
+    getCurrentBranch().catch(() => ''),
+    getHeadCommit(),
+  ]);
 
   // Refined with the provider's own number once the Issue is resolved.
   let publishedIssueNumber = toIssueNumber(issueNumber);
@@ -864,7 +911,12 @@ async function runPipelinePhases(
   const publishSessionStart = (
     phases: readonly string[],
     at: string,
-    info?: { issueUrl?: string; branch?: string },
+    info?: {
+      issueUrl?: string;
+      branch?: string;
+      branchCreated?: boolean | null;
+      startCommit?: string | null;
+    },
   ): void => {
     publisher.publish({
       type: 'session:start',
@@ -873,7 +925,10 @@ async function runPipelinePhases(
       issueNumber: publishedIssueNumber,
       issueUrl: info?.issueUrl,
       branch: info?.branch,
+      branchCreated: info?.branchCreated,
+      startCommit: info?.startCommit,
       phases: [...phases],
+      configuration: configurationSnapshot,
       environment: {
         node: process.version,
         platform: process.platform,
@@ -888,6 +943,34 @@ async function runPipelinePhases(
       ? ['prd', 'plan', 'execute', 'review', 'pr', 'pr-review']
       : ['prd', 'plan', 'execute', 'review', 'pr'],
   );
+  const fallbacks = getActiveResilienceConfig().providers?.chain ?? [];
+  const configurationSnapshot: SessionConfigurationSnapshot = {
+    precedence: ['default', 'global', 'project', 'env', 'cli', 'step override'],
+    defaultProvider: {
+      value: agentSummary.defaultProvider,
+      source: agentSummary.defaultOrigin.provider,
+    },
+    defaultModel: {
+      value: agentSummary.defaultModel,
+      source: agentSummary.defaultOrigin.model,
+    },
+    phases: Object.entries(agentSummary.byPhase).map(([phase, resolved]) => ({
+      phase,
+      provider: { value: resolved.provider, source: resolved.origin.provider },
+      model: { value: resolved.model, source: resolved.origin.model },
+    })),
+    fallbacks,
+    overrides: Object.entries(agentSummary.byPhase)
+      .filter(
+        ([, resolved]) =>
+          resolved.provider !== agentSummary.defaultProvider ||
+          resolved.model !== agentSummary.defaultModel,
+      )
+      .map(
+        ([phase, resolved]) =>
+          `${phase}: ${resolved.provider}${resolved.model ? ` · ${resolved.model}` : ''}`,
+      ),
+  };
   printInfo(
     `Starting pipeline for issue #${issueNumber} (mode: ${mode}, agent: ${agentSummary.label})`,
   );
@@ -1055,6 +1138,11 @@ async function runPipelinePhases(
   // Branch this issue will work on, reported back so the queue can adopt the
   // first issue's choice for every later one.
   let producedBranch: string | null = null;
+  let plannedExecutionBranch: string | null = planBranch ?? null;
+  let branchExistedBeforeExecution =
+    effectiveNoBranch || planBranch === undefined || planBranch === null
+      ? null
+      : await localBranchExists(planBranch).catch(() => null);
 
   // Adopted **before** the phases run, not only after `plan`: an issue whose
   // plan phase is already complete (it was run standalone before joining the
@@ -1071,7 +1159,9 @@ async function runPipelinePhases(
   // phase (which already ran) is published retroactively with real timestamps.
   publishSessionStart(activePhases, sessionStartedAt, {
     issueUrl: planIssueUrl ?? resolvedIssue.issue.remoteRef ?? undefined,
-    branch: planBranch,
+    branch: effectiveNoBranch ? initialBranch : planBranch,
+    branchCreated: effectiveNoBranch ? false : branchExistedBeforeExecution === true ? false : null,
+    startCommit: initialCommit,
   });
   // Right after session:start (which resets the snapshot) and before any phase
   // event, so the first /api/status poll already answers with the Issue and
@@ -1147,7 +1237,12 @@ async function runPipelinePhases(
     prd: makeRunner(() => runPrd(issueNumber, resolvedIssue), 'prd'),
     plan: async () => {
       await makeRunner(
-        () => runPlan(issueNumber, resolvedIssue, { continueFlag: continueNumbering, startUs }),
+        () =>
+          runPlan(issueNumber, resolvedIssue, {
+            continueFlag: continueNumbering,
+            startUs,
+            ...(effectiveNoBranch && initialBranch ? { branchName: initialBranch } : {}),
+          }),
         'plan',
       )();
       // Read the newly-created plan once: publish its stories immediately so
@@ -1155,6 +1250,15 @@ async function runPipelinePhases(
       // snapshot, and persist phase-selection modes from the same object.
       try {
         const plan = await loadTaskPlan(tasksPath);
+        if (!effectiveNoBranch) {
+          plannedExecutionBranch = plan.branchName;
+          branchExistedBeforeExecution = await localBranchExists(plan.branchName).catch(() => null);
+          publisher.publish({
+            type: 'git:update',
+            at: isoNow(),
+            branchCreated: branchExistedBeforeExecution === true ? false : null,
+          });
+        }
         publishStorySeed(publisher, plan.userStories, isoNow());
         if (effectiveNoBranch || effectivePrReview) {
           if (effectiveNoBranch) plan.noBranch = true;
@@ -1270,6 +1374,14 @@ async function runPipelinePhases(
         publisher.publish({ type: 'phase:start', at: isoNow(), phase });
         try {
           await fn();
+          if (
+            phase === 'execute' &&
+            branchExistedBeforeExecution === false &&
+            plannedExecutionBranch !== null &&
+            (await getCurrentBranch().catch(() => '')) === plannedExecutionBranch
+          ) {
+            publisher.publish({ type: 'git:update', at: isoNow(), branchCreated: true });
+          }
           await publishGitState(publisher);
           await publishInstrumentedPhaseEnd(publisher, phase, issueNumber, true);
         } catch (err) {

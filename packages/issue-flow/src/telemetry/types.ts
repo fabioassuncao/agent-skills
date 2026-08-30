@@ -124,6 +124,8 @@ export interface ExecutionRecord {
   } | null;
   stopReason?: StopReason | null;
   iteration?: number;
+  /** Correction cycle active when this invocation started; 0 is the initial pass. */
+  correctionCycle?: number;
   storyIds?: string[];
   owner?: ExecutionOwner | null;
   routingDecision?: RoutingDecision | null;

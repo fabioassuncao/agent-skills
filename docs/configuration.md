@@ -51,6 +51,14 @@ a warning, **key by key**: a typo under `retry` costs you `retry` only, never
 your `web` settings. Unknown keys are dropped without a warning, which is what
 keeps a file written by a newer release readable by an older one.
 
+For agent selection, the web monitor captures the resolved provider/model and
+the winning source at session start. Its configuration card presents the ladder
+as **built-in default → global user → project → environment → CLI → phase/step
+override**, with the effective value highlighted. A loopback-bound monitor can
+save the global user preference for future runs; project, environment, CLI and
+phase overrides remain visible and continue to win according to the table
+above. An active session is never reconfigured retroactively.
+
 ## `.issue-flow.json`
 
 Optional, at the project root. Nine keys, all independent:

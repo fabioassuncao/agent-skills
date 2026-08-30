@@ -65,6 +65,7 @@ describe('getRemoteUrl', () => {
     await expect(getRemoteUrl()).resolves.toBe('git@github.com:org/repo.git');
     expect(mockRun).toHaveBeenCalledWith('git', ['remote', 'get-url', 'origin'], {
       cwd: undefined,
+      diagnostics: false,
     });
   });
 
@@ -73,6 +74,7 @@ describe('getRemoteUrl', () => {
     await expect(getRemoteUrl('/some/project/root')).resolves.toBe('git@github.com:org/repo.git');
     expect(mockRun).toHaveBeenCalledWith('git', ['remote', 'get-url', 'origin'], {
       cwd: '/some/project/root',
+      diagnostics: false,
     });
   });
 
@@ -100,6 +102,7 @@ describe('getHeadCommit', () => {
     await expect(getHeadCommit()).resolves.toBe('c56b163');
     expect(mockRun).toHaveBeenCalledWith('git', ['rev-parse', '--short', 'HEAD'], {
       cwd: undefined,
+      diagnostics: false,
     });
   });
 
@@ -108,6 +111,7 @@ describe('getHeadCommit', () => {
     await expect(getHeadCommit('/some/project/root')).resolves.toBe('c56b163');
     expect(mockRun).toHaveBeenCalledWith('git', ['rev-parse', '--short', 'HEAD'], {
       cwd: '/some/project/root',
+      diagnostics: false,
     });
   });
 
@@ -221,7 +225,28 @@ describe('getCommitsSince', () => {
       { hash: 'abc1234', subject: 'feat: first' },
       { hash: 'def5678', subject: 'fix: a\tb' },
     ]);
-    expect(mockRun).toHaveBeenCalledWith('git', ['log', '--pretty=format:%h%x09%s', 'main..HEAD']);
+    expect(mockRun).toHaveBeenCalledWith('git', [
+      'log',
+      '--pretty=format:%h%x09%cI%x09%s%x09%b%x1e',
+      'main..HEAD',
+    ]);
+  });
+
+  it('collects timestamp and story association from structured commit metadata', async () => {
+    mockRun.mockResolvedValueOnce(
+      result({
+        stdout:
+          'abc1234\t2026-08-30T10:00:00-03:00\tfeat: observability\tRefs #42\nStory: US-010\x1e',
+      }),
+    );
+    await expect(getCommitsSince('start-sha')).resolves.toEqual([
+      {
+        hash: 'abc1234',
+        subject: 'feat: observability',
+        committedAt: '2026-08-30T10:00:00-03:00',
+        storyId: 'US-010',
+      },
+    ]);
   });
 
   it('returns [] when there are no commits ahead of base', async () => {

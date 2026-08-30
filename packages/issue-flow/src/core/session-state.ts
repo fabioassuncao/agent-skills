@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { FailureKind } from '../resilience/errors.js';
 import { setTelemetrySessionId } from '../telemetry/session-id.js';
+import type { ExecutionRecord } from '../telemetry/types.js';
 import type { StoryStage, UserStory, UserStoryStatus } from '../types.js';
 
 /**
@@ -42,6 +43,9 @@ export type SessionEvent =
       baseBranch?: string;
       phases: string[];
       environment?: SessionEnvironment;
+      configuration?: SessionConfigurationSnapshot;
+      branchCreated?: boolean | null;
+      startCommit?: string | null;
     }
   | {
       /**
@@ -129,6 +133,16 @@ export type SessionEvent =
   | { type: 'stories:update'; at: string; stories: UserStory[] }
   | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }
+  | {
+      type: 'process:output';
+      at: string;
+      phase: string;
+      executionId: string | null;
+      provider: string;
+      stream: 'stdout' | 'stderr' | 'combined';
+      message: string;
+    }
+  | { type: 'execution:update'; at: string; execution: ExecutionRecord }
   | { type: 'correction:cycle'; at: string; cycle: number; maxCycles: number }
   | {
       type: 'metrics:update';
@@ -166,6 +180,7 @@ export type SessionEvent =
       at: string;
       branch?: string;
       baseBranch?: string;
+      branchCreated?: boolean | null;
       commits?: SessionCommit[];
       pullRequests?: SessionPullRequest[];
       /** `owner/repo`, derived from the origin remote. */
@@ -197,6 +212,41 @@ export interface SessionLogEntry {
   at: string;
   level: SessionLogLevel;
   message: string;
+}
+
+export interface SessionProcessLogEntry {
+  at: string;
+  phase: string;
+  executionId: string | null;
+  provider: string;
+  stream: 'stdout' | 'stderr' | 'combined';
+  message: string;
+}
+
+export interface SessionConfigurationValue {
+  value: string | null;
+  source: 'default' | 'global' | 'project' | 'env' | 'cli' | 'fallback';
+}
+
+export interface SessionPhaseConfiguration {
+  phase: string;
+  provider: SessionConfigurationValue;
+  model: SessionConfigurationValue;
+}
+
+export interface SessionConfigurationSnapshot {
+  precedence: string[];
+  defaultProvider: SessionConfigurationValue;
+  defaultModel: SessionConfigurationValue;
+  phases: SessionPhaseConfiguration[];
+  fallbacks: string[];
+  overrides: string[];
+}
+
+export interface SessionStageHistoryEntry {
+  at: string;
+  stage: StoryStage;
+  detail: string | null;
 }
 
 /**
@@ -279,6 +329,8 @@ export interface SessionStorySnapshot extends SessionUsageSnapshot {
   stageSince: string | null;
   /** Short human detail for the current stage (e.g. a correction cycle). */
   stageDetail: string | null;
+  /** Append-only transition history retained in the snapshot for the drawer. */
+  history: SessionStageHistoryEntry[];
 }
 
 export interface SessionActivity {
@@ -301,6 +353,8 @@ export interface SessionResilienceSnapshot {
 export interface SessionCommit {
   hash: string;
   subject: string;
+  committedAt?: string | null;
+  storyId?: string | null;
 }
 
 export interface SessionPullRequest {
@@ -377,8 +431,17 @@ export interface SessionSnapshot {
     correctionCycle: number;
     maxCorrectionCycles: number | null;
   };
+  executions: ExecutionRecord[];
+  processLogs: SessionProcessLogEntry[];
+  configuration: SessionConfigurationSnapshot | null;
   resilience: SessionResilienceSnapshot;
-  git: { branch: string | null; baseBranch: string | null; commits: SessionCommit[] };
+  git: {
+    branch: string | null;
+    baseBranch: string | null;
+    branchCreated: boolean | null;
+    startCommit: string | null;
+    commits: SessionCommit[];
+  };
   repository: SessionRepositorySnapshot;
   pullRequests: SessionPullRequest[];
   logs: SessionLogEntry[];
@@ -466,6 +529,9 @@ export function createInitialSnapshot(): SessionSnapshot {
     stories: [],
     metrics: emptyMetrics(),
     execution: { iteration: 0, retries: 0, correctionCycle: 0, maxCorrectionCycles: null },
+    executions: [],
+    processLogs: [],
+    configuration: null,
     resilience: {
       attempt: 0,
       provider: null,
@@ -474,7 +540,13 @@ export function createInitialSnapshot(): SessionSnapshot {
       cooldownUntil: null,
       lastActivityAt: null,
     },
-    git: { branch: null, baseBranch: null, commits: [] },
+    git: {
+      branch: null,
+      baseBranch: null,
+      branchCreated: null,
+      startCommit: null,
+      commits: [],
+    },
     repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
     pullRequests: [],
     logs: [],
@@ -640,6 +712,22 @@ function isTerminalStage(stage: StoryStage): boolean {
   return stage === 'done' || stage === 'failed';
 }
 
+function transitionStory(
+  story: SessionStorySnapshot,
+  stage: StoryStage,
+  at: string,
+  detail: string | null,
+): SessionStorySnapshot {
+  if (story.stage === stage && story.stageDetail === detail) return story;
+  return {
+    ...story,
+    stage,
+    stageSince: at,
+    stageDetail: detail,
+    history: [...story.history, { at, stage, detail }],
+  };
+}
+
 /**
  * `stage`/`stageSince`/`stageDetail` for one story, on one `stories:update`.
  *
@@ -699,12 +787,19 @@ function applyEvent(
           ...emptyPhaseTiming(),
           ...emptyUsage(),
         })),
-        git: { branch: event.branch ?? null, baseBranch: event.baseBranch ?? null, commits: [] },
+        git: {
+          branch: event.branch ?? null,
+          baseBranch: event.baseBranch ?? null,
+          branchCreated: event.branchCreated ?? null,
+          startCommit: event.startCommit ?? null,
+          commits: [],
+        },
         // The branch is the one piece of repository identity the session
         // already knows here; the rest waits for publishGitState. Seeding it
         // keeps git.branch and repository.branch consistent for a poll that
         // lands before the first git:update.
         repository: { ...initial.repository, branch: event.branch ?? null },
+        configuration: event.configuration ?? null,
         environment: event.environment
           ? {
               node: event.environment.node,
@@ -767,9 +862,7 @@ function applyEvent(
       const stories =
         event.phase === 'review'
           ? snapshot.stories.map((story) =>
-              story.passes
-                ? { ...story, stage: 'in_review' as const, stageSince: event.at, stageDetail: null }
-                : story,
+              story.passes ? transitionStory(story, 'in_review', event.at, null) : story,
             )
           : snapshot.stories;
       return {
@@ -808,15 +901,11 @@ function applyEvent(
       // so nothing is left frozen on 'executing' after the run stops.
       const stories = !event.success
         ? snapshot.stories.map((story) =>
-            isTerminalStage(story.stage)
-              ? story
-              : { ...story, stage: 'failed' as const, stageSince: event.at, stageDetail: null },
+            isTerminalStage(story.stage) ? story : transitionStory(story, 'failed', event.at, null),
           )
         : event.phase === 'review'
           ? snapshot.stories.map((story) =>
-              story.passes
-                ? { ...story, stage: 'done' as const, stageSince: event.at, stageDetail: null }
-                : story,
+              story.passes ? transitionStory(story, 'done', event.at, null) : story,
             )
           : snapshot.stories;
       return {
@@ -845,13 +934,9 @@ function applyEvent(
       const stories = snapshot.stories.map((story) => {
         if (story.passes) return story;
         if (story.id === storyId) {
-          return story.stage === 'executing'
-            ? story
-            : { ...story, stage: 'executing' as const, stageSince: event.at, stageDetail: null };
+          return transitionStory(story, 'executing', event.at, null);
         }
-        return story.stage === 'pending'
-          ? story
-          : { ...story, stage: 'pending' as const, stageSince: event.at, stageDetail: null };
+        return transitionStory(story, 'pending', event.at, null);
       });
       return {
         ...snapshot,
@@ -938,6 +1023,9 @@ function applyEvent(
         // stories:update rebuilds the array from the plan on every publish, so
         // metrics already attributed to a story must be carried over here or
         // the next update would wipe them.
+        const stage = deriveStageOnStoriesUpdate(story, before, event.at);
+        const history = before?.history ?? [];
+        const stageChanged = before !== undefined && before.stage !== stage.stage;
         return {
           id: story.id,
           title: story.title,
@@ -960,7 +1048,10 @@ function applyEvent(
           cacheReadTokens: before?.cacheReadTokens ?? null,
           cacheCreationTokens: before?.cacheCreationTokens ?? null,
           costUsd: before?.costUsd ?? null,
-          ...deriveStageOnStoriesUpdate(story, before, event.at),
+          ...stage,
+          history: stageChanged
+            ? [...history, { at: event.at, stage: stage.stage, detail: stage.stageDetail }]
+            : history,
         };
       });
       return {
@@ -1002,12 +1093,38 @@ function applyEvent(
       return { ...snapshot, logs };
     }
 
+    case 'process:output': {
+      const limit = options?.logLimit ?? DEFAULT_LOG_LIMIT;
+      const entry: SessionProcessLogEntry = {
+        at: event.at,
+        phase: event.phase,
+        executionId: event.executionId,
+        provider: event.provider,
+        stream: event.stream,
+        message: stripVTControlCharacters(event.message),
+      };
+      return {
+        ...snapshot,
+        processLogs: [...snapshot.processLogs, entry].slice(-Math.max(1, limit)),
+      };
+    }
+
+    case 'execution:update': {
+      const index = snapshot.executions.findIndex((entry) => entry.id === event.execution.id);
+      const executions = [...snapshot.executions];
+      if (index === -1) executions.push(event.execution);
+      else executions[index] = event.execution;
+      return { ...snapshot, executions };
+    }
+
     case 'git:update':
       return {
         ...snapshot,
         git: {
           branch: event.branch ?? snapshot.git.branch,
           baseBranch: event.baseBranch ?? snapshot.git.baseBranch,
+          branchCreated: reported(event.branchCreated, snapshot.git.branchCreated),
+          startCommit: snapshot.git.startCommit,
           commits: event.commits ?? snapshot.git.commits,
         },
         repository: {
@@ -1030,9 +1147,7 @@ function applyEvent(
       // stageDetail.
       const stageDetail = `Cycle ${event.cycle}/${event.maxCycles}`;
       const stories = snapshot.stories.map((story) =>
-        story.passes
-          ? { ...story, stage: 'in_correction' as const, stageSince: event.at, stageDetail }
-          : story,
+        story.passes ? transitionStory(story, 'in_correction', event.at, stageDetail) : story,
       );
       return {
         ...snapshot,
@@ -1118,7 +1233,7 @@ function applyEvent(
           if (isTerminalStage(story.stage)) return story;
           const stage =
             event.status === 'completed' && story.passes ? ('done' as const) : ('failed' as const);
-          return { ...story, stage, stageSince: event.at, stageDetail: null };
+          return transitionStory(story, stage, event.at, null);
         }),
         lastError: event.error
           ? { message: stripVTControlCharacters(event.error), at: event.at }

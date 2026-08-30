@@ -100,6 +100,10 @@ export interface AgentInvocation {
   forceProvider?: AgentProviderId;
   /** Telemetry purpose when it is not the phase name (`verify`). */
   purpose?: 'verify';
+  /** Observability context; it never changes provider behaviour or prompt contents. */
+  iteration?: number;
+  correctionCycle?: number;
+  storyIds?: string[];
 }
 
 export interface AgentRunResult {

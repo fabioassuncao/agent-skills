@@ -11,6 +11,7 @@ noise. The trade-off is that the artifacts are machine-local.
 - [`ISSUE_FLOW_HOME`](#issue_flow_home)
 - [`tasks.json`](#tasksjson) — the task plan and the pipeline state
 - [`session.json`](#sessionjson) — the live snapshot
+- [Global diagnostic logs](#global-diagnostic-logs)
 - [Tokens and cost](#tokens-and-cost)
 - [Execution telemetry](#execution-telemetry)
 - [Migrating from `issues/`](#migrating-from-issues)
@@ -20,6 +21,8 @@ noise. The trade-off is that the artifacts are machine-local.
 ```
 ~/.issue-flow/
   config.json                    # Machine-wide preferences (optional)
+  logs/
+    issue-flow-2026-08-30.jsonl  # Structured, machine-wide diagnostics
   web.lock                       # PID + port of the active web monitor, if any
   projects/
     issue-flow-4b21c0e9f7a3/     # One directory per project: <slug>-<hash12>
@@ -327,6 +330,7 @@ neutral defaults (`null`, `[]`) rather than rejected.
       "id": "US-001", "title": "…", "priority": 1, "passes": true, "completedAt": "…",
       "status": "done", "dependencies": [],
       "stage": "in_review", "stageSince": "2026-08-03T16:12:04Z", "stageDetail": null,
+      "history": [{ "at": "…", "stage": "executing", "detail": "Iteration 1" }],
       "description": "…", "acceptanceCriteria": ["…"],
       "durationSeconds": 188, "inputTokens": 203, "outputTokens": 10780,
       "cacheReadTokens": 321000, "cacheCreationTokens": 24100, "costUsd": 0.8547
@@ -345,7 +349,11 @@ neutral defaults (`null`, `[]`) rather than rejected.
     "lastActivityAt": "2026-08-03T16:13:08Z"
   },
   "verification": { "verdict": "passed", "level": "L1", "independence": "harness-only" },
-  "git": { "branch": "feat/42-dark-mode", "baseBranch": "main", "commits": [{ "hash": "abc1234", "subject": "feat: …" }] },
+  "git": {
+    "branch": "feat/42-dark-mode", "baseBranch": "main",
+    "branchCreated": true, "startCommit": "9ab3210",
+    "commits": [{ "hash": "abc1234", "subject": "feat: …", "committedAt": "…", "storyId": "US-001" }]
+  },
   "repository": {
     "name": "owner/repo",
     "remoteUrl": "git@github.com:owner/repo.git",
@@ -355,6 +363,14 @@ neutral defaults (`null`, `[]`) rather than rejected.
   },
   "pullRequests": [{ "number": 43, "url": "…", "title": "…" }],
   "logs": [{ "at": "…", "level": "info", "message": "…" }],
+  "processLogs": [{ "at": "…", "phase": "execute", "executionId": "…", "provider": "codex", "stream": "combined", "message": "…" }],
+  "executions": [{ "id": "…", "purpose": "execute", "attempt": 1, "status": "completed" }],
+  "configuration": {
+    "precedence": ["default", "global", "project", "env", "cli", "step override"],
+    "defaultProvider": { "value": "codex", "source": "project" },
+    "defaultModel": { "value": "gpt-5.6", "source": "global" },
+    "phases": [], "fallbacks": ["codex", "claude"], "overrides": []
+  },
   "errors": [], "warnings": [], "lastError": null,
   "nextSteps": ["review", "pr"],
   "environment": { "node": "v22.0.0", "platform": "darwin", "agent": "claude", "model": null }
@@ -530,6 +546,26 @@ the number, on which attempt, or whether a failed try spent tokens too.
 Read it with `issue-flow usage [--issue N] [--by harness]`. Disable writes with
 `telemetry.enabled: false` or `ISSUE_FLOW_TELEMETRY=0`. The list is capped at
 `telemetry.maxExecutions` (default `500`).
+
+The same invocation rows are projected into `session.json.executions` while a
+session is live. `processLogs` is a bounded, redacted tail of harness output for
+the drawer; it is not the durable diagnostic source.
+
+## Global diagnostic logs
+
+Every run also writes structured JSON Lines to
+`~/.issue-flow/logs/issue-flow-YYYY-MM-DD.jsonl`, independently of the project
+and of whether the web monitor is enabled. Records carry the available
+correlation fields (`project`, `projectRoot`, `sessionId`, `executionId`, issue,
+phase, story, harness and model), plus level, timestamp, message, context and an
+exception stack when one exists.
+
+The writer is best-effort and serialized: a logging failure cannot break the
+pipeline. Files rotate at 10 MiB, keep five generations per day, and files older
+than 30 days are removed. Authentication-like keys and values are redacted
+recursively before persistence. These files are the machine-wide source for
+post-mortem debugging; the dashboard only queries the correlated subset through
+`GET /api/diagnostics?session=<id>`.
 
 The synthetic baseline used to measure orchestration overhead is
 `packages/issue-flow/src/benchmark/`; the published *before* table is

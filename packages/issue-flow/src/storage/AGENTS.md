@@ -92,6 +92,10 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   `detached` is optional and additive: a lock written before it existed is a
   foreground run. `run.log` / `run.log.1` live on `IssuePaths` and are owned
   by `--background`; rotation is size-capped in `run-log.ts`.
+  Machine-wide diagnostics are different: `diagnostics.ts` owns dated JSONL
+  files under `getDiagnosticsDir()`, correlation fields, recursive secret
+  redaction, 10 MiB rotation (five generations) and 30-day retention. Its
+  queued best-effort writes must never make the pipeline fail.
   `execution/registry.ts` is the only cross-project reader of `run.lock`.
 - **`providers.json` is project-level durable state.** Its path comes from
   `resolveProjectPaths().providersHealthFile`; agent code never joins the name.

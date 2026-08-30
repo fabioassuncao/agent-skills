@@ -4,6 +4,7 @@ import { getSessionPublisher } from '../core/session-publisher.js';
 import type { SessionLogLevel } from '../core/session-state.js';
 import { isoNow } from '../core/state-manager.js';
 import { getOutputCallback } from '../core/verbose.js';
+import { writeDiagnostic } from '../storage/diagnostics.js';
 
 /**
  * Detect if unicode output is supported.
@@ -84,6 +85,10 @@ export function getTermWidth(): number {
  */
 function emit(line: string, level: SessionLogLevel = 'info'): void {
   getSessionPublisher().publish({ type: 'log', at: isoNow(), level, message: line });
+  writeDiagnostic({
+    level: level === 'warn' ? 'warning' : level,
+    message: line,
+  });
   const cb = getOutputCallback();
   if (cb) {
     cb(line);

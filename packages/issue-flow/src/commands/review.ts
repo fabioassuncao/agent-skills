@@ -101,6 +101,16 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
   });
 
   const startedAtMs = Date.now();
+  let reviewContext: { storyIds: string[]; correctionCycle: number } | undefined;
+  try {
+    const plan = await loadTaskPlan(tasksPath);
+    reviewContext = {
+      storyIds: plan.userStories.map((story) => story.id),
+      correctionCycle: plan.correctionCycle,
+    };
+  } catch {
+    reviewContext = undefined;
+  }
   const result = await runHeadless({
     prompt,
     maxTurns: 25,
@@ -113,6 +123,7 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     statusMessage: `Reviewing issue #${issueNumber} resolution...`,
     phase: 'review',
     permission: 'read-only',
+    ...(reviewContext ?? {}),
   });
   // Before the success check: the tokens were spent either way. A correction
   // cycle calls runReview() again and the reducer sums both invocations.

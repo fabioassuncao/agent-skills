@@ -76,6 +76,7 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
       phases[phase] = {
         provider: resolved.provider,
         model: resolved.model,
+        origin: resolved.origin,
         inherited,
       };
     }
@@ -86,6 +87,7 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
           default: {
             provider: summary.defaultProvider,
             model: summary.defaultModel,
+            origin: summary.defaultOrigin,
           },
           phases,
           availability: [
@@ -124,8 +126,10 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
   }
 
   const modelLabel = summary.defaultModel ?? '(default do provider)';
-  console.log(`Agente padrão   ${summary.defaultProvider.padEnd(22)} (${originLabel('default')})`);
-  console.log(`Modelo          ${modelLabel}`);
+  console.log(
+    `Agente padrão   ${summary.defaultProvider.padEnd(22)} (${originLabel(summary.defaultOrigin.provider)})`,
+  );
+  console.log(`Modelo          ${modelLabel} (${originLabel(summary.defaultOrigin.model)})`);
   console.log('');
   console.log('Por fase');
   for (const phase of AGENT_PHASES) {
@@ -136,7 +140,7 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
         phase,
         resolved.provider,
         resolved.model,
-        inherited ? 'default' : 'project',
+        resolved.origin.provider,
         inherited,
       ),
     );

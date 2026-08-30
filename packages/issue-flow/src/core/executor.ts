@@ -9,6 +9,9 @@ export interface ExecuteClaudeOptions {
    * watchdog, which is the behaviour every release before it had.
    */
   inactivityTimeoutMs?: number;
+  iteration?: number;
+  correctionCycle?: number;
+  storyIds?: string[];
 }
 
 /**
@@ -32,6 +35,9 @@ export async function executeClaude(
       timeout: 0,
       permission: 'autonomous',
       inactivityTimeoutMs: options.inactivityTimeoutMs,
+      iteration: options.iteration,
+      correctionCycle: options.correctionCycle,
+      storyIds: options.storyIds,
     });
   } catch (err) {
     return {

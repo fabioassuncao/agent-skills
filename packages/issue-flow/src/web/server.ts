@@ -5,6 +5,8 @@ import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import chalk from 'chalk';
+import { isAgentPhase, isAgentProviderId } from '../agents/types.js';
+import { writeAgentPreference } from '../commands/agent.js';
 import type { JournalEntry } from '../core/journal.js';
 import { resolvePackageDir } from '../core/prompt-resolver.js';
 import {
@@ -12,6 +14,7 @@ import {
   type SessionPublisher,
   type SessionSnapshot,
 } from '../core/session-state.js';
+import { readDiagnostics } from '../storage/diagnostics.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 import type { SessionDirectoryHandle } from './session-directory.js';
 
@@ -190,6 +193,22 @@ function respondJson(res: ServerResponse, status: number, payload: unknown): voi
   respond(res, status, JSON_TYPE, JSON.stringify(payload));
 }
 
+function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 64 * 1024) throw new Error('Request body too large.');
+    chunks.push(buffer);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
+}
+
 /**
  * Start the monitoring HTTP server. Returns null when the server could not
  * listen (port in use, invalid host, ...) — the pipeline continues without
@@ -232,9 +251,44 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     const requestUrl = new URL(req.url ?? '/', 'http://localhost');
     const path = requestUrl.pathname;
 
-    // POST /api/control/* is reserved for future write operations (pause,
-    // retry, ...); intentionally NOT registered — the v1 surface is
-    // read-only (snapshot.readOnly is true and capabilities is empty).
+    if (req.method === 'POST' && path === '/api/config/agent') {
+      if (!isLoopbackHost(options.host)) {
+        respondJson(res, 403, {
+          error: 'Configuration writes are disabled when the monitor is not bound to loopback.',
+        });
+        return;
+      }
+      const body = await readJsonBody(req);
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        respondJson(res, 400, { error: 'Expected a JSON object.' });
+        return;
+      }
+      const input = body as { provider?: unknown; model?: unknown; phase?: unknown };
+      if (typeof input.provider !== 'string' || !isAgentProviderId(input.provider)) {
+        respondJson(res, 400, { error: 'Invalid provider.' });
+        return;
+      }
+      if (
+        input.phase !== undefined &&
+        (typeof input.phase !== 'string' || !isAgentPhase(input.phase))
+      ) {
+        respondJson(res, 400, { error: 'Invalid phase.' });
+        return;
+      }
+      if (input.model !== undefined && typeof input.model !== 'string') {
+        respondJson(res, 400, { error: 'Invalid model.' });
+        return;
+      }
+      const file = await writeAgentPreference({
+        target: 'global',
+        provider: input.provider,
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.phase ? { phase: input.phase } : {}),
+      });
+      respondJson(res, 200, { ok: true, file, appliesTo: 'future executions' });
+      return;
+    }
+
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       respondJson(res, 404, { error: 'Not found' });
       return;
@@ -335,12 +389,31 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       return;
     }
 
+    if (path === '/api/diagnostics') {
+      const sessionId = requestUrl.searchParams.get('session') ?? undefined;
+      respondJson(res, 200, await readDiagnostics({ sessionId, limit: 500 }));
+      return;
+    }
+
+    if (path === '/api/config') {
+      const sessionId = requestUrl.searchParams.get('session');
+      const snapshot = sessionId === null ? undefined : source.get(sessionId);
+      respondJson(res, 200, {
+        effective: snapshot?.configuration ?? null,
+        capturedForSession: snapshot?.sessionId ?? null,
+        writable: isLoopbackHost(options.host),
+        writeScope: 'global preferences for future executions',
+      });
+      return;
+    }
+
     if (path === '/api/health') {
       respondJson(res, 200, {
         ok: true,
         uptime: Math.round((Date.now() - startedAtMs) / 1000),
         version,
         refreshSeconds: options.refreshSeconds ?? 5,
+        capabilities: isLoopbackHost(options.host) ? ['config:agent:write'] : [],
       });
       return;
     }

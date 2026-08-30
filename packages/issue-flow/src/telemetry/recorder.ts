@@ -89,6 +89,8 @@ export interface BeginExecutionInput {
   modelResolved?: string | null;
   modelSource?: ExecutionRecord['agent']['model']['source'];
   iteration?: number;
+  correctionCycle?: number;
+  storyIds?: string[];
   routingDecision?: ExecutionRecord['routingDecision'];
 }
 
@@ -126,6 +128,8 @@ export async function beginExecution(input: BeginExecutionInput): Promise<string
     failure: null,
     owner: { pid: process.pid, host: hostname() },
     ...(input.iteration === undefined ? {} : { iteration: input.iteration }),
+    ...(input.correctionCycle === undefined ? {} : { correctionCycle: input.correctionCycle }),
+    ...(input.storyIds === undefined ? {} : { storyIds: input.storyIds }),
     ...(input.routingDecision === undefined || input.routingDecision === null
       ? {}
       : { routingDecision: input.routingDecision }),
@@ -136,6 +140,12 @@ export async function beginExecution(input: BeginExecutionInput): Promise<string
       ...plan,
       executions: cap([...(plan.executions ?? []), record], cfg.maxExecutions),
     }));
+    const { getSessionPublisher } = await import('../core/session-publisher.js');
+    getSessionPublisher().publish({
+      type: 'execution:update',
+      at: record.startedAt,
+      execution: record,
+    });
     return id;
   } catch {
     return null;
@@ -228,6 +238,7 @@ export async function endExecution(input: EndExecutionInput): Promise<void> {
           exitCode: input.exitCode ?? null,
         };
 
+  const completed: { value: ExecutionRecord | null } = { value: null };
   try {
     await mutate(ctx.tasksPath, (plan) => {
       const records = [...(plan.executions ?? [])];
@@ -277,8 +288,17 @@ export async function endExecution(input: EndExecutionInput): Promise<void> {
         ...(input.storyIds === undefined ? {} : { storyIds: input.storyIds }),
         ...(input.stopReason === undefined ? {} : { stopReason: input.stopReason }),
       };
+      completed.value = records[index] ?? null;
       return { ...plan, executions: records };
     });
+    if (completed.value !== null) {
+      const { getSessionPublisher } = await import('../core/session-publisher.js');
+      getSessionPublisher().publish({
+        type: 'execution:update',
+        at: completed.value.finishedAt ?? isoNow(),
+        execution: completed.value,
+      });
+    }
   } catch {
     // Observational: a failed write must never change the invocation outcome.
   }
