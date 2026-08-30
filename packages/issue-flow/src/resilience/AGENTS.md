@@ -138,6 +138,35 @@ which is a much louder change than editing a JSON file.
   a fudge: `EngineConfig.retryLimit` counts *retries*, `maxAttempts` counts
   *attempts*.
 
+## Rules of `utils/shell.ts:run()`
+
+- **`retry` is opt-in, and its absence is byte for byte the old behaviour.**
+  One `execa` call with `reject: false`, three fields on the result, no extra
+  attempt. `failure` and `attempts` only ever appear on the retry path, so
+  nothing downstream can start depending on a classification that is not there.
+- **`run()` is the chokepoint, not a second retry loop.** It classifies the
+  failure from structured evidence and hands it to `withRetry()`. Every `gh` and
+  `git` call of the project already goes through it, which is why it is the one
+  place a network policy has to be plugged into.
+- **A destructive `git` invocation is never repeated, whatever the policy
+  says.** `isRetryableInvocation()` vetoes `push --force`, `reset --hard`,
+  `clean -f`, `restore`, `branch -D` and the sequencer commands (`rebase`,
+  `cherry-pick`, `merge`, `am`, `revert`) *before* the policy is consulted —
+  including under `retryForever`. This is the Epic's second limit ("no
+  destructive operation is run automatically to fix state") enforced at the
+  chokepoint rather than at each call site, and the table errs on the side of
+  not retrying: a half-applied sequencer operation is exactly the state a blind
+  second attempt turns into a lost commit.
+- **The errno lands on execa's `code`, not on `errno`.** Under `reject: false`
+  a spawn failure comes back as the error object itself: `code` carries
+  `ENOENT`/`ETIMEDOUT`/`ECONNRESET`, `exitCode` is `undefined` (this function
+  reports it as `1`, as it always has), and `originalMessage` is the only
+  evidence there is, because a child that never started wrote no stderr.
+- **A non-zero exit that means "no" is safe by construction.** `git rev-parse
+  --verify --quiet` on a missing ref classifies as `unknown`, which is not a
+  retryable kind, so a policy passed to such a command costs nothing. Passing
+  one anyway is still worth avoiding — say what you mean.
+
 ## Rules of the `resilience` configuration key
 
 - **The format lives in `storage/schemas.ts`, the precedence lives in
