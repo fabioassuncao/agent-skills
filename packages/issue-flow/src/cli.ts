@@ -924,8 +924,20 @@ withGlobalOptions(
     )
     .option('--arm <name>', 'Experiment arm (repeatable). Default: baseline', collectString, [])
     .option('--repeats <n>', 'Repetitions per cell (default 5)', parseInteger)
-    .option('--max-cost <usd>', 'Cost ceiling in USD (evaluateCeilings)', parseUsd)
-    .option('--max-duration <ms>', 'Duration ceiling in milliseconds', parseInteger)
+    // Campaign-wide ceilings, distinct from the per-issue `--max-cost` /
+    // `--max-duration` of `withGlobalOptions`: one campaign runs many issues,
+    // and the two budgets are not the same number. The names differ because
+    // the flags coexist on this command — and because the units differ too.
+    .option(
+      '--campaign-max-cost <usd>',
+      'Campaign cost ceiling in USD (evaluateCeilings)',
+      parseUsd,
+    )
+    .option(
+      '--campaign-max-duration <ms>',
+      'Campaign duration ceiling in milliseconds',
+      parseInteger,
+    )
     .option('--out <path>', 'Write the markdown report to this path')
     .option('--yes', 'Skip the paid-campaign confirmation')
     .option('--repo <path>', 'Investigation escape; does not produce a publishable row')
@@ -936,8 +948,8 @@ withGlobalOptions(
     task?: string[];
     arm?: string[];
     repeats?: number;
-    maxCost?: number;
-    maxDuration?: number;
+    campaignMaxCost?: number;
+    campaignMaxDuration?: number;
     out?: string;
     yes?: boolean;
     repo?: string;
@@ -954,8 +966,10 @@ withGlobalOptions(
         ...(options.task === undefined || options.task.length === 0 ? {} : { task: options.task }),
         ...(options.arm === undefined || options.arm.length === 0 ? {} : { arm: options.arm }),
         ...(options.repeats === undefined ? {} : { repeats: options.repeats }),
-        ...(options.maxCost === undefined ? {} : { maxCost: options.maxCost }),
-        ...(options.maxDuration === undefined ? {} : { maxDuration: options.maxDuration }),
+        ...(options.campaignMaxCost === undefined ? {} : { maxCost: options.campaignMaxCost }),
+        ...(options.campaignMaxDuration === undefined
+          ? {}
+          : { maxDuration: options.campaignMaxDuration }),
         ...(options.out === undefined ? {} : { out: options.out }),
         ...(options.yes === undefined ? {} : { yes: options.yes }),
         ...(options.repo === undefined ? {} : { repo: options.repo }),

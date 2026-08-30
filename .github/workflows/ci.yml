@@ -35,3 +35,8 @@ jobs:
       - run: npm test
 
       - run: npm run build
+
+      # The binary is only ever exercised here. A load-time defect — an option
+      # registered twice, a bad import — throws before any command runs and no
+      # unit test sees it, because none of them import the entry point.
+      - run: node dist/cli.js --help
