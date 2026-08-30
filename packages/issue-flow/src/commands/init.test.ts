@@ -49,7 +49,13 @@ async function runCaptured(source?: string): Promise<{
     lines.push(args.map(String).join(' '));
   });
   try {
-    const code = source === undefined ? await runInit() : await runInit(source);
+    // `checkOnly`: this file is about the prerequisite probes. The convention
+    // half is exercised in its own block below, and letting it run here would
+    // resolve a policy against whatever the mocked `git rev-parse` returns.
+    const code =
+      source === undefined
+        ? await runInit(undefined, { checkOnly: true })
+        : await runInit(source, { checkOnly: true });
     return { code, output: lines.join('\n') };
   } finally {
     spy.mockRestore();
@@ -176,5 +182,61 @@ describe('runInit — origem registrada por um provider novo (US-014)', () => {
 
     expect(code).toBe(1);
     expect(output).toContain('claude CLI: claude not found');
+  });
+});
+
+describe('runInit — a metade de convenções', () => {
+  beforeEach(() => {
+    mockEnv();
+  });
+
+  it('reporta as convenções por padrão, sem escrever nada', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+
+    try {
+      const code = await runInit('github');
+
+      expect(code).toBe(0);
+      expect(lines.join('\n')).toContain('Repository conventions');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('nunca altera o exit code por causa de uma convenção ausente', async () => {
+    // A repository missing a template is not a broken environment. Failing here
+    // would break every script that treats `init` as a prerequisite gate.
+    mockEnv({ claude: false });
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      expect(await runInit('github')).toBe(1);
+      expect(await runInit('github', { checkOnly: true })).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('emite JSON estável e versionado para a skill', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+
+    try {
+      await runInit('github', { json: true });
+
+      const payload = JSON.parse(lines.join('\n')) as Record<string, unknown>;
+      expect(payload.schemaVersion).toBe(1);
+      expect(Array.isArray(payload.prerequisites)).toBe(true);
+      expect(Array.isArray(payload.actions)).toBe(true);
+      // Not applied, so nothing was written.
+      expect(payload.applied).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
