@@ -137,9 +137,10 @@ ISSUE_TITLE=$(gh issue view {ISSUE_NUMBER} --json title -q '.title')
 ```bash
 SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g' | cut -c1-50)
 
-# The repository's own conventions, not Issue Flow's assumptions.
-CONVENTION=$(issue-flow policy --json 2>/dev/null | jq -r '.git.branchConvention // "issue/{N}-{slug}"')
-BASE=$(issue-flow policy --json 2>/dev/null | jq -r '.pullRequests.baseBranch // empty')
+# The repository's own conventions, not Issue Flow's assumptions:
+# CONVENTION is git.branchConvention and BASE is pullRequests.baseBranch, both
+# from skills/_shared/repository-policy.md. Defaults when nothing is declared:
+CONVENTION=${CONVENTION:-"issue/{N}-{slug}"}
 BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}
 BASE=${BASE:-main}
 

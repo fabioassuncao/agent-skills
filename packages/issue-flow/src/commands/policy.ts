@@ -14,6 +14,14 @@ import { printError, printInfo, printWarning } from '../ui/logger.js';
  * Skills read `--json`: they are markdown and cannot import TypeScript, so a
  * versioned JSON document on stdout is the only bridge available to them —
  * which is why `schemaVersion` is part of the payload rather than of the CLI.
+ *
+ * That makes `--json` a **published contract**, not a debugging convenience.
+ * `skills/_shared/repository-policy.md` documents the payload, and
+ * `policy-parity.test.ts` pins the fields the skills read: renaming or dropping
+ * one silently makes every skill fall back to its defaults, and nothing would
+ * fail — the two paths would simply start deciding differently. Adding a field
+ * is safe (readers ignore what they do not know); removing or renaming one
+ * bumps `schemaVersion`.
  */
 
 export interface PolicyCommandOptions {

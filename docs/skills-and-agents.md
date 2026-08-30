@@ -47,6 +47,57 @@ Skills and sub-agents are invoked differently in Claude Code:
 | [`review-issue`](../skills/review-issue/) | Skill | Reviews whether a GitHub issue has been fully resolved, with structured output for the correction loop. |
 | [`review-pr`](../skills/review-pr/) | Skill | Reviews a Pull Request as a whole (diff, architecture, duplication, tests, commits, description) and returns a structured verdict. Optional -- runs after `create-pr` when `--pr-review` is requested. |
 
+## Repository policy: parity with the CLI is a contract
+
+The skills and the CLI are two paths to the same outcome, and **a user is
+entitled to the same decisions from both**. That is a contract, not an
+aspiration, and it is pinned by `src/policy/policy-parity.test.ts`.
+
+The skills are markdown and cannot import TypeScript, so the bridge between them
+is `issue-flow policy --json` — the inspection command of the policy layer,
+whose payload is therefore a published contract with a `schemaVersion`, not a
+debugging convenience. Adding a field is safe (readers ignore what they do not
+know); removing or renaming one bumps the version.
+
+**One source, many references.** [`skills/_shared/repository-policy.md`](../skills/_shared/repository-policy.md)
+describes how to obtain and apply the policy. Every skill that takes a policy
+decision *references* it; none reproduces it. A skill that re-derives the
+invocation is a skill that will drift from it, and the parity test fails on the
+attempt.
+
+The step is **best-effort by design**. Without the CLI, without the network, on
+a timeout, or in a repository that declares nothing, each skill continues with
+its own documented defaults. A skill that needs the network to work is a
+regression, so the fallback is part of the contract rather than an error path.
+
+### What each path decides from
+
+| Decision | Source |
+|---|---|
+| Issue Template and its required fields | `issues.templates` |
+| Issue Type | `issues.types` |
+| Labels — validated, **never created** | `issues.labels`, `issues.allowLabelCreation` |
+| Issue title format | `issues.titleConvention` |
+| Pull Request body | `pullRequests.template` |
+| Base branch of the diff and of the PR | `pullRequests.baseBranch` |
+| Branch and commit format | `git.branchConvention`, `git.commitConvention` |
+| Which documents state the rules | `docs[].path` |
+| Who owns the changed paths | `codeowners` |
+
+### Where the two used to disagree
+
+Establishing the parity meant choosing, for each divergence, which behaviour was
+the right one — and in two cases the answer was neither:
+
+| Divergence | Resolution |
+|---|---|
+| Issue body structure | the skill's was richer → the CLI prompt adopted it, now conditional on a repository template |
+| Duplicate detection | the skill's multi-strategy search was better → the CLI prompt adopted it |
+| Human-language detection | the skill had it, the CLI did not → the CLI prompt adopted it |
+| Label creation | **neither** was right → both stopped creating labels |
+| Title prefix under Issue Types | **neither** was right → both omit the textual prefix when the repository uses Issue Types |
+| Who persists the issue | the CLI's separation of drafting from persistence was better → the skill keeps `gh`, with the same content decisions |
+
 ## Execution Modes
 
 | Mode | Behavior | Use Case |

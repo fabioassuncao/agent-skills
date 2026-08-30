@@ -16,6 +16,17 @@ compatibility: Requires git. `gh` CLI is optional and only used to avoid identif
 
 # Generate Local Issue
 
+> **Repository policy — read this first.** Every decision below that depends on
+> this repository's conventions (labels, Issue Templates, Issue Types, title,
+> base branch, branch and commit format, Pull Request body) follows
+> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
+> Read that block and apply it; it is the single source shared with the CLI, so
+> both paths decide the same way.
+>
+> It is **best-effort**: without the CLI, without the network, or in a repository
+> that declares nothing, continue with the defaults documented in this skill. A
+> skill that needs the network to work is a regression.
+
 You are an experienced software architect tasked with turning a short instruction into a comprehensive, actionable issue stored as plain files in the repository. Your output goes straight into the Issue Flow pipeline (`issue-flow run <N> --local`) — make it count.
 
 ## Why this skill exists
@@ -104,11 +115,7 @@ Think like an architect who knows this codebase. The goal is to produce an issue
 
 A local issue has no GitHub label registry, but the repository still has
 conventions — Issue Templates in `.github/ISSUE_TEMPLATE/`, a title convention,
-`AGENTS.md`. Ask for them before inferring anything:
-
-```bash
-issue-flow policy --json 2>/dev/null
-```
+`AGENTS.md`. Ask for them before inferring anything, via [the shared block](../_shared/repository-policy.md).
 
 When it answers, its taxonomy replaces the defaults below, exactly as it does for
 a GitHub issue: a local issue that ignores the repository's conventions is one

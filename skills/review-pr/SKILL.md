@@ -14,6 +14,17 @@ compatibility: Requires gh CLI (https://cli.github.com/) and git
 
 # Review Pull Request
 
+> **Repository policy — read this first.** Every decision below that depends on
+> this repository's conventions (labels, Issue Templates, Issue Types, title,
+> base branch, branch and commit format, Pull Request body) follows
+> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
+> Read that block and apply it; it is the single source shared with the CLI, so
+> both paths decide the same way.
+>
+> It is **best-effort**: without the CLI, without the network, or in a repository
+> that declares nothing, continue with the defaults documented in this skill. A
+> skill that needs the network to work is a regression.
+
 You are a reviewer of a complete Pull Request. Your job is to read the PR the way an experienced
 maintainer would — the diff, the architecture it lands in, the tests, the commits and the story the
 description tells — and to end with one unambiguous recommendation.
@@ -80,7 +91,7 @@ git log --oneline {BASE}..{HEAD}     # commit history of the branch
 Then read, when they exist:
 
 - `issues/{N}/prd.md` and `issues/{N}/tasks.json` — what was intended
-- the repository's declared policy — `issue-flow policy` lists the paths of its policy
+- the repository's declared policy ([the shared block](../_shared/repository-policy.md)) — the paths of its policy
   documents, its labels, Issue Types, base branch and conventions. Read the documents a
   finding would depend on, and **follow a pointer file rather than stopping at it**: a
   `CLAUDE.md` that forwards to `AGENTS.md` is not a repository without conventions

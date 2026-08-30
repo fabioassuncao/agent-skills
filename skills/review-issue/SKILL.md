@@ -14,6 +14,17 @@ compatibility: Requires gh CLI (https://cli.github.com/) and git
 
 # Review Issue Resolution
 
+> **Repository policy — read this first.** Every decision below that depends on
+> this repository's conventions (labels, Issue Templates, Issue Types, title,
+> base branch, branch and commit format, Pull Request body) follows
+> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
+> Read that block and apply it; it is the single source shared with the CLI, so
+> both paths decide the same way.
+>
+> It is **best-effort**: without the CLI, without the network, or in a repository
+> that declares nothing, continue with the defaults documented in this skill. A
+> skill that needs the network to work is a regression.
+
 Validate whether a GitHub issue has been completely resolved by examining the actual implementation, running the project's tests, and checking for regressions. If everything passes, close the issue automatically. If not, produce a detailed report of what's missing.
 
 ## Why this skill exists
@@ -77,18 +88,11 @@ Also check:
 - `.tool-versions`, `.nvmrc`, `.python-version` → version managers
 - CI config (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`) → how tests are run in CI
 
-**Read the repository's declared policy** — the single source for its conventions,
-covering every document an ad-hoc read would miss:
-
-```bash
-issue-flow policy 2>/dev/null
-```
-
-It lists the **paths** of the policy documents this repository actually has
-(`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, and whatever `AGENTS.md` forwards
-to), plus its labels, Issue Types, base branch and conventions. Read the documents
-a finding would depend on. When the CLI is not installed, read `AGENTS.md` and
-`CLAUDE.md` from the repository root yourself.
+**Read the repository's declared policy** — see [the shared block](../_shared/repository-policy.md). It lists the
+**paths** of the policy documents this repository actually has (`AGENTS.md`,
+`CLAUDE.md`, `CONTRIBUTING.md`, and whatever they forward to), plus its labels,
+Issue Types, base branch and conventions. Read the documents a finding would
+depend on.
 
 **Follow a pointer file rather than stopping at it.** A `CLAUDE.md` whose entire
 content is `Read and follow the instructions in AGENTS.md.` is not a repository
@@ -141,8 +145,10 @@ git log --all --oneline --grep="#{ISSUE_NUMBER}" --grep="{ISSUE_NUMBER}" --since
 If the user is on a feature branch, compare it against the repository's base
 branch. Resolve it — never assume `main`:
 
+`$BASE` is `pullRequests.baseBranch` from [the shared block](../_shared/repository-policy.md),
+falling back to `origin/HEAD` and then to `main`:
+
 ```bash
-BASE=$(issue-flow policy --json 2>/dev/null | jq -r '.pullRequests.baseBranch // empty')
 BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}
 BASE=${BASE:-main}
 

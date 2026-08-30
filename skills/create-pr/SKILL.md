@@ -13,6 +13,17 @@ compatibility: Requires gh CLI (https://cli.github.com/) and git
 
 # Create Pull Request
 
+> **Repository policy — read this first.** Every decision below that depends on
+> this repository's conventions (labels, Issue Templates, Issue Types, title,
+> base branch, branch and commit format, Pull Request body) follows
+> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
+> Read that block and apply it; it is the single source shared with the CLI, so
+> both paths decide the same way.
+>
+> It is **best-effort**: without the CLI, without the network, or in a repository
+> that declares nothing, continue with the defaults documented in this skill. A
+> skill that needs the network to work is a regression.
+
 You are an autonomous agent responsible for creating a well-structured Pull Request on GitHub for the current working branch.
 
 ## Core Principles
@@ -66,17 +77,10 @@ Only proceed once the environment is confirmed working.
    convention, and refusing to open their Pull Requests is the skill's problem,
    not theirs.
 
-   ```bash
-   # a) the repository's own branch convention, when it declares one
-   CONVENTION=$(issue-flow policy --json 2>/dev/null | jq -r '.git.branchConvention // empty')
-
-   # b) the default pattern
-   ISSUE_NUMBER=$(echo "$BRANCH" | grep -oE '[0-9]+' | head -1)
-   ```
-
    In order:
-   1. a number embedded in the branch name, read against `CONVENTION` when the
-      repository declares one, otherwise `issue/{N}-*`;
+   1. a number embedded in the branch name, read against `git.branchConvention`
+      from [the shared block](../_shared/repository-policy.md) when the repository
+      declares one, otherwise `issue/{N}-*`;
    2. a `Closes #N` / `Fixes #N` line in a commit on this branch:
       `git log "$BASE"..HEAD --format=%B | grep -oiE '(closes|fixes|resolves) #[0-9]+'`;
    3. the issue directory the pipeline is working under, if a run is in progress.
@@ -89,10 +93,7 @@ Only proceed once the environment is confirmed working.
    **proceed** — it is a warning, not a stop.
 
 3. **Determine the base branch** using this priority:
-   1. The repository's declared or discovered base:
-      ```bash
-      issue-flow policy --json 2>/dev/null | jq -r '.pullRequests.baseBranch // empty'
-      ```
+   1. `pullRequests.baseBranch` from [the shared block](../_shared/repository-policy.md)
    2. `origin/HEAD`:
       ```bash
       git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'
