@@ -16,7 +16,8 @@ npx issue-flow run 42
 
 - **Node.js** >= 22.0.0
 - **Git** installed and available in PATH
-- **Claude Code** (`npm install -g @anthropic-ai/claude-code`)
+- **Claude Code** (`npm install -g @anthropic-ai/claude-code`) -- default agent
+- **Codex CLI** (optional, `codex`) -- alternative agent; see [Agents](#agents)
 - **GitHub CLI** (`gh`) authenticated (`gh auth login`) -- required only for GitHub issues; a run on [local issues](#issue-sources-providers) does not need it
 
 Run `npx issue-flow init` to verify all prerequisites (`npx issue-flow init --local` when the issue lives in the repository).
@@ -54,6 +55,8 @@ flowchart LR
 ```
 
 The default order is **init -> prd -> plan -> execute -> review -> pr**, with **pr-review** appended only when explicitly requested (see [`pr-review`](#pr-review----review-a-pull-request)). Without `--pr-review`, the behavior is identical to previous versions.
+
+Without any `agent` configuration the pipeline still runs on Claude Code, with the same argv as before. Codex is opt-in: see [Agents](#agents).
 
 Each phase can also be run independently: `issue-flow prd 42`, `issue-flow plan 42`, etc. The `analyze` command is available standalone for deeper issue analysis when needed, and `issue-flow pr-review [pr]` works as a standalone assisted code review, with or without an associated issue. The `generate` command creates issues separately: `issue-flow generate --prompt '...'`.
 
@@ -116,7 +119,10 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--auto-decompose` | Act on a decomposition report instead of only writing it |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `--inactivity-timeout <s>` | Stop the agent after this many seconds with no output at all (`0` = off, default 600). A second, tighter instrument beside `--timeout`: it tells a long task from a stuck one |
-| `-v, --verbose` | Show Claude progress output in real time |
+| `--agent <claude\|codex>` | Run every phase on this agent (overrides `phases` too) |
+| `--agent-model <model>` | Same, for the model |
+| `--agent-phase <phase>=<provider>[:<model>]` | Override one phase (repeatable) |
+| `-v, --verbose` | Show agent progress output in real time |
 
 `--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists `prReview.enabled` as soon as a `tasks.json` exists (including mid-pipeline resumes such as `--from pr --pr-review`), so a later run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open** (locally and on the remote), does **not** mark `issueStatus: completed`, and still exits `0`.
 
@@ -174,7 +180,7 @@ npx issue-flow init --scope apps/api
 npx issue-flow init --check-only    # prerequisites only, as earlier releases did
 ```
 
-Verifies that `claude`, `gh` (authenticated), and `git` (inside a repo) are available. Reports pass/fail for each with install hints.
+Verifies that `claude`, `gh` (authenticated), and `git` (inside a repo) are available. Reports pass/fail for each with install hints. When the resolved agent is Codex, `codex --version` and `codex login status` are checked too. A first-run agent prompt appears only on a TTY, outside CI, and only when no `agent` configuration exists; `--no-agent-prompt` skips it. Non-interactive runs never ask and never write an agent preference.
 
 `claude` and `git` are always blocking. `gh` is blocking only when the issue origin is GitHub: with `--local` (or `issues.preferredProvider: "local"` in `.issue-flow.json`) a missing or unauthenticated `gh` is reported as a warning and the environment still passes.
 
@@ -565,6 +571,18 @@ npx issue-flow web serve --port 3737 --host 127.0.0.1 --refresh 5
 
 `web stop` is the explicit counterpart to `--web`'s automatic start (see [Web Monitoring → Single instance](#single-instance-detached-from-the-pipeline)): it signals the detached server referenced by [`~/.issue-flow/web.lock`](#issue-flowweblock) to shut down and waits for the lock file to be removed, or reports that no monitor is running. `web serve` is what `--web` spawns behind the scenes the first time on a machine; running it by hand only matters for debugging the monitor itself, independent of any pipeline run.
 
+### `agent` -- Inspect and set the coding agent
+
+```bash
+npx issue-flow agent                 # resolved provider/model per phase, with provenance
+npx issue-flow agent --json          # versioned JSON for Agent Skills
+npx issue-flow agent use codex --model gpt-5.6 --global
+npx issue-flow agent use claude --project
+npx issue-flow agent use codex --phase execute --project
+```
+
+`--json` is a published contract (`schemaVersion` in the payload). See [Agents](#agents) and [`docs/agents.md`](docs/agents.md).
+
 ### `policy` -- Inspect the repository's own conventions
 
 ```bash
@@ -649,6 +667,29 @@ A repository can adjust any prompt without forking:
 `append` is recommended because replacing a whole prompt makes the repository inherit its maintenance: improvements shipped by later releases stop reaching it, silently. With both present the replacement wins, with a warning. With none, the prompt is exactly the packaged one.
 
 A repository that declares no policy renders every prompt **byte for byte** as it did before this layer existed -- pinned by a test over every file in `prompts/`.
+
+## Agents
+
+The pipeline talks to a coding agent through `runHeadless` / `executeClaude`. Those facades stay; the binary they spawn is selected per phase. **Default is Claude Code.** Without any `agent` configuration the argv is the same as before -- Codex is opt-in and is never inferred from which binary happens to be installed.
+
+```bash
+npx issue-flow agent                              # resolved provider/model per phase
+npx issue-flow run 42 --agent codex               # emergency: every phase on Codex
+npx issue-flow run 42 --agent-phase plan=codex --agent-phase execute=codex:gpt-5.6
+```
+
+| Layer (highest wins) | Example |
+|----------------------|---------|
+| `--agent` / `--agent-model` | overwrite **everything**, including `phases` |
+| `--agent-phase <phase>=<provider>[:<model>]` | one phase only |
+| `ISSUE_FLOW_AGENT`, `ISSUE_FLOW_AGENT_MODEL`, `ISSUE_FLOW_CODEX_*` | no per-phase env vars |
+| `.issue-flow.json` → `agent` | project default and `phases` |
+| `~/.issue-flow/config.json` → `agent` | machine default |
+| Built-in | `claude`, no `--model` |
+
+A phase override is **partial**: declaring only `model` keeps the provider. `issue-flow agent` prints provenance so a silent merge cannot hide which layer won.
+
+**Permission** is semantic (`read-only` / `workspace` / `autonomous`) and each runner translates it. Codex `--sandbox` is always explicit; `autonomous` stays `workspace-write` (never `danger-full-access` unless opted in). `$CODEX_HOME/config.toml` can escalate `--sandbox` -- `ignoreUserConfig: true` is the CI recommendation. See [`docs/agents.md`](docs/agents.md) for install, auth, the token-economy guide and troubleshooting.
 
 ## Issue Sources (Providers)
 
@@ -952,7 +993,7 @@ When monitoring is enabled, the same snapshot served over HTTP is also persisted
   "warnings": [],
   "lastError": null,
   "nextSteps": ["review", "pr"],
-  "environment": { "node": "v22.0.0", "platform": "darwin" }
+  "environment": { "node": "v22.0.0", "platform": "darwin", "agent": "claude", "model": null }
 }
 ```
 
@@ -1028,7 +1069,9 @@ Both `stage`/`stageSince`/`stageDetail` are additive and tolerant on input: a `s
 
 ### Tokens and cost
 
-Every phase reports what it spent on the `claude` CLI, and the same numbers show up in three places: the `Tokens:` line of the terminal summary, the web panel (per phase, per story, and the issue total), and `session.json`. `schemaVersion` stays `1` -- the fields below are additive, and a `session.json` written by an earlier version still loads.
+Every phase reports what it spent on the agent that ran it, and the same numbers show up in three places: the `Tokens:` line of the terminal summary, the web panel (per phase, per story, and the issue total), and `session.json`. `schemaVersion` stays `1` -- the fields below are additive, and a `session.json` written by an earlier version still loads.
+
+On a homogeneous run (every phase on the same agent -- the only case that existed before this layer) the terminal `Tokens:` line is unchanged. On a mixed run the summary prints **one line per agent**. Codex does not report USD: `costUsd` stays absent ("not reported", never zero) on those phases, and a mixed-run total that showed only Claude's dollars would be silently wrong.
 
 | Field | Where | Meaning |
 |-------|-------|---------|
@@ -1328,6 +1371,15 @@ Preferences that apply to every project, all keys optional:
     "watchdog": { "inactivityTimeoutMs": 600000 },
     "journal": { "enabled": true, "maxFileBytes": 10485760 },
     "decompose": { "auto": false }
+  },
+  "agent": {
+    "provider": "claude",
+    "model": null,
+    "codex": { "ignoreUserConfig": true },
+    "phases": {
+      "plan": { "provider": "codex", "codex": { "reasoningEffort": "low" } },
+      "execute": { "provider": "codex", "model": "gpt-5.6" }
+    }
   }
 }
 ```
@@ -1391,6 +1443,8 @@ The merge is per key and shallow: a layer only participates with the keys it act
 As noted above, this is the documented and implemented precedence (`mergeConfigLayers()` in `src/config.ts`), but the global config file is not yet plugged into the commands: today `loadWebConfig()` still resolves **CLI flag > environment variable > `.issue-flow.json` > default**, as described under [Web Monitoring → Configuration](#configuration). This is about `config.json` only -- the storage tree itself is fully wired up.
 
 The `resilience` key is the exception: `loadResilienceConfig()` reads all five rungs, `config.json` included, and merges `retry` one level deeper than the shallow rule above -- per failure kind **and** per field, because that table is two levels deep by construction.
+
+The `agent` key climbs the same five rungs (`--agent` / `--agent-model` / `--agent-phase` > `ISSUE_FLOW_AGENT*` / `ISSUE_FLOW_CODEX_*` > `.issue-flow.json` > `~/.issue-flow/config.json` > default `claude`). `phases`, `claude` and `codex` merge **key by key**, not as a whole map: a project's `phases.plan` does not erase a global `phases.execute`. See [Agents](#agents).
 
 Every `gh` invocation goes through that policy: a DNS blip during a
 long run is retried on the `network` budget (8 attempts, 2s to 120s, jittered), a

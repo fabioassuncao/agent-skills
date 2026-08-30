@@ -38,6 +38,8 @@ export interface PipelineRendererOptions {
   runners: Record<string, () => Promise<void>>;
   /** Path to tasks.json — enables execute-phase subtask progress when set */
   tasksPath?: string;
+  /** Suffix per phase when its agent differs from the run default (e.g. `codex`). */
+  phaseSuffixes?: Record<string, string>;
 }
 
 /**
@@ -296,7 +298,7 @@ function buildExecutePhaseTask(runner: () => Promise<void>, tasksPath: string, v
 export async function runPipelineWithRenderer(
   options: PipelineRendererOptions,
 ): Promise<PipelineResult> {
-  const { phases, startIndex, verbose, runners, tasksPath } = options;
+  const { phases, startIndex, verbose, runners, tasksPath, phaseSuffixes } = options;
   const overallStart = Date.now();
   let currentPhase: string | undefined;
   const renderer = selectRenderer(verbose);
@@ -304,7 +306,9 @@ export async function runPipelineWithRenderer(
 
   const tasks = new Listr(
     phases.map((phase, index) => {
-      const label = phaseLabel(phase);
+      const label = phaseSuffixes?.[phase]
+        ? `${phaseLabel(phase)} (${phaseSuffixes[phase]})`
+        : phaseLabel(phase);
       const isExecutePhase = phase === 'execute' && tasksPath;
 
       return {

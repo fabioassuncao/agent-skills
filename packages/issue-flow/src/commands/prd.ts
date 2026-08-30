@@ -55,9 +55,11 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
         addDirs: [paths.issueDir],
         statusMessage: `Generating PRD for issue #${issueNumber}...`,
+        phase: 'prd',
+        permission: 'workspace',
       });
       // One event per attempt; the reducer sums them into the phase total.
-      publishPhaseMetrics('prd', result.cost, startedAtMs);
+      publishPhaseMetrics('prd', result.cost, startedAtMs, result.agent?.provider);
 
       if (!result.success) {
         return {

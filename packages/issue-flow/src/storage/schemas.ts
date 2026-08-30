@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { agentConfigInputSchema } from '../agents/schemas.js';
 import type { ExecutionPlan } from '../execution/types.js';
 import type {
   ExhaustedAction,
@@ -259,6 +260,7 @@ export const globalConfigSchema = z
     retry: globalRetryConfigSchema,
     commit: globalCommitConfigSchema,
     resilience: resilienceConfigSchema,
+    agent: agentConfigInputSchema,
   })
   .partial();
 

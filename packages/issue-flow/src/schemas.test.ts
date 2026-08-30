@@ -318,7 +318,7 @@ describe('sessionSnapshotSchema', () => {
       branch: 'issue/22-test',
       baseBranch: 'main',
       phases: ['init', 'prd', 'execute'],
-      environment: { node: 'v22.0.0', platform: 'darwin' },
+      environment: { node: 'v22.0.0', platform: 'darwin', agent: null, model: null },
     });
     snap = reduceSessionEvent(snap, {
       type: 'phase:start',

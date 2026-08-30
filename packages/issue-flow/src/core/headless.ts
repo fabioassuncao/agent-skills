@@ -1,22 +1,14 @@
 import { readFile } from 'node:fs/promises';
-import { createInterface } from 'node:readline';
 import chalk from 'chalk';
-import { execa } from 'execa';
+import { runnerFor } from '../agents/registry.js';
+import { resolveAgentFor } from '../agents/resolve.js';
+import type { AgentEvent, AgentPermission, AgentPhase, AgentProviderId } from '../agents/types.js';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
 import { DECOMPOSITION_THRESHOLDS, timeoutsByPhase } from './decompose.js';
 import { type ClaudeUsage, parseUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
-import { registerChild } from './shutdown.js';
 import { isoNow } from './state-manager.js';
-import { readClaudeStream } from './stream.js';
 import { getInactivityTimeout, getOutputCallback, isVerbose } from './verbose.js';
-import { createWatchdog, describeStall } from './watchdog.js';
-
-/** The watchdog budget of one invocation, from the process-wide setting. */
-function inactivityOptions(): { inactivityTimeoutMs?: number } {
-  const configured = getInactivityTimeout();
-  return configured === undefined ? {} : { inactivityTimeoutMs: configured };
-}
 
 export interface HeadlessOptions {
   prompt: string;
@@ -27,29 +19,27 @@ export interface HeadlessOptions {
   /**
    * Extra directories the headless session may read from and write to, passed
    * through as `--add-dir`. Required whenever a prompt points at a path outside
-   * the working tree (e.g. the global issue storage under `~/.issue-flow`),
-   * since `claude -p` otherwise refuses the access.
+   * the working tree (e.g. the global issue storage under `~/.issue-flow`).
    */
   addDirs?: string[];
   /** Status message displayed as spinner (non-verbose) or header (verbose). */
   statusMessage?: string;
-  /** Optional callback for routing verbose output (e.g., through listr2 task.output). When provided, verbose stream events are sent here instead of directly to stderr. */
+  /** Optional callback for routing verbose output (e.g., through listr2 task.output). */
   onOutput?: (line: string) => void;
   /** Journal-backed identity used to apply the one-time 2× timeout escalation. */
   timeoutHistory?: {
     phase: string;
-    /** Oldest generation first, current journal last. Missing files are ignored. */
     journalFiles: string[];
   };
+  /** The invoking phase. Defaults to `analyze` only for resolution; argv is unchanged. */
+  phase?: AgentPhase;
+  /**
+   * Semantic permission. Absent means `workspace`, which is the historical
+   * `runHeadless` argv (no `--permission-mode`, no `--dangerously-skip-permissions`).
+   */
+  permission?: AgentPermission;
 }
 
-/**
- * Token/cost metrics of a headless invocation.
- *
- * Alias of {@link ClaudeUsage} — the name is kept for the existing call sites,
- * but the shape (and the parsing behind it) now lives in core/metrics.ts, so
- * cache tokens and USD cost come along for free.
- */
 export type HeadlessCost = ClaudeUsage;
 
 export interface HeadlessResult {
@@ -57,26 +47,11 @@ export interface HeadlessResult {
   result: string;
   cost: HeadlessCost | null;
   error: string | null;
+  agent?: { provider: AgentProviderId; model: string | null };
 }
 
-/**
- * Default wall-clock limit for a single headless invocation.
- *
- * Every phase that invokes `claude` once (analyze, prd, plan, review, pr,
- * pr-review, generate) shares it, so the limit is raised in one place. It is
- * deliberately generous: the phases read the repository before writing their
- * artifact, and on a large issue that alone outlives a few minutes. The execute
- * loop is the exception and runs with no limit at all (`core/executor.ts`),
- * because its iteration budget is what bounds it.
- */
 export const DEFAULT_HEADLESS_TIMEOUT_MS = 900_000;
 
-/**
- * Try the cheap alternative before decomposition: after two timeouts in this
- * issue's same phase, widen the configured/default ceiling to 2×. The journal
- * is the durable counter, and the multiplier is capped rather than compounded,
- * so three, ten or a hundred recorded timeouts still produce exactly 2×.
- */
 async function escalatedTimeout(
   timeoutMs: number,
   history: HeadlessOptions['timeoutHistory'],
@@ -99,317 +74,41 @@ async function escalatedTimeout(
   return Math.min(timeoutMs * 2, Number.MAX_SAFE_INTEGER);
 }
 
-/**
- * The subset of an execa result this module inspects. Declared structurally so
- * both the awaited `execa()` result and the awaited subprocess of the verbose
- * path fit it without a cast to `any`.
- */
-interface FinishedProcess {
-  exitCode?: number | undefined;
-  signal?: string | undefined;
-  timedOut?: boolean | undefined;
-}
+function printAgentEvent(event: AgentEvent, onOutput?: (line: string) => void): void {
+  const icons = getIcons();
+  const colored = useColor();
+  const emit = onOutput ?? ((msg: string) => process.stderr.write(`${msg}\n`));
 
-/**
- * How much of the limit an invocation has to have burned through before an
- * unlabelled kill is attributed to the timeout rather than to something
- * external. A limit of 0 means no limit, and nothing can be attributed to it.
- */
-const TIMEOUT_ATTRIBUTION_RATIO = 0.9;
-
-function reachedTimeout(timeoutMs: number, elapsedMs: number): boolean {
-  return timeoutMs > 0 && elapsedMs >= timeoutMs * TIMEOUT_ATTRIBUTION_RATIO;
-}
-
-/**
- * Whether a finished invocation was killed by the `timeout` option.
- *
- * `reject: false` means execa never throws on a timeout — it resolves with a
- * result carrying `timedOut: true`, which is why the `catch` block below never
- * sees one. That flag is the authoritative signal; the rest is a fallback for
- * the case execa cannot label, a CLI that installs its own SIGTERM handler and
- * exits by itself. `claude` does exactly that and leaves 143 (128 + SIGTERM),
- * with no signal for execa to report. The elapsed-time guard keeps that
- * fallback from mislabelling an unrelated external kill as a timeout.
- */
-function wasTimedOut(proc: FinishedProcess, timeoutMs: number, elapsedMs: number): boolean {
-  if (proc.timedOut === true) return true;
-  if (!reachedTimeout(timeoutMs, elapsedMs)) return false;
-  return (
-    proc.signal === 'SIGTERM' ||
-    proc.signal === 'SIGKILL' ||
-    proc.exitCode === 143 ||
-    proc.exitCode === 137
-  );
-}
-
-/**
- * The error text of a failed invocation.
- *
- * A timeout gets a message of its own, and it has to keep saying "timed out":
- * `resilience/errors.ts` falls back to matching that text when no structured
- * evidence survived, and it is what earns the phase its retries in
- * `core/phase-runner.ts`. Reporting a timeout as a bare `claude exited with
- * code 143` — which is what the CLI leaves behind when it handles the SIGTERM
- * itself — both hid the cause and cost the phase every retry it had.
- */
-function describeFailure(
-  proc: FinishedProcess,
-  diagnostics: string,
-  timeoutMs: number,
-  elapsedMs: number,
-): string {
-  if (wasTimedOut(proc, timeoutMs, elapsedMs)) {
-    return `Headless invocation timed out after ${formatDuration(Math.round(timeoutMs / 1000))}. Raise the limit with --timeout <seconds> (0 = no limit).`;
-  }
-  return diagnostics.trim() || `claude exited with code ${proc.exitCode ?? 'unknown'}`;
-}
-
-/* ── argument helpers ───────────────────────────────────────────────────── */
-
-/**
- * Append one `<flag> <value>` pair per value. An empty or absent list leaves
- * `args` untouched, so callers that pass nothing keep the exact same argv.
- */
-function pushRepeatedFlag(args: string[], flag: string, values: string[] | undefined): void {
-  if (!values || values.length === 0) return;
-  for (const value of values) {
-    args.push(flag, value);
-  }
-}
-
-/* ── verbose stream formatting ──────────────────────────────────────────── */
-
-/**
- * Extract a short context string from a tool_use input object.
- */
-function getToolContext(name: string, input: Record<string, unknown>): string {
-  switch (name) {
-    case 'Read':
-      return shortPath(input.file_path as string);
-    case 'Write':
-    case 'Edit':
-      return shortPath(input.file_path as string);
-    case 'Glob':
-      return (input.pattern as string) ?? '';
-    case 'Grep':
-      return (input.pattern as string) ?? '';
-    case 'Bash': {
-      const cmd = (input.command as string) ?? '';
-      return cmd.length > 60 ? `${cmd.substring(0, 57)}...` : cmd;
+  if (event.kind === 'text') {
+    const lines = event.text.split('\n');
+    for (const textLine of lines) {
+      if (!textLine.trim()) continue;
+      const prefix = colored ? chalk.dim(`  ${icons.connector}  `) : `  ${icons.connector}  `;
+      const text = colored ? chalk.dim(textLine) : textLine;
+      emit(`${prefix}${text}`);
     }
-    default:
-      return '';
-  }
-}
-
-/**
- * Shorten a file path to be relative-friendly.
- */
-function shortPath(filePath: string | undefined): string {
-  if (!filePath) return '';
-  const cwd = process.cwd();
-  if (filePath.startsWith(cwd)) {
-    return filePath.substring(cwd.length + 1);
-  }
-  // Show last 2 segments for absolute paths
-  const parts = filePath.split('/');
-  if (parts.length > 2) {
-    return `.../${parts.slice(-2).join('/')}`;
-  }
-  return filePath;
-}
-
-/**
- * Print a formatted stream event line to stderr.
- */
-function printStreamEvent(
-  line: string,
-  state: { turnCount: number },
-  onOutput?: (line: string) => void,
-): void {
-  let event: {
-    type?: string;
-    subtype?: string;
-    message?: {
-      content?: { type: string; text?: string; name?: string; input?: Record<string, unknown> }[];
-    };
-  };
-
-  try {
-    event = JSON.parse(line);
-  } catch {
     return;
   }
 
-  const icons = getIcons();
-  const colored = useColor();
-  const emit = onOutput ?? ((msg: string) => process.stderr.write(`${msg}\n`));
-
-  if (event.type === 'assistant' && event.message?.content) {
-    state.turnCount++;
-
-    for (const block of event.message.content) {
-      if (block.type === 'text' && block.text) {
-        // Wrap text with connector prefix
-        const lines = block.text.split('\n');
-        for (const textLine of lines) {
-          if (!textLine.trim()) continue;
-          const prefix = colored ? chalk.dim(`  ${icons.connector}  `) : `  ${icons.connector}  `;
-          const text = colored ? chalk.dim(textLine) : textLine;
-          emit(`${prefix}${text}`);
-        }
-      }
-
-      if (block.type === 'tool_use' && block.name) {
-        const context = block.input ? getToolContext(block.name, block.input) : '';
-        getSessionPublisher().publish({
-          type: 'activity',
-          at: isoNow(),
-          tool: block.name,
-          detail: context || undefined,
-        });
-        const toolName = block.name.padEnd(12);
-
-        const prefix = colored ? chalk.dim(`  ${icons.connector}  `) : `  ${icons.connector}  `;
-        const toolIcon = colored ? chalk.cyan(icons.tool) : icons.tool;
-        const toolLabel = colored ? chalk.cyan(toolName) : toolName;
-        const contextText = context ? (colored ? chalk.dim(context) : context) : '';
-
-        emit(`${prefix}${toolIcon} ${toolLabel} ${contextText}`);
-      }
-    }
-  }
+  getSessionPublisher().publish({
+    type: 'activity',
+    at: isoNow(),
+    tool: event.name,
+    detail: event.detail,
+  });
+  const toolName = event.name.padEnd(12);
+  const prefix = colored ? chalk.dim(`  ${icons.connector}  `) : `  ${icons.connector}  `;
+  const toolIcon = colored ? chalk.cyan(icons.tool) : icons.tool;
+  const toolLabel = colored ? chalk.cyan(toolName) : toolName;
+  const contextText = event.detail ? (colored ? chalk.dim(event.detail) : event.detail) : '';
+  emit(`${prefix}${toolIcon} ${toolLabel} ${contextText}`);
 }
 
-/* ── verbose execution ──────────────────────────────────────────────────── */
-
 /**
- * Run headless in verbose mode using stream-json to display real-time progress.
- */
-async function runHeadlessVerbose(options: {
-  prompt: string;
-  maxTurns: number;
-  timeout: number;
-  allowedTools?: string[];
-  addDirs?: string[];
-  statusMessage?: string;
-  onOutput?: (line: string) => void;
-}): Promise<HeadlessResult> {
-  const { prompt, maxTurns, timeout, allowedTools, addDirs, statusMessage, onOutput } = options;
-  const icons = getIcons();
-  const colored = useColor();
-  const emit = onOutput ?? ((msg: string) => process.stderr.write(`${msg}\n`));
-
-  // Print header
-  if (statusMessage) {
-    const msg = colored
-      ? chalk.blue(`${icons.start} ${statusMessage}`)
-      : `${icons.start} ${statusMessage}`;
-    emit(msg);
-  }
-
-  // Print opening connector
-  const connectorLine = colored ? chalk.dim(`  ${icons.connector}`) : `  ${icons.connector}`;
-  emit(connectorLine);
-
-  const startTime = Date.now();
-
-  const args: string[] = [
-    '-p',
-    prompt,
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--max-turns',
-    String(maxTurns),
-  ];
-
-  pushRepeatedFlag(args, '--allowedTools', allowedTools);
-  pushRepeatedFlag(args, '--add-dir', addDirs);
-
-  const subprocess = execa('claude', args, {
-    stdin: 'ignore',
-    reject: false,
-    timeout,
-    stripFinalNewline: false,
-  });
-  // A `Ctrl+C` must reach the agent, not just this process: without this the
-  // child is orphaned and keeps writing to the repository after the pipeline
-  // that started it is gone.
-  const unregisterChild = registerChild({
-    kill: (signal) => subprocess.kill(signal),
-    done: subprocess.then(
-      () => undefined,
-      () => undefined,
-    ),
-  });
-
-  let resultText = '';
-  let isError = false;
-  let costData: HeadlessCost | null = null;
-  const state = { turnCount: 0 };
-
-  if (subprocess.stdout) {
-    const rl = createInterface({ input: subprocess.stdout });
-    for await (const line of rl) {
-      printStreamEvent(line, state, onOutput);
-
-      try {
-        const event = JSON.parse(line);
-        if (event.type === 'result') {
-          resultText = event.result ?? '';
-          isError = event.is_error === true;
-          // Keep the previous metrics when this event carries none, so a
-          // malformed trailing result never erases what was already captured.
-          costData = parseUsage(event) ?? costData;
-        }
-      } catch {
-        // ignore malformed lines
-      }
-    }
-  }
-
-  // Wait for the process to finish
-  const proc = await subprocess;
-  unregisterChild();
-
-  // Close connector with elapsed time
-  const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-  const durationStr = formatDuration(elapsedSec);
-  const doneLine = colored
-    ? chalk.dim(`  ${icons.connector}  ${chalk.italic(`Done in ${durationStr}`)}`)
-    : `  ${icons.connector}  Done in ${durationStr}`;
-  emit(doneLine);
-  emit(connectorLine);
-
-  if (proc.exitCode !== 0 && !resultText) {
-    return {
-      success: false,
-      result: '',
-      cost: null,
-      error: describeFailure(proc, proc.stderr?.toString() ?? '', timeout, Date.now() - startTime),
-    };
-  }
-
-  return {
-    success: !isError,
-    result: resultText,
-    cost: costData,
-    error: isError ? resultText : null,
-  };
-}
-
-/* ── standard execution ─────────────────────────────────────────────────── */
-
-/**
- * Invoke Claude Code in headless mode via `claude -p`.
+ * Invoke the resolved agent in headless mode.
  *
- * Each invocation is an isolated session — no context is shared between calls.
- * Output is parsed as JSON when outputFormat is 'json' (default).
- *
- * When verbose mode is active, uses stream-json to display real-time progress.
- * Otherwise, shows a spinner while waiting.
+ * Each invocation is an isolated session. UI (spinner, verbose header, activity)
+ * stays here; argv and stream parsing belong to the runner.
  */
 export async function runHeadless(options: HeadlessOptions): Promise<HeadlessResult> {
   const {
@@ -421,27 +120,56 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     addDirs,
     statusMessage,
     onOutput,
+    phase = 'analyze',
+    permission = 'workspace',
   } = options;
   const timeout = await escalatedTimeout(configuredTimeout, options.timeoutHistory);
+  const settings = await resolveAgentFor(phase);
+  const runner = runnerFor(settings.provider);
 
-  if (isVerbose()) {
-    // Use explicit onOutput, fall back to global output callback, or default to stderr
-    const effectiveOnOutput = onOutput ?? getOutputCallback();
-    return runHeadlessVerbose({
-      prompt,
-      maxTurns,
-      timeout,
-      allowedTools,
-      addDirs,
-      statusMessage,
-      onOutput: effectiveOnOutput,
-    });
+  const verbose = isVerbose();
+  const effectiveOnOutput = onOutput ?? getOutputCallback();
+
+  if (verbose) {
+    const icons = getIcons();
+    const colored = useColor();
+    const emit = effectiveOnOutput ?? ((msg: string) => process.stderr.write(`${msg}\n`));
+    if (statusMessage) {
+      const msg = colored
+        ? chalk.blue(`${icons.start} ${statusMessage}`)
+        : `${icons.start} ${statusMessage}`;
+      emit(msg);
+    }
+    const connectorLine = colored ? chalk.dim(`  ${icons.connector}`) : `  ${icons.connector}`;
+    emit(connectorLine);
+
+    const startTime = Date.now();
+    const run = await runner.run(
+      {
+        prompt,
+        phase,
+        addDirs,
+        timeout,
+        permission,
+        maxTurns,
+        allowedTools,
+        onEvent: (event) => printAgentEvent(event, effectiveOnOutput),
+      },
+      settings,
+    );
+
+    const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+    const durationStr = formatDuration(elapsedSec);
+    const doneLine = colored
+      ? chalk.dim(`  ${icons.connector}  ${chalk.italic(`Done in ${durationStr}`)}`)
+      : `  ${icons.connector}  Done in ${durationStr}`;
+    emit(doneLine);
+    emit(connectorLine);
+
+    return mapHeadlessResult(run, outputFormat);
   }
 
-  // Non-verbose: use spinner with elapsed timer
-  const startTime = Date.now();
   const spinner = statusMessage ? createSpinner(statusMessage).start() : null;
-
   let timer: ElapsedTimer | null = null;
   if (spinner) {
     timer = new ElapsedTimer((elapsed) => {
@@ -449,163 +177,87 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     }).start();
   }
 
-  // The stream is always what is asked for, whatever the caller requested as
-  // `outputFormat`: a single envelope arrives in one write at the very end, so
-  // an invocation that hangs is indistinguishable from one that is thinking.
-  // The rendering is what differs — here it feeds a spinner and a watchdog
-  // heartbeat instead of being printed line by line.
-  const args: string[] = [
-    '-p',
-    prompt,
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--max-turns',
-    String(maxTurns),
-  ];
-
-  pushRepeatedFlag(args, '--allowedTools', allowedTools);
-  pushRepeatedFlag(args, '--add-dir', addDirs);
-
-  const subprocess = execa('claude', args, {
-    stdin: 'ignore',
-    reject: false,
-    timeout,
-    stripFinalNewline: false,
-  });
-  const unregisterChild = registerChild({
-    kill: (signal) => subprocess.kill(signal),
-    done: subprocess.then(
-      () => undefined,
-      () => undefined,
-    ),
-  });
-  const watchdog = createWatchdog({
-    ...inactivityOptions(),
-    child: {
-      kill: (signal) => subprocess.kill(signal),
-      done: subprocess.then(
-        () => undefined,
-        () => undefined,
-      ),
-    },
-  });
-
   try {
-    const streamed = subprocess.stdout
-      ? await readClaudeStream(subprocess.stdout, { onLine: () => watchdog.beat() })
-      : { result: '', isError: false, usage: null, events: 0, raw: '' };
-
-    const proc = await subprocess;
-    watchdog.stop();
-    unregisterChild();
-
-    if (watchdog.stalled) {
-      const elapsed = timer?.stop() ?? 0;
-      const dur = useColor()
-        ? chalk.dim(` (${formatDuration(elapsed)})`)
-        : ` (${formatDuration(elapsed)})`;
-      spinner?.fail(`${statusMessage}${dur}`);
-      return {
-        success: false,
-        result: '',
-        cost: null,
-        error: describeStall(watchdog.silentMs),
-      };
-    }
-
-    // The stream is consumed by the time the process finishes, so what it
-    // printed lives here rather than in `proc.stdout`.
-    const stdout = streamed.raw === '' ? (proc.stdout?.toString() ?? '') : streamed.raw;
-    const stderr = proc.stderr?.toString() ?? '';
-
-    if (proc.exitCode !== 0) {
-      const elapsed = timer?.stop() ?? 0;
-      const dur = useColor()
-        ? chalk.dim(` (${formatDuration(elapsed)})`)
-        : ` (${formatDuration(elapsed)})`;
-      spinner?.fail(`${statusMessage}${dur}`);
-      return {
-        success: false,
-        result: '',
-        cost: null,
-        error: describeFailure(proc, stderr || stdout, timeout, Date.now() - startTime),
-      };
-    }
+    const run = await runner.run(
+      {
+        prompt,
+        phase,
+        addDirs,
+        timeout,
+        permission,
+        maxTurns,
+        allowedTools,
+        inactivityTimeoutMs: getInactivityTimeout(),
+      },
+      settings,
+    );
 
     const elapsed = timer?.stop() ?? 0;
     const dur = useColor()
       ? chalk.dim(` (${formatDuration(elapsed)})`)
       : ` (${formatDuration(elapsed)})`;
-    spinner?.succeed(`${statusMessage}${dur}`);
 
-    if (outputFormat === 'json') {
-      if (streamed.result !== '') {
-        return {
-          success: !streamed.isError,
-          result: streamed.result,
-          cost: streamed.usage,
-          error: streamed.isError ? streamed.result : null,
-        };
-      }
-      try {
-        const parsed = JSON.parse(stdout);
-        return {
-          success: true,
-          result: parsed.result ?? stdout,
-          cost: parseUsage(parsed),
-          error: null,
-        };
-      } catch {
-        return {
-          success: true,
-          result: stdout,
-          cost: null,
-          error: null,
-        };
-      }
+    if (!run.success) {
+      spinner?.fail(`${statusMessage}${dur}`);
+      return mapHeadlessResult(run, outputFormat);
     }
 
-    return {
-      success: true,
-      result: stdout,
-      cost: null,
-      error: null,
-    };
+    spinner?.succeed(`${statusMessage}${dur}`);
+    return mapHeadlessResult(run, outputFormat);
   } catch (err) {
-    unregisterChild();
     const message = err instanceof Error ? err.message : String(err);
     const catchElapsed = timer?.stop() ?? 0;
     const catchDur = useColor()
       ? chalk.dim(` (${formatDuration(catchElapsed)})`)
       : ` (${formatDuration(catchElapsed)})`;
     spinner?.fail(`${statusMessage}${catchDur}`);
-
-    if (message.includes('timed out') || message.includes('ETIMEDOUT')) {
-      // There is no finished process to inspect here, so the clock is the only
-      // evidence. Claim our own limit only when the invocation actually ran up
-      // against it: an ETIMEDOUT raised minutes earlier — or with no limit set
-      // at all — keeps its own message, which is the honest diagnosis and
-      // already carries the words isTransientFailure() matches on.
-      const elapsedMs = Date.now() - startTime;
-      return {
-        success: false,
-        result: '',
-        cost: null,
-        error: describeFailure(
-          { timedOut: reachedTimeout(timeout, elapsedMs) },
-          message,
-          timeout,
-          elapsedMs,
-        ),
-      };
-    }
-
     return {
       success: false,
       result: '',
       cost: null,
       error: message,
+      agent: { provider: settings.provider, model: settings.model },
     };
   }
 }
+
+function mapHeadlessResult(
+  run: {
+    success: boolean;
+    result: string;
+    rawOutput: string;
+    usage: ClaudeUsage | null;
+    error: string | null;
+    agent: { provider: AgentProviderId; model: string | null };
+  },
+  outputFormat: 'json' | 'text' | 'stream-json',
+): HeadlessResult {
+  if (outputFormat === 'text') {
+    return {
+      success: run.success,
+      result: run.success ? run.rawOutput || run.result : '',
+      cost: null,
+      error: run.error,
+      agent: run.agent,
+    };
+  }
+  if (!run.success) {
+    return {
+      success: false,
+      result: '',
+      cost: null,
+      error: run.error,
+      agent: run.agent,
+    };
+  }
+  return {
+    success: true,
+    result: run.result,
+    cost: run.usage,
+    error: null,
+    agent: run.agent,
+  };
+}
+
+/** Kept so existing tests that imported parse helpers through this module still typecheck. */
+export { parseUsage };

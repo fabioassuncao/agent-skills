@@ -164,6 +164,12 @@ and the working tree is **clean**.
   only dependency shape derivable from the plan alone; anything more would be a
   guess dressed as a plan.
 
+`runHeadless` and `executeClaude` stay the facades seven commands and the
+engine talk to. Argv and stream parsing live in `src/agents/` — see
+[`src/agents/AGENTS.md`](../agents/AGENTS.md). The default agent is Claude,
+and an unconfigured invocation produces the same argv this project has always
+used (`workspace` for `runHeadless`, `autonomous` for `executeClaude`).
+
 ## executor.ts output contract
 
 On the happy path (`exitCode === 0` and parseable JSON envelope),

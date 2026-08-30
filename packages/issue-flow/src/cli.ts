@@ -1,12 +1,19 @@
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError } from 'commander';
+import { parseAgentPhaseFlag } from './agents/resolve.js';
+import { type AgentCliOverrides, isAgentProviderId } from './agents/types.js';
 import {
   CliFlagError,
   resolveQueueScopeFlags,
   resolveRunPhaseFlags,
   resolveUserStoryNumberingFlags,
 } from './cli-options.js';
-import { setIssuesCliOverrides, setResilienceCliOverrides, setWebCliOverrides } from './config.js';
+import {
+  setAgentCliOverrides,
+  setIssuesCliOverrides,
+  setResilienceCliOverrides,
+  setWebCliOverrides,
+} from './config.js';
 import { installShutdownHandlers } from './core/shutdown.js';
 import { setGlobalTimeout, setInactivityTimeout, setVerbose } from './core/verbose.js';
 import {
@@ -71,7 +78,7 @@ function withUserStoryNumberingOptions(cmd: Command): Command {
 function withGlobalOptions(cmd: Command): Command {
   return (
     cmd
-      .option('-v, --verbose', 'Show Claude progress output in real time')
+      .option('-v, --verbose', 'Show agent progress output in real time')
       .option(
         '-t, --timeout <seconds>',
         'Override headless timeout in seconds (0 = no limit)',
@@ -84,7 +91,40 @@ function withGlobalOptions(cmd: Command): Command {
         'Stop the agent after this many seconds with no output (0 = no watchdog)',
         parseInteger,
       )
+      .option('--agent <provider>', 'Run every phase on this agent (claude|codex)')
+      .option('--agent-model <model>', 'Override the model for every phase')
+      .option(
+        '--agent-phase <phase>=<provider>[:<model>]',
+        'Override one phase (repeatable)',
+        collectAgentPhase,
+        {} as AgentCliOverrides['phases'],
+      )
   );
+}
+
+function collectAgentPhase(
+  value: string,
+  previous: NonNullable<AgentCliOverrides['phases']> | undefined,
+): NonNullable<AgentCliOverrides['phases']> {
+  const parsed = parseAgentPhaseFlag(value);
+  return { ...previous, [parsed.phase]: parsed.block };
+}
+
+function resolveAgentOverrides(opts: Record<string, unknown>): AgentCliOverrides {
+  const overrides: AgentCliOverrides = {};
+  if (typeof opts.agent === 'string') {
+    if (!isAgentProviderId(opts.agent)) {
+      throw new InvalidArgumentError('Must be one of: claude, codex.');
+    }
+    overrides.forceProvider = opts.agent;
+  }
+  if (typeof opts.agentModel === 'string') {
+    overrides.forceModel = opts.agentModel;
+  }
+  if (opts.agentPhase && typeof opts.agentPhase === 'object') {
+    overrides.phases = opts.agentPhase as AgentCliOverrides['phases'];
+  }
+  return overrides;
 }
 
 /**
@@ -165,7 +205,7 @@ const program = new Command();
 program
   .name('issue-flow')
   .description(
-    'Unified CLI for orchestrating the full issue-flow pipeline via Claude Code Headless.',
+    'Unified CLI for orchestrating the full issue-flow pipeline via Claude Code or Codex CLI.',
   )
   .version(version);
 
@@ -186,6 +226,15 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
     setInactivityTimeout(opts.inactivityTimeout * 1000);
   }
   setWebCliOverrides(resolveWebOverrides(opts));
+  try {
+    setAgentCliOverrides(resolveAgentOverrides(opts));
+  } catch (error) {
+    if (error instanceof InvalidArgumentError) {
+      printError(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
   // The CLI rung of the `resilience` ladder. `--continuous` expands here into
   // the settings it implies, with every granular flag applied on top of it.
   setResilienceCliOverrides(
@@ -220,14 +269,24 @@ withIssueOptions(
       .option('--apply', 'Create the missing files instead of only reporting them')
       .option('--json', 'Emit the plan as JSON')
       .option('--scope <dir>', 'Resolve the conventions for a subdirectory (monorepo)')
-      .option('--check-only', 'Only verify prerequisites, as earlier releases did'),
+      .option('--check-only', 'Only verify prerequisites, as earlier releases did')
+      .option('--no-agent-prompt', 'Skip the first-run agent choice'),
   ),
 ).action(
-  async (options: { apply?: boolean; json?: boolean; scope?: string; checkOnly?: boolean }) => {
+  async (options: {
+    apply?: boolean;
+    json?: boolean;
+    scope?: string;
+    checkOnly?: boolean;
+    agentPrompt?: boolean;
+  }) => {
     const { loadIssuesConfig } = await import('./config.js');
     const { runInit } = await import('./commands/init.js');
     const { preferredProvider } = await loadIssuesConfig();
-    const code = await runInit(preferredProvider, options);
+    const code = await runInit(preferredProvider, {
+      ...options,
+      noAgentPrompt: options.agentPrompt === false,
+    });
     process.exit(code);
   },
 );
@@ -612,6 +671,38 @@ withGlobalOptions(
   const code = await runPolicy(options);
   process.exit(code);
 });
+
+// ── agent ───────────────────────────────────────────────────────────────
+const agentCommand = withGlobalOptions(
+  program
+    .command('agent')
+    .description('Inspect the resolved agent and model for each phase')
+    .option('--json', 'Emit the resolved agent configuration as JSON'),
+);
+agentCommand.action(async (options: { json?: boolean }) => {
+  const { runAgent } = await import('./commands/agent.js');
+  const code = await runAgent(options);
+  process.exit(code);
+});
+
+agentCommand
+  .command('use')
+  .description('Write an agent preference to config.json or .issue-flow.json')
+  .argument('<provider>', 'claude or codex')
+  .option('--model <model>', 'Model identifier for this preference')
+  .option('--global', 'Write to ~/.issue-flow/config.json (default)')
+  .option('--project', 'Write to .issue-flow.json in the repository')
+  .option('--phase <phase>', 'Write only the override for this phase')
+  .action(
+    async (
+      provider: string,
+      options: { model?: string; global?: boolean; project?: boolean; phase?: string },
+    ) => {
+      const { runAgentUse } = await import('./commands/agent.js');
+      const code = await runAgentUse(provider, options);
+      process.exit(code);
+    },
+  );
 
 // ── pr-review ───────────────────────────────────────────────────────────────
 withGlobalOptions(

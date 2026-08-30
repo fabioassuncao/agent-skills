@@ -2,7 +2,7 @@
 
 > This is the npm package README. For full project documentation, see the [root README](../../README.md).
 
-Unified CLI that orchestrates the full issue-to-PR pipeline via [Claude Code](https://docs.anthropic.com/en/docs/claude-code) Headless mode. Analyzes issues, generates PRDs, creates task plans, implements code iteratively, reviews results, and opens pull requests -- all programmatically, without interactive sessions.
+Unified CLI that orchestrates the full issue-to-PR pipeline via [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex CLI](https://developers.openai.com/codex/noninteractive). Analyzes issues, generates PRDs, creates task plans, implements code iteratively, reviews results, and opens pull requests -- all programmatically, without interactive sessions. Default agent is Claude; Codex is opt-in (see the [root Agents section](../../README.md#agents)).
 
 Built on the [Ralph pattern](https://ghuntley.com/ralph/) for autonomous AI agent loops.
 
@@ -28,7 +28,8 @@ flowchart LR
 
 - **Node.js** >= 18.0.0
 - **git** installed and available in PATH
-- **Claude Code** (`npm install -g @anthropic-ai/claude-code`)
+- **Claude Code** (`npm install -g @anthropic-ai/claude-code`) -- default agent
+- **Codex CLI** (optional) -- alternative agent; see [Agents](../../README.md#agents)
 - **GitHub CLI** (`gh`) authenticated (`gh auth login`)
 
 Run `npx issue-flow init` to verify all prerequisites.
@@ -50,8 +51,11 @@ All commands support the following options:
 
 | Flag | Description |
 |------|-------------|
-| `-v, --verbose` | Show Claude progress output in real time |
+| `-v, --verbose` | Show agent progress output in real time |
 | `-t, --timeout <seconds>` | Override headless timeout in seconds (0 = no limit) |
+| `--agent <claude\|codex>` | Run every phase on this agent |
+| `--agent-model <model>` | Same, for the model |
+| `--agent-phase <phase>=<provider>[:<model>]` | Override one phase (repeatable) |
 
 ```bash
 # Run with verbose output
@@ -246,6 +250,7 @@ src/
   config.ts               # Configuration resolution and defaults
   types.ts                # Shared TypeScript interfaces
   schemas.ts              # Zod validation schemas
+  agents/                 # AgentRunner: Claude Code and Codex CLI
   commands/
     init.ts               # Prerequisite verification
     generate.ts           # Headless issue creation

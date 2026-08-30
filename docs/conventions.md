@@ -225,6 +225,11 @@ vendor — an [open convention](https://agents.md), where agents read the neares
 file in the directory tree and the closest one wins. Issue Flow treats it as an
 **index**: it names the documents to read and holds no rule of its own.
 
+That neutrality is now load-bearing. The pipeline can run on Claude Code or
+Codex CLI (see [`docs/agents.md`](agents.md)); the same `AGENTS.md` is what both
+read. A convention written for one vendor would make the other produce a
+different result from the same repository.
+
 **`CLAUDE.md` is a bridge.** It exists only as the Claude Code integration and
 contains one line:
 

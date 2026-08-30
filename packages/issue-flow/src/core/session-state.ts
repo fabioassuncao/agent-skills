@@ -141,6 +141,10 @@ export type SessionEvent =
 export interface SessionEnvironment {
   node: string;
   platform: string;
+  /** Winning agent provider for the run. `null` on snapshots from earlier releases. */
+  agent: string | null;
+  /** Winning model for the run. `null` when unset or on older snapshots. */
+  model: string | null;
 }
 
 export interface SessionLogEntry {
@@ -598,7 +602,14 @@ function applyEvent(
         // keeps git.branch and repository.branch consistent for a poll that
         // lands before the first git:update.
         repository: { ...initial.repository, branch: event.branch ?? null },
-        environment: event.environment ?? null,
+        environment: event.environment
+          ? {
+              node: event.environment.node,
+              platform: event.environment.platform,
+              agent: event.environment.agent ?? null,
+              model: event.environment.model ?? null,
+            }
+          : null,
       };
     }
 

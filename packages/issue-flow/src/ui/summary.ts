@@ -82,7 +82,17 @@ export function printBox(lines: string[]): void {
 /**
  * Print the startup header box showing engine configuration.
  */
-export function printStartupHeader(config: EngineConfig, plan: TaskPlan): void {
+export interface StartupAgentInfo {
+  provider: string;
+  model?: string | null;
+  detail?: string;
+}
+
+export function printStartupHeader(
+  config: EngineConfig,
+  plan: TaskPlan,
+  agent?: StartupAgentInfo,
+): void {
   const icons = getIcons();
 
   const storiesTotal = plan.userStories.length;
@@ -98,7 +108,7 @@ export function printStartupHeader(config: EngineConfig, plan: TaskPlan): void {
     ? 'unlimited retries'
     : `${config.retryLimit} consecutive retries`;
 
-  printBox([
+  const lines = [
     `${icons.start} Issue Flow`,
     '---',
     `Issue:       ${issueLabel}`,
@@ -106,7 +116,13 @@ export function printStartupHeader(config: EngineConfig, plan: TaskPlan): void {
     `Stories:     ${storiesPassing}/${storiesTotal} passing`,
     `Iterations:  ${maxIterLabel}`,
     `Retries:     ${retryLabel}`,
-  ]);
+  ];
+  if (agent) {
+    const model = agent.model ? ` · ${agent.model}` : '';
+    const detail = agent.detail ? ` (${agent.detail})` : '';
+    lines.push(`Agent:       ${agent.provider}${model}${detail}`);
+  }
+  printBox(lines);
 }
 
 // Re-export formatDuration from logger to maintain backwards compatibility
@@ -129,6 +145,7 @@ export function printSummaryBox(
    * empty means "the CLI reported nothing", and the line is skipped entirely.
    */
   usage?: ClaudeUsage | null,
+  usageByAgent?: Record<string, ClaudeUsage>,
 ): void {
   const icons = getIcons();
 
@@ -163,10 +180,7 @@ export function printSummaryBox(
     `Duration:    ${duration}`,
   ];
 
-  const tokens = formatTokens(usage);
-  if (tokens !== '') {
-    boxLines.push(`Tokens:      ${tokens}`);
-  }
+  boxLines.push(...tokenBoxLines(usage, usageByAgent));
 
   boxLines.push(`Retries:     ${totalRetries}`);
 
@@ -210,6 +224,46 @@ export interface RunSummaryInfo {
    * `core/session-metrics.ts`. Absent or empty omits the line.
    */
   usage?: ClaudeUsage | null;
+  /** When more than one agent ran, the summary prints one Tokens line each. */
+  usageByAgent?: Record<string, ClaudeUsage>;
+}
+
+function tokenBoxLines(
+  usage?: ClaudeUsage | null,
+  usageByAgent?: Record<string, ClaudeUsage>,
+): string[] {
+  const agents = usageByAgent ? Object.keys(usageByAgent) : [];
+  if (agents.length > 1) {
+    const lines: string[] = [];
+    for (const [index, id] of agents.entries()) {
+      const tokens = formatTokens(usageByAgent?.[id]);
+      if (tokens === '') continue;
+      lines.push(index === 0 ? `Tokens:      ${id} · ${tokens}` : `             ${id} · ${tokens}`);
+    }
+    return lines;
+  }
+  const tokens = formatTokens(usage);
+  return tokens === '' ? [] : [`Tokens:      ${tokens}`];
+}
+
+function tokenSummaryLines(
+  usage?: ClaudeUsage | null,
+  usageByAgent?: Record<string, ClaudeUsage>,
+  prefix = '  Tokens:   ',
+): string[] {
+  const agents = usageByAgent ? Object.keys(usageByAgent) : [];
+  if (agents.length > 1) {
+    const pad = ' '.repeat(prefix.length);
+    const lines: string[] = [];
+    for (const [index, id] of agents.entries()) {
+      const tokens = formatTokens(usageByAgent?.[id]);
+      if (tokens === '') continue;
+      lines.push(`${index === 0 ? prefix : pad}${id} · ${tokens}`);
+    }
+    return lines;
+  }
+  const tokens = formatTokens(usage);
+  return tokens === '' ? [] : [`${prefix}${tokens}`];
 }
 
 /**
@@ -226,12 +280,7 @@ export function buildRunSummaryLines(info: RunSummaryInfo): string[] {
     `  Duration: ${formatDuration(info.elapsedSeconds)}`,
   ];
 
-  // Skipped altogether when the CLI reported nothing — better no line than
-  // "0 in / 0 out" or "~$NaN".
-  const tokens = formatTokens(info.usage);
-  if (tokens !== '') {
-    lines.push(`  Tokens:   ${tokens}`);
-  }
+  lines.push(...tokenSummaryLines(info.usage, info.usageByAgent));
 
   if (!info.noBranch) {
     lines.push(`  PR:       ${info.prUrl}`);

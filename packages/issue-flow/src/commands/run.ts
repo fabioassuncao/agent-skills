@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
+import { describeRunAgents } from '../agents/resolve.js';
 import {
   getActiveResilienceConfig,
   initResilienceConfig,
@@ -802,11 +803,23 @@ async function runPipelinePhases(
       issueUrl: info?.issueUrl,
       branch: info?.branch,
       phases: [...phases],
-      environment: { node: process.version, platform: process.platform },
+      environment: {
+        node: process.version,
+        platform: process.platform,
+        agent: agentSummary.defaultProvider,
+        model: agentSummary.defaultModel,
+      },
     });
   };
 
-  printInfo(`Starting pipeline for issue #${issueNumber} (mode: ${mode})`);
+  const agentSummary = await describeRunAgents(
+    prReview
+      ? ['prd', 'plan', 'execute', 'review', 'pr', 'pr-review']
+      : ['prd', 'plan', 'execute', 'review', 'pr'],
+  );
+  printInfo(
+    `Starting pipeline for issue #${issueNumber} (mode: ${mode}, agent: ${agentSummary.label})`,
+  );
 
   // Loaded before the checks so init knows which origin the user is heading
   // for: with a local one, a missing gh must not fail the environment.
@@ -1202,12 +1215,22 @@ async function runPipelinePhases(
   );
 
   // Run pipeline with listr2 renderer — startup header printed above, summary below
+  const phaseSuffixes: Record<string, string> = {};
+  for (const [phase, resolved] of Object.entries(agentSummary.byPhase)) {
+    if (resolved.provider !== agentSummary.defaultProvider) {
+      phaseSuffixes[phase] = resolved.model
+        ? `${resolved.provider} · ${resolved.model}`
+        : resolved.provider;
+    }
+  }
+
   const result = await runPipelineWithRenderer({
     phases: phaseOrder,
     startIndex: startIdx,
     verbose: isVerbose(),
     runners: instrumentedRunners,
     tasksPath,
+    phaseSuffixes,
   });
 
   if (!result.success) {

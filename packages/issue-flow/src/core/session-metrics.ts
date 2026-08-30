@@ -34,10 +34,11 @@ export function elapsedSecondsSince(startedAtMs: number): number {
 interface UsageAccumulator {
   all: ClaudeUsage;
   byPhase: Map<string, ClaudeUsage>;
+  byAgent: Map<string, ClaudeUsage>;
 }
 
 function createAccumulator(): UsageAccumulator {
-  return { all: {}, byPhase: new Map() };
+  return { all: {}, byPhase: new Map(), byAgent: new Map() };
 }
 
 /**
@@ -59,11 +60,22 @@ function current(): UsageAccumulator {
   return scopes[scopes.length - 1] as UsageAccumulator;
 }
 
-function recordRunUsage(phase: string, usage: ClaudeUsage): void {
+function recordRunUsage(phase: string, usage: ClaudeUsage, providerId?: string): void {
   for (const scope of scopes) {
     scope.all = sumUsage(scope.all, usage);
     scope.byPhase.set(phase, sumUsage(scope.byPhase.get(phase), usage));
+    const agent = providerId ?? 'claude';
+    scope.byAgent.set(agent, sumUsage(scope.byAgent.get(agent), usage));
   }
+}
+
+/** Tokens spent per agent in the innermost scope. One entry on a homogeneous run. */
+export function getRunUsageByAgent(): Record<string, ClaudeUsage> {
+  const result: Record<string, ClaudeUsage> = {};
+  for (const [agent, usage] of current().byAgent) {
+    result[agent] = { ...usage };
+  }
+  return result;
 }
 
 /** Everything the innermost active scope has spent, across all phases. */
@@ -139,10 +151,11 @@ export function publishPhaseMetrics(
   phase: string,
   usage: ClaudeUsage | null | undefined,
   startedAtMs?: number,
+  providerId?: string,
 ): void {
   if (usage == null || !hasUsageData(usage)) return;
 
-  recordRunUsage(phase, usage);
+  recordRunUsage(phase, usage, providerId);
 
   getSessionPublisher().publish({
     type: 'metrics:update',
@@ -173,10 +186,11 @@ export function publishIterationMetrics(
   iteration: number,
   usage: ClaudeUsage | null | undefined,
   durationSeconds?: number,
+  providerId?: string,
 ): void {
   if (usage == null || !hasUsageData(usage)) return;
 
-  recordRunUsage(EXECUTE_PHASE, usage);
+  recordRunUsage(EXECUTE_PHASE, usage, providerId);
 
   getSessionPublisher().publish({
     type: 'metrics:update',

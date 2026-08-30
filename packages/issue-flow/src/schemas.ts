@@ -357,7 +357,14 @@ export const sessionSnapshotSchema = z.object({
   warnings: z.array(sessionLogEntrySchema),
   lastError: z.object({ message: z.string(), at: z.string() }).nullable(),
   nextSteps: z.array(z.string()),
-  environment: z.object({ node: z.string(), platform: z.string() }).nullable(),
+  environment: z
+    .object({
+      node: z.string(),
+      platform: z.string(),
+      agent: z.string().nullable().default(null),
+      model: z.string().nullable().default(null),
+    })
+    .nullable(),
 }) satisfies z.ZodType<SessionSnapshot>;
 
 /**

@@ -14,6 +14,27 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Added
+
+- **Camada de agentes (`src/agents/`)** (#62). `AgentRunner` desacopla o
+  pipeline do binário `claude`. `runHeadless` e `executeClaude` continuam as
+  fachadas; o runner é a peça trocável dentro delas. Default continua
+  `claude`, com o mesmo argv de sempre quando não há configuração.
+- **Codex CLI** (`codex exec`) como segundo provider. Prompt por stdin,
+  `--json` + `--output-last-message`, `--sandbox` sempre explícito.
+  `autonomous` fica em `workspace-write`. `danger-full-access` só por
+  opt-in, com warning. Flags `--dangerously-bypass-*` não são expostas.
+- **Seleção por fase.** Chave `agent` na escada CLI > `ISSUE_FLOW_AGENT*` /
+  `ISSUE_FLOW_CODEX_*` > `.issue-flow.json` > `~/.issue-flow/config.json` >
+  default. `phases` mergeia chave a chave. `--agent` / `--agent-model`
+  sobrepõem tudo; `--agent-phase` afina uma fase.
+- **`issue-flow agent`** e `issue-flow agent use`, com `--json` versionado
+  para as Agent Skills. `issue-flow init` verifica o provider selecionado
+  e oferece a escolha só com TTY, fora de CI e sem configuração prévia.
+- Observabilidade: agente/modelo no início do run, no header, em
+  `session.json` → `environment`, e tokens segmentados por agente só em
+  run misto. Codex não reporta USD (`costUsd` ausente, nunca zero).
+
 ## [0.12.0] - 2026-08-30
 
 Execução autônoma de longa duração: a camada de resiliência da issue #63. O

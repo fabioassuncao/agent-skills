@@ -11,11 +11,13 @@ those live in the documents referenced below, which are the source of truth.
 ## Start here
 
 - [`README.md`](README.md) — what the tool does, every command, the file
-  structure, the configuration and the web monitor
+ structure, the configuration and the web monitor
 - [`docs/conventions.md`](docs/conventions.md) — how conventions are discovered,
-  the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
+ the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
+- [`docs/agents.md`](docs/agents.md) — Claude Code and Codex CLI: selection by
+ phase, authentication, token economy and troubleshooting
 - [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
-  usage model, and the parity contract between the skills and the CLI
+ usage model, and the parity contract between the skills and the CLI
 
 ## Research
 
@@ -41,6 +43,7 @@ the code, and was learned the hard way.
 
 | Area | Document |
 |---|---|
+| The agent layer (Claude / Codex, selection by phase) | [`packages/issue-flow/src/agents/AGENTS.md`](packages/issue-flow/src/agents/AGENTS.md) |
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |

@@ -52,9 +52,11 @@ async function draftIssue(promptText: string): Promise<IssueDraft> {
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
     addDirs: [issuesDir],
     statusMessage: 'Drafting issue...',
+    phase: 'generate',
+    permission: 'workspace',
   });
   // Before the success check: the tokens were spent either way.
-  publishPhaseMetrics('generate', result.cost, startedAtMs);
+  publishPhaseMetrics('generate', result.cost, startedAtMs, result.agent?.provider);
 
   if (!result.success) {
     throw new Error(`Issue creation failed: ${result.error}`);

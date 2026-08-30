@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { resolveAgentFor } from '../agents/resolve.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { classify } from '../resilience/errors.js';
 import type { RetryPolicy } from '../resilience/policy.js';
@@ -325,8 +326,12 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // cannot change mid-run, and every iteration renders the same projection.
   const policy = await resolvePolicyPlaceholders({ root: paths.projectRoot });
 
-  // Print startup header
-  printStartupHeader(config, plan);
+  const executeAgent = await resolveAgentFor('execute');
+  printStartupHeader(config, plan, {
+    provider: executeAgent.provider,
+    model: executeAgent.model,
+    ...(executeAgent.codex.reasoningEffort ? { detail: executeAgent.codex.reasoningEffort } : {}),
+  });
 
   const startTime = Date.now();
   let i = 0;

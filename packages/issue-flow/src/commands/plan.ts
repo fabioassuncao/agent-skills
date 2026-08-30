@@ -96,9 +96,11 @@ export async function runPlan(
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
         addDirs: [paths.issueDir],
         statusMessage: `Converting PRD to task plan for issue #${issueNumber}...`,
+        phase: 'plan',
+        permission: 'workspace',
       });
       // One event per attempt; the reducer sums them into the phase total.
-      publishPhaseMetrics('plan', result.cost, startedAtMs);
+      publishPhaseMetrics('plan', result.cost, startedAtMs, result.agent?.provider);
 
       if (!result.success) {
         return {

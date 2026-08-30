@@ -1,6 +1,20 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { platform } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { setTrackedOrigins } from './agents/origins.js';
+import { agentConfigInputSchema, parsePhasesInput } from './agents/schemas.js';
+import type {
+  AgentBlock,
+  AgentCliOverrides,
+  AgentConfig,
+  AgentOrigin,
+  AgentPhase,
+  AgentProviderId,
+  ClaudeSettings,
+  CodexSettings,
+} from './agents/types.js';
+import { AGENT_PHASES, isAgentProviderId } from './agents/types.js';
 import type { IssuesConfig } from './issues/types.js';
 import { RETRY_CONFIG_KEYS, type RetryPolicyOverride } from './resilience/policy.js';
 import {
@@ -139,10 +153,25 @@ export async function validateDependencies(): Promise<string[]> {
     errors.push(`  - git  (install with: ${getInstallHint('git')})`);
   }
 
-  // Check claude
-  const claudeResult = await run('claude', ['--version']);
-  if (claudeResult.exitCode !== 0) {
-    errors.push('  - claude  (install with: npm install -g @anthropic-ai/claude-code)');
+  // Check the agents this run actually selected — never every binary on the
+  // machine. An unconfigured run still only needs `claude`, which is the
+  // behaviour every release before the agent layer had.
+  const agent = await loadAgentConfig();
+  const needed = new Set<AgentProviderId>([agent.provider]);
+  for (const phase of AGENT_PHASES) {
+    const provider = agent.phases[phase]?.provider;
+    if (provider !== undefined) needed.add(provider);
+  }
+  for (const id of needed) {
+    const binary = id === 'codex' ? 'codex' : 'claude';
+    const result = await run(binary, ['--version']);
+    if (result.exitCode !== 0) {
+      errors.push(
+        id === 'codex'
+          ? '  - codex  (install from: https://developers.openai.com/codex/noninteractive)'
+          : '  - claude  (install with: npm install -g @anthropic-ai/claude-code)',
+      );
+    }
   }
 
   // Note: jq is NOT required — the TypeScript CLI handles JSON natively
@@ -159,23 +188,29 @@ export const PROJECT_CONFIG_FILENAME = '.issue-flow.json';
 export const WEB_CONFIG_FILENAME = PROJECT_CONFIG_FILENAME;
 
 /**
- * Read and parse .issue-flow.json from the project root.
- *
- * Never throws: an absent file, unreadable path, invalid JSON or a non-object
- * root all degrade to `null` (with a warning for the malformed cases), so every
- * consumer falls back to its own defaults.
+ * Locate the project root without spawning `git`. Tests that mock `execa`
+ * wholesale (execute-regression, executor) treat every spawn as the agent;
+ * a `git rev-parse` here would steal that first call.
  */
+function findProjectRootFromCwd(start: string = process.cwd()): string | undefined {
+  let dir = start;
+  while (true) {
+    if (existsSync(join(dir, PROJECT_CONFIG_FILENAME)) || existsSync(join(dir, '.git'))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
 async function readProjectConfigFile(
   projectRoot: string | undefined,
   warn: (message: string) => void,
 ): Promise<Record<string, unknown> | null> {
-  let root = projectRoot;
+  const root = projectRoot ?? findProjectRootFromCwd();
   if (root === undefined) {
-    try {
-      root = await getProjectRoot();
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   const filePath = join(root, PROJECT_CONFIG_FILENAME);
@@ -1052,4 +1087,258 @@ export async function initResilienceConfig(
     activeResilienceConfig = {};
   }
   return activeResilienceConfig;
+}
+
+// ── Agent configuration ─────────────────────────────────────────────────────
+
+export type { AgentCliOverrides, AgentConfig };
+
+let agentCliOverrides: AgentCliOverrides = {};
+let cachedAgentConfig: AgentConfig | undefined;
+
+export function setAgentCliOverrides(overrides: AgentCliOverrides): void {
+  agentCliOverrides = overrides;
+  cachedAgentConfig = undefined;
+}
+
+export function getAgentCliOverrides(): AgentCliOverrides {
+  return agentCliOverrides;
+}
+
+export interface LoadAgentConfigOptions {
+  cli?: AgentCliOverrides;
+  env?: NodeJS.ProcessEnv;
+  projectRoot?: string;
+  globalRoot?: string;
+  warn?: (message: string) => void;
+}
+
+function readAgentEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void): AgentCliOverrides {
+  const layer: AgentCliOverrides = {};
+  if (env.ISSUE_FLOW_AGENT !== undefined) {
+    if (isAgentProviderId(env.ISSUE_FLOW_AGENT)) {
+      layer.provider = env.ISSUE_FLOW_AGENT;
+    } else {
+      warn(`Ignoring ISSUE_FLOW_AGENT="${env.ISSUE_FLOW_AGENT}": expected claude or codex.`);
+    }
+  }
+  if (env.ISSUE_FLOW_AGENT_MODEL !== undefined && env.ISSUE_FLOW_AGENT_MODEL !== '') {
+    layer.model = env.ISSUE_FLOW_AGENT_MODEL;
+  }
+  const codex: CodexSettings = {};
+  if (env.ISSUE_FLOW_CODEX_SANDBOX !== undefined) {
+    if (
+      env.ISSUE_FLOW_CODEX_SANDBOX === 'read-only' ||
+      env.ISSUE_FLOW_CODEX_SANDBOX === 'workspace-write' ||
+      env.ISSUE_FLOW_CODEX_SANDBOX === 'danger-full-access'
+    ) {
+      codex.sandbox = env.ISSUE_FLOW_CODEX_SANDBOX;
+    } else {
+      warn(`Ignoring ISSUE_FLOW_CODEX_SANDBOX="${env.ISSUE_FLOW_CODEX_SANDBOX}".`);
+    }
+  }
+  if (env.ISSUE_FLOW_CODEX_REASONING_EFFORT !== undefined) {
+    const effort = env.ISSUE_FLOW_CODEX_REASONING_EFFORT;
+    if (
+      effort === 'minimal' ||
+      effort === 'low' ||
+      effort === 'medium' ||
+      effort === 'high' ||
+      effort === 'xhigh'
+    ) {
+      codex.reasoningEffort = effort;
+    } else {
+      warn(`Ignoring ISSUE_FLOW_CODEX_REASONING_EFFORT="${effort}".`);
+    }
+  }
+  if (env.ISSUE_FLOW_CODEX_IGNORE_USER_CONFIG !== undefined) {
+    codex.ignoreUserConfig = parseBooleanEnv(env.ISSUE_FLOW_CODEX_IGNORE_USER_CONFIG);
+  }
+  if (Object.keys(codex).length > 0) layer.codex = codex;
+  return layer;
+}
+
+function readAgentKey(
+  raw: unknown,
+  label: string,
+  warn: (message: string) => void,
+): AgentCliOverrides {
+  if (raw === undefined) return {};
+  const parsed = agentConfigInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    warn(
+      `Ignoring "agent" key of ${label}: ${parsed.error.issues[0]?.message ?? 'invalid value'}.`,
+    );
+    return {};
+  }
+  const phases = parsePhasesInput(
+    raw !== null && typeof raw === 'object' && 'phases' in raw
+      ? (raw as { phases?: unknown }).phases
+      : undefined,
+    warn,
+  );
+  return {
+    ...(parsed.data.provider !== undefined ? { provider: parsed.data.provider } : {}),
+    ...(parsed.data.model !== undefined ? { model: parsed.data.model } : {}),
+    ...(parsed.data.claude !== undefined ? { claude: parsed.data.claude } : {}),
+    ...(parsed.data.codex !== undefined ? { codex: parsed.data.codex } : {}),
+    ...(Object.keys(phases).length > 0 ? { phases } : {}),
+  };
+}
+
+function pickOrigin(layers: Array<{ origin: AgentOrigin; value: unknown }>): AgentOrigin {
+  let current: AgentOrigin = 'default';
+  for (const layer of layers) {
+    if (layer.value !== undefined) current = layer.origin;
+  }
+  return current;
+}
+
+type TrackedPhaseOrigins = Partial<
+  Record<AgentPhase, { provider?: AgentOrigin; model?: AgentOrigin }>
+>;
+
+function mergeAgentBlockLayers(
+  layers: Array<{ origin: AgentOrigin; block: AgentBlock | undefined }>,
+): AgentBlock | undefined {
+  let merged: AgentBlock = {};
+  let any = false;
+  for (const layer of layers) {
+    if (layer.block === undefined) continue;
+    any = true;
+    merged = {
+      ...merged,
+      ...dropUndefinedBlock(layer.block),
+      claude: { ...merged.claude, ...layer.block.claude },
+      codex: { ...merged.codex, ...layer.block.codex },
+    };
+  }
+  return any ? merged : undefined;
+}
+
+function dropUndefinedBlock(block: AgentBlock): AgentBlock {
+  const result: AgentBlock = {};
+  if (block.provider !== undefined) result.provider = block.provider;
+  if (block.model !== undefined) result.model = block.model;
+  if (block.claude !== undefined) result.claude = block.claude;
+  if (block.codex !== undefined) result.codex = block.codex;
+  return result;
+}
+
+/**
+ * Resolve the `agent` key with the documented precedence:
+ *
+ *   default(claude) < ~/.issue-flow/config.json < .issue-flow.json
+ *     < ISSUE_FLOW_* < CLI
+ *
+ * Nested `phases` and `codex`/`claude` are merged key by key so a project's
+ * `phases.plan` cannot erase a global `phases.review`. Invalid values warn
+ * and degrade; nothing throws.
+ */
+export async function loadAgentConfig(options: LoadAgentConfigOptions = {}): Promise<AgentConfig> {
+  const canCache =
+    options.cli === undefined &&
+    options.env === undefined &&
+    options.projectRoot === undefined &&
+    options.globalRoot === undefined &&
+    options.warn === undefined;
+  if (canCache && cachedAgentConfig !== undefined) return cachedAgentConfig;
+
+  const warn = options.warn ?? printWarning;
+  const cli = options.cli ?? agentCliOverrides;
+  const env = options.env ?? process.env;
+
+  const globalFile = await loadGlobalConfig({
+    env,
+    globalRoot: options.globalRoot,
+    warn,
+  });
+  const globalLayer = readAgentKey(globalFile.agent, GLOBAL_CONFIG_FILENAME, warn);
+
+  const projectFile = await readProjectConfigFile(options.projectRoot, warn);
+  const projectLayer = readAgentKey(projectFile?.agent, PROJECT_CONFIG_FILENAME, warn);
+  const envLayer = readAgentEnv(env, warn);
+
+  const provider = (cli.forceProvider ??
+    cli.provider ??
+    envLayer.provider ??
+    projectLayer.provider ??
+    globalLayer.provider ??
+    'claude') as AgentProviderId;
+  const model =
+    cli.forceModel ??
+    cli.model ??
+    envLayer.model ??
+    projectLayer.model ??
+    globalLayer.model ??
+    null;
+
+  const claude = mergeConfigLayers<ClaudeSettings>({
+    global: globalLayer.claude,
+    project: projectLayer.claude,
+    env: envLayer.claude,
+    cli: cli.claude,
+  });
+  const codex = mergeConfigLayers<CodexSettings>({
+    global: globalLayer.codex,
+    project: projectLayer.codex,
+    env: envLayer.codex,
+    cli: cli.codex,
+  });
+
+  const phases: AgentConfig['phases'] = {};
+  const phaseOrigins: TrackedPhaseOrigins = {};
+  for (const phase of AGENT_PHASES) {
+    const block = mergeAgentBlockLayers([
+      { origin: 'global', block: globalLayer.phases?.[phase] },
+      { origin: 'project', block: projectLayer.phases?.[phase] },
+      { origin: 'env', block: envLayer.phases?.[phase] },
+      { origin: 'cli', block: cli.phases?.[phase] },
+    ]);
+    if (block && Object.keys(block).length > 0) {
+      phases[phase] = block;
+      phaseOrigins[phase] = {
+        provider:
+          block.provider !== undefined
+            ? pickOrigin([
+                { origin: 'global', value: globalLayer.phases?.[phase]?.provider },
+                { origin: 'project', value: projectLayer.phases?.[phase]?.provider },
+                { origin: 'env', value: envLayer.phases?.[phase]?.provider },
+                { origin: 'cli', value: cli.phases?.[phase]?.provider },
+              ])
+            : undefined,
+        model:
+          block.model !== undefined
+            ? pickOrigin([
+                { origin: 'global', value: globalLayer.phases?.[phase]?.model },
+                { origin: 'project', value: projectLayer.phases?.[phase]?.model },
+                { origin: 'env', value: envLayer.phases?.[phase]?.model },
+                { origin: 'cli', value: cli.phases?.[phase]?.model },
+              ])
+            : undefined,
+      };
+    }
+  }
+
+  setTrackedOrigins({
+    provider: pickOrigin([
+      { origin: 'default', value: 'claude' },
+      { origin: 'global', value: globalLayer.provider },
+      { origin: 'project', value: projectLayer.provider },
+      { origin: 'env', value: envLayer.provider },
+      { origin: 'cli', value: cli.forceProvider ?? cli.provider },
+    ]),
+    model: pickOrigin([
+      { origin: 'default', value: undefined },
+      { origin: 'global', value: globalLayer.model },
+      { origin: 'project', value: projectLayer.model },
+      { origin: 'env', value: envLayer.model },
+      { origin: 'cli', value: cli.forceModel ?? cli.model },
+    ]),
+    phases: phaseOrigins,
+  });
+
+  const resolved = { provider, model, claude, codex, phases };
+  if (canCache) cachedAgentConfig = resolved;
+  return resolved;
 }

@@ -268,9 +268,11 @@ export async function runPr(
         allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
         addDirs: [paths.issueDir],
         statusMessage: `Creating PR for issue #${issueNumber}...`,
+        phase: 'pr',
+        permission: 'workspace',
       });
       // One event per attempt; the reducer sums them into the phase total.
-      publishPhaseMetrics('pr', result.cost, startedAtMs);
+      publishPhaseMetrics('pr', result.cost, startedAtMs, result.agent?.provider);
 
       if (!result.success) {
         return {

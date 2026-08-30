@@ -75,10 +75,12 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
     addDirs: [paths.issueDir],
     statusMessage: `Reviewing issue #${issueNumber} resolution...`,
+    phase: 'review',
+    permission: 'read-only',
   });
   // Before the success check: the tokens were spent either way. A correction
   // cycle calls runReview() again and the reducer sums both invocations.
-  publishPhaseMetrics('review', result.cost, startedAtMs);
+  publishPhaseMetrics('review', result.cost, startedAtMs, result.agent?.provider);
 
   if (!result.success) {
     printError(`Review failed: ${result.error}`);

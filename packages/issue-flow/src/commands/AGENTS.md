@@ -15,10 +15,11 @@ Concretely, a new phase command must:
   `cost: null` outside verbose mode, so no metric is ever captured. The
   envelope's `result` field carries the same assistant text, so every parser
   built on `result.result` keeps working;
-- call `publishPhaseMetrics('<phase>', result.cost, startedAtMs)` (from
-  `core/session-metrics.js`) **before** the `result.success` check — the tokens
-  were spent whether or not the phase succeeded. The helper is a no-op when the
-  CLI reported nothing, and can never change an exit code;
+- call `publishPhaseMetrics('<phase>', result.cost, startedAtMs, result.agent?.provider)`
+  (from `core/session-metrics.js`) **before** the `result.success` check — the
+  tokens were spent whether or not the phase succeeded. The helper is a no-op
+  when the CLI reported nothing, and can never change an exit code. The fourth
+  argument labels usage by the agent that actually ran (`AgentRunResult.agent`);
 - publish once per invocation when it retries (inside the `attempt` callback of
   `runPhaseWithRetry`), letting the reducer sum the attempts.
 

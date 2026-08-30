@@ -46,6 +46,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Returns null when the payload carries no recognizable field at all, and a
  * partial object when only some fields are present. Never throws.
  */
+/**
+ * Parse a Codex `turn.completed.usage` object.
+ *
+ * Codex reports `input_tokens` including the cache (Decision 6 of #62), so
+ * `inputTokens` is `input_tokens − cached_input_tokens`, clamped at 0. Codex
+ * never reports USD; `costUsd` stays absent — "not reported", never zero.
+ */
+export function parseCodexUsage(payload: unknown): ClaudeUsage | null {
+  if (!isRecord(payload)) return null;
+
+  const usage: ClaudeUsage = {};
+  const inputTokens = num(payload.input_tokens);
+  const cachedInput = num(payload.cached_input_tokens);
+  const cacheWrite = num(payload.cache_write_input_tokens);
+  const outputTokens = num(payload.output_tokens);
+
+  if (inputTokens !== undefined) {
+    usage.inputTokens =
+      cachedInput !== undefined ? Math.max(0, inputTokens - cachedInput) : inputTokens;
+  }
+  if (outputTokens !== undefined) usage.outputTokens = outputTokens;
+  if (cachedInput !== undefined) usage.cacheReadTokens = cachedInput;
+  if (cacheWrite !== undefined) usage.cacheCreationTokens = cacheWrite;
+
+  return Object.keys(usage).length > 0 ? usage : null;
+}
+
 export function parseUsage(payload: unknown): ClaudeUsage | null {
   if (!isRecord(payload)) return null;
 

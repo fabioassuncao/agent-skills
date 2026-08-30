@@ -1,10 +1,16 @@
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { execa } from 'execa';
+import { hasExplicitAgentSelection } from '../agents/resolve.js';
+import { AGENT_PHASES } from '../agents/types.js';
+import { getAgentCliOverrides, loadAgentConfig } from '../config.js';
 import type { IssueSource } from '../issues/types.js';
 import type { ScaffoldActionKind, ScaffoldPlan } from '../scaffold/plan.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 
 /** Stable identifier of a check, used to decide whether it blocks. */
-type CheckKey = 'claude' | 'gh' | 'git';
+type CheckKey = 'claude' | 'codex' | 'gh' | 'git';
 
 interface CheckResult {
   key: CheckKey;
@@ -76,6 +82,41 @@ async function checkGh(): Promise<CheckResult> {
   }
 }
 
+async function checkCodex(): Promise<CheckResult> {
+  try {
+    const proc = await execa('codex', ['--version'], { reject: false, timeout: 10_000 });
+    if (proc.exitCode !== 0) {
+      return {
+        key: 'codex',
+        name: 'codex CLI',
+        passed: false,
+        detail: 'codex command failed',
+        hint: 'Install Codex CLI: https://developers.openai.com/codex/noninteractive',
+      };
+    }
+    const version = proc.stdout?.toString().trim() ?? 'unknown';
+    const auth = await execa('codex', ['login', 'status'], { reject: false, timeout: 10_000 });
+    if (auth.exitCode !== 0) {
+      return {
+        key: 'codex',
+        name: 'codex CLI',
+        passed: false,
+        detail: `${version} (not authenticated)`,
+        hint: 'Run: codex login --with-api-key  (or set CODEX_API_KEY)',
+      };
+    }
+    return { key: 'codex', name: 'codex CLI', passed: true, detail: `${version} (authenticated)` };
+  } catch {
+    return {
+      key: 'codex',
+      name: 'codex CLI',
+      passed: false,
+      detail: 'codex not found',
+      hint: 'Install Codex CLI: https://developers.openai.com/codex/noninteractive',
+    };
+  }
+}
+
 async function checkGit(): Promise<CheckResult> {
   try {
     const proc = await execa('git', ['--version'], { reject: false, timeout: 10_000 });
@@ -125,6 +166,8 @@ export interface InitOptions {
   scope?: string;
   /** Skip the convention report entirely and only check prerequisites. */
   checkOnly?: boolean;
+  /** Skip the first-run agent choice. */
+  noAgentPrompt?: boolean;
 }
 
 const ACTION_ICON: Record<ScaffoldActionKind, string> = {
@@ -197,8 +240,20 @@ export async function runInit(
     printInfo('Checking prerequisites...\n');
   }
 
-  const results = await Promise.all([checkClaude(), checkGh(), checkGit()]);
-  const isBlocking = (r: CheckResult): boolean => r.key !== 'gh' || source === 'github';
+  const agent = await loadAgentConfig();
+  const usesCodex =
+    agent.provider === 'codex' ||
+    AGENT_PHASES.some((phase) => agent.phases[phase]?.provider === 'codex');
+
+  const checks = [checkClaude(), checkGh(), checkGit()];
+  if (usesCodex) checks.push(checkCodex());
+  const results = await Promise.all(checks);
+  const isBlocking = (r: CheckResult): boolean => {
+    if (r.key === 'gh') return source === 'github';
+    if (r.key === 'codex') return usesCodex;
+    if (r.key === 'claude') return agent.provider === 'claude' || !usesCodex;
+    return true;
+  };
 
   if (!json) {
     for (const r of results) {
@@ -224,6 +279,10 @@ export async function runInit(
     } else {
       printError('Some prerequisites are missing. Please fix the issues above.');
     }
+  }
+
+  if (usesCodex) {
+    await warnEscalatingCodexConfig();
   }
 
   if (options.checkOnly === true) {
@@ -305,5 +364,57 @@ export async function runInit(
     }
   }
 
+  await maybeOfferAgentChoice(options, agent);
+
   return allPassed ? 0 : 1;
+}
+
+const ESCALATING_CODEX_KEYS = ['approvals_reviewer', 'sandbox_mode', 'sandbox_workspace_write'];
+
+async function warnEscalatingCodexConfig(): Promise<void> {
+  const configPath = join(homedir(), '.codex', 'config.toml');
+  try {
+    const raw = await readFile(configPath, 'utf-8');
+    const hits = ESCALATING_CODEX_KEYS.filter((key) => raw.includes(key));
+    if (hits.length === 0) return;
+    printWarning(
+      `$CODEX_HOME/config.toml contains ${hits.join(', ')}, which can escalate --sandbox. Set agent.codex.ignoreUserConfig: true for reproducible runs (recommended in CI). Claude's equivalent is --setting-sources project (agent.claude.ignoreUserConfig).`,
+    );
+  } catch {
+    // Absence is the common case.
+  }
+}
+
+function isInteractiveInit(): boolean {
+  const ci = process.env.CI;
+  const inCi = ci !== undefined && ci !== '' && ci !== '0' && ci.toLowerCase() !== 'false';
+  return Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !inCi;
+}
+
+async function maybeOfferAgentChoice(
+  options: InitOptions,
+  agent: Awaited<ReturnType<typeof loadAgentConfig>>,
+): Promise<void> {
+  if (options.json === true || options.noAgentPrompt === true) return;
+  if (!isInteractiveInit()) return;
+  if (hasExplicitAgentSelection(agent, getAgentCliOverrides())) return;
+
+  const { createInterface } = await import('node:readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise<string>((resolve) => {
+    rl.question('Agent [claude/codex] (default claude): ', resolve);
+  });
+  rl.close();
+  const trimmed = answer.trim().toLowerCase();
+  const chosen = trimmed === 'codex' ? 'codex' : 'claude';
+
+  if (options.apply === true) {
+    const { persistFirstAgentChoice } = await import('./agent.js');
+    const path = await persistFirstAgentChoice(chosen);
+    printSuccess(`Saved agent '${chosen}' to ${path}`);
+    return;
+  }
+  printInfo(
+    `Using ${chosen} for this check. Persist with: issue-flow agent use ${chosen} --global`,
+  );
 }
