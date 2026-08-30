@@ -1,13 +1,10 @@
 import { getActiveResilienceConfig, loadIssuesConfig } from '../../config.js';
 import { beginUsageScope, type getRunUsageTotals } from '../../core/session-metrics.js';
-import { isoNow, loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
+import { loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
 import { spawnDetachedRun } from '../../execution/detach.js';
 import {
-  markQueueIssueBlocked,
   markQueueIssueCompleted,
-  markQueueIssueFailed,
   markQueueIssueInProgress,
-  markQueueIssueSkipped,
   nextQueueIssue,
   saveExecutionPlan,
   setQueueBranch,
@@ -30,6 +27,7 @@ import {
   primaryPrCreated,
   propagatePullRequest,
 } from './pull-request.js';
+import { handleQueueIssueFailure } from './queue-failure.js';
 import type {
   PrReviewOutcome,
   QueueFailureMode,
@@ -60,17 +58,14 @@ export interface DecideQueueInput {
 export async function decideQueue(input: DecideQueueInput): Promise<QueueDecision> {
   const primary = input.requested[0] as string;
   const single = input.requested.length === 1;
-
   if (single && input.runOptions.only === true) {
     return { kind: 'single' };
   }
-
   try {
     const [project, queuePaths] = await Promise.all([
       resolveProjectPaths(),
       resolveQueuePaths(primary),
     ]);
-
     return await planQueue({
       requested: input.requested,
       source: input.resolved.source,
@@ -131,7 +126,6 @@ export async function detachAfterConfirm(
       // Discovery is an enrichment; a detach still starts the run that was asked for.
     }
   }
-
   const paths = await resolveIssuePaths(requested[0] as string);
   const { pid, logFile } = await spawnDetachedRun({ paths, argv: childFlags });
   printSuccess(`Detached run started (pid ${pid}).`);
@@ -157,6 +151,7 @@ export async function detachAfterConfirm(
  * phases) layer — that would close a cycle through `decideQueue` /
  * `adoptQueueBranch`, which phases call.
  */
+
 export async function runQueue(
   initialPlan: ExecutionPlan,
   options: {
@@ -170,165 +165,230 @@ export async function runQueue(
   runIssueSession: RunIssueSession,
 ): Promise<number> {
   const planFile = (await resolveQueuePaths(initialPlan.id)).planFile;
-  let plan = initialPlan;
-
   const queueUsage = beginUsageScope();
   const startedAtMs = Date.now();
-  const summaries: QueueIssueSummary[] = [];
-  let firstOfThisRun = true;
-
   const resilience = getActiveResilienceConfig();
   const failureMode: QueueFailureMode =
     options.runOptions?.onIssueFailure ??
     (resilience.queue?.onIssueFailure as QueueFailureMode | undefined) ??
     'stop';
   const maxIssueAttempts = resilience.queue?.maxIssueAttempts ?? DEFAULT_MAX_ISSUE_ATTEMPTS;
+  try {
+    return await processQueueIssues({
+      plan: initialPlan,
+      planFile,
+      initialPlan,
+      options,
+      resolvedPrimary,
+      runIssueSession,
+      failureMode,
+      maxIssueAttempts,
+      startedAtMs,
+      queueUsage,
+    });
+  } finally {
+    queueUsage.end();
+  }
+}
 
+async function processQueueEntry(input: {
+  plan: ExecutionPlan;
+  planFile: string;
+  entry: NonNullable<ReturnType<typeof nextQueueIssue>>;
+  initialPlan: ExecutionPlan;
+  options: {
+    mode: string;
+    from?: string;
+    noBranch?: boolean;
+    prReview?: boolean;
+    runOptions?: RunPipelineOptions;
+  };
+  resolvedPrimary: ResolvedIssue | undefined;
+  runIssueSession: RunIssueSession;
+  failureMode: QueueFailureMode;
+  maxIssueAttempts: number;
+  firstOfThisRun: boolean;
+  exhausted: Set<string>;
+  failedIds: Set<string>;
+  summaries: QueueIssueSummary[];
+}): Promise<
+  | { action: 'stop'; code: number }
+  | { action: 'continue'; plan: ExecutionPlan; firstOfThisRun: boolean }
+> {
+  let plan = input.plan;
+  const {
+    planFile,
+    entry,
+    initialPlan,
+    options,
+    resolvedPrimary,
+    runIssueSession,
+    failureMode,
+    maxIssueAttempts,
+    exhausted,
+    failedIds,
+    summaries,
+  } = input;
+  let firstOfThisRun = input.firstOfThisRun;
+  plan = markQueueIssueInProgress(plan, entry.id);
+  await saveExecutionPlan(planFile, plan);
+  printInfo(
+    `Queue ${entry.position}/${plan.issues.length}: issue #${entry.id}${entry.title === '' ? '' : ` — ${entry.title}`}`,
+  );
+  const issueUsage = beginUsageScope();
+  let result: Awaited<ReturnType<RunIssueSession>>;
+  try {
+    result = await runIssueSession(entry.id, options.mode, {
+      // `--from` / `--start-us` apply only to the first issue of this invocation.
+      from: firstOfThisRun ? options.from : undefined,
+      noBranch: options.noBranch,
+      runOptions: {
+        ...options.runOptions,
+        startUs: firstOfThisRun ? options.runOptions?.startUs : undefined,
+      },
+      queue: {
+        plan,
+        preChecked: true,
+        resolved: entry.id === initialPlan.id ? resolvedPrimary : undefined,
+      },
+    });
+  } finally {
+    firstOfThisRun = false;
+    // Ending here (not only on the happy path) keeps a thrown error from
+    // leaving an orphan accumulator on top of the scope stack, where it
+    // would silently become "the current scope" for everything after it.
+    issueUsage.end();
+  }
+  if (result.code !== 0) {
+    const handled = await handleQueueIssueFailure({
+      plan,
+      planFile,
+      entry,
+      result,
+      failureMode,
+      maxIssueAttempts,
+      exhausted,
+      failedIds,
+    });
+    if (handled.action === 'stop') return { action: 'stop', code: handled.code };
+    return { action: 'continue', plan: handled.plan, firstOfThisRun };
+  }
+  plan = await recordQueueIssueSuccess({
+    plan,
+    planFile,
+    entry,
+    result,
+    usage: issueUsage.totals(),
+    summaries,
+  });
+  return { action: 'continue', plan, firstOfThisRun };
+}
+
+/** First issue names the branch; later ones adopt it. Persist completion + summary. */
+async function recordQueueIssueSuccess(input: {
+  plan: ExecutionPlan;
+  planFile: string;
+  entry: NonNullable<ReturnType<typeof nextQueueIssue>>;
+  result: Awaited<ReturnType<RunIssueSession>>;
+  usage: ReturnType<ReturnType<typeof beginUsageScope>['totals']>;
+  summaries: QueueIssueSummary[];
+}): Promise<ExecutionPlan> {
+  let { plan } = input;
+  const { planFile, entry, result, usage, summaries } = input;
+  if (plan.branchName === null && result.branchName !== null) {
+    plan = setQueueBranch(plan, result.branchName);
+  }
+  plan = markQueueIssueCompleted(plan, entry.id);
+  await saveExecutionPlan(planFile, plan);
+  summaries.push({
+    id: entry.id,
+    title: entry.title,
+    storyCount: result.storyCount,
+    elapsedSeconds: result.elapsedSeconds,
+    usage,
+  });
+  return plan;
+}
+async function processQueueIssues(input: {
+  plan: ExecutionPlan;
+  planFile: string;
+  initialPlan: ExecutionPlan;
+  options: {
+    mode: string;
+    from?: string;
+    noBranch?: boolean;
+    prReview?: boolean;
+    runOptions?: RunPipelineOptions;
+  };
+  resolvedPrimary: ResolvedIssue | undefined;
+  runIssueSession: RunIssueSession;
+  failureMode: QueueFailureMode;
+  maxIssueAttempts: number;
+  startedAtMs: number;
+  queueUsage: { totals: () => ReturnType<typeof getRunUsageTotals> };
+}): Promise<number> {
+  let plan = input.plan;
+  const {
+    planFile,
+    initialPlan,
+    options,
+    resolvedPrimary,
+    runIssueSession,
+    failureMode,
+    maxIssueAttempts,
+    startedAtMs,
+    queueUsage,
+  } = input;
+  const summaries: QueueIssueSummary[] = [];
+  let firstOfThisRun = true;
   // Ids this invocation is done with. Without it, an Issue that exhausted its
   // attempts would be handed back out on the very next lookup — `failed` comes
   // before `pending` in the resumption policy, which is right *across*
   // invocations and wrong inside one.
   const exhausted = new Set<string>();
   const failedIds = new Set<string>();
-
-  try {
-    while (true) {
-      const entry = nextQueueIssue(plan, { exclude: exhausted });
-      if (entry === null) break;
-
-      plan = markQueueIssueInProgress(plan, entry.id);
-      await saveExecutionPlan(planFile, plan);
-
-      printInfo(
-        `Queue ${entry.position}/${plan.issues.length}: issue #${entry.id}${entry.title === '' ? '' : ` — ${entry.title}`}`,
-      );
-
-      const issueUsage = beginUsageScope();
-      let result: Awaited<ReturnType<RunIssueSession>>;
-      try {
-        result = await runIssueSession(entry.id, options.mode, {
-          // `--from` addresses the issue the queue is resuming, never the ones
-          // that come after it — those start from their own beginning.
-          from: firstOfThisRun ? options.from : undefined,
-          noBranch: options.noBranch,
-          // `--start-us` belongs to the first issue this invocation runs; the
-          // ones after it continue from the history those plans just wrote.
-          runOptions: {
-            ...options.runOptions,
-            startUs: firstOfThisRun ? options.runOptions?.startUs : undefined,
-          },
-          queue: {
-            plan,
-            preChecked: true,
-            resolved: entry.id === initialPlan.id ? resolvedPrimary : undefined,
-          },
-        });
-      } finally {
-        firstOfThisRun = false;
-        // Ending here (not only on the happy path) keeps a thrown error from
-        // leaving an orphan accumulator on top of the scope stack, where it
-        // would silently become "the current scope" for everything after it.
-        issueUsage.end();
-      }
-      const usage = issueUsage.totals();
-
-      if (result.code !== 0) {
-        const failure = {
-          phase: result.failedPhase,
-          error: {
-            category: 'queue_issue_failed',
-            message: `Issue #${entry.id} failed${result.failedPhase === null ? '' : ` in phase ${result.failedPhase}`}`,
-            at: isoNow(),
-          },
-        };
-        const where = result.failedPhase === null ? '' : ` (phase ${result.failedPhase})`;
-
-        if (failureMode === 'stop') {
-          plan = markQueueIssueFailed(plan, entry.id, failure);
-          await saveExecutionPlan(planFile, plan);
-          printError(
-            `Queue stopped at issue #${entry.id}${where}. ` +
-              'The branch and every commit made so far were kept.',
-          );
-          printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
-          return result.code;
-        }
-
-        if (failureMode === 'block') {
-          plan = markQueueIssueBlocked(
-            plan,
-            entry.id,
-            `Failed${where} and --on-issue-failure block was in force`,
-            failure,
-          );
-          await saveExecutionPlan(planFile, plan);
-          exhausted.add(entry.id);
-          failedIds.add(entry.id);
-          printWarning(
-            `Issue #${entry.id} failed${where} and is blocked for review. Continuing with the rest of the queue.`,
-          );
-          continue;
-        }
-
-        // `skip`: not a verdict on the eleven other Issues in the queue.
-        const attempts = entry.attempts + 1;
-        if (attempts >= maxIssueAttempts) {
-          plan = markQueueIssueFailed(plan, entry.id, failure);
-          exhausted.add(entry.id);
-          failedIds.add(entry.id);
-          printWarning(
-            `Issue #${entry.id} failed${where} after ${attempts} attempt(s). Continuing with the rest of the queue.`,
-          );
-        } else {
-          plan = markQueueIssueSkipped(plan, entry.id, failure);
-          printWarning(
-            `Issue #${entry.id} failed${where}. Skipping it for now and coming back at the end of the queue.`,
-          );
-        }
-        await saveExecutionPlan(planFile, plan);
-        continue;
-      }
-
-      // The first issue names the branch; every later one is made to adopt it.
-      if (plan.branchName === null && result.branchName !== null) {
-        plan = setQueueBranch(plan, result.branchName);
-      }
-      plan = markQueueIssueCompleted(plan, entry.id);
-      await saveExecutionPlan(planFile, plan);
-
-      summaries.push({
-        id: entry.id,
-        title: entry.title,
-        storyCount: result.storyCount,
-        elapsedSeconds: result.elapsedSeconds,
-        usage,
-      });
-    }
-
-    const code = await finishQueue(
+  while (true) {
+    const entry = nextQueueIssue(plan, { exclude: exhausted });
+    if (entry === null) break;
+    const processed = await processQueueEntry({
       plan,
       planFile,
-      summaries,
-      startedAtMs,
-      queueUsage,
+      entry,
+      initialPlan,
       options,
       resolvedPrimary,
       runIssueSession,
-    );
-
-    if (failedIds.size > 0) {
-      // The queue went as far as it could, and that is worth reporting as a
-      // failure even though the independent work landed.
-      printError(
-        `${failedIds.size} issue(s) did not finish: ${[...failedIds].map((id) => `#${id}`).join(', ')}.`,
-      );
-      printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
-      return code === 0 ? 1 : code;
-    }
-    return code;
-  } finally {
-    queueUsage.end();
+      failureMode,
+      maxIssueAttempts,
+      firstOfThisRun,
+      exhausted,
+      failedIds,
+      summaries,
+    });
+    if (processed.action === 'stop') return processed.code;
+    plan = processed.plan;
+    firstOfThisRun = processed.firstOfThisRun;
   }
+  const code = await finishQueue(
+    plan,
+    planFile,
+    summaries,
+    startedAtMs,
+    queueUsage,
+    options,
+    resolvedPrimary,
+    runIssueSession,
+  );
+  if (failedIds.size > 0) {
+    // The queue went as far as it could, and that is worth reporting as a
+    // failure even though the independent work landed.
+    printError(
+      `${failedIds.size} issue(s) did not finish: ${[...failedIds].map((id) => `#${id}`).join(', ')}.`,
+    );
+    printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
+    return code === 0 ? 1 : code;
+  }
+  return code;
 }
 
 /**
@@ -349,7 +409,6 @@ async function finishQueue(
 ): Promise<number> {
   let current = plan;
   let review: PrReviewOutcome | null = null;
-
   // One Pull Request for the whole queue, and only when there is a branch to
   // propose and no Pull Request has been opened for this queue yet.
   const alreadyOpened = current.pullRequest !== undefined || (await primaryPrCreated(current));
@@ -364,21 +423,17 @@ async function finishQueue(
       },
     });
     review = outcome.review ?? null;
-
     if (outcome.code !== 0) {
       printError('The consolidated Pull Request could not be created.');
       await saveExecutionPlan(planFile, current);
       return outcome.code;
     }
-
     const pullRequest = await propagatePullRequest(current);
     if (pullRequest !== null) {
       current = setQueuePullRequest(current, pullRequest);
     }
   }
-
   await saveExecutionPlan(planFile, current);
-
   // A review asking for changes leaves every issue open, exactly as it does for
   // a single-issue run: the work is proposed, not accepted.
   if (review?.requestedChanges === true) {
@@ -388,7 +443,6 @@ async function finishQueue(
       await closeIssue(entry.id, entry.source);
     }
   }
-
   printQueueSummary({
     queueId: current.id,
     branchName: current.branchName,
@@ -402,7 +456,6 @@ async function finishQueue(
     usage: queueUsage.totals(),
     prReview: review,
   });
-
   return 0;
 }
 

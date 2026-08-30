@@ -14,6 +14,33 @@ mode so the clean terminal and the dashboard share `currentActivity`;
 `FilePublisher` already throttles the write that would otherwise bust the
 `/api/status` ETag on every tool call.
 
+## Layout of `run/` (#100)
+
+`run.ts` is a thin façade: `RunPipelineOptions`, `runPipeline()`, and
+re-exports. Behaviour lives under `src/commands/run/`:
+
+| File | Responsibility |
+|---|---|
+| `types.ts` | `QueueFailureMode`, `QueueRunContext`, `IssueRunResult`, phase tables |
+| `publish.ts` | Session snapshot publication helpers |
+| `pull-request.ts` | Consolidated PR context, propagation, issue close |
+| `oversized.ts` | Decomposition report / auto sub-issues |
+| `multi-issue.ts` | Queue **execution**: `decideQueue`, `runQueue`, `finishQueue`, detach, adopt branch |
+| `queue-failure.ts` | Per-issue failure handling inside a queue |
+| `session.ts` | Lock, writable-repo gate, one-issue session lifecycle |
+| `phase-options.ts` | Pure resolvers for `--no-branch`, `--pr-review`, `--start-us`, retry budget |
+| `phase-bootstrap.ts` / `phase-prepare.ts` / `phases.ts` | Phase orchestration split |
+| `phase-runners.ts` / `phase-config.ts` / `phase-start.ts` / `phase-finalize.ts` | Named helpers for runners, agent config, resume start, summary |
+
+Direction is `run.ts → run/*` only. Modules under `run/` must not import
+`run.ts`. `types.ts` imports none of its siblings.
+
+**`multi-issue.ts` vs `src/execution/queue.ts`:** the execution package owns
+the **plan** (discovery, confirm, order, `execution-plan.json`).
+`run/multi-issue.ts` owns **running** that plan (per-issue sessions, shared
+branch, consolidated PR). The name is intentional so the two are not
+confused when both appear in an import list.
+
 ## Contract of a single-invocation phase
 
 `review` runs the acceptance contract (`src/verify/`) **before** its
@@ -22,10 +49,10 @@ LLM. `unverified` continues, labelled.
 
 `analyze`, `generate`, `prd`, `plan`, `review`, `pr` and `pr-review` each own
 one `runHeadless` call. Anything that has to be derived from that call belongs
-to the command, not to the `instrumentedRunners` wrapper in `run.ts`: the
-wrapper only sees `() => Promise<void>` and never receives the
-`HeadlessResult`. Keeping it in the command also covers standalone runs
-(`issue-flow prd 42`), which never go through the pipeline at all.
+to the command, not to the `instrumentedRunners` wrapper in
+`run/phase-runners.ts`: the wrapper only sees `() => Promise<void>` and never
+receives the `HeadlessResult`. Keeping it in the command also covers
+standalone runs (`issue-flow prd 42`), which never go through the pipeline.
 
 Concretely, a new phase command must:
 
@@ -44,7 +71,7 @@ Concretely, a new phase command must:
 `phase:start`/`phase:end` stay the only source of a phase's `durationSeconds`;
 the duration carried by a metrics event is informational.
 
-## Publication order in run.ts
+## Publication order in `run/`
 
 `session:start` rebuilds the snapshot from `createInitialSnapshot()`, so
 **everything that enriches the snapshot is published after

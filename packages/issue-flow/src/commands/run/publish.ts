@@ -1,10 +1,17 @@
+import { join } from 'node:path';
+import {
+  type PrReviewRoundEntry,
+  prReviewDir,
+  readPrReviewIndex,
+} from '../../core/pr-review/report.js';
 import type { SessionPublisher } from '../../core/session-state.js';
-import { isoNow } from '../../core/state-manager.js';
+import { isoNow, loadTaskPlan } from '../../core/state-manager.js';
 import { isVerbose } from '../../core/verbose.js';
 import type { Issue } from '../../issues/types.js';
 import { formatPhaseLine, loadPhaseTiming, snapshotTimingFields } from '../../telemetry/timing.js';
 import type { UserStory } from '../../types.js';
 import { printInfo } from '../../ui/logger.js';
+import type { PrReviewOutcome } from './types.js';
 
 /**
  * Numeric form of an identifier, or `null` when the origin uses a non-numeric
@@ -97,4 +104,50 @@ export function publishIssueDetails(publisher: SessionPublisher, issue: Issue, a
     labels: issue.labels,
     state: issue.state,
   });
+}
+
+export function verificationForSummary(
+  value: {
+    verdict: 'passed' | 'failed' | 'unverified' | null;
+    level: string | null;
+  } | null,
+): { verdict: 'passed' | 'failed' | 'unverified'; level: string | null } | null {
+  if (value === null || value.verdict === null) return null;
+  return { verdict: value.verdict, level: value.level };
+}
+
+/**
+ * Recover the verdict and the report path the `pr-review` phase produced.
+ *
+ * Best-effort by design: the exit code already tells whether changes were
+ * requested, so a missing plan or index costs the summary a detail, never the
+ * decision to keep the issue open.
+ */
+export async function readPrReviewOutcome(
+  issue: string,
+  tasksPath: string,
+  requestedChanges: boolean,
+): Promise<PrReviewOutcome> {
+  const outcome: PrReviewOutcome = { requestedChanges, recommendation: null, reportPath: null };
+  try {
+    const plan = await loadTaskPlan(tasksPath);
+    outcome.recommendation = plan.prReview?.lastRecommendation ?? null;
+
+    const pullRequest = plan.prReview?.pullRequestNumber;
+    if (pullRequest !== undefined) {
+      const dir = await prReviewDir({ issue, pullRequest });
+      const index = await readPrReviewIndex(dir);
+      const last = index?.rounds.reduce<PrReviewRoundEntry | null>(
+        (latest, entry) => (latest === null || entry.round > latest.round ? entry : latest),
+        null,
+      );
+      if (last) {
+        outcome.reportPath = join(dir, last.reportPath);
+        outcome.recommendation ??= last.recommendation;
+      }
+    }
+  } catch {
+    /* non-critical */
+  }
+  return outcome;
 }

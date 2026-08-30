@@ -137,6 +137,151 @@ export async function pauseIssue(tasksFile: string, issueNumber: string): Promis
  * `runPipelinePhases` is injected so this module never imports the phases layer
  * — that would close a cycle through multi-issue helpers that phases call.
  */
+
+async function createSessionPublisher(input: {
+  paths: Awaited<ReturnType<typeof resolveIssuePaths>>;
+  persistSnapshot: boolean;
+  journalEnabled: boolean;
+  webConfig: Awaited<ReturnType<typeof loadWebConfig>>;
+  maxFileBytes: number | undefined;
+}): Promise<SessionPublisher> {
+  const { paths, persistSnapshot, journalEnabled, webConfig, maxFileBytes } = input;
+  const surfaces: SessionPublisher[] = [];
+  if (persistSnapshot || journalEnabled) {
+    // resolveIssuePaths never creates directories, and a run may well be the
+    // first thing to touch this issue's global folder — so the writer creates
+    // it. Only when a surface asked for it: with monitoring off and no journal
+    // the pipeline still creates nothing at all (issue 25, US-009).
+    await mkdir(paths.issueDir, { recursive: true });
+  }
+  if (persistSnapshot) {
+    surfaces.push(
+      new FilePublisher(paths.sessionFile, {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+      }),
+    );
+  }
+  if (journalEnabled) {
+    surfaces.push(
+      new JournalPublisher(paths.eventsFile, paths.rotatedEventsFile, {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+        ...(maxFileBytes === undefined ? {} : { maxFileBytes }),
+      }),
+    );
+  }
+  // The snapshot writer stays the primary surface, so `snapshot()` and
+  // `version()` keep answering exactly what the dashboard answered before.
+  // With no disk surface the reducer still runs in memory: the terminal
+  // renders that snapshot, and US-009 is preserved because nothing is written.
+  return surfaces.length === 0
+    ? new MemoryPublisher()
+    : surfaces.length === 1
+      ? (surfaces[0] as SessionPublisher)
+      : new MultiPublisher(surfaces);
+}
+
+function registerIssueShutdownHooks(input: {
+  paths: Awaited<ReturnType<typeof resolveIssuePaths>>;
+  issueNumber: string;
+  publisher: SessionPublisher;
+}): { releaseCheckpoint: () => void; releaseClose: () => void } {
+  const { paths, issueNumber, publisher } = input;
+  // What a `Ctrl+C` leaves behind. Registered for the duration of this issue
+  // only — a queue runs several, and each must checkpoint its own plan — and
+  // deliberately split across the two shutdown phases: the state is written
+  // while the agent is still alive, and the surfaces are closed after it is
+  // gone, so nothing the checkpoint published is lost on the way out.
+  const releaseCheckpoint = onShutdown({
+    phase: 'checkpoint',
+    run: async () => {
+      await pauseIssue(paths.tasksFile, issueNumber);
+      publisher.publish({
+        type: 'log',
+        at: isoNow(),
+        level: 'warn',
+        message: `Interrupted during issue #${issueNumber}. A checkpoint was saved; resume with \`issue-flow resume ${issueNumber}\`.`,
+      });
+      publisher.publish({ type: 'session:end', at: isoNow(), status: 'failed' });
+    },
+  });
+  const releaseClose = onShutdown({
+    phase: 'close',
+    run: async () => {
+      await publisher.close();
+    },
+  });
+  return { releaseCheckpoint, releaseClose };
+}
+
+async function closeIssueSession(input: {
+  releaseCheckpoint: () => void;
+  releaseClose: () => void;
+  result: IssueRunResult;
+  publisher: SessionPublisher;
+}): Promise<void> {
+  const { releaseCheckpoint, releaseClose, result, publisher } = input;
+  releaseCheckpoint();
+  releaseClose();
+  // A run that only decided to become a queue published nothing: closing the
+  // session here would write a `session.json` for a pipeline that never ran.
+  if (result.queue === undefined) {
+    publisher.publish({
+      type: 'session:end',
+      at: isoNow(),
+      status: result.code === 0 ? 'completed' : 'failed',
+    });
+  }
+  // The web monitor is no longer this process's to close (US-002): it is a
+  // detached, single machine-wide instance meant to outlive the pipeline
+  // and serve other invocations. Only this run's own publication ends here.
+  await publisher.close();
+  writeDiagnostic({
+    level: result.code === 0 ? 'info' : 'error',
+    message: `Issue Flow session ${result.code === 0 ? 'completed' : 'failed'}`,
+    context: { code: result.code, failedPhase: result.failedPhase },
+  });
+  await flushDiagnostics();
+  setSessionPublisher(undefined);
+}
+
+async function applySessionSideEffects(input: {
+  publisher: SessionPublisher;
+  interruptedBy: import('../../storage/schemas.js').RunLock | undefined;
+  webConfig: Awaited<ReturnType<typeof loadWebConfig>>;
+  restartWeb: boolean | undefined;
+}): Promise<void> {
+  const { publisher, interruptedBy, webConfig, restartWeb } = input;
+  // Recorded through the publisher rather than printed, so it lands in the
+  // journal beside the events of the run that replaced it.
+  if (interruptedBy !== undefined) {
+    publisher.publish({
+      type: 'log',
+      at: isoNow(),
+      level: 'warn',
+      message: `Previous run interrupted: ${describeRunLockOwner(interruptedBy)}. Its lock was stale and has been taken over.`,
+    });
+  }
+
+  // A null handle (port in use, ...) means the pipeline runs without a server.
+  // ensureWebMonitor reuses an already-running, healthy instance instead of
+  // binding a second one (US-001), or spawns it detached when none exists
+  // (US-002) — either way the returned handle never owns a local server that
+  // this process would need to close.
+  if (webConfig.enabled) {
+    await ensureWebMonitor(
+      {
+        publisher,
+        port: webConfig.port,
+        host: webConfig.host,
+        refreshSeconds: webConfig.refreshSeconds,
+      },
+      { restart: restartWeb === true },
+    );
+  }
+}
+
 export async function runIssueSession(
   issueNumber: string,
   mode: string,
@@ -183,79 +328,28 @@ export async function runIssueSession(
   // decision from one invocation into the next inside the same process.
   const webConfig = await loadWebConfig();
 
+  const journalEnabled = resilience.journal?.enabled === true;
+  const persistSnapshot = webConfig.enabled || input.runOptions?.detachedChild === true;
+
   // Two independent surfaces over one event stream: the snapshot the dashboard
   // reads, and the append-only journal an audit reads. Neither implies the
   // other — `--web` without a journal is the common case, and a journal
   // without `--web` is what an unattended run wants.
-  const surfaces: SessionPublisher[] = [];
-  const journalEnabled = resilience.journal?.enabled === true;
-  const persistSnapshot = webConfig.enabled || input.runOptions?.detachedChild === true;
-  if (persistSnapshot || journalEnabled) {
-    // resolveIssuePaths never creates directories, and a run may well be the
-    // first thing to touch this issue's global folder — so the writer creates
-    // it. Only when a surface asked for it: with monitoring off and no journal
-    // the pipeline still creates nothing at all (issue 25, US-009).
-    await mkdir(paths.issueDir, { recursive: true });
-  }
-  if (persistSnapshot) {
-    surfaces.push(
-      new FilePublisher(paths.sessionFile, {
-        logLimit: webConfig.logLimit,
-        includeLogs: webConfig.includeLogs,
-      }),
-    );
-  }
-  if (journalEnabled) {
-    surfaces.push(
-      new JournalPublisher(paths.eventsFile, paths.rotatedEventsFile, {
-        logLimit: webConfig.logLimit,
-        includeLogs: webConfig.includeLogs,
-        ...(resilience.journal?.maxFileBytes === undefined
-          ? {}
-          : { maxFileBytes: resilience.journal.maxFileBytes }),
-      }),
-    );
-  }
-  // The snapshot writer stays the primary surface, so `snapshot()` and
-  // `version()` keep answering exactly what the dashboard answered before.
-  // With no disk surface the reducer still runs in memory: the terminal
-  // renders that snapshot, and US-009 is preserved because nothing is written.
-  const publisher: SessionPublisher =
-    surfaces.length === 0
-      ? new MemoryPublisher()
-      : surfaces.length === 1
-        ? (surfaces[0] as SessionPublisher)
-        : new MultiPublisher(surfaces);
+  const publisher = await createSessionPublisher({
+    paths,
+    persistSnapshot,
+    journalEnabled,
+    webConfig,
+    maxFileBytes: resilience.journal?.maxFileBytes,
+  });
   setSessionPublisher(publisher);
 
-  // Recorded through the publisher rather than printed, so it lands in the
-  // journal beside the events of the run that replaced it.
-  if (input.interruptedBy !== undefined) {
-    const previous = input.interruptedBy;
-    publisher.publish({
-      type: 'log',
-      at: isoNow(),
-      level: 'warn',
-      message: `Previous run interrupted: ${describeRunLockOwner(previous)}. Its lock was stale and has been taken over.`,
-    });
-  }
-
-  // A null handle (port in use, ...) means the pipeline runs without a server.
-  // ensureWebMonitor reuses an already-running, healthy instance instead of
-  // binding a second one (US-001), or spawns it detached when none exists
-  // (US-002) — either way the returned handle never owns a local server that
-  // this process would need to close.
-  if (webConfig.enabled) {
-    await ensureWebMonitor(
-      {
-        publisher,
-        port: webConfig.port,
-        host: webConfig.host,
-        refreshSeconds: webConfig.refreshSeconds,
-      },
-      { restart: input.restartWeb === true },
-    );
-  }
+  await applySessionSideEffects({
+    publisher,
+    interruptedBy: input.interruptedBy,
+    webConfig,
+    restartWeb: input.restartWeb,
+  });
 
   let result: IssueRunResult = {
     code: 1,
@@ -265,29 +359,10 @@ export async function runIssueSession(
     elapsedSeconds: 0,
   };
 
-  // What a `Ctrl+C` leaves behind. Registered for the duration of this issue
-  // only — a queue runs several, and each must checkpoint its own plan — and
-  // deliberately split across the two shutdown phases: the state is written
-  // while the agent is still alive, and the surfaces are closed after it is
-  // gone, so nothing the checkpoint published is lost on the way out.
-  const releaseCheckpoint = onShutdown({
-    phase: 'checkpoint',
-    run: async () => {
-      await pauseIssue(paths.tasksFile, issueNumber);
-      publisher.publish({
-        type: 'log',
-        at: isoNow(),
-        level: 'warn',
-        message: `Interrupted during issue #${issueNumber}. A checkpoint was saved; resume with \`issue-flow resume ${issueNumber}\`.`,
-      });
-      publisher.publish({ type: 'session:end', at: isoNow(), status: 'failed' });
-    },
-  });
-  const releaseClose = onShutdown({
-    phase: 'close',
-    run: async () => {
-      await publisher.close();
-    },
+  const { releaseCheckpoint, releaseClose } = registerIssueShutdownHooks({
+    paths,
+    issueNumber,
+    publisher,
   });
 
   try {
@@ -297,27 +372,6 @@ export async function runIssueSession(
     }
     return result;
   } finally {
-    releaseCheckpoint();
-    releaseClose();
-    // A run that only decided to become a queue published nothing: closing the
-    // session here would write a `session.json` for a pipeline that never ran.
-    if (result.queue === undefined) {
-      publisher.publish({
-        type: 'session:end',
-        at: isoNow(),
-        status: result.code === 0 ? 'completed' : 'failed',
-      });
-    }
-    // The web monitor is no longer this process's to close (US-002): it is a
-    // detached, single machine-wide instance meant to outlive the pipeline
-    // and serve other invocations. Only this run's own publication ends here.
-    await publisher.close();
-    writeDiagnostic({
-      level: result.code === 0 ? 'info' : 'error',
-      message: `Issue Flow session ${result.code === 0 ? 'completed' : 'failed'}`,
-      context: { code: result.code, failedPhase: result.failedPhase },
-    });
-    await flushDiagnostics();
-    setSessionPublisher(undefined);
+    await closeIssueSession({ releaseCheckpoint, releaseClose, result, publisher });
   }
 }
