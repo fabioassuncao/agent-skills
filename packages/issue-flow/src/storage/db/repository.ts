@@ -310,7 +310,9 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
         executionCompleted: Number(row.execution_completed) === 1,
         reviewCompleted: Number(row.review_completed) === 1,
         prCreated: Number(row.pr_created) === 1,
-        ...(Number(row.pr_review_completed) === 1 ? { prReviewCompleted: true } : {}),
+        ...(row.pr_review_completed === null
+          ? {}
+          : { prReviewCompleted: Number(row.pr_review_completed) === 1 }),
       },
       ...(row.run_status === null
         ? {}
@@ -350,6 +352,9 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
         : {
             prReview: {
               enabled: Number(row.pr_review_enabled) === 1,
+              ...(row.pr_review_pull_request_number === null
+                ? {}
+                : { pullRequestNumber: Number(row.pr_review_pull_request_number) }),
               rounds: Number(row.pr_review_rounds ?? 0),
               ...(row.pr_review_recommendation === null
                 ? {}
@@ -421,8 +426,8 @@ export function writePlanRows(
        execution_completed = ?, review_completed = ?, pr_created = ?, pr_review_completed = ?, run_status = ?,
        run_phase = ?, run_attempt = ?, run_heartbeat_at = ?, run_blocked_reason = ?, run_owner_pid = ?,
        run_owner_host = ?, run_owner_started_at = ?, pr_number = ?, pr_url = ?, pr_head_branch = ?,
-       pr_created_at = ?, pr_review_enabled = ?, pr_review_rounds = ?, pr_review_recommendation = ?,
-       pr_reviewed_at = ? WHERE project_id = ? AND issue_id = ?`,
+       pr_created_at = ?, pr_review_enabled = ?, pr_review_pull_request_number = ?, pr_review_rounds = ?,
+       pr_review_recommendation = ?, pr_reviewed_at = ? WHERE project_id = ? AND issue_id = ?`,
     )
     .run(
       plan.project,
@@ -446,7 +451,11 @@ export function writePlanRows(
       plan.pipeline.executionCompleted ? 1 : 0,
       plan.pipeline.reviewCompleted ? 1 : 0,
       plan.pipeline.prCreated ? 1 : 0,
-      plan.pipeline.prReviewCompleted === true ? 1 : 0,
+      plan.pipeline.prReviewCompleted === undefined
+        ? null
+        : plan.pipeline.prReviewCompleted
+          ? 1
+          : 0,
       plan.runState?.status ?? null,
       plan.runState?.currentPhase ?? null,
       plan.runState?.attempt ?? null,
@@ -459,7 +468,8 @@ export function writePlanRows(
       plan.pullRequest?.url ?? null,
       plan.pullRequest?.headBranch ?? null,
       plan.pullRequest?.createdAt ?? null,
-      plan.prReview?.enabled === true ? 1 : 0,
+      plan.prReview === undefined ? null : plan.prReview.enabled ? 1 : 0,
+      plan.prReview?.pullRequestNumber ?? null,
       plan.prReview?.rounds ?? null,
       plan.prReview?.lastRecommendation ?? null,
       plan.prReview?.lastReviewedAt ?? null,

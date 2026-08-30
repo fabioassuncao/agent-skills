@@ -334,6 +334,12 @@ export const migrations: readonly Migration[] = [
         CREATE INDEX provider_health_failures_lookup_idx ON provider_health_failures(project_id, provider, occurred_at DESC);
       `),
   },
+  {
+    version: 5,
+    name: 'preserve pr review target state',
+    up: (database) =>
+      database.exec('ALTER TABLE pipelines ADD COLUMN pr_review_pull_request_number INTEGER;'),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;
