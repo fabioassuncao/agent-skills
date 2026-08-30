@@ -14,6 +14,13 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-08-30
+
+Routing passa a escolher harness **e** modelo, com política recomendada opt-in
+e controles no painel. No mesmo ciclo, o Epic de organização (#103) redistribui
+os três arquivos que concentravam a pipeline — sem mudar o que a ferramenta
+faz, só onde o código mora — e coloca o Biome sobre o pacote inteiro.
+
 ### Added
 
 - **Convenção de organização do código (#99, #103).**
@@ -1163,6 +1170,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.17.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.17.0
 [0.16.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.16.0
 [0.15.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.15.0
 [0.14.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.14.0
