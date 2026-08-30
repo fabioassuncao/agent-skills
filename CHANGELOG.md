@@ -12,6 +12,84 @@ Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
 the fact, so they list what changed rather than explaining why. Everything from
 0.9.0 onwards was written at release time.
 
+## [0.14.0] - 2026-08-30
+
+O monitor web deixa de ser uma vitrine e passa a explicar a própria execução.
+Um único drawer de detalhes serve fases, stories e cards do Kanban; a
+configuração efetiva de harness/modelo aparece com a camada que a decidiu; a
+saída dos processos e os diagnósticos correlacionados ficam a um clique. Fora do
+painel, todo run passa a gravar um log estruturado em `~/.issue-flow/logs/`,
+independente de projeto e de `--web`. E o painel ganha tema claro e escuro, com
+contraste medido em vez de estimado.
+
+### Added
+
+- **Tema claro e escuro no monitor web** (#97). A paleta do `app.css` foi
+  reorganizada como tokens por papel (`--surface*`, `--text*`, `--border*`,
+  `--accent*`, `--state-*`, `--focus-ring`), e o tema escuro vive em dois blocos
+  gêmeos — `@media (prefers-color-scheme: dark)` guardado por
+  `:not([data-theme='light'])` e `:root[data-theme='dark']` — para a escolha
+  manual vencer o sistema nos dois sentidos. Um `<select>` de três estados
+  (Sistema/Claro/Escuro) aparece espelhado nos dois headers, e a preferência é
+  persistida em `localStorage` sob `issue-flow:theme`, por navegador: não há
+  flag de CLI, variável de ambiente nem chave em `.issue-flow.json`, e a escolha
+  nunca chega ao servidor. No modo `Sistema` — e só nele — um listener de
+  `matchMedia` repinta o painel quando o SO troca de tema, sem reload. Um script
+  inline no `<head>`, antes do `app.css`, aplica o tema armazenado antes do
+  primeiro paint, de modo que um reload com tema forçado não pisca a paleta
+  oposta; com `localStorage` bloqueado o painel carrega em modo sistema e o
+  seletor continua funcionando na aba. Cada bloco declara seu próprio
+  `color-scheme` (o `<meta name="color-scheme">` foi removido do `index.html`),
+  então `<select>`, `<progress>` e as barras de rolagem seguem o tema
+  **efetivo**, não o do SO. Todos os pares texto/fundo foram calculados e
+  atendem WCAG AA — 4,5:1 para texto, 3:1 para o anel de foco —, com a tabela
+  dos valores medidos em `web/AGENTS.md`. Nada é carregado da rede: o painel
+  continua funcionando offline.
+
+- **Log de diagnóstico global** (`~/.issue-flow/logs/issue-flow-YYYY-MM-DD.jsonl`).
+  Todo run grava JSON Lines estruturado, independentemente do projeto e de o
+  monitor web estar ligado. Cada registro carrega os campos de correlação
+  disponíveis (`project`, `projectRoot`, `sessionId`, `executionId`, issue, fase,
+  story, harness e modelo), além de nível, timestamp, mensagem, contexto e o
+  stack da exceção quando existe. A escrita é enfileirada e best-effort — uma
+  falha de logging não pode quebrar o pipeline —, com rotação em 10 MiB, cinco
+  gerações por dia, retenção de 30 dias e redação recursiva de chaves e valores
+  parecidos com credenciais.
+
+- **Diagnóstico de execução no `session.json`.** O snapshot passa a projetar
+  `executions` (as invocações canônicas de `tasks.json`, upsert por id),
+  `processLogs` (cauda limitada e redigida da saída do harness), `configuration`
+  (provider/modelo efetivos com a camada de origem, escada de precedência,
+  fallbacks e overrides) e `history` por story (transições de estágio,
+  append-only). `git` ganha `branchCreated`, `startCommit` e, por commit,
+  `committedAt` e `storyId`.
+
+- **Rotas de leitura e um card de configuração no painel.**
+  `GET /api/config?session=<id>` devolve a configuração capturada no snapshot e
+  `GET /api/diagnostics?session=<id>` filtra o log global pela sessão. O card de
+  configuração renderiza o valor capturado — não uma resolução nova feita no
+  navegador —, apresentando a escada como *built-in default → global do usuário
+  → projeto → ambiente → CLI → override de fase* com o valor efetivo destacado.
+
+### Changed
+
+- **Um único drawer de detalhes** para fases, linhas de story e cards do Kanban.
+  Clicar (ou focar e apertar Enter) em qualquer um deles abre o mesmo
+  componente, agora com status e tempos, harness/modelo efetivos, telemetria de
+  tokens/cache/custo por invocação, transições de estágio, retries, fallbacks e
+  correções, e blocos expansíveis com a saída do processo e os diagnósticos
+  globais correlacionados. Descrição, critérios de aceitação e dependências
+  continuam ali para stories. O drawer segue fechando pelo overlay, pelo botão
+  ou por `Esc`, devolvendo o foco ao elemento que o abriu, e permanece aberto
+  entre refreshes, atualizando no lugar.
+
+- **O painel deixa de ser read-only por construção e passa a ser read-only por
+  binding.** O estado de execução nunca é gravável. A única rota de escrita,
+  `POST /api/config/agent`, salva a preferência global de provider/modelo para
+  runs futuros e existe apenas quando o servidor está ligado a loopback: em
+  binding remoto ela some de `/api/health.capabilities` e responde `403`. Uma
+  sessão ativa nunca é reconfigurada retroativamente.
+
 ## [0.13.0] - 2026-08-30
 
 Quatro providers atrás de um contrato único, e um pipeline que passa a medir a
@@ -951,6 +1029,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.14.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.14.0
 [0.13.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.13.0
 [0.12.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.12.0
 [0.11.1]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.11.1
