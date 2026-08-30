@@ -111,6 +111,21 @@ preferência vive em `state.theme`, nunca em variável solta, e `'system'`
 **remove** o `data-theme` da raiz em vez de gravar `'system'`: é a ausência do
 atributo que devolve a decisão ao `@media`.
 
+A escolha é persistida em `issue-flow:theme` (`'system' | 'light' | 'dark'`)
+por `readStoredTheme()` / `storeTheme()`, que copiam a forma de
+`readStoredRefresh()` / `storeRefresh()`: leitura e escrita em `try`/`catch`,
+valor ausente ou desconhecido caindo para `'system'`, e **nenhum wrapper
+genérico de storage** — duas chaves não justificam uma abstração. Com o
+armazenamento bloqueado o painel carrega no modo sistema e o `<select>`
+continua alternando o tema na sessão; só não sobrevive ao reload.
+
+No modo `'system'` — e **só** nele — um listener de
+`matchMedia('(prefers-color-scheme: dark)')` fica anexado, para a troca de tema
+do SO chegar ao painel sem reload; `setTheme()` o desanexa quando a escolha
+passa a ser forçada e o reanexa quando volta a `'system'`. O repaint das cores
+em si é do `@media`, que o navegador reavalia sozinho: o listener sincroniza o
+lado JS (raiz e o `.value` dos seletores).
+
 Consequência para o servidor: `baseHeaders()` em `src/web/server.ts` hoje não
 define `Content-Security-Policy`. Se um CSP for adicionado, ele precisa
 contemplar esse script inline (`'unsafe-inline'` em `script-src` ou, melhor, um

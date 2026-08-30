@@ -9,7 +9,8 @@
   const REFRESH_OPTIONS = [3, 5, 10, 30];
   const PAUSED = 0;
   const STORAGE_KEY = 'issue-flow:refresh-seconds';
-  // A chave 'issue-flow:theme' também é lida pelo <script> inline do <head>
+  const THEME_STORAGE_KEY = 'issue-flow:theme';
+  // Esta chave também é lida pelo <script> inline do <head>
   // do index.html, que aplica o tema antes do primeiro paint. A duplicação
   // é deliberada: aquele script roda antes deste arquivo existir na página e
   // não pode depender de nenhum símbolo daqui. Mudou o formato do valor,
@@ -115,8 +116,8 @@
     polling: false,
     logFilter: 'all',
     activeTab: 'tab-execution',
-    // 'system' | 'light' | 'dark'. Valor inicial em initTheme(), a partir do
-    // que o <script> inline do <head> já aplicou na raiz.
+    // 'system' | 'light' | 'dark'. Valor inicial em initTheme(), lido da
+    // preferência guardada em localStorage por readStoredTheme().
     theme: 'system',
     historyFilter: 'all',
     events: [],
@@ -321,6 +322,28 @@
   // Três estados: 'system' segue o SO (o @media decide), 'light'/'dark' forçam.
   // Quem pinta é o CSS; aqui só se define (ou remove) o data-theme da raiz.
 
+  // Par ler/gravar tolerante a exceção, na mesma forma de readStoredRefresh()
+  // e storeRefresh(): armazenamento bloqueado (janela privada, cookies de
+  // terceiros desligados) não pode derrubar o painel.
+  function readStoredTheme() {
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(THEME_STORAGE_KEY);
+    } catch (err) {
+      // localStorage indisponível (ex.: bloqueado) — segue no modo sistema.
+    }
+    return raw === 'light' || raw === 'dark' ? raw : 'system';
+  }
+
+  function storeTheme(value) {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, value);
+    } catch (err) {
+      // Persistência é conveniência; falha é ignorada. Sem gravar, a escolha
+      // continua valendo nesta aba — só não sobrevive ao reload.
+    }
+  }
+
   function applyTheme(theme) {
     // 'system' **remove** o atributo em vez de gravar 'system': é a ausência
     // do data-theme que devolve a decisão ao @media (prefers-color-scheme).
@@ -338,17 +361,43 @@
     if (els.themeSelectDashboard) els.themeSelectDashboard.value = state.theme;
   }
 
-  function setTheme(theme) {
-    state.theme = theme === 'light' || theme === 'dark' ? theme : 'system';
+  // Preferência do SO. Só se observa no modo 'system': é ali que a troca de
+  // claro para escuro no SO precisa chegar ao painel com a página aberta.
+  const systemThemeQuery =
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
+
+  function onSystemThemeChange() {
+    // Sincroniza o lado JS do tema com a preferência nova do SO: a raiz (que
+    // no modo sistema segue sem data-theme, para o @media decidir) e o .value
+    // dos dois seletores. O repaint das cores é do próprio @media, que o
+    // navegador reavalia sozinho — por isso não há nada a pintar aqui.
     applyTheme(state.theme);
     syncThemeSelects();
   }
 
+  // Anexa no modo 'system' e desanexa nos modos forçados: com tema forçado a
+  // preferência do SO não vale, e continuar ouvindo seria ruído.
+  function watchSystemTheme(enabled) {
+    if (!systemThemeQuery) return;
+    if (enabled) systemThemeQuery.addEventListener('change', onSystemThemeChange);
+    else systemThemeQuery.removeEventListener('change', onSystemThemeChange);
+  }
+
+  function setTheme(theme) {
+    state.theme = theme === 'light' || theme === 'dark' ? theme : 'system';
+    applyTheme(state.theme);
+    syncThemeSelects();
+    watchSystemTheme(state.theme === 'system');
+  }
+
   function initTheme() {
-    // O <script> inline do <head> já leu 'issue-flow:theme' e aplicou o tema
-    // antes do primeiro paint; ler a raiz aqui reflete a preferência guardada
-    // sem duplicar a leitura do localStorage uma terceira vez.
-    setTheme(document.documentElement.getAttribute('data-theme') || 'system');
+    // O <script> inline do <head> já leu a mesma chave e aplicou o tema antes
+    // do primeiro paint; esta é a segunda metade da duplicação deliberada
+    // documentada em THEME_STORAGE_KEY — traz a preferência para o state e,
+    // com ela, para os dois seletores.
+    setTheme(readStoredTheme());
   }
 
   // ---- Polling: intervalo configurável, aba oculta e backoff ----------------
@@ -1336,6 +1385,7 @@
 
   function onThemeChange(select) {
     setTheme(select.value);
+    storeTheme(state.theme);
   }
 
   function onRefreshChange(select) {
