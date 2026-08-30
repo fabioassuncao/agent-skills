@@ -290,6 +290,25 @@ withUserStoryNumberingOptions(
   },
 );
 
+// ── resume ──────────────────────────────────────────────────────────────────
+withIssueOptions(
+  withGlobalOptions(
+    program
+      .command('resume')
+      .description('Resume an interrupted pipeline from the phase it stopped at')
+      .argument('[issue]', 'Issue to resume. Omitted: the most recently attempted one')
+      .option('--all', 'Resume every unfinished issue of this project, in order')
+      .option('--mode <mode>', 'Execution mode: auto | manual', 'auto'),
+  ),
+).action(async (issue: string | undefined, options: { all?: boolean; mode?: string }) => {
+  const { runResume } = await import('./commands/resume.js');
+  const code = await runResume(issue, {
+    ...(options.all === undefined ? {} : { all: options.all }),
+    ...(options.mode === undefined ? {} : { mode: options.mode }),
+  });
+  process.exit(code);
+});
+
 // ── analyze ─────────────────────────────────────────────────────────────────
 withIssueOptions(
   withGlobalOptions(

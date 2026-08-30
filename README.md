@@ -211,6 +211,42 @@ Analyzes the project and drafts the issue via Claude headless; the draft is then
 
 The flags are mutually exclusive. With `--both`, the remote issue is created first because it owns the number: a failure there leaves nothing on disk, and a failure writing the mirror is reported with the URL that already exists.
 
+### `resume` -- Continue an interrupted pipeline
+
+```bash
+issue-flow resume            # the most recently attempted unfinished issue
+issue-flow resume 42         # a specific issue
+issue-flow resume --all      # every unfinished issue of this project, in order
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Resume every unfinished issue of the project instead of one |
+| `--mode <mode>` | Execution mode: `auto` (default) or `manual` |
+
+Resumption always worked -- you re-ran the same `run` and the pipeline picked up
+where it stopped -- but only *implicitly*, as a side effect of two mechanisms
+agreeing. `resume` makes every step of it explicit, in this order:
+
+1. **Ownership.** A live owner of `run.lock` refuses the resume, naming its pid,
+   host and last heartbeat; a dead one is taken over and reported.
+2. **The plans.** `execution-plan.json` when the project has a queue,
+   `tasks.json` otherwise.
+3. **The journal.** The last `phase:start` with no `phase:end` in
+   `events.jsonl` is what was running when the process died -- the one fact the
+   snapshot does not keep. (Only available when the journal is enabled; without
+   it the resume continues from the plan alone.)
+4. **The repository preflight.** A rebase, merge or cherry-pick in progress, an
+   unresolved conflict, a detached HEAD or a branch that is not the plan's stops
+   the resume with the command that gets out of it. **Nothing is repaired
+   automatically** -- no `reset --hard`, no `--abort`, no implicit `stash`.
+   A dirty working tree is allowed when the resume continues the very phase that
+   was interrupted, and blocks when it does not.
+5. **The phase.** `run`'s own answer -- the first incomplete phase -- stated out
+   loud before anything runs.
+
+`run` is unchanged: its automatic resume behaves exactly as it always has.
+
 ### `analyze` -- Analyze an issue (standalone)
 
 ```bash

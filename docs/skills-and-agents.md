@@ -75,6 +75,21 @@ nested `AGENTS.md` wins over the root one, and it **follows a pointer file rathe
 than stopping at it**. The full policy, and what does not belong in an
 `AGENTS.md`, is in [Conventions](conventions.md#agent-entry-points).
 
+## Resuming an interrupted run
+
+The CLI has an explicit command for it -- [`issue-flow resume`](../README.md#resume----continue-an-interrupted-pipeline)
+-- and the sub-agent does not need one: `@resolve-issue` re-invoked on the same
+issue reads the same `tasks.json` and continues from the first incomplete phase,
+which is exactly what `resume` computes.
+
+The parity is therefore in the **decision**, not in the surface: both paths
+resume from `PipelineManager.getNextPhase()`, and neither ever repairs the
+repository to get there. What the CLI adds is what only a CLI can do -- refuse
+when another process owns the run, read the journal to name the phase that was
+interrupted, and stop on a repository state that needs a human. A skill running
+inside your session has you sitting in front of it, which is the same guarantee
+by other means.
+
 ## Repository policy: parity with the CLI is a contract
 
 The skills and the CLI are two paths to the same outcome, and **a user is
