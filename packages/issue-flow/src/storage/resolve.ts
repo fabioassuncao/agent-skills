@@ -12,6 +12,7 @@ import {
   ISSUES_DIR_NAME,
   type IssuePaths,
   type QueuePaths,
+  RUN_LOCK_FILENAME,
 } from './paths.js';
 
 /**
@@ -167,6 +168,14 @@ export interface ProjectStoragePaths {
   projectDir: string;
   /** `<projectDir>/issues` — the parent of every issue directory. */
   issuesDir: string;
+  /**
+   * `<projectDir>/run.lock` — who is running in this project right now.
+   *
+   * Project-level rather than per issue on purpose: two runs in one repository
+   * share a working tree and a branch, so "a different issue" is not a
+   * different lock.
+   */
+  runLockFile: string;
 }
 
 /**
@@ -194,6 +203,7 @@ export async function resolveProjectPaths(
     projectId: project.projectId,
     projectDir,
     issuesDir: join(projectDir, ISSUES_DIR_NAME),
+    runLockFile: join(projectDir, RUN_LOCK_FILENAME),
   };
 }
 

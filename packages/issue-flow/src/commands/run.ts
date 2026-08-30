@@ -1,8 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { loadIssuesConfig, loadWebConfig } from '../config.js';
+import {
+  getActiveResilienceConfig,
+  initResilienceConfig,
+  loadIssuesConfig,
+  loadWebConfig,
+} from '../config.js';
+import {
+  assessDecomposition,
+  buildDecompositionReport,
+  proposeSubIssues,
+} from '../core/decompose.js';
+import { JournalPublisher, MultiPublisher } from '../core/journal.js';
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASES_NO_BRANCH,
@@ -20,12 +31,15 @@ import { listPullRequests, publishGitState } from '../core/session-git.js';
 import { beginUsageScope, getRunUsageTotals } from '../core/session-metrics.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
+import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
-import { isVerbose } from '../core/verbose.js';
+import { getInactivityTimeout, isVerbose, setInactivityTimeout } from '../core/verbose.js';
 import {
+  markQueueIssueBlocked,
   markQueueIssueCompleted,
   markQueueIssueFailed,
   markQueueIssueInProgress,
+  markQueueIssueSkipped,
   nextQueueIssue,
   saveExecutionPlan,
   setQueueBranch,
@@ -37,9 +51,11 @@ import { parseIssueArguments } from '../issues/args.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import { acquireRunLock, describeRunLockOwner } from '../storage/lock.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
-import type { PullRequestRef, UserStory } from '../types.js';
+import type { RunLock } from '../storage/schemas.js';
+import type { PullRequestRef, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import {
@@ -48,6 +64,13 @@ import {
   type QueueIssueSummary,
   type RunSummaryPrReview,
 } from '../ui/summary.js';
+import {
+  committedStoryIds,
+  describePreflight,
+  getBaseBranch,
+  preflightRepository,
+} from '../utils/git.js';
+import { run } from '../utils/shell.js';
 import { ensureWebMonitor } from '../web/lock.js';
 import { runExecute } from './execute.js';
 import { runInit } from './init.js';
@@ -184,7 +207,30 @@ export interface RunPipelineOptions {
   continueNumbering?: boolean;
   /** `--start-us <n>`: force the first plan of this run to start at `n`. */
   startUs?: number;
+  /**
+   * `--retry-limit <n>`: consecutive retries the `execute` phase may spend on a
+   * transient failure. Absent means the engine default (`DEFAULTS.retryLimit`),
+   * which is what every release before this flag existed used.
+   */
+  retryLimit?: number;
+  /** `--retry-forever`: lift the retry count of the `execute` phase. */
+  retryForever?: boolean;
+  /**
+   * `--on-issue-failure <mode>`: what one failing Issue does to the rest of a
+   * queue. `stop` is the default and the behaviour of every release before the
+   * flag existed.
+   */
+  onIssueFailure?: QueueFailureMode;
 }
+
+/** What one failing Issue does to the rest of the queue. */
+export type QueueFailureMode =
+  | /** End the run where it failed. The behaviour that has always been. */ 'stop'
+  | /** Set it aside, run the independent work, come back to it. */ 'skip'
+  | /** Set it aside for a human, and never come back to it. */ 'block';
+
+/** Attempts an Issue gets before the queue stops handing it out. */
+const DEFAULT_MAX_ISSUE_ATTEMPTS = 2;
 
 /**
  * Everything a queue hands to the run of one of its issues.
@@ -249,23 +295,111 @@ export async function runPipeline(
     return 1;
   }
 
-  const first = await runIssueSession(requested[0] as string, mode, {
-    from,
-    noBranch,
-    prReview,
-    requested,
-    runOptions: options,
-  });
-
-  if (first.queue === undefined) {
-    return first.code;
+  // Ownership of the run, for the whole invocation — a queue is one run, not
+  // one per issue. Two invocations in the same repository share a working tree
+  // and a branch, so "a different issue" is not a different lock.
+  const ownership = await claimRunOwnership(requested[0] as string);
+  if (!ownership.ok) {
+    printError(
+      `Another issue-flow run owns this project: ${describeRunLockOwner(ownership.owner)}.`,
+    );
+    printInfo('Wait for it to finish, or stop that process before running again.');
+    return 1;
   }
 
-  return runQueue(
-    first.queue.plan,
-    { mode, from, noBranch, prReview, runOptions: options },
-    first.queue.resolved,
-  );
+  try {
+    const first = await runIssueSession(requested[0] as string, mode, {
+      from,
+      noBranch,
+      prReview,
+      requested,
+      runOptions: options,
+      ...(ownership.interruptedBy === null ? {} : { interruptedBy: ownership.interruptedBy }),
+    });
+
+    if (first.queue === undefined) {
+      return first.code;
+    }
+
+    return runQueue(
+      first.queue.plan,
+      { mode, from, noBranch, prReview, runOptions: options },
+      first.queue.resolved,
+    );
+  } finally {
+    await ownership.release();
+  }
+}
+
+/**
+ * Phases that write to the repository — the working tree, the branch, or the
+ * remote. The read-only ones (`init`, `prd`, `review`) produce artifacts under
+ * the global storage and cannot be hurt by, nor hurt, a repository mid-rebase.
+ */
+const WRITING_PHASES: ReadonlySet<string> = new Set(['plan', 'execute', 'pr']);
+
+/**
+ * Refuse to hand the repository to an agent while it is in a state a human has
+ * to settle first.
+ *
+ * **Nothing is repaired here.** A rebase in progress, an unresolved conflict, a
+ * detached HEAD or a branch that is not the plan's are reported with the
+ * command that gets out of them, and the phase fails. That is the Epic's second
+ * limit: no destructive operation is ever run automatically to fix state, and
+ * "the tool aborted my rebase overnight" is exactly the outcome it forbids.
+ *
+ * Two of the checks are deliberately left to `resume` rather than run here:
+ *
+ * - a **dirty tree** does not block mid-pipeline, because the phases of one run
+ *   follow each other by design and uncommitted work between them is the
+ *   pipeline's own doing;
+ * - the **branch** is not compared either, because within a run the `plan`
+ *   phase is what creates and checks it out, and a queue adopts a shared branch
+ *   after its own plan ran.
+ *
+ * `resume` reads both strictly, because there the repository may have been
+ * touched by anything at all in between.
+ */
+async function ensureRepositoryWritable(phase: string): Promise<void> {
+  if (!WRITING_PHASES.has(phase)) return;
+
+  const preflight = await preflightRepository({ intent: 'resume-same-phase' });
+  if (preflight.ok) return;
+
+  for (const line of describePreflight(preflight)) {
+    printError(line);
+  }
+  throw new Error(`The repository is not in a state the ${phase} phase can write to`);
+}
+
+type RunOwnership =
+  | { ok: true; interruptedBy: RunLock | null; release: () => Promise<void> }
+  | { ok: false; owner: RunLock };
+
+/**
+ * Take the project's run lock, or report who holds it.
+ *
+ * A project whose storage cannot be resolved at all (no git repository yet, no
+ * home directory) runs **without** a lock rather than not running: the guard
+ * exists to stop two runs from colliding, and it must never be the reason a
+ * single run cannot start.
+ */
+async function claimRunOwnership(target: string): Promise<RunOwnership> {
+  let lockFile: string;
+  try {
+    lockFile = (await resolveProjectPaths()).runLockFile;
+  } catch {
+    return { ok: true, interruptedBy: null, release: async () => {} };
+  }
+
+  const result = await acquireRunLock(lockFile, { target });
+  if (!result.ok) return result;
+
+  return {
+    ok: true,
+    interruptedBy: result.handle.reclaimedFrom,
+    release: () => result.handle.release(),
+  };
 }
 
 interface IssueSessionInput {
@@ -276,6 +410,12 @@ interface IssueSessionInput {
   requested?: string[];
   runOptions?: RunPipelineOptions;
   queue?: QueueRunContext;
+  /**
+   * The dead owner whose lock this run took over. Recorded in the journal as
+   * an interrupted run: something was executing here and never finished, and
+   * that is the difference between a resume and a fresh start.
+   */
+  interruptedBy?: RunLock;
 }
 
 /**
@@ -295,23 +435,79 @@ async function runIssueSession(
   // the whole run instead of once per phase.
   const paths = await resolveIssuePaths(issueNumber);
 
+  // The `resilience` key, installed once for the whole run. Every `gh` call
+  // below reads it synchronously (`getActiveResilienceConfig()`), so it has to
+  // be in place before the first phase resolves the Issue — and the journal
+  // decision below is the first thing that reads it. Absent configuration
+  // leaves the base table, so this is a no-op for a project that configured
+  // nothing.
+  const resilience = await initResilienceConfig();
+
+  // The watchdog budget, when the project configured one and the CLI did not
+  // override it. A flag wins because it is the higher rung of the same ladder.
+  const configuredInactivity = resilience.watchdog?.inactivityTimeoutMs;
+  if (configuredInactivity !== undefined && getInactivityTimeout() === undefined) {
+    setInactivityTimeout(configuredInactivity);
+  }
+
   // Read per issue rather than cached for the process: the configuration is
   // per project and cheap to read, and a cached value would leak a `--web`
   // decision from one invocation into the next inside the same process.
   const webConfig = await loadWebConfig();
-  let publisher: SessionPublisher = new NullPublisher();
-  if (webConfig.enabled) {
+
+  // Two independent surfaces over one event stream: the snapshot the dashboard
+  // reads, and the append-only journal an audit reads. Neither implies the
+  // other — `--web` without a journal is the common case, and a journal
+  // without `--web` is what an unattended run wants.
+  const surfaces: SessionPublisher[] = [];
+  const journalEnabled = resilience.journal?.enabled === true;
+  if (webConfig.enabled || journalEnabled) {
     // resolveIssuePaths never creates directories, and a run may well be the
     // first thing to touch this issue's global folder — so the writer creates
-    // it. Only under --web: with monitoring off the pipeline still creates
-    // nothing at all (US-009).
+    // it. Only when a surface asked for it: with monitoring off and no journal
+    // the pipeline still creates nothing at all (issue 25, US-009).
     await mkdir(paths.issueDir, { recursive: true });
-    publisher = new FilePublisher(paths.sessionFile, {
-      logLimit: webConfig.logLimit,
-      includeLogs: webConfig.includeLogs,
+  }
+  if (webConfig.enabled) {
+    surfaces.push(
+      new FilePublisher(paths.sessionFile, {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+      }),
+    );
+  }
+  if (journalEnabled) {
+    surfaces.push(
+      new JournalPublisher(paths.eventsFile, paths.rotatedEventsFile, {
+        logLimit: webConfig.logLimit,
+        includeLogs: webConfig.includeLogs,
+        ...(resilience.journal?.maxFileBytes === undefined
+          ? {}
+          : { maxFileBytes: resilience.journal.maxFileBytes }),
+      }),
+    );
+  }
+  // The snapshot writer stays the primary surface, so `snapshot()` and
+  // `version()` keep answering exactly what the dashboard answered before.
+  const publisher: SessionPublisher =
+    surfaces.length === 0
+      ? new NullPublisher()
+      : surfaces.length === 1
+        ? (surfaces[0] as SessionPublisher)
+        : new MultiPublisher(surfaces);
+  setSessionPublisher(publisher);
+
+  // Recorded through the publisher rather than printed, so it lands in the
+  // journal beside the events of the run that replaced it.
+  if (input.interruptedBy !== undefined) {
+    const previous = input.interruptedBy;
+    publisher.publish({
+      type: 'log',
+      at: isoNow(),
+      level: 'warn',
+      message: `Previous run interrupted: ${describeRunLockOwner(previous)}. Its lock was stale and has been taken over.`,
     });
   }
-  setSessionPublisher(publisher);
 
   // A null handle (port in use, ...) means the pipeline runs without a server.
   // ensureWebMonitor reuses an already-running, healthy instance instead of
@@ -334,10 +530,41 @@ async function runIssueSession(
     storyCount: 0,
     elapsedSeconds: 0,
   };
+
+  // What a `Ctrl+C` leaves behind. Registered for the duration of this issue
+  // only — a queue runs several, and each must checkpoint its own plan — and
+  // deliberately split across the two shutdown phases: the state is written
+  // while the agent is still alive, and the surfaces are closed after it is
+  // gone, so nothing the checkpoint published is lost on the way out.
+  const releaseCheckpoint = onShutdown({
+    phase: 'checkpoint',
+    run: async () => {
+      await pauseIssue(paths.tasksFile, issueNumber);
+      publisher.publish({
+        type: 'log',
+        at: isoNow(),
+        level: 'warn',
+        message: `Interrupted during issue #${issueNumber}. A checkpoint was saved; resume with \`issue-flow resume ${issueNumber}\`.`,
+      });
+      publisher.publish({ type: 'session:end', at: isoNow(), status: 'failed' });
+    },
+  });
+  const releaseClose = onShutdown({
+    phase: 'close',
+    run: async () => {
+      await publisher.close();
+    },
+  });
+
   try {
     result = await runPipelinePhases(issueNumber, paths, mode, publisher, input);
+    if (result.code !== 0) {
+      await reportIfOversized(issueNumber, paths, result);
+    }
     return result;
   } finally {
+    releaseCheckpoint();
+    releaseClose();
     // A run that only decided to become a queue published nothing: closing the
     // session here would write a `session.json` for a pipeline that never ran.
     if (result.queue === undefined) {
@@ -352,6 +579,184 @@ async function runIssueSession(
     // and serve other invocations. Only this run's own publication ends here.
     await publisher.close();
     setSessionPublisher(undefined);
+  }
+}
+
+/**
+ * Write a decomposition report when the failure looks like "too much work",
+ * and say nothing when it does not.
+ *
+ * The guard that matters is the one *before* the assessment: a run that died
+ * because the network went down is not too large, and reacting to that with
+ * "have you considered splitting this issue?" is worse than silence. Only a
+ * failure the resilience layer could not absorb — and that carries at least two
+ * independent size signals — gets a report.
+ *
+ * Nothing is split here. The report is written and the issue is marked
+ * `blocked` with a pointer to it, because splitting an issue is a product
+ * decision and the tool does not get to make it.
+ */
+async function reportIfOversized(
+  issueNumber: string,
+  paths: IssuePaths,
+  result: IssueRunResult,
+): Promise<void> {
+  try {
+    const journal = `${await readFileIfPresent(paths.rotatedEventsFile)}${await readFileIfPresent(paths.eventsFile)}`;
+    const plan = await loadTaskPlan(paths.tasksFile).catch(() => null);
+
+    const assessment = assessDecomposition({
+      journal,
+      plan,
+      filesTouched: await countChangedFiles(),
+      hitMaxIterations: result.failedPhase === 'execute' && plan?.issueStatus !== 'completed',
+    });
+    if (!assessment.oversized) return;
+
+    const report = buildDecompositionReport({
+      issueNumber,
+      assessment,
+      plan,
+      at: isoNow(),
+    });
+    const reportFile = paths.decompositionFile;
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(reportFile, report, 'utf-8');
+
+    printWarning(`Issue #${issueNumber} looks larger than one run. Report: ${reportFile}`);
+    for (const signal of assessment.signals) {
+      printWarning(`  ${signal.detail}`);
+    }
+
+    await maybeCreateSubIssues(issueNumber, plan, reportFile);
+
+    if (plan !== null) {
+      await saveTaskPlan(paths.tasksFile, {
+        ...plan,
+        runState: {
+          currentPhase: plan.runState?.currentPhase ?? result.failedPhase,
+          attempt: plan.runState?.attempt ?? 0,
+          owner: null,
+          status: 'blocked',
+          blockedReason: `Looks larger than one run; see ${reportFile}`,
+          lastHeartbeatAt: isoNow(),
+        },
+      });
+    }
+  } catch {
+    // A report is a courtesy. Failing to write one must not change the exit
+    // code of a run that already failed for its own reasons.
+  }
+}
+
+/**
+ * Create the proposed sub-issues, but only when asked and only when it is safe.
+ *
+ * Two conditions, and the second is the one that matters: `--auto-decompose`
+ * has to be on, **and** the branch must carry no committed story yet. Splitting
+ * an issue whose work is half done leaves commits that belong to no issue and
+ * sub-issues that describe work already merged — a mess nobody asked for, made
+ * automatically at 3am. With commits present the report still stands; only the
+ * acting stops.
+ */
+async function maybeCreateSubIssues(
+  issueNumber: string,
+  plan: TaskPlan | null,
+  reportFile: string,
+): Promise<void> {
+  if (getActiveResilienceConfig().decompose?.auto !== true) {
+    printInfo(`Nothing was split. Read ${reportFile} and decide.`);
+    return;
+  }
+
+  const committed = await committedStoryIds(await getBaseBranch()).catch(() => new Set<string>());
+  if (committed.size > 0) {
+    printWarning(
+      `--auto-decompose did not run: ${committed.size} story(ies) are already committed on this branch. ` +
+        'Splitting on top of committed work needs a person.',
+    );
+    return;
+  }
+
+  const proposals = proposeSubIssues(plan);
+  if (proposals.length === 0) {
+    printInfo('Nothing left to split: no pending story.');
+    return;
+  }
+
+  const { runGenerate } = await import('./generate.js');
+  for (const proposal of proposals) {
+    const instruction = [
+      `Create a sub-issue of #${issueNumber}: ${proposal.title}.`,
+      proposal.dependsOn.length === 0 ? '' : `It depends on: ${proposal.dependsOn.join(', ')}.`,
+      'It covers exactly these user stories, and nothing else:',
+      ...proposal.stories.map((story) => `- ${story.id} ${story.title}: ${story.description}`),
+    ]
+      .filter((line) => line !== '')
+      .join('\n');
+
+    const code = await runGenerate(instruction);
+    if (code !== 0) {
+      printWarning(
+        `Could not create "${proposal.title}". The report at ${reportFile} still stands.`,
+      );
+      return;
+    }
+  }
+}
+
+/** Files changed on this branch, or `0` when git cannot say. */
+async function countChangedFiles(): Promise<number> {
+  try {
+    const base = await getBaseBranch();
+    const result = await run('git', ['diff', '--name-only', `${base}...HEAD`]);
+    if (result.exitCode !== 0) return 0;
+    return result.stdout.split('\n').filter((line) => line.trim() !== '').length;
+  } catch {
+    return 0;
+  }
+}
+
+async function readFileIfPresent(path: string): Promise<string> {
+  try {
+    return await readFile(path, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Mark an interrupted issue as paused, in the one place resumption reads.
+ *
+ * `pipeline` still says which phases finished — that is what `resume` continues
+ * from — and `runState` is what says *why* the run is not running: paused by a
+ * person, not failed, not still going. Before this field, a `Ctrl+C` left
+ * `issueStatus: 'in_progress'` and nothing else, and the difference between
+ * "someone stopped it" and "it died" was unrecoverable.
+ *
+ * Never throws: a checkpoint that cannot be written must not stop the rest of
+ * the shutdown, and the phases already marked complete are still on disk.
+ */
+async function pauseIssue(tasksFile: string, issueNumber: string): Promise<void> {
+  try {
+    const plan = await loadTaskPlan(tasksFile);
+    await saveTaskPlan(tasksFile, {
+      ...plan,
+      runState: {
+        ...(plan.runState ?? {
+          currentPhase: null,
+          attempt: 0,
+          lastHeartbeatAt: null,
+          blockedReason: null,
+          owner: null,
+        }),
+        status: 'paused',
+        lastHeartbeatAt: isoNow(),
+      },
+    });
+  } catch {
+    // No plan yet (interrupted before the `plan` phase), or an unreadable one.
+    printWarning(`Could not write a checkpoint for issue #${issueNumber}.`);
   }
 }
 
@@ -370,6 +775,14 @@ async function runPipelinePhases(
   // which by then already includes the plans written earlier in this run.
   const continueNumbering = input.runOptions?.continueNumbering;
   const startUs = input.runOptions?.startUs;
+  // Retry budget of the `execute` phase (`--retry-limit`, `--retry-forever`).
+  // Left `undefined` when the flags are absent so `createConfig()` applies the
+  // engine defaults — passing a number here would make `run` diverge from
+  // `execute` the moment one of those defaults changes.
+  const executeRetry = {
+    retryLimit: input.runOptions?.retryLimit,
+    retryForever: input.runOptions?.retryForever,
+  };
   const tasksPath = paths.tasksFile;
   const sessionId = randomUUID();
 
@@ -637,6 +1050,7 @@ async function runPipelinePhases(
 
   // Build phase runner functions that throw on failure
   const makeRunner = (fn: () => Promise<number>, phase: string) => async () => {
+    await ensureRepositoryWritable(phase);
     const code = await fn();
     if (code !== 0) {
       throw new Error(`Phase ${phase} failed with exit code ${code}`);
@@ -675,7 +1089,12 @@ async function runPipelinePhases(
       }
     },
     execute: makeRunner(
-      () => runExecute(undefined, { issue: issueNumber, commitScope: queueCommitScope }),
+      () =>
+        runExecute(undefined, {
+          issue: issueNumber,
+          commitScope: queueCommitScope,
+          ...executeRetry,
+        }),
       'execute',
     ),
     review: async () => {
@@ -710,6 +1129,7 @@ async function runPipelinePhases(
         const execCode = await runExecute(undefined, {
           issue: issueNumber,
           commitScope: queueCommitScope,
+          ...executeRetry,
         });
         if (execCode !== 0) {
           throw new Error('Correction execution failed');
@@ -995,9 +1415,23 @@ async function runQueue(
   const summaries: QueueIssueSummary[] = [];
   let firstOfThisRun = true;
 
+  const resilience = getActiveResilienceConfig();
+  const failureMode: QueueFailureMode =
+    options.runOptions?.onIssueFailure ??
+    (resilience.queue?.onIssueFailure as QueueFailureMode | undefined) ??
+    'stop';
+  const maxIssueAttempts = resilience.queue?.maxIssueAttempts ?? DEFAULT_MAX_ISSUE_ATTEMPTS;
+
+  // Ids this invocation is done with. Without it, an Issue that exhausted its
+  // attempts would be handed back out on the very next lookup — `failed` comes
+  // before `pending` in the resumption policy, which is right *across*
+  // invocations and wrong inside one.
+  const exhausted = new Set<string>();
+  const failedIds = new Set<string>();
+
   try {
     while (true) {
-      const entry = nextQueueIssue(plan);
+      const entry = nextQueueIssue(plan, { exclude: exhausted });
       if (entry === null) break;
 
       plan = markQueueIssueInProgress(plan, entry.id);
@@ -1037,22 +1471,60 @@ async function runQueue(
       const usage = issueUsage.totals();
 
       if (result.code !== 0) {
-        plan = markQueueIssueFailed(plan, entry.id, {
+        const failure = {
           phase: result.failedPhase,
           error: {
             category: 'queue_issue_failed',
             message: `Issue #${entry.id} failed${result.failedPhase === null ? '' : ` in phase ${result.failedPhase}`}`,
             at: isoNow(),
           },
-        });
-        await saveExecutionPlan(planFile, plan);
+        };
+        const where = result.failedPhase === null ? '' : ` (phase ${result.failedPhase})`;
 
-        printError(
-          `Queue stopped at issue #${entry.id}${result.failedPhase === null ? '' : ` (phase ${result.failedPhase})`}. ` +
-            'The branch and every commit made so far were kept.',
-        );
-        printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
-        return result.code;
+        if (failureMode === 'stop') {
+          plan = markQueueIssueFailed(plan, entry.id, failure);
+          await saveExecutionPlan(planFile, plan);
+          printError(
+            `Queue stopped at issue #${entry.id}${where}. ` +
+              'The branch and every commit made so far were kept.',
+          );
+          printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
+          return result.code;
+        }
+
+        if (failureMode === 'block') {
+          plan = markQueueIssueBlocked(
+            plan,
+            entry.id,
+            `Failed${where} and --on-issue-failure block was in force`,
+            failure,
+          );
+          await saveExecutionPlan(planFile, plan);
+          exhausted.add(entry.id);
+          failedIds.add(entry.id);
+          printWarning(
+            `Issue #${entry.id} failed${where} and is blocked for review. Continuing with the rest of the queue.`,
+          );
+          continue;
+        }
+
+        // `skip`: not a verdict on the eleven other Issues in the queue.
+        const attempts = entry.attempts + 1;
+        if (attempts >= maxIssueAttempts) {
+          plan = markQueueIssueFailed(plan, entry.id, failure);
+          exhausted.add(entry.id);
+          failedIds.add(entry.id);
+          printWarning(
+            `Issue #${entry.id} failed${where} after ${attempts} attempt(s). Continuing with the rest of the queue.`,
+          );
+        } else {
+          plan = markQueueIssueSkipped(plan, entry.id, failure);
+          printWarning(
+            `Issue #${entry.id} failed${where}. Skipping it for now and coming back at the end of the queue.`,
+          );
+        }
+        await saveExecutionPlan(planFile, plan);
+        continue;
       }
 
       // The first issue names the branch; every later one is made to adopt it.
@@ -1071,7 +1543,7 @@ async function runQueue(
       });
     }
 
-    return await finishQueue(
+    const code = await finishQueue(
       plan,
       planFile,
       summaries,
@@ -1080,6 +1552,17 @@ async function runQueue(
       options,
       resolvedPrimary,
     );
+
+    if (failedIds.size > 0) {
+      // The queue went as far as it could, and that is worth reporting as a
+      // failure even though the independent work landed.
+      printError(
+        `${failedIds.size} issue(s) did not finish: ${[...failedIds].map((id) => `#${id}`).join(', ')}.`,
+      );
+      printInfo(`Resume with: issue-flow run ${plan.requested.join(',')}`);
+      return code === 0 ? 1 : code;
+    }
+    return code;
   } finally {
     queueUsage.end();
   }

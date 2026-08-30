@@ -387,8 +387,17 @@ describe('loadPrReviewConfig', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('degrades to the default with a warning on an unknown publisher', async () => {
+  it('accepts the github publisher, which composes with the local one', async () => {
     await writeConfigFile({ prReview: { publisher: 'github' } });
+
+    const config = await loadPrReviewConfig({ cli: {}, env: {}, projectRoot, warn });
+
+    expect(config).toEqual({ publisher: 'github' });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('degrades to the default with a warning on an unknown publisher', async () => {
+    await writeConfigFile({ prReview: { publisher: 'gitlab' } });
 
     const config = await loadPrReviewConfig({ cli: {}, env: {}, projectRoot, warn });
 
@@ -442,7 +451,7 @@ describe('loadPrReviewConfig', () => {
 
   it('degrades to the default with a warning on an invalid CLI override', async () => {
     const config = await loadPrReviewConfig({
-      cli: { publisher: 'github' as never },
+      cli: { publisher: 'gitlab' as never },
       env: {},
       projectRoot,
       warn,

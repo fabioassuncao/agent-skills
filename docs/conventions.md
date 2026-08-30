@@ -27,6 +27,86 @@ The rungs are applied by `mergeConfigLayers()` and resolved once per process by
 
 `policy.enabled: false` returns before a single `stat()` or network call.
 
+### The `resilience` key
+
+The ladder above is the one the `policy` key climbs. The `resilience` key --
+retry, providers, queue, watchdog, journal and decomposition -- climbs a longer
+one, because it is a preference rather than a convention and therefore also has
+a machine-wide rung:
+
+```text
+Issue Flow defaults
+  < ~/.issue-flow/config.json
+  < the "resilience" key of .issue-flow.json
+  < ISSUE_FLOW_RESILIENCE_* environment variables
+  < CLI flags
+```
+
+Same rungs, same `mergeConfigLayers()`, resolved by `loadResilienceConfig()` in
+`src/config.ts`. Three properties are the whole contract:
+
+- **Absence is absence.** A project that configures nothing resolves to `{}`,
+  not to a skeleton of empty sections and never to a materialized default, so
+  "nothing configured" and "the behaviour of every release before the key
+  existed" are literally the same object.
+- **A rung never erases the rung below it.** The merge is per key, and inside
+  `retry` it goes one level deeper -- per `FailureKind` *and* per field --
+  because that table is two levels deep by construction. A project raising
+  `retry.network.maxDelayMs` keeps a `retry.network.retryForever` set in
+  `config.json`.
+- **No configuration buys an attempt for a failure that needs a human.**
+  `authentication`, `configuration`, `repository_state` and `task_execution` are
+  clamped to zero attempts *after* the user layer, so no file, variable, flag or
+  profile can widen them. See `src/resilience/AGENTS.md`.
+
+```json
+{
+  "resilience": {
+    "profile": "continuous",
+    "retry": {
+      "network": { "retryForever": true, "maxDelayMs": 120000 },
+      "rateLimit": { "retryForever": true, "maxDelayMs": 900000 },
+      "providerDown": { "maxAttempts": 4, "failover": "after_attempts" }
+    },
+    "providers": { "failover": true, "chain": ["claude", "codex"], "cooldownMs": 60000 },
+    "queue": { "onIssueFailure": "skip", "maxIssueAttempts": 3 },
+    "watchdog": { "inactivityTimeoutMs": 600000 },
+    "journal": { "enabled": true, "maxFileBytes": 10485760 },
+    "decompose": { "auto": false }
+  }
+}
+```
+
+The same object is accepted in `.issue-flow.json` and in
+`~/.issue-flow/config.json` -- they are two rungs of one ladder, not two
+formats. The environment covers the scalar knobs one variable each
+(`ISSUE_FLOW_RESILIENCE_PROFILE`, `ISSUE_FLOW_RESILIENCE_FAILOVER`,
+`ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`,
+`ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`,
+`ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE`, and the rest listed in the
+[README](../README.md#issue-flowconfigjson)); the per-kind `retry` table is too
+shaped for a shell variable and travels whole as JSON in
+`ISSUE_FLOW_RESILIENCE_RETRY`.
+
+#### The `continuous` profile
+
+`profile: "continuous"` is the one value of the key that is a *statement of
+intent* rather than a number. It says "this run has nobody watching it", and it
+expands into the settings that implies -- network and rate limits retried
+forever, wider budgets for the other transient kinds, provider failover, a queue
+that skips a failing issue instead of stopping, a journal, and the inactivity
+watchdog.
+
+Two properties keep it honest:
+
+- **It only ever widens.** What is not retryable under the default profile is
+  not retryable here either -- the profile is a spread applied *before* the
+  golden-rule clamp, never after it.
+- **Anything it sets stays settable.** The profile is one rung of the same
+  ladder; a `retry.network.maxAttempts` in `.issue-flow.json`, an
+  `ISSUE_FLOW_RESILIENCE_*` variable or a CLI flag all still win over it, in
+  that order. `--continuous --no-failover` is a coherent request.
+
 ### Where the organization sits
 
 An organization's conventions arrive through discovery, not through a separate

@@ -142,6 +142,31 @@ export const issueMetadataSchema = z.object({
  * versions must keep loading, so `issueUrl` is optional (Issues with no remote
  * have no URL) and `issueNumber` accepts non-numeric local identifiers.
  */
+/**
+ * `TaskPlan.runState`, written by the pipeline and read on resumption.
+ *
+ * Optional as a whole — a plan from before it existed has none — but every
+ * field inside carries a default, so a partially written object (a process
+ * killed mid-write) still parses into a usable state instead of invalidating
+ * the plan. That is the same discipline `prReviewStateSchema` follows.
+ */
+export const runOwnerSchema = z.object({
+  pid: z.number().int().positive(),
+  host: z.string(),
+  startedAt: z.string(),
+});
+
+export const issueRunStateSchema = z.object({
+  status: z
+    .enum(['idle', 'running', 'waiting', 'retrying', 'paused', 'blocked', 'failed'])
+    .default('idle'),
+  currentPhase: z.string().nullable().default(null),
+  attempt: z.number().int().min(0).default(0),
+  lastHeartbeatAt: z.string().nullable().default(null),
+  blockedReason: z.string().nullable().default(null),
+  owner: runOwnerSchema.nullable().default(null),
+});
+
 export const taskPlanSchema = z.object({
   project: z.string(),
   issueNumber: z.union([z.number().int().positive(), z.string().min(1)]),
@@ -163,6 +188,12 @@ export const taskPlanSchema = z.object({
    */
   lastReviewFindings: z.string().nullable().optional().default(null),
   pipeline: pipelineStateSchema,
+  /**
+   * Where the run stands right now. Purely additive: absent in every plan
+   * written before it, and absent is not the same as `idle` — it means the
+   * plan predates the field, which is why there is no `.default()` here.
+   */
+  runState: issueRunStateSchema.optional(),
   pullRequest: pullRequestRefSchema.optional(),
   prReview: prReviewStateSchema.optional(),
   userStories: z.array(userStorySchema),
@@ -358,13 +389,16 @@ export const issuesConfigSchema = z.object({
 /**
  * Resolved `pr-review` configuration (the `prReview` key of .issue-flow.json).
  *
- * `publisher` selects the implementation `createPrReviewPublisher()` builds. v1
- * ships only the local one, so the enum has a single member on purpose: adding
- * a GitHub adapter is a new entry here plus a new factory, never a change to
- * the phase.
+ * `publisher` selects the implementation `createPrReviewPublisher()` builds:
+ * `local` writes the artifacts under the issue directory, and `github` does
+ * that **and** comments on the Pull Request, updating the comment of the same
+ * round instead of stacking a new one on every republication.
+ *
+ * `local` stays the default, so a repository that configures nothing publishes
+ * exactly where it always did and never writes to GitHub by surprise.
  */
 export const prReviewConfigSchema = z.object({
-  publisher: z.enum(['local']).default('local'),
+  publisher: z.enum(['local', 'github']).default('local'),
 });
 
 /**

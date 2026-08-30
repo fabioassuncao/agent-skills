@@ -3,7 +3,7 @@ import type { Issue, IssueSource, ResolvedIssue } from './types.js';
 
 vi.mock('../ui/logger.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ui/logger.js')>();
-  return { ...actual, printError: vi.fn() };
+  return { ...actual, printError: vi.fn(), printWarning: vi.fn() };
 });
 
 vi.mock('./resolver.js', async (importOriginal) => {
@@ -11,12 +11,13 @@ vi.mock('./resolver.js', async (importOriginal) => {
   return { ...actual, resolveIssue: vi.fn() };
 });
 
-import { printError } from '../ui/logger.js';
+import { printError, printWarning } from '../ui/logger.js';
 import { issuePlaceholders, localIssueRef, resolveCommandIssue } from './context.js';
 import { IssueResolutionError, resolveIssue } from './resolver.js';
 
 const mockedResolve = vi.mocked(resolveIssue);
 const mockedPrintError = vi.mocked(printError);
+const mockedPrintWarning = vi.mocked(printWarning);
 
 function makeIssue(overrides: Partial<Issue> = {}): Issue {
   return {
@@ -150,5 +151,47 @@ describe('resolveCommandIssue', () => {
 
     expect(outcome).toEqual({ ok: false, code: 1 });
     expect(mockedPrintError).toHaveBeenCalledWith("Could not resolve issue '23': boom");
+  });
+});
+
+describe('resolveCommandIssue — a failure that needs a human (US-014)', () => {
+  beforeEach(() => {
+    mockedPrintWarning.mockClear();
+  });
+
+  it('prints the action the resolver attached to the error', async () => {
+    mockedResolve.mockRejectedValue(
+      new IssueResolutionError("Cannot read issue '42' from GitHub: bad credentials", 1, {
+        action: 'Run `gh auth login` to authenticate the GitHub CLI',
+      }),
+    );
+
+    await expect(resolveCommandIssue('42')).resolves.toEqual({ ok: false, code: 1 });
+
+    expect(mockedPrintError).toHaveBeenCalledWith(
+      "Cannot read issue '42' from GitHub: bad credentials",
+    );
+    expect(mockedPrintWarning).toHaveBeenCalledWith(
+      'Action required: Run `gh auth login` to authenticate the GitHub CLI',
+    );
+  });
+
+  it('classifies an unexpected error and names the action when one applies', async () => {
+    mockedResolve.mockRejectedValue(new Error('gh: Bad credentials'));
+
+    await expect(resolveCommandIssue('42')).resolves.toEqual({ ok: false, code: 1 });
+
+    expect(mockedPrintWarning).toHaveBeenCalledWith(
+      'Action required: Run `gh auth login` to authenticate the GitHub CLI',
+    );
+  });
+
+  it('says nothing about actions for a failure waiting could have fixed', async () => {
+    // The retry budget is spent inside the provider; by the time it reaches
+    // here it is final, but it is not a failure a person can act on.
+    mockedResolve.mockRejectedValue(new IssueResolutionError("Issue '42' not found", 1));
+
+    await expect(resolveCommandIssue('42')).resolves.toEqual({ ok: false, code: 1 });
+    expect(mockedPrintWarning).not.toHaveBeenCalled();
   });
 });

@@ -503,3 +503,85 @@ describe('resolveIssue', () => {
     });
   });
 });
+
+describe('an origin that needs a human (US-014)', () => {
+  beforeEach(() => {
+    clearProviders();
+  });
+
+  const unauthenticated: IssueProvider = {
+    name: 'github',
+    isAvailable: async () => false,
+    checkAvailability: async () => ({
+      available: false,
+      failure: {
+        kind: 'authentication',
+        message: 'gh: Bad credentials',
+        retryable: false,
+        source: 'github',
+      },
+      action: 'Run `gh auth login` to authenticate the GitHub CLI',
+    }),
+    get: async () => null,
+    create: async () => {
+      throw new Error('not implemented');
+    },
+  };
+
+  it('is reported as itself, not as a missing Issue', async () => {
+    registerProvider(unauthenticated);
+    registerProvider(fakeProvider('local', { issue: null }));
+
+    const error = await resolveIssue('23', { sources: BOTH, config: makeConfig() }).catch(
+      (err: unknown) => err,
+    );
+
+    expect(error).toBeInstanceOf(IssueResolutionError);
+    const resolution = error as IssueResolutionError;
+    expect(resolution.message).toContain("Cannot read issue '23' from GitHub");
+    expect(resolution.message).toContain('Bad credentials');
+    expect(resolution.failure?.kind).toBe('authentication');
+    expect(resolution.action).toBe('Run `gh auth login` to authenticate the GitHub CLI');
+  });
+
+  it('never wins over an origin that actually has the Issue', async () => {
+    registerProvider(unauthenticated);
+    const issue = makeIssue('local', 'Local title', 'Local body');
+    registerProvider(fakeProvider('local', { issue }));
+
+    const resolved = await resolveIssue('23', { sources: BOTH, config: makeConfig() });
+
+    expect(resolved.source).toBe('local');
+  });
+
+  it('leaves a transient unavailability as a plain miss, with no action', async () => {
+    registerProvider({
+      name: 'github',
+      isAvailable: async () => false,
+      checkAvailability: async () => ({
+        available: false,
+        failure: {
+          kind: 'network',
+          message: 'dial tcp: lookup api.github.com: no such host',
+          retryable: true,
+          source: 'github',
+        },
+      }),
+      get: async () => null,
+      create: async () => {
+        throw new Error('not implemented');
+      },
+    });
+    registerProvider(fakeProvider('local', { issue: null }));
+
+    const error = await resolveIssue('23', { sources: BOTH, config: makeConfig() }).catch(
+      (err: unknown) => err,
+    );
+
+    const resolution = error as IssueResolutionError;
+    expect(resolution.message).toContain('not found in any registered origin');
+    // The classified reason replaces the flat "provider unavailable".
+    expect(resolution.message).toContain('no such host');
+    expect(resolution.action).toBeUndefined();
+  });
+});

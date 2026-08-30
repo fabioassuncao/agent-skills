@@ -44,9 +44,16 @@ vi.mock('../core/headless.js', async (importOriginal) => ({
   }),
 }));
 
-// Only the backoff sleep is faked — `isTransientFailure` and
-// `retryDelaySeconds` keep running for real, so the retry decision itself is
+// Only the waits are faked — `classify()`, `shouldRetry()` and
+// `computeDelayMs()` keep running for real, so the retry decision itself is
 // still the production one; the test just doesn't wait 45s for it.
+// `abortableDelay` is what `resilience/retry.ts:withRetry` backs off with; the
+// `sleep` of `utils/retry.js` is still used elsewhere in these phases.
+vi.mock('../resilience/policy.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../resilience/policy.js')>();
+  return { ...actual, abortableDelay: vi.fn(async () => true) };
+});
+
 vi.mock('../utils/retry.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/retry.js')>();
   return { ...actual, sleep: vi.fn(async () => {}) };

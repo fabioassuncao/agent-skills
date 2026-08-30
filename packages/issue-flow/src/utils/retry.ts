@@ -1,51 +1,16 @@
-/**
- * Transient failure patterns — matching the Bash script's detection heuristics.
- * These are checked case-insensitively against the combined output.
- */
-const TRANSIENT_PATTERNS = [
-  'timed out',
-  'timeout',
-  'connection reset',
-  'connection refused',
-  'connection aborted',
-  'network error',
-  'network unavailable',
-  'temporary failure',
-  'temporarily unavailable',
-  'service unavailable',
-  'overloaded',
-  'rate limit',
-  'too many requests',
-  'bad gateway',
-  'gateway timeout',
-  'internal server error',
-  'http 429',
-  'http 500',
-  'http 502',
-  'http 503',
-  'http 504',
-  'econnreset',
-  'econnrefused',
-  'enotfound',
-  'etimedout',
-  'socket hang up',
-];
+import { classify } from '../resilience/errors.js';
 
 /**
- * Determine if a Claude CLI failure is transient (retryable).
+ * Determine if an agent invocation failure is transient (retryable).
  *
- * A failure is considered transient if:
- * - Exit code is 75 (EX_TEMPFAIL)
- * - Output contains known transient error patterns
+ * This is a thin adapter over `resilience/errors.ts:classify()` — the taxonomy
+ * is the single source of truth, and this signature survives only because
+ * `core/engine.ts` and the phase commands are written against it. A caller
+ * that has more evidence than an exit code and a blob of text (an `errno`, an
+ * HTTP status, `timedOut`) should call `classify()` directly and keep it.
  */
 export function isTransientFailure(exitCode: number, output: string): boolean {
-  // Exit code 75 = EX_TEMPFAIL
-  if (exitCode === 75) {
-    return true;
-  }
-
-  const lowered = output.toLowerCase();
-  return TRANSIENT_PATTERNS.some((pattern) => lowered.includes(pattern));
+  return classify({ source: 'agent', exitCode, stdout: output }).retryable;
 }
 
 /**

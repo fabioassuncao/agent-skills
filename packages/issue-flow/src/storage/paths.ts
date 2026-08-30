@@ -18,6 +18,9 @@ export const ISSUES_DIR_NAME = 'issues';
 /** Directory under a project holding one folder per multi-issue execution queue. */
 export const QUEUES_DIR_NAME = 'queues';
 
+/** Run-ownership lock, a sibling of `issues/` inside the project directory. */
+export const RUN_LOCK_FILENAME = 'run.lock';
+
 export interface GetGlobalRootOptions {
   /** Environment source. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;
@@ -164,6 +167,9 @@ export interface IssuePaths {
   progressFile: string;
   analysisFile: string;
   sessionFile: string;
+  eventsFile: string;
+  rotatedEventsFile: string;
+  decompositionFile: string;
   lastBranchFile: string;
   archiveDir: string;
   prReviewDir: string;
@@ -257,6 +263,13 @@ export function getIssuePaths(
     progressFile: join(issueDir, 'progress.txt'),
     analysisFile: join(issueDir, 'analysis.md'),
     sessionFile: join(issueDir, 'session.json'),
+    // The journal, and the single generation kept when it rotates. The
+    // snapshot above is the projection; this pair is the history.
+    eventsFile: join(issueDir, 'events.jsonl'),
+    rotatedEventsFile: join(issueDir, 'events.1.jsonl'),
+    // "This issue looks larger than one run": written only when the signals
+    // agree, and read by a person rather than by the pipeline.
+    decompositionFile: join(issueDir, 'decomposition.md'),
     lastBranchFile: join(issueDir, '.last-branch'),
     archiveDir: join(issueDir, 'archive'),
     prReviewDir: join(issueDir, 'pr-review'),

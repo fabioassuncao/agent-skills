@@ -70,3 +70,21 @@ export function setGlobalTimeout(ms: number): void {
 export function getGlobalTimeout(): number | undefined {
   return _globalTimeout;
 }
+
+/**
+ * Silence tolerated before an agent is considered stuck, in milliseconds.
+ *
+ * Global for the same reason the timeout is: every phase invokes the CLI
+ * through the same two functions, and threading it through each one of them
+ * would be a parameter with a single value per process. `undefined` leaves the
+ * default; `0` turns the watchdog off.
+ */
+let _inactivityTimeout: number | undefined;
+
+export function setInactivityTimeout(ms: number): void {
+  _inactivityTimeout = ms;
+}
+
+export function getInactivityTimeout(): number | undefined {
+  return _inactivityTimeout;
+}

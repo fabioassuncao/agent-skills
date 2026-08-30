@@ -108,7 +108,14 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--only` | Run just the issues informed, without their hierarchy |
 | `--continue` | Continue User Story numbering from the last one used in this project (see [User Story numbering continuity](#user-story-numbering-continuity)) |
 | `--start-us <n>` | Force User Story numbering to start at `n`, ignoring history. In a queue it applies to the first issue only; the rest continue from history |
+| `--retry-limit N` | Retry transient Claude failures in the `execute` phase up to N consecutive times (default: 10) |
+| `--retry-forever` | Retry transient Claude failures in the `execute` phase indefinitely |
+| `--on-issue-failure <mode>` | In a queue, what one failing issue does to the rest: `stop` (default, ends the run), `skip` (set it aside, run the independent issues, come back to it at the end) or `block` (set it aside for a human and never come back) |
+| `--continuous` / `--resilient` | Long-running profile: keep going without supervision (see below) |
+| `--no-failover` | Never migrate a phase to another agent provider |
+| `--auto-decompose` | Act on a decomposition report instead of only writing it |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
+| `--inactivity-timeout <s>` | Stop the agent after this many seconds with no output at all (`0` = off, default 600). A second, tighter instrument beside `--timeout`: it tells a long task from a stuck one |
 | `-v, --verbose` | Show Claude progress output in real time |
 
 `--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists `prReview.enabled` as soon as a `tasks.json` exists (including mid-pipeline resumes such as `--from pr --pr-review`), so a later run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open** (locally and on the remote), does **not** mark `issueStatus: completed`, and still exits `0`.
@@ -208,6 +215,132 @@ Analyzes the project and drafts the issue via Claude headless; the draft is then
 | `--both` | GitHub **and** a local mirror that reuses the GitHub number and records `remote.ref` / `remote.syncedContentHash` |
 
 The flags are mutually exclusive. With `--both`, the remote issue is created first because it owns the number: a failure there leaves nothing on disk, and a failure writing the mirror is reported with the URL that already exists.
+
+#### `--continuous`: a profile, not a mechanism
+
+Unattended work needs about six behaviours turned on at once, and asking for six
+flags is asking for five of them to be forgotten. `--continuous` (alias
+`--resilient`) names the intent -- *keep going without me* -- and expands to what
+that intent implies:
+
+| Behaviour | What the profile sets |
+|-----------|-----------------------|
+| Network and rate limits | retried **forever**, with the ceiling of the backoff still in force |
+| Timeouts, stalls, provider crashes | wider attempt budgets |
+| Provider failover | on |
+| A failing issue in a queue | `--on-issue-failure skip` |
+| The event journal | on (`events.jsonl`) |
+| The inactivity watchdog | on (10 minutes of silence) |
+
+**Every one of those stays adjustable on its own, and an explicit flag always
+beats the profile.** `--continuous --no-failover` is a coherent request and
+means exactly what it says; so do `--continuous --on-issue-failure stop` and
+`--continuous --inactivity-timeout 0`.
+
+What the profile can never do is buy an attempt for a failure that needs a
+person: `authentication`, `configuration`, `repository_state` and
+`task_execution` are clamped to zero attempts **after** the profile is applied.
+A failing test is not retried into passing, and a missing credential is not
+waited out.
+
+### `resume` -- Continue an interrupted pipeline
+
+```bash
+issue-flow resume            # the most recently attempted unfinished issue
+issue-flow resume 42         # a specific issue
+issue-flow resume --all      # every unfinished issue of this project, in order
+```
+
+| Flag | Description |
+|------|-------------|
+| `--all` | Resume every unfinished issue of the project instead of one |
+| `--mode <mode>` | Execution mode: `auto` (default) or `manual` |
+
+Resumption always worked -- you re-ran the same `run` and the pipeline picked up
+where it stopped -- but only *implicitly*, as a side effect of two mechanisms
+agreeing. `resume` makes every step of it explicit, in this order:
+
+1. **Ownership.** A live owner of `run.lock` refuses the resume, naming its pid,
+   host and last heartbeat; a dead one is taken over and reported.
+2. **The plans.** `execution-plan.json` when the project has a queue,
+   `tasks.json` otherwise.
+3. **The journal.** The last `phase:start` with no `phase:end` in
+   `events.jsonl` is what was running when the process died -- the one fact the
+   snapshot does not keep. (Only available when the journal is enabled; without
+   it the resume continues from the plan alone.)
+4. **The repository preflight.** A rebase, merge or cherry-pick in progress, an
+   unresolved conflict, a detached HEAD or a branch that is not the plan's stops
+   the resume with the command that gets out of it. **Nothing is repaired
+   automatically** -- no `reset --hard`, no `--abort`, no implicit `stash`.
+   A dirty working tree is allowed when the resume continues the very phase that
+   was interrupted, and blocks when it does not.
+5. **The phase.** `run`'s own answer -- the first incomplete phase -- stated out
+   loud before anything runs.
+
+`run` is unchanged: its automatic resume behaves exactly as it always has.
+
+### When an issue turns out to be too large
+
+A phase that keeps timing out, a plan with thirty stories, five iterations in a
+row that finish nothing: each is ambiguous alone and any one of them can be a
+slow afternoon. Two or more of them agreeing is the same thing said twice, and
+what it is saying is that the demand was never one issue.
+
+When a **failed** run carries at least two of these signals, Issue Flow writes
+`decomposition.md` in the issue directory and marks the issue `blocked` with a
+pointer to it:
+
+| Signal | Threshold |
+|--------|-----------|
+| Timeouts on the same phase | 2 |
+| User stories in the plan | more than 15 |
+| Iterations in a row completing no story | 5 |
+| Files touched on the branch | more than 40 |
+| Characters in the issue body | more than 20 000 |
+| The execute loop ran out of iterations | — |
+
+The report names every signal **with the number that crossed the line**, proposes
+a cut of the pending stories in priority order, and stops there: splitting an
+issue is a product decision, and the default is a report rather than an act.
+
+A run that failed because the network went down is **not** decomposed. Network
+and rate-limit retries are not size signals, and reacting to an outage with
+"have you considered splitting this issue?" would be worse than silence.
+
+`--auto-decompose` creates the proposed sub-issues through `issue-flow generate`
+(so the repository's label and template policy applies to each of them). It
+refuses to run when the branch already carries committed stories: splitting on
+top of half-finished work leaves commits belonging to no issue, and that needs a
+person.
+
+### Operating a long run: `status`, `runs`, `logs`, `pause`, `cancel`
+
+A six-hour unattended execution needs answers the pipeline itself cannot give
+you while it is busy. These five commands read the state that already exists --
+`run.lock`, `tasks.json`, `session.json`, `execution-plan.json` and
+`events.jsonl` -- and none of them touches the pipeline.
+
+```bash
+issue-flow status                 # what is running, in which phase, since when
+issue-flow status 42 --json       # the same, assembled as JSON
+issue-flow runs                   # history: how each issue ended, and why
+issue-flow logs 42 --kind retry   # the journal, filtered to what matters
+issue-flow logs --follow          # …and kept open as it grows
+issue-flow pause                  # ask the run to stop, with a checkpoint
+issue-flow cancel 42              # stop it, and mark it so `resume` reports it
+```
+
+| Command | What it answers |
+|---------|-----------------|
+| `status [issue] [--json]` | Who owns the run (pid, host, last heartbeat), which phase and attempt each issue is on, how long since the last activity, and where a queue stands |
+| `runs` | One line per issue: status, duration and the first line of the failure |
+| `logs [issue] [--follow] [--tail n] [--kind a,b]` | The append-only journal, in order and filtered. Needs the journal enabled (`resilience.journal.enabled`, or `--continuous`) |
+| `pause` | Sends `SIGTERM` to the owner, which writes a checkpoint, stops the agent with a grace period and closes its journal before exiting |
+| `cancel [issue]` | The same stop, plus marking the issue so a later `resume` reports it instead of silently continuing |
+
+`pause` and `cancel` deliberately do nothing themselves beyond signalling: the
+owning process already knows how to stop well, and a second implementation of
+that from outside would be a worse one. Neither ever signals a **stale** owner.
 
 ### `analyze` -- Analyze an issue (standalone)
 
@@ -400,7 +533,7 @@ Where reports are published is configuration, not code. Precedence is **CLI > en
 
 | Environment variable | `.issue-flow.json` key | Values | Default |
 |----------------------|------------------------|--------|---------|
-| `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` | `local` | `local` |
+| `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` | `local`, `github` | `local` |
 
 ```json
 {
@@ -410,7 +543,9 @@ Where reports are published is configuration, not code. Precedence is **CLI > en
 }
 ```
 
-`local` writes the `.md` report and `index.json` under `~/.issue-flow/…/issues/<N>/pr-review/`. Publishing back to GitHub is not implemented in v1 -- the publisher port exists so that adding it is a configuration change. An unknown value degrades to `local` with a warning instead of throwing.
+`local` writes the `.md` report and `index.json` under `~/.issue-flow/…/issues/<N>/pr-review/`. An unknown value degrades to `local` with a warning instead of throwing.
+
+`github` does all of that **and** posts the report as a comment on the Pull Request. It composes rather than replaces: the local artifacts are what the correction cycle and `resume` read, and the comment is an additional audience. Each round's comment carries an invisible marker (`<!-- issue-flow:review:<round> -->`), so republishing a round -- a retried phase, a re-run after a correction, a resume -- **updates** that comment instead of stacking another copy on the Pull Request. A later round is a different statement and gets its own comment.
 
 ### `web` -- Manage the monitoring server
 
@@ -922,10 +1057,15 @@ Each issue's state is tracked in a directory of its own inside the [global stora
   progress.txt   # Execution log
   analysis.md    # Issue analysis (optional, from standalone analyze command)
   session.json   # Live session snapshot (only with web monitoring enabled)
+  events.jsonl   # Append-only event journal (only with resilience.journal.enabled)
+  events.1.jsonl # Previous journal generation, kept when events.jsonl rotates
+  decomposition.md # "This issue looks larger than one run" report, when detected
   .last-branch   # Last branch the execution loop worked on
   archive/       # Artifacts superseded by a later iteration
   pr-review/     # PR review reports and index (only when the pr-review phase ran)
 ```
+
+`session.json` and `events.jsonl` are two views of the same event stream: the snapshot is the *projection* the dashboard reads, and the journal is the *history* an audit reads -- one JSON line per event, in order, with a monotonic `seq`. The journal is opt-in (`resilience.journal.enabled`), rotates at `maxFileBytes` (10 MB by default) into `events.1.jsonl`, and replaying it through the reducer reproduces the snapshot.
 
 `issue.md` and `metadata.json` only exist for issues created or mirrored locally; a GitHub-only run never writes them. Every path above is resolved by a single function (`getIssuePaths`), so no command can invent a layout of its own -- a test fails the build if any file outside `src/storage/` builds an issue path by hand.
 
@@ -1170,6 +1310,19 @@ Preferences that apply to every project, all keys optional:
   "commit": {
     "signoff": false,
     "conventional": true
+  },
+  "resilience": {
+    "profile": "default",
+    "retry": {
+      "network": { "retryForever": true, "maxDelayMs": 120000 },
+      "rateLimit": { "retryForever": true, "maxDelayMs": 900000 },
+      "providerDown": { "maxAttempts": 4, "failover": "after_attempts" }
+    },
+    "providers": { "failover": true, "chain": ["claude", "codex"], "cooldownMs": 60000 },
+    "queue": { "onIssueFailure": "skip", "maxIssueAttempts": 3 },
+    "watchdog": { "inactivityTimeoutMs": 600000 },
+    "journal": { "enabled": true, "maxFileBytes": 10485760 },
+    "decompose": { "auto": false }
   }
 }
 ```
@@ -1181,6 +1334,23 @@ Preferences that apply to every project, all keys optional:
 | `web` | Machine-wide web monitoring defaults. Deliberately a subset of the `web` key of `.issue-flow.json`: `enabled` and `includeLogs` stay a per-project decision |
 | `retry` | Retry and backoff preferences, mirroring the engine defaults |
 | `commit` | Commit preferences (`signoff`, `conventional`) |
+| `resilience` | Retry policy per failure kind, provider failover, queue behaviour, watchdog, journal and decomposition. The **same** object is accepted under the `resilience` key of `.issue-flow.json` -- they are two rungs of one ladder, not two formats (see [Convention-aware behaviour](docs/conventions.md#the-resilience-key)) |
+
+Every field of `resilience` is optional and **none carries a default**, for the
+reason the precedence table below states: this file is an intermediate rung, and
+a default materialized here would be indistinguishable from a value you wrote.
+A project that configures nothing resolves to an empty object, which is exactly
+the behaviour of every release before the key existed. The environment covers
+the scalar knobs one variable each -- `ISSUE_FLOW_RESILIENCE_PROFILE`,
+`ISSUE_FLOW_RESILIENCE_FAILOVER_ON_AUTH`, `ISSUE_FLOW_RESILIENCE_FAILOVER`,
+`ISSUE_FLOW_RESILIENCE_PROVIDER_CHAIN`,
+`ISSUE_FLOW_RESILIENCE_PROVIDER_COOLDOWN_MS`,
+`ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`,
+`ISSUE_FLOW_RESILIENCE_MAX_ISSUE_ATTEMPTS`,
+`ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`,
+`ISSUE_FLOW_RESILIENCE_JOURNAL_MAX_BYTES` and
+`ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE` -- while the per-kind `retry` table
+travels whole as JSON in `ISSUE_FLOW_RESILIENCE_RETRY`.
 
 The file is read by `loadGlobalConfig()`, which **never throws**. A missing file is silent -- it is the common case. Invalid JSON, a non-object root, an unreadable path or an invalid key each degrade to "no global preference" with a warning, and validation happens key by key: a typo under `retry` costs you `retry` only, never your `web` settings. Unknown keys are dropped without a warning, which is what keeps a file written by a newer release readable.
 
@@ -1214,6 +1384,16 @@ Settings resolve from the highest-priority source that provides them:
 The merge is per key and shallow: a layer only participates with the keys it actually carries, so a global `config.json` that sets `web.host` but not `web.port` leaves a project-level `web.port` untouched. Nested objects (`web`, `retry`) are replaced whole rather than field by field.
 
 As noted above, this is the documented and implemented precedence (`mergeConfigLayers()` in `src/config.ts`), but the global config file is not yet plugged into the commands: today `loadWebConfig()` still resolves **CLI flag > environment variable > `.issue-flow.json` > default**, as described under [Web Monitoring → Configuration](#configuration). This is about `config.json` only -- the storage tree itself is fully wired up.
+
+The `resilience` key is the exception: `loadResilienceConfig()` reads all five rungs, `config.json` included, and merges `retry` one level deeper than the shallow rule above -- per failure kind **and** per field, because that table is two levels deep by construction.
+
+Every `gh` invocation goes through that policy: a DNS blip during a
+long run is retried on the `network` budget (8 attempts, 2s to 120s, jittered), a
+rate limit waits exactly what the server's `Retry-After` asked for, and an expired
+credential is **not** retried at all -- it stops immediately and prints the action
+to take (`gh auth login`). The availability probes (`gh --version`, `gh auth
+status`) use a smaller budget of their own, so an unreachable GitHub never stalls
+an Issue that lives locally.
 
 ### Migrating from `issues/`
 

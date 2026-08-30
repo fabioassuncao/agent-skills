@@ -69,6 +69,101 @@ never had them must not gain artificial nulls on a round trip.
 - `undefined` in a metric field means "not reported", never zero: it leaves the
   accumulator at `null`. An explicitly reported `0` is a value and is kept.
 
+## journal.ts: the history beside the projection
+
+- **`session.json` is a projection; `events.jsonl` is the history.** The reducer
+  folds every event into one snapshot and discards the events, which is right
+  for a dashboard and useless for an audit — after a six-hour run, "what
+  happened at 3am" has no answer. The journal writes the events themselves, one
+  JSON line each, in order, with a monotonic `seq`.
+- **It sits *beside* `FilePublisher`, never in its place.** `MultiPublisher`
+  holds both and fans one event stream out; `snapshot()` and `version()` answer
+  from the first member, so the dashboard reads exactly what it always read.
+  Dropping either surface leaves the other untouched.
+- **Replaying the journal must reproduce the snapshot.** `replayJournal()` runs
+  the same `reduceSessionEvent` over the lines in order, and `journal.test.ts`
+  asserts the result equals the live snapshot. A file that cannot do that is a
+  log, not a journal — if you add an event type, that test is what proves the
+  two paths did not drift.
+- **The invariant of this directory is unchanged**: `publish()` is synchronous
+  and never throws, writes are serialized on a promise chain so lines never
+  interleave, and every I/O failure is swallowed after a single warning.
+  Nothing is throttled — coalescing is what the snapshot already does.
+- **Rotation keeps exactly one previous generation**, and happens *before* the
+  write that would cross `maxFileBytes`, so a line is never split across two
+  files. `maxFileBytes: 0` disables it.
+- **The journal is opt-in** (`resilience.journal.enabled`), because "monitoring
+  off means the pipeline creates nothing at all" is a documented invariant of
+  issue 25 and a journal writing by default would break it.
+
+## shutdown.ts: the order of a Ctrl+C is the design
+
+- **The sequence is fixed**: abort the process-wide signal → write the
+  checkpoint → `SIGTERM` the child, grace, `SIGKILL` → close the surfaces →
+  exit (130 for `SIGINT`, 143 for `SIGTERM`). Each position is load-bearing.
+  The signal fires first because every retry backoff already waits on it, so an
+  interrupt during a fifteen-minute delay stops in that instant. The checkpoint
+  runs **while the child is still alive**, because checkpointing after the kill
+  races the very writes it is trying to capture. The journal and the snapshot
+  close **last**, so everything the steps above published is on disk.
+- **A second interrupt ends it now.** Someone who pressed `Ctrl+C` twice has
+  said what they want, and waiting out the remaining grace to be polite is not
+  it.
+- **`getShutdownSignal()` works without handlers installed.** It creates the
+  controller lazily, so a backoff that captured the signal behaves identically
+  in a test that never installs anything — which is what keeps every existing
+  path unchanged.
+- **`installShutdownHandlers()` is idempotent.** A second set of handlers would
+  run the whole sequence twice: two checkpoints, two kills, two exits.
+- **Every child must be deregistered when it finishes normally.** `registerChild`
+  returns the function that does it; a set that only grows has the shutdown
+  signalling pids that belong to something else entirely by then.
+- **A hook that throws does not stop the ones after it.** The journal still has
+  to be closed even when the checkpoint could not be written.
+
+## The post-commit story checkpoint is a net, not a source
+
+`adoptCommittedStories()` runs before every iteration of the execute loop and
+marks a pending story as passing when **both** hold: its id appears in a commit
+subject of this branch (`<type>(scope): US-001 - Title`, what the prompt writes),
+and the working tree is **clean**.
+
+- **The agent's `passes` remains the primary source.** This closes exactly one
+  window the agent cannot close itself: the crash between the commit landing and
+  `passes: true` being written. Without it the next iteration redoes the story on
+  top of a commit that already exists.
+- **A dirty tree disables it entirely.** Uncommitted changes mean work in
+  flight, and adopting a story on that basis calls finished what is not.
+- **It only ever reads.** `committedStoryIds()` and `isWorkingTreeClean()` run
+  `git log` and `git status`; nothing here checks a branch out or creates one.
+  That is the invariant that makes it safe beside the agent's `git checkout -B`
+  and the queue's `adoptQueueBranch` — this code has no opinion about which
+  branch is checked out, it reads the one that is.
+- **It never throws.** A git that cannot answer, or a plan that cannot be
+  written, leaves the loop doing exactly what it did before.
+- **A test that mocks `execa` wholesale must stub `../utils/git.js`**, or the
+  two git reads consume the CLI results the test queued.
+
+## decompose.ts: detected, reported, never acted on
+
+- **Two signals or nothing.** Each one alone is ambiguous — a long plan can be a
+  long plan, a timeout can be a slow afternoon. `DECOMPOSITION_MIN_SIGNALS` is
+  what turns coincidence into evidence.
+- **An infrastructural failure never reaches this conclusion.** Network and
+  rate-limit retries are not size signals; only `timeout` and `stalled` ones
+  count. Reacting to an outage with "have you considered splitting this issue?"
+  is worse than saying nothing, and `decompose.test.ts` pins it.
+- **Every signal quotes its number.** "This is too big" is not an argument; "the
+  `execute` phase timed out twice" is, and a person can disagree with it.
+- **The default is a report plus `blocked`.** Splitting an issue is a product
+  decision. `--auto-decompose` is the opt-in, and even then it refuses once the
+  branch carries committed stories — splitting on top of half-finished work
+  leaves commits belonging to no issue.
+- **The proposed cut is deliberately unclever**: pending stories in priority
+  order, five at a time, each piece depending on the one before it. That is the
+  only dependency shape derivable from the plan alone; anything more would be a
+  guess dressed as a plan.
+
 ## executor.ts output contract
 
 On the happy path (`exitCode === 0` and parseable JSON envelope),
@@ -76,6 +171,45 @@ On the happy path (`exitCode === 0` and parseable JSON envelope),
 stdout. On any failure it falls back to raw `stdout + stderr`, because
 `isTransientFailure()` inspects the raw diagnostics. Never unwrap the envelope
 on a failing exit code.
+
+## The stream is always requested; only the rendering differs
+
+`--output-format stream-json --verbose` is what **every** invocation asks for
+now — `runHeadless` in both its paths and `executeClaude`. The single `json`
+envelope arrives in one write at the very end, which meant the non-verbose path
+(the common one, and the one that runs unattended for hours) had no signal at
+all while the agent worked: a hung invocation looked exactly like a thinking
+one. Verbose prints each event; non-verbose feeds a spinner and the watchdog.
+
+- **`core/stream.ts` is the shared reader**, so the two renderings cannot drift
+  on what a `result` event means or on how usage is extracted.
+- **The stream is consumed by the time the process exits**, so `result.stdout`
+  is empty and `StreamOutcome.raw` is the only copy of what the CLI printed.
+  That is the fallback for a build that ignores `--output-format`, and for a
+  failure whose diagnostics went to the stream.
+- **A malformed line is activity, not an error.** The CLI interleaves its own
+  output with the stream; a line that is not JSON still proves the process is
+  alive, which is the only question the watchdog asks.
+- **A test that mocks `execa` must return a subprocess with a `stdout` stream**,
+  not a plain resolved result — otherwise the reader sees nothing and every
+  assertion about the result falls back to the raw-output path.
+
+## watchdog.ts: silence, not slowness
+
+- **The absolute timeout is a ceiling; the watchdog is the tighter instrument.**
+  `DEFAULT_HEADLESS_TIMEOUT_MS` still bounds a task that keeps talking and never
+  finishes. The watchdog bounds one that stops talking — which is the only case
+  the execute loop had no instrument for at all, since it runs with `timeout: 0`
+  by design.
+- **`inactivityTimeoutMs: 0` is the off switch**, and it returns an inert
+  watchdog rather than adding a second code path anywhere else.
+- **`describeStall()`'s wording is a contract**, exactly like the timeout's:
+  `classify()` reads text as its last resort, and `stalled` has to survive the
+  trip through a plain string for the phase to keep its retries. The
+  `errors.test.ts` table pins it.
+- **The child is asked before it is killed** — `SIGTERM`, grace, `SIGKILL` —
+  the same courtesy the shutdown extends, for the same reason: an agent killed
+  mid-write leaves half a file behind.
 
 ## The headless timeout is reported, never swallowed
 
@@ -91,12 +225,14 @@ where there is no process to inspect at all: a rejection that arrives nowhere
 near the limit — or with no limit set — keeps its own message rather than being
 dressed up as our timeout.
 
-The wording matters as much as the detection: `utils/retry.ts` classifies a
-failure as transient by **matching the text**, and that is what earns the phase
-its retries in `phase-runner.ts`. A timeout reported as a bare `claude exited
-with code 143` — the shape this had before — both hides the cause and silently
-costs the phase every retry it had. Any new failure message that describes a
-timeout keeps the words `timed out` in it.
+The wording matters as much as the detection: once the finished process is
+behind us, the error string is all that reaches `resilience/errors.ts`, whose
+**text rules are the last resort** of the classifier — and that is what earns
+the phase its retries in `phase-runner.ts`. A timeout reported as a bare
+`claude exited with code 143` — the shape this had before — both hides the
+cause and silently costs the phase every retry it had, because `143` on its own
+deliberately classifies nothing (Ctrl+C leaves the same code). Any new failure
+message that describes a timeout keeps the words `timed out` in it.
 
 Every single-invocation phase takes its limit from `DEFAULT_HEADLESS_TIMEOUT_MS`
 (`getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS` at the call site, so
@@ -184,7 +320,9 @@ envelope unwrapping, what the loop decides from the result), write it in
 `execute-regression.test.ts` instead: that file mocks `execa` and runs the real
 `executeClaude()`, which is the only way to prove the CLI contract and the flow
 decisions still agree. Mock `../utils/retry.js`'s `sleep` there too, or every
-iteration and retry costs real seconds.
+iteration costs real seconds — and `../resilience/policy.js`'s `abortableDelay`,
+which is what the retry backoff waits on since the loop delegated to
+`resilience/retry.ts:withRetry`.
 
 Both artifacts are user-facing contracts: any new field on `SessionSnapshot` or
 `UserStory` also belongs in the root `README.md` (`Web Monitoring →

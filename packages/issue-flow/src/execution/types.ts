@@ -14,8 +14,22 @@ import type { LastError, PullRequestRef } from '../types.js';
 /** Priority read from the Issue's labels; `null` when it carries none. */
 export type IssuePriority = 'high' | 'medium' | 'low';
 
-/** Lifecycle of one Issue inside the queue. */
-export type QueueIssueStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+/**
+ * Lifecycle of one Issue inside the queue.
+ *
+ * `blocked` and `skipped` are what let a queue survive one bad Issue:
+ * `blocked` means a human is needed and no retry will help, `skipped` means the
+ * queue moved on and will come back to it. Neither is reachable without the
+ * queue policy asking for it, so a plan written before they existed still only
+ * ever holds the original four.
+ */
+export type QueueIssueStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'blocked'
+  | 'skipped';
 
 /** Lifecycle of the queue itself, derived from its entries. */
 export type QueueStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
@@ -49,6 +63,16 @@ export interface ExecutionPlanIssue {
   /** Phase the Issue was running when it failed, `null` otherwise. */
   failedPhase: string | null;
   lastError: LastError | null;
+  /**
+   * How many times the queue has handed this Issue to the pipeline.
+   *
+   * A queue that skips a failing Issue and comes back to it needs a count, or
+   * "come back later" becomes "come back forever". `0` on a plan written before
+   * the field existed, which is exactly right: nothing had been counted.
+   */
+  attempts: number;
+  /** Why a human is needed. Non-null only while `status` is `blocked`. */
+  blockedReason: string | null;
   startedAt: string | null;
   completedAt: string | null;
 }

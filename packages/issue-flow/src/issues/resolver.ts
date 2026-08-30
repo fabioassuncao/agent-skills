@@ -1,7 +1,9 @@
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { loadIssuesConfig } from '../config.js';
+import { actionOf, type ClassifiedFailure, failureOf } from '../resilience/errors.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 import { ensureProvidersRegistered } from './bootstrap.js';
+import type { ProviderAvailability } from './provider.js';
 import { getProvider, getRegisteredSources } from './registry.js';
 import type { Issue, IssueSource, IssuesConfig, ResolvedIssue } from './types.js';
 
@@ -11,11 +13,25 @@ import type { Issue, IssueSource, IssuesConfig, ResolvedIssue } from './types.js
  */
 export class IssueResolutionError extends Error {
   readonly exitCode: number;
+  /**
+   * The verdict of the origin that failed, when one origin failed for a reason
+   * worth naming. It is what tells "this Issue does not exist" apart from
+   * "GitHub could not be reached", which are the same message today.
+   */
+  readonly failure: ClassifiedFailure | undefined;
+  /** What a human has to do, for a failure that waiting cannot fix. */
+  readonly action: string | undefined;
 
-  constructor(message: string, exitCode = 1) {
+  constructor(
+    message: string,
+    exitCode = 1,
+    details: { failure?: ClassifiedFailure; action?: string } = {},
+  ) {
     super(message);
     this.name = 'IssueResolutionError';
     this.exitCode = exitCode;
+    this.failure = details.failure;
+    this.action = details.action;
   }
 }
 
@@ -67,6 +83,10 @@ interface Candidate {
   issue: Issue | null;
   /** Why the origin produced nothing, used only to explain a total miss. */
   reason: string | null;
+  /** The classified verdict behind `reason`, when the origin could give one. */
+  failure?: ClassifiedFailure;
+  /** What a human has to do about it (`gh auth login`), when that applies. */
+  action?: string;
 }
 
 /** A candidate that actually produced an Issue. */
@@ -98,14 +118,26 @@ async function fetchCandidate(
     return { source, issue: null, reason: errorMessage(err) };
   }
 
-  let available: boolean;
+  let availability: ProviderAvailability;
   try {
-    available = await provider.isAvailable();
+    availability = (await provider.checkAvailability?.()) ?? {
+      available: await provider.isAvailable(),
+    };
   } catch (err) {
     return { source, issue: null, reason: `provider unavailable (${errorMessage(err)})` };
   }
-  if (!available) {
-    return { source, issue: null, reason: 'provider unavailable' };
+  if (!availability.available) {
+    // The classified reason replaces the flat "provider unavailable": a
+    // credential that expired and a network that blipped were indistinguishable
+    // before, and only one of them is worth telling a human about.
+    const reason = availability.failure?.message ?? 'provider unavailable';
+    return {
+      source,
+      issue: null,
+      reason,
+      ...(availability.failure === undefined ? {} : { failure: availability.failure }),
+      ...(availability.action === undefined ? {} : { action: availability.action }),
+    };
   }
 
   try {
@@ -116,7 +148,15 @@ async function fetchCandidate(
     // A real failure (network, auth, corrupted metadata) must be visible even
     // when the other origin answers.
     warn(`Could not read issue '${id}' from ${sourceLabel(source)}: ${reason}`);
-    return { source, issue: null, reason };
+    const failure = failureOf(err);
+    const action = actionOf(err);
+    return {
+      source,
+      issue: null,
+      reason,
+      ...(failure === null ? {} : { failure }),
+      ...(action === null ? {} : { action }),
+    };
   }
 }
 
@@ -313,6 +353,22 @@ export async function resolveIssue(
       .map((candidate) => `${sourceLabel(candidate.source)}: ${candidate.reason ?? 'not found'}`)
       .join('; ');
     const where = details.length > 0 ? ` (${details})` : '';
+
+    // An origin that needs a human is the answer, not a footnote: reporting
+    // "Issue not found" for an expired credential sends the user looking for
+    // the wrong problem, and no amount of retrying would have helped.
+    const blocking = candidates.find((candidate) => candidate.action !== undefined);
+    if (blocking !== undefined) {
+      throw new IssueResolutionError(
+        `Cannot read issue '${id}' from ${sourceLabel(blocking.source)}: ${blocking.reason}`,
+        1,
+        {
+          ...(blocking.failure === undefined ? {} : { failure: blocking.failure }),
+          ...(blocking.action === undefined ? {} : { action: blocking.action }),
+        },
+      );
+    }
+
     throw new IssueResolutionError(`Issue '${id}' not found in any registered origin${where}`);
   }
 

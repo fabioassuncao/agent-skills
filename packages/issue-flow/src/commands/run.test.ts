@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { type AddressInfo, createServer as createNetServer } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { hostname, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setIssuesCliOverrides, setWebCliOverrides } from '../config.js';
 import { sessionSnapshotSchema } from '../schemas.js';
@@ -31,6 +31,12 @@ vi.mock('execa', () => ({
   execa: vi.fn(async (file: string, args: string[] = []) => {
     if (file === 'git' && args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
       return { stdout: mockProjectRoot.current, exitCode: 0 };
+    }
+    // The repository preflight (US-019) asks which branch HEAD points at; a
+    // failing answer here would read as a detached HEAD and block every phase
+    // that writes.
+    if (file === 'git' && args[0] === 'symbolic-ref') {
+      return { stdout: `refs/heads/${mockBranch.current || 'main'}\n`, exitCode: 0 };
     }
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
       return { stdout: mockBranch.current, exitCode: 0 };
@@ -141,14 +147,20 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 import { execa } from 'execa';
+import { parseJournal } from '../core/journal.js';
 import { listPullRequests } from '../core/session-git.js';
 import { MemoryPublisher, NullPublisher, type SessionSnapshot } from '../core/session-state.js';
+import { beginShutdown, resetShutdownState } from '../core/shutdown.js';
 import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
-import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
+import {
+  resetStorageResolutionCache,
+  resolveIssuePaths,
+  resolveProjectPaths,
+} from '../storage/resolve.js';
 import type { TaskPlan, UserStory } from '../types.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
 import { ensureSingleWebServer } from '../web/lock.js';
@@ -431,6 +443,34 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
       continueFlag: undefined,
       startUs: 27,
     });
+  });
+
+  it('não passa orçamento de retry à fase execute quando as flags estão ausentes', async () => {
+    // The non-regression half of US-012: `run` without the new flags must hand
+    // `runExecute` exactly what it handed before they existed, so `createConfig`
+    // applies the engine defaults instead of a number this command invented.
+    const code = await runPipeline('42', 'auto');
+
+    expect(code).toBe(0);
+    expect(vi.mocked(runExecute)).toHaveBeenCalledWith(undefined, {
+      issue: '42',
+      commitScope: undefined,
+      retryLimit: undefined,
+      retryForever: undefined,
+    });
+  });
+
+  it('propaga --retry-limit e --retry-forever para a fase execute', async () => {
+    const code = await runPipeline('42', 'auto', undefined, undefined, undefined, {
+      retryLimit: 3,
+      retryForever: true,
+    });
+
+    expect(code).toBe(0);
+    expect(vi.mocked(runExecute)).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ issue: '42', retryLimit: 3, retryForever: true }),
+    );
   });
 
   it('falha da resolução encerra o pipeline com o exit code do erro', async () => {
@@ -1211,5 +1251,229 @@ describe('runPipeline — enriquecimento do snapshot no início da sessão (issu
 
     expect(snapshot.issue.url).toBe('https://github.com/acme/repo/issues/42');
     expect(snapshot.issue.title).toBe('Local');
+  });
+});
+
+describe('run ownership (US-017)', () => {
+  let originalCwd: string;
+  let tmp: string;
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-lock-run-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    vi.clearAllMocks();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    vi.mocked(getProvider).mockReturnValue(makeProvider(vi.fn(async () => {})));
+  });
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('refuses when another live process owns the project, naming it', async () => {
+    const { runLockFile } = await resolveProjectPaths();
+    await mkdir(dirname(runLockFile), { recursive: true });
+    // pid 1 exists on every platform this runs on, and its heartbeat is now:
+    // a live owner, which is precisely what must not be taken over.
+    await writeFile(
+      runLockFile,
+      JSON.stringify({
+        pid: 1,
+        host: hostname(),
+        target: '101',
+        startedAt: new Date().toISOString(),
+        lastHeartbeatAt: new Date().toISOString(),
+      }),
+      'utf-8',
+    );
+
+    const code = await runPipeline('42', 'auto');
+
+    expect(code).toBe(1);
+    // Not a single phase ran: the refusal happens before any work.
+    expect(vi.mocked(runInit)).not.toHaveBeenCalled();
+    // And the owner's lock is untouched.
+    const still = JSON.parse(await readFile(runLockFile, 'utf-8'));
+    expect(still).toMatchObject({ pid: 1, target: '101' });
+  });
+
+  it('releases the lock when the run finishes, so the next one starts clean', async () => {
+    const { runLockFile } = await resolveProjectPaths();
+
+    await expect(runPipeline('42', 'auto')).resolves.toBe(0);
+
+    expect(existsSync(runLockFile)).toBe(false);
+    await expect(runPipeline('42', 'auto')).resolves.toBe(0);
+  });
+
+  it('takes over a lock whose owner is gone and records it as interrupted', async () => {
+    const { runLockFile } = await resolveProjectPaths();
+    await mkdir(dirname(runLockFile), { recursive: true });
+    await writeFile(
+      runLockFile,
+      JSON.stringify({
+        pid: 0x7ffffffe,
+        host: hostname(),
+        target: '101',
+        startedAt: '2026-08-30T03:00:00.000Z',
+        lastHeartbeatAt: '2026-08-30T03:00:00.000Z',
+      }),
+      'utf-8',
+    );
+
+    await expect(runPipeline('42', 'auto')).resolves.toBe(0);
+
+    // It ran, and the stale lock is gone rather than inherited.
+    expect(vi.mocked(runInit)).toHaveBeenCalled();
+    expect(existsSync(runLockFile)).toBe(false);
+  });
+});
+
+describe('graceful shutdown (US-020)', () => {
+  let originalCwd: string;
+  let tmp: string;
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-shutdown-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    vi.clearAllMocks();
+    resetShutdownState();
+    vi.mocked(resolveIssue).mockResolvedValue(makeResolved());
+    vi.mocked(getProvider).mockReturnValue(makeProvider(vi.fn(async () => {})));
+  });
+
+  afterEach(async () => {
+    resetShutdownState();
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('checkpoints the issue as paused, and a later resume finds the same phases done', async () => {
+    const paths = await globalPaths();
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(
+      paths.tasksFile,
+      JSON.stringify(
+        makePlan({
+          pipeline: {
+            prdCompleted: true,
+            jsonCompleted: true,
+            executionCompleted: false,
+            reviewCompleted: false,
+            prCreated: false,
+          },
+        }),
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
+    // The pipeline blocks inside `execute`, which is where a real interrupt
+    // lands: the agent is running and the plan is half written.
+    let releaseExecute: () => void = () => {};
+    const executing = new Promise<void>((resolve) => {
+      releaseExecute = resolve;
+    });
+    let executeStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      executeStarted = resolve;
+    });
+    vi.mocked(runExecute).mockImplementation(async () => {
+      executeStarted();
+      await executing;
+      return 0;
+    });
+
+    const pipeline = runPipeline('42', 'auto', 'execute');
+    await started;
+
+    const exits: number[] = [];
+    await beginShutdown('SIGINT', {
+      graceMs: 0,
+      exit: (code) => void exits.push(code),
+      notify: () => {},
+    });
+
+    // The checkpoint ran while the phase was still in flight.
+    const paused = JSON.parse(await readFile(paths.tasksFile, 'utf-8')) as TaskPlan;
+    expect(paused.runState?.status).toBe('paused');
+    expect(paused.runState?.lastHeartbeatAt).not.toBeNull();
+    // And the phases that had finished are still marked finished, which is what
+    // makes the later resume pick up at `execute` instead of starting over.
+    expect(paused.pipeline.prdCompleted).toBe(true);
+    expect(paused.pipeline.jsonCompleted).toBe(true);
+    expect(paused.pipeline.executionCompleted).toBe(false);
+    expect(exits).toEqual([130]);
+
+    releaseExecute();
+    await pipeline;
+  });
+
+  it('publishes session:end and closes the journal, so nothing stays on running', async () => {
+    // The journal is the surface that proves it without binding a web server:
+    // it receives the same event stream, and it is closed by the `close` phase
+    // of the shutdown.
+    process.env.ISSUE_FLOW_RESILIENCE_JOURNAL = 'true';
+    try {
+      const paths = await globalPaths();
+      await mkdir(paths.issueDir, { recursive: true });
+      await writeFile(
+        paths.tasksFile,
+        JSON.stringify(
+          makePlan({
+            pipeline: {
+              prdCompleted: true,
+              jsonCompleted: true,
+              executionCompleted: false,
+              reviewCompleted: false,
+              prCreated: false,
+            },
+          }),
+          null,
+          2,
+        ),
+        'utf-8',
+      );
+
+      let releaseExecute: () => void = () => {};
+      const executing = new Promise<void>((resolve) => {
+        releaseExecute = resolve;
+      });
+      let executeStarted: () => void = () => {};
+      const started = new Promise<void>((resolve) => {
+        executeStarted = resolve;
+      });
+      vi.mocked(runExecute).mockImplementation(async () => {
+        executeStarted();
+        await executing;
+        return 0;
+      });
+
+      const pipeline = runPipeline('42', 'auto', 'execute');
+      await started;
+
+      await beginShutdown('SIGINT', { graceMs: 0, exit: () => {}, notify: () => {} });
+
+      const journal = await readFile(paths.eventsFile, 'utf-8');
+      const types = parseJournal(journal).map((entry) => entry.event.type);
+      // The run said it ended. Without this, `session.json` (and every reader
+      // of the stream) would show `running` forever.
+      expect(types).toContain('session:end');
+
+      releaseExecute();
+      await pipeline;
+    } finally {
+      delete process.env.ISSUE_FLOW_RESILIENCE_JOURNAL;
+    }
   });
 });

@@ -15,6 +15,13 @@ function result(overrides?: Partial<ExecResult>): ExecResult {
 
 const VIEW_FIELDS = 'number,title,body,labels,state,url,createdAt,updatedAt';
 
+/**
+ * Every `gh` invocation now goes through the retry chokepoint carrying the
+ * policy resolver, so the third argument is part of the call. The resolver
+ * itself is asserted in the resilience tests; here the arguments are the point.
+ */
+const RETRYING = { retry: expect.any(Function) };
+
 const ghPayload = {
   number: 23,
   title: 'Abstract issue providers',
@@ -46,7 +53,11 @@ describe('get', () => {
 
     const issue = await provider.get('23');
 
-    expect(mockRun).toHaveBeenCalledWith('gh', ['issue', 'view', '23', '--json', VIEW_FIELDS]);
+    expect(mockRun).toHaveBeenCalledWith(
+      'gh',
+      ['issue', 'view', '23', '--json', VIEW_FIELDS],
+      RETRYING,
+    );
     expect(issue).toMatchObject({
       id: '23',
       number: 23,
@@ -75,7 +86,11 @@ describe('get', () => {
   it('accepts an id prefixed with #', async () => {
     mockRun.mockResolvedValueOnce(result({ stdout: JSON.stringify(ghPayload) }));
     await provider.get('#23');
-    expect(mockRun).toHaveBeenCalledWith('gh', ['issue', 'view', '23', '--json', VIEW_FIELDS]);
+    expect(mockRun).toHaveBeenCalledWith(
+      'gh',
+      ['issue', 'view', '23', '--json', VIEW_FIELDS],
+      RETRYING,
+    );
   });
 
   it('tolerates an empty body and missing labels', async () => {
@@ -137,25 +152,29 @@ describe('create', () => {
       labels: ['enhancement', 'architecture'],
     });
 
-    expect(mockRun).toHaveBeenNthCalledWith(1, 'gh', [
-      'issue',
-      'create',
-      '--title',
-      'Abstract issue providers',
-      '--body',
-      'Make the pipeline origin-agnostic.',
-      '--label',
-      'enhancement',
-      '--label',
-      'architecture',
-    ]);
-    expect(mockRun).toHaveBeenNthCalledWith(2, 'gh', [
-      'issue',
-      'view',
-      '23',
-      '--json',
-      VIEW_FIELDS,
-    ]);
+    expect(mockRun).toHaveBeenNthCalledWith(
+      1,
+      'gh',
+      [
+        'issue',
+        'create',
+        '--title',
+        'Abstract issue providers',
+        '--body',
+        'Make the pipeline origin-agnostic.',
+        '--label',
+        'enhancement',
+        '--label',
+        'architecture',
+      ],
+      RETRYING,
+    );
+    expect(mockRun).toHaveBeenNthCalledWith(
+      2,
+      'gh',
+      ['issue', 'view', '23', '--json', VIEW_FIELDS],
+      RETRYING,
+    );
     expect(issue).toMatchObject({ id: '23', number: 23, source: 'github' });
   });
 
@@ -221,7 +240,7 @@ describe('close', () => {
     mockRun.mockResolvedValueOnce(result({ stdout: 'Closed issue #23' }));
 
     await expect(provider.close('23')).resolves.toBeUndefined();
-    expect(mockRun).toHaveBeenCalledWith('gh', ['issue', 'close', '23']);
+    expect(mockRun).toHaveBeenCalledWith('gh', ['issue', 'close', '23'], RETRYING);
   });
 
   it('throws when gh issue close fails', async () => {
@@ -237,8 +256,14 @@ describe('isAvailable', () => {
     mockRun.mockResolvedValueOnce(result({ stdout: 'Logged in to github.com' }));
 
     await expect(provider.isAvailable()).resolves.toBe(true);
-    expect(mockRun).toHaveBeenNthCalledWith(1, 'gh', ['--version'], { timeout: 10_000 });
-    expect(mockRun).toHaveBeenNthCalledWith(2, 'gh', ['auth', 'status'], { timeout: 10_000 });
+    expect(mockRun).toHaveBeenNthCalledWith(1, 'gh', ['--version'], {
+      ...RETRYING,
+      timeout: 10_000,
+    });
+    expect(mockRun).toHaveBeenNthCalledWith(2, 'gh', ['auth', 'status'], {
+      ...RETRYING,
+      timeout: 10_000,
+    });
   });
 
   it('is false when gh is missing, without probing auth', async () => {
@@ -398,5 +423,27 @@ describe('fetchRelations', () => {
       children: [],
     });
     expect(mockRun).not.toHaveBeenCalled();
+  });
+});
+
+describe('closing an Issue is idempotent (US-023)', () => {
+  it('does not throw when gh reports the Issue was already closed', async () => {
+    // What `gh issue close` actually does for an Issue that is already closed:
+    // a notice on stderr and exit 0. No code change was needed for this — the
+    // test exists to pin it, because a retry of the `pr`/`close` step depends
+    // on it staying true.
+    mockRun.mockResolvedValueOnce(
+      result({ exitCode: 0, stderr: '! Issue #23 (Abstract issue providers) is already closed' }),
+    );
+
+    await expect(provider.close('23')).resolves.toBeUndefined();
+  });
+
+  it('closes twice in a row without a second failure', async () => {
+    mockRun.mockResolvedValue(result({ exitCode: 0 }));
+
+    await expect(provider.close('23')).resolves.toBeUndefined();
+    await expect(provider.close('23')).resolves.toBeUndefined();
+    expect(mockRun).toHaveBeenCalledTimes(2);
   });
 });

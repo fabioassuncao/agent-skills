@@ -14,10 +14,17 @@ __ISSUE_BODY__
 </issue-body>
 
 Steps:
-1. Read the task plan from __TASKS_PATH__ if it exists
-2. Review the git log for this branch: git log __BASE_BRANCH__..HEAD --oneline
-3. Review the diff: git diff __BASE_BRANCH__...HEAD --stat
-4. Create a well-structured PR using gh pr create
+1. Check whether this branch already has an open Pull Request:
+   `gh pr list --head __BRANCH_NAME__ --state open --json number,url`.
+   If it does, do NOT create a second one — report the existing URL and stop.
+   The pipeline checks this before invoking you and normally skips this phase
+   entirely, so reaching this point with a Pull Request already open means the
+   check could not run: it is the last guard against a duplicate, not a
+   formality.
+2. Read the task plan from __TASKS_PATH__ if it exists
+3. Review the git log for this branch: git log __BASE_BRANCH__..HEAD --oneline
+4. Review the diff: git diff __BASE_BRANCH__...HEAD --stat
+5. Create a well-structured PR using gh pr create
 
 The PR should:
 - Have a clear, concise title (under 70 characters)
