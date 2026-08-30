@@ -984,6 +984,25 @@ progress {
   cursor: pointer;
 }
 
+.config-phase-row.is-editable {
+  grid-template-columns: minmax(5rem, 0.7fr) minmax(7rem, 1fr) minmax(13rem, 1.6fr) auto minmax(9rem, 1fr);
+  cursor: default;
+}
+
+.config-phase-open {
+  width: max-content;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+}
+
+.config-phase-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
 .config-phase-row:hover {
   background: var(--surface-sunken);
 }
@@ -1002,8 +1021,19 @@ progress {
   display: none;
 }
 
+.config-routing-summary {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.config-routing-form {
+  grid-template-columns: minmax(8rem, 0.7fr) minmax(9rem, 0.7fr) auto auto minmax(10rem, 1fr);
+}
+
 .config-form select,
 .config-form input,
+.config-phase-row select,
 .config-save {
   min-height: 2.25rem;
   border: 1px solid var(--border-strong);
@@ -1011,6 +1041,10 @@ progress {
   padding: 0.4rem 0.65rem;
   color: var(--text);
   background: var(--surface);
+}
+
+.config-phase-feedback {
+  min-width: 0;
 }
 
 .config-save {
@@ -1075,6 +1109,10 @@ progress {
 @media (max-width: 720px) {
   .config-phase-row {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .config-phase-row.is-editable {
+    grid-template-columns: 1fr;
   }
 
   .config-form {

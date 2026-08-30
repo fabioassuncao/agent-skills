@@ -129,6 +129,7 @@
     // guardar o nó levaria a uma referência morta.
     selectedDetail: null,
     configWritable: false,
+    configData: null,
     // Identifica o processo que serviu os assets atuais. Uma troca significa
     // que --restart-web colocou código novo no mesmo origin e exige reload.
     serverInstanceId: null,
@@ -662,6 +663,13 @@
         state.snapshot = await res.json();
         render();
       }
+      const configUrl =
+        'api/config?session=' + encodeURIComponent(state.detailSessionId || '');
+      const configRes = await fetch(configUrl, { cache: 'no-store' });
+      if (configRes.ok) {
+        state.configData = await configRes.json();
+        if (state.snapshot) renderConfiguration(state.snapshot);
+      }
       if (state.eventsUrl) {
         const eventsRes = await fetch(state.eventsUrl, { cache: 'no-store' });
         if (!eventsRes.ok) throw new Error('HTTP ' + eventsRes.status);
@@ -1063,6 +1071,7 @@
       env: 'variável de ambiente',
       cli: 'override da execução',
       fallback: 'fallback',
+      recommended: 'política recomendada',
     };
     return labels[source] || source || 'não informado';
   }
@@ -1120,21 +1129,126 @@
     nowRow(summary, 'Precedência', list(config.precedence).join(' → '));
     els.configuration.appendChild(summary);
 
+    const liveRouting = state.configData && state.configData.routing;
+    if (liveRouting) {
+      const routingSummary = el('dl', 'now-grid config-routing-summary');
+      nowRow(routingSummary, 'Routing', liveRouting.mode + ' · perfil ' + liveRouting.profile);
+      nowRow(
+        routingSummary,
+        'Política',
+        liveRouting.policy === 'recommended' ? 'recomendada (opt-in)' : 'score adaptativo',
+      );
+      els.configuration.appendChild(routingSummary);
+
+      if (state.configWritable) {
+        const routingForm = el('form', 'config-form config-routing-form');
+        const mode = el('select');
+        mode.setAttribute('aria-label', 'Modo de routing');
+        for (const value of ['off', 'shadow', 'recommend', 'active']) {
+          const option = el('option', null, value);
+          option.value = value;
+          mode.appendChild(option);
+        }
+        mode.value = liveRouting.mode;
+        const profile = el('select');
+        profile.setAttribute('aria-label', 'Perfil de routing');
+        for (const value of ['economy', 'balanced', 'quality', 'speed']) {
+          const option = el('option', null, value);
+          option.value = value;
+          profile.appendChild(option);
+        }
+        profile.value = liveRouting.profile;
+        const saveRouting = el('button', 'config-save', 'Salvar routing');
+        saveRouting.type = 'submit';
+        const applyPolicy = el(
+          'button',
+          'config-save config-policy',
+          'Aplicar política recomendada',
+        );
+        applyPolicy.type = 'button';
+        const routingFeedback = el('span', 'muted');
+        routingForm.appendChild(mode);
+        routingForm.appendChild(profile);
+        routingForm.appendChild(saveRouting);
+        routingForm.appendChild(applyPolicy);
+        routingForm.appendChild(routingFeedback);
+        routingForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          await saveRoutingConfig(
+            { mode: mode.value, profile: profile.value },
+            saveRouting,
+            routingFeedback,
+          );
+        });
+        applyPolicy.addEventListener('click', async () => {
+          await saveRoutingConfig({ policy: 'recommended' }, applyPolicy, routingFeedback);
+        });
+        els.configuration.appendChild(routingForm);
+      }
+    }
+
     const phases = el('div', 'config-phase-grid');
     for (const phase of list(config.phases)) {
-      const row = el('button', 'config-phase-row');
-      row.type = 'button';
-      row.appendChild(el('span', 'mono', phase.phase));
-      row.appendChild(el('span', null, phase.provider.value || '—'));
-      row.appendChild(el('span', null, phase.model.value || 'default do provider'));
-      row.appendChild(
-        el(
-          'span',
-          'muted',
-          configSourceLabel(phase.provider.source) + ' / ' + configSourceLabel(phase.model.source),
-        ),
-      );
-      row.addEventListener('click', () => openDrawer('phase', phase.phase));
+      const row = el(state.configWritable ? 'form' : 'button', 'config-phase-row');
+      if (!state.configWritable) row.type = 'button';
+      if (state.configWritable) {
+        row.classList.add('is-editable');
+        const phaseButton = el('button', 'config-phase-open mono', phase.phase);
+        phaseButton.type = 'button';
+        phaseButton.addEventListener('click', () => openDrawer('phase', phase.phase));
+        row.appendChild(phaseButton);
+        const provider = el('select');
+        provider.setAttribute('aria-label', 'Harness para ' + phase.phase);
+        fillProviderSelect(provider, phase.provider.value || 'claude');
+        const model = el('select');
+        model.setAttribute('aria-label', 'Tier e modelo para ' + phase.phase);
+        fillModelSelect(model, provider.value, phase.model.value || '');
+        provider.addEventListener('change', () => fillModelSelect(model, provider.value, ''));
+        const save = el('button', 'config-save', 'Salvar');
+        save.type = 'submit';
+        const feedback = el('span', 'muted config-phase-feedback');
+        row.appendChild(provider);
+        row.appendChild(model);
+        row.appendChild(save);
+        row.appendChild(feedback);
+        row.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          save.disabled = true;
+          feedback.textContent = 'salvando…';
+          try {
+            const response = await fetch('api/config/agent', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                provider: provider.value,
+                model: model.value,
+                phase: phase.phase,
+              }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'falha ao salvar');
+            feedback.textContent = 'salvo para a próxima execução';
+          } catch (error) {
+            feedback.textContent = error.message || 'falha ao salvar';
+          } finally {
+            save.disabled = false;
+          }
+        });
+      } else {
+        row.appendChild(el('span', 'mono', phase.phase));
+        row.appendChild(el('span', null, phase.provider.value || '—'));
+        row.appendChild(el('span', null, phase.model.value || 'default do provider'));
+        row.appendChild(
+          el(
+            'span',
+            'muted',
+            configSourceLabel(phase.provider.source) +
+              ' / ' +
+              configSourceLabel(phase.model.source),
+          ),
+        );
+        row.addEventListener('click', () => openDrawer('phase', phase.phase));
+      }
       phases.appendChild(row);
     }
     els.configuration.appendChild(phases);
@@ -1180,6 +1294,65 @@
     });
     form.hidden = !state.configWritable;
     els.configuration.appendChild(form);
+  }
+
+  function catalog() {
+    return list(state.configData && state.configData.catalog);
+  }
+
+  function fillProviderSelect(select, selected) {
+    clear(select);
+    const entries = catalog().filter((entry) => entry.installed && entry.authenticated);
+    const providers = entries.length
+      ? entries.map((entry) => entry.provider)
+      : ['claude', 'codex', 'cursor', 'antigravity'];
+    if (!providers.includes(selected)) providers.push(selected);
+    for (const provider of providers) {
+      const option = el('option', null, provider);
+      option.value = provider;
+      select.appendChild(option);
+    }
+    select.value = selected;
+  }
+
+  function fillModelSelect(select, provider, selected) {
+    clear(select);
+    const defaultOption = el('option', null, 'default do provider');
+    defaultOption.value = '';
+    select.appendChild(defaultOption);
+    const entry = catalog().find((candidate) => candidate.provider === provider);
+    for (const model of list(entry && entry.models)) {
+      if (!model.id) continue;
+      const option = el('option', null, model.tier + ' · ' + model.id);
+      option.value = model.id;
+      select.appendChild(option);
+    }
+    if (selected && !Array.prototype.some.call(select.options, (option) => option.value === selected)) {
+      const current = el('option', null, 'configurado · ' + selected);
+      current.value = selected;
+      select.appendChild(current);
+    }
+    select.value = selected || '';
+  }
+
+  async function saveRoutingConfig(values, button, feedback) {
+    button.disabled = true;
+    feedback.textContent = 'salvando…';
+    try {
+      const response = await fetch('api/config/routing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'falha ao salvar');
+      state.configData.routing = Object.assign({}, state.configData.routing, values);
+      feedback.textContent = 'salvo para execuções futuras';
+    } catch (error) {
+      feedback.textContent = error.message || 'falha ao salvar';
+    } finally {
+      button.disabled = false;
+    }
   }
 
   function renderPhases(snapshot) {
@@ -1791,7 +1964,10 @@
       serverInstanceChanged(healthRes);
       const health = await healthRes.json();
       renderMonitorVersion(health.version);
-      state.configWritable = list(health.capabilities).includes('config:agent:write');
+      const capabilities = list(health.capabilities);
+      state.configWritable =
+        capabilities.includes('config:agent:write') &&
+        capabilities.includes('config:routing:write');
       const suggested = Number(health.refreshSeconds);
       if (stored === null && Number.isFinite(suggested) && suggested > 0) {
         state.refreshSeconds = suggested;
