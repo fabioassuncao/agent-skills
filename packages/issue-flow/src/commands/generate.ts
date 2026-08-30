@@ -9,6 +9,7 @@ import { localIssueRef } from '../issues/context.js';
 import { IssueDraftParseError, parseIssueDraft } from '../issues/draft.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueDraft, IssueGenerateTarget } from '../issues/types.js';
+import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveProjectPaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
 
@@ -31,6 +32,9 @@ async function draftIssue(promptText: string): Promise<IssueDraft> {
 
   const template = await loadPrompt('generate');
   const prompt = applyPlaceholders(template, {
+    // The repository's own conventions. Empty when it declares none, which is
+    // what keeps the rendered prompt identical to the pre-policy one.
+    ...(await resolvePolicyPlaceholders()),
     __USER_PROMPT__: promptText,
     __LOCAL_ISSUES_DIR__: issuesDir,
   });

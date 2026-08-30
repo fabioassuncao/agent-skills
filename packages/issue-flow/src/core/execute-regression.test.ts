@@ -26,6 +26,18 @@ vi.mock('../utils/retry.js', async (importOriginal) => {
 // Git/gh enrichment spawns subprocesses; it carries no loop logic.
 vi.mock('./session-git.js', () => ({ publishGitState: vi.fn(async () => {}) }));
 
+// Same reasoning for the repository policy: discovery shells out to git and gh,
+// so with `execa` mocked it would eat the CLI results this file queues up. The
+// projection it returns is the empty one, which is what a repository declaring
+// no policy produces — exactly the condition this non-regression suite is about.
+vi.mock('../policy/placeholders.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../policy/placeholders.js')>();
+  return {
+    ...actual,
+    resolvePolicyPlaceholders: vi.fn(async () => actual.emptyPolicyPlaceholders()),
+  };
+});
+
 vi.mock('execa', () => ({ execa: vi.fn() }));
 
 import { execa } from 'execa';

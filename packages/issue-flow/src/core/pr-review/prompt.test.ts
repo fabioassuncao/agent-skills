@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { emptyPolicyPlaceholders } from '../../policy/placeholders.js';
 import { applyPlaceholders, loadPrompt } from '../prompt-resolver.js';
 import { parseFindings, parsePrReviewResult, REPORT_SECTIONS } from './report.js';
 
@@ -32,12 +33,15 @@ describe('pr-review prompt', () => {
   });
 
   it('leaves no placeholder behind once they are all applied', () => {
-    const applied = applyPlaceholders(
-      template,
-      Object.fromEntries(PLACEHOLDERS.map((key) => [key, 'x'])),
-    );
+    const applied = applyPlaceholders(template, {
+      ...Object.fromEntries(PLACEHOLDERS.map((key) => [key, 'x'])),
+      // The policy projection every command composes. Empty here, which is the
+      // case that must leave no trace of the conditional section behind.
+      ...emptyPolicyPlaceholders(),
+    });
 
     expect(applied.match(/__[A-Z][A-Z0-9_]*__/g)).toBeNull();
+    expect(applied).not.toContain('Repository policy');
   });
 
   it('instructs the agent to collect context from gh, git and the plan', () => {

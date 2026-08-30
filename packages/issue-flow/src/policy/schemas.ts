@@ -48,6 +48,12 @@ const policyGitDeclarationSchema = z.object({
  */
 export const policyConfigSchema = z.object({
   enabled: z.boolean().default(true),
+  /**
+   * Token budget for the `__REPO_POLICY__` projection. Sections above it are
+   * replaced whole by a pointer rather than truncated — see
+   * `policy/placeholders.ts`.
+   */
+  contextBudget: z.number().int().positive().default(1500),
   discovery: policyDiscoveryConfigSchema.prefault({}),
   issues: policyIssuesDeclarationSchema.prefault({}),
   pullRequests: policyPullRequestsDeclarationSchema.prefault({}),
@@ -61,6 +67,7 @@ export const policyConfigSchema = z.object({
  */
 export const policyConfigInputSchema = z.object({
   enabled: z.boolean().optional(),
+  contextBudget: z.number().int().positive().optional(),
   // Spelled out rather than `policyDiscoveryConfigSchema.partial()`: in zod 4
   // a `.default()` survives `.partial()`, so every toggle would come back
   // materialized and the input layer would stop meaning "what the user wrote".
