@@ -88,6 +88,25 @@ formats. The environment covers the scalar knobs one variable each
 shaped for a shell variable and travels whole as JSON in
 `ISSUE_FLOW_RESILIENCE_RETRY`.
 
+#### The `continuous` profile
+
+`profile: "continuous"` is the one value of the key that is a *statement of
+intent* rather than a number. It says "this run has nobody watching it", and it
+expands into the settings that implies -- network and rate limits retried
+forever, wider budgets for the other transient kinds, provider failover, a queue
+that skips a failing issue instead of stopping, a journal, and the inactivity
+watchdog.
+
+Two properties keep it honest:
+
+- **It only ever widens.** What is not retryable under the default profile is
+  not retryable here either -- the profile is a spread applied *before* the
+  golden-rule clamp, never after it.
+- **Anything it sets stays settable.** The profile is one rung of the same
+  ladder; a `retry.network.maxAttempts` in `.issue-flow.json`, an
+  `ISSUE_FLOW_RESILIENCE_*` variable or a CLI flag all still win over it, in
+  that order. `--continuous --no-failover` is a coherent request.
+
 ### Where the organization sits
 
 An organization's conventions arrive through discovery, not through a separate

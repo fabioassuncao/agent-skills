@@ -6,7 +6,7 @@ import {
   resolveRunPhaseFlags,
   resolveUserStoryNumberingFlags,
 } from './cli-options.js';
-import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
+import { setIssuesCliOverrides, setResilienceCliOverrides, setWebCliOverrides } from './config.js';
 import { installShutdownHandlers } from './core/shutdown.js';
 import { setGlobalTimeout, setInactivityTimeout, setVerbose } from './core/verbose.js';
 import {
@@ -15,6 +15,7 @@ import {
   resolveIssuesOverrides,
 } from './issues/cli-flags.js';
 import type { IssueGenerateTarget } from './issues/types.js';
+import { resolveResilienceOverrides } from './resilience/cli-flags.js';
 import type { WebConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
 
@@ -84,6 +85,20 @@ function withGlobalOptions(cmd: Command): Command {
         parseInteger,
       )
   );
+}
+
+/**
+ * Add the resilience options to a subcommand, in the shape `--web` and
+ * `--pr-review` already follow: declared here, resolved into configuration
+ * overrides by the preAction hook, and applied through the same ladder every
+ * other key climbs.
+ */
+function withResilienceOptions(cmd: Command): Command {
+  return cmd
+    .option('--continuous', 'Long-running profile: keep going without supervision')
+    .option('--resilient', 'Alias of --continuous')
+    .option('--no-failover', 'Never migrate a phase to another agent provider')
+    .option('--auto-decompose', 'Act on a decomposition report instead of only writing it');
 }
 
 /**
@@ -171,6 +186,18 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
     setInactivityTimeout(opts.inactivityTimeout * 1000);
   }
   setWebCliOverrides(resolveWebOverrides(opts));
+  // The CLI rung of the `resilience` ladder. `--continuous` expands here into
+  // the settings it implies, with every granular flag applied on top of it.
+  setResilienceCliOverrides(
+    resolveResilienceOverrides({
+      continuous: opts.continuous,
+      resilient: opts.resilient,
+      failover: opts.failover,
+      autoDecompose: opts.autoDecompose,
+      inactivityTimeout: opts.inactivityTimeout,
+      onIssueFailure: opts.onIssueFailure,
+    }),
+  );
   try {
     setIssuesCliOverrides(resolveIssuesOverrides(opts));
   } catch (error) {
@@ -233,40 +260,42 @@ withGlobalOptions(
 
 // ── run ─────────────────────────────────────────────────────────────────────
 withUserStoryNumberingOptions(
-  withWebOptions(
-    withIssueOptions(
-      withGlobalOptions(
-        program
-          .command('run')
-          .description(
-            'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
-          )
-          .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
-          .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
-          .option('--from <phase>', 'Resume from a specific phase')
-          .option(
-            '--no-branch',
-            'Run pipeline on current branch without creating a new branch or PR',
-          )
-          .option('--pr-review', 'Review the created Pull Request after the pr phase')
-          .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
-          .option('--only', 'Run just the issues informed, without their hierarchy')
-          // Same two flags `execute` has always had, forwarded to the execute
-          // phase of the pipeline: a `run` is the only way most users reach that
-          // loop, and had no way to widen its retry budget.
-          .option(
-            '--retry-limit <number>',
-            'Retry transient Claude failures up to N consecutive times',
-            parseInteger,
-          )
-          .option('--retry-forever', 'Retry transient Claude failures indefinitely')
-          // What one failing issue does to the rest of a queue. `stop` is what
-          // every release before this flag did, and stays the default.
-          .option(
-            '--on-issue-failure <mode>',
-            'In a queue, on a failing issue: stop | skip | block',
-            parseQueueFailureMode,
-          ),
+  withResilienceOptions(
+    withWebOptions(
+      withIssueOptions(
+        withGlobalOptions(
+          program
+            .command('run')
+            .description(
+              'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
+            )
+            .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
+            .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
+            .option('--from <phase>', 'Resume from a specific phase')
+            .option(
+              '--no-branch',
+              'Run pipeline on current branch without creating a new branch or PR',
+            )
+            .option('--pr-review', 'Review the created Pull Request after the pr phase')
+            .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
+            .option('--only', 'Run just the issues informed, without their hierarchy')
+            // Same two flags `execute` has always had, forwarded to the execute
+            // phase of the pipeline: a `run` is the only way most users reach that
+            // loop, and had no way to widen its retry budget.
+            .option(
+              '--retry-limit <number>',
+              'Retry transient Claude failures up to N consecutive times',
+              parseInteger,
+            )
+            .option('--retry-forever', 'Retry transient Claude failures indefinitely')
+            // What one failing issue does to the rest of a queue. `stop` is what
+            // every release before this flag did, and stays the default.
+            .option(
+              '--on-issue-failure <mode>',
+              'In a queue, on a failing issue: stop | skip | block',
+              parseQueueFailureMode,
+            ),
+        ),
       ),
     ),
   ),

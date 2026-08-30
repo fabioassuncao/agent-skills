@@ -111,6 +111,9 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--retry-limit N` | Retry transient Claude failures in the `execute` phase up to N consecutive times (default: 10) |
 | `--retry-forever` | Retry transient Claude failures in the `execute` phase indefinitely |
 | `--on-issue-failure <mode>` | In a queue, what one failing issue does to the rest: `stop` (default, ends the run), `skip` (set it aside, run the independent issues, come back to it at the end) or `block` (set it aside for a human and never come back) |
+| `--continuous` / `--resilient` | Long-running profile: keep going without supervision (see below) |
+| `--no-failover` | Never migrate a phase to another agent provider |
+| `--auto-decompose` | Act on a decomposition report instead of only writing it |
 | `--web` | Enable real-time web monitoring (see [Web Monitoring](#web-monitoring)) |
 | `--inactivity-timeout <s>` | Stop the agent after this many seconds with no output at all (`0` = off, default 600). A second, tighter instrument beside `--timeout`: it tells a long task from a stuck one |
 | `-v, --verbose` | Show Claude progress output in real time |
@@ -212,6 +215,33 @@ Analyzes the project and drafts the issue via Claude headless; the draft is then
 | `--both` | GitHub **and** a local mirror that reuses the GitHub number and records `remote.ref` / `remote.syncedContentHash` |
 
 The flags are mutually exclusive. With `--both`, the remote issue is created first because it owns the number: a failure there leaves nothing on disk, and a failure writing the mirror is reported with the URL that already exists.
+
+#### `--continuous`: a profile, not a mechanism
+
+Unattended work needs about six behaviours turned on at once, and asking for six
+flags is asking for five of them to be forgotten. `--continuous` (alias
+`--resilient`) names the intent -- *keep going without me* -- and expands to what
+that intent implies:
+
+| Behaviour | What the profile sets |
+|-----------|-----------------------|
+| Network and rate limits | retried **forever**, with the ceiling of the backoff still in force |
+| Timeouts, stalls, provider crashes | wider attempt budgets |
+| Provider failover | on |
+| A failing issue in a queue | `--on-issue-failure skip` |
+| The event journal | on (`events.jsonl`) |
+| The inactivity watchdog | on (10 minutes of silence) |
+
+**Every one of those stays adjustable on its own, and an explicit flag always
+beats the profile.** `--continuous --no-failover` is a coherent request and
+means exactly what it says; so do `--continuous --on-issue-failure stop` and
+`--continuous --inactivity-timeout 0`.
+
+What the profile can never do is buy an attempt for a failure that needs a
+person: `authentication`, `configuration`, `repository_state` and
+`task_execution` are clamped to zero attempts **after** the profile is applied.
+A failing test is not retried into passing, and a missing credential is not
+waited out.
 
 ### `resume` -- Continue an interrupted pipeline
 
