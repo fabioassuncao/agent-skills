@@ -34,6 +34,11 @@ the fact, so they list what changed rather than explaining why. Everything from
 - Observabilidade: agente/modelo no início do run, no header, em
   `session.json` → `environment`, e tokens segmentados por agente só em
   run misto. Codex não reporta USD (`costUsd` ausente, nunca zero).
+- **Failover entre providers de agente** (#69). A saúde de cada provider é
+  persistida em `providers.json`; circuit breaker, cooldown exponencial,
+  probe `half_open` e a cadeia de fallback passam a atuar por `FailureKind`.
+  Falhas de autenticação bloqueiam o run, enquanto falhas lógicas e de rede
+  não contaminam a saúde do provider.
 
 ## [0.12.0] - 2026-08-30
 

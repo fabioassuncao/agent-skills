@@ -1,6 +1,17 @@
 export { AgentUnavailableError, assertAgentAvailable, probeAgent } from './availability.js';
 export { buildClaudeArgv, ClaudeCodeRunner } from './claude.js';
 export { buildCodexArgv, CodexRunner, consumeCodexEvent, parseCodexStream } from './codex.js';
+export {
+  DEFAULT_PROVIDER_COOLDOWN_MS,
+  DEFAULT_PROVIDER_FAILURE_WINDOW_MS,
+  DEFAULT_PROVIDER_FAILURES_TO_TRIP,
+  DEFAULT_PROVIDER_MAX_COOLDOWN_MS,
+  openProviderCircuit,
+  readProvidersHealth,
+  recordProviderFailure,
+  recordProviderSuccess,
+} from './health.js';
+export { invokeSelectedAgent, resetAgentInvocationState } from './invoke.js';
 export { clearRunners, ensureRunnersRegistered, registerRunner, runnerFor } from './registry.js';
 export {
   describeRunAgents,
@@ -9,6 +20,7 @@ export {
   parseAgentPhaseFlag,
   resolveAgentFor,
 } from './resolve.js';
+export { AgentSelectionBlockedError, selectAgentForInvocation } from './select.js';
 export type {
   AgentBlock,
   AgentCapabilities,

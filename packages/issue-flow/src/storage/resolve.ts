@@ -11,6 +11,7 @@ import {
   getQueuePaths,
   ISSUES_DIR_NAME,
   type IssuePaths,
+  PROVIDERS_HEALTH_FILENAME,
   type QueuePaths,
   RUN_LOCK_FILENAME,
 } from './paths.js';
@@ -176,6 +177,8 @@ export interface ProjectStoragePaths {
    * different lock.
    */
   runLockFile: string;
+  /** `<projectDir>/providers.json` — persisted health/cooldown per agent provider. */
+  providersHealthFile: string;
 }
 
 /**
@@ -204,6 +207,7 @@ export async function resolveProjectPaths(
     projectDir,
     issuesDir: join(projectDir, ISSUES_DIR_NAME),
     runLockFile: join(projectDir, RUN_LOCK_FILENAME),
+    providersHealthFile: join(projectDir, PROVIDERS_HEALTH_FILENAME),
   };
 }
 

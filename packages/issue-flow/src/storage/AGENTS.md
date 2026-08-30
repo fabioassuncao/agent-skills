@@ -85,6 +85,10 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   repository share a working tree and a branch, so "a different issue" is not a different
   lock. Re-entering from the same pid+host is not a conflict and its release is a no-op —
   a nested acquisition must never remove the file the outer one still owns.
+- **`providers.json` is project-level durable state.** Its path comes from
+  `resolveProjectPaths().providersHealthFile`; agent code never joins the name.
+  Writes are atomic, unknown provider keys stay readable, and cooldown survives
+  process restarts.
 - Schemas read from disk are never `.strict()`: a file written by a newer version must stay
   readable by an older one.
 - The *reader* of `config.json` lives in `src/config.ts` (`loadGlobalConfig`), next to the other

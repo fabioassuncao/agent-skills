@@ -1,5 +1,4 @@
-import { runnerFor } from '../agents/registry.js';
-import { resolveAgentFor } from '../agents/resolve.js';
+import { invokeSelectedAgent } from '../agents/invoke.js';
 import type { ClaudeResult } from '../types.js';
 import { getOutputCallback } from './verbose.js';
 
@@ -24,18 +23,23 @@ export async function executeClaude(
   prompt: string,
   options: ExecuteClaudeOptions = {},
 ): Promise<ClaudeResult> {
-  const settings = await resolveAgentFor('execute');
-  const runner = runnerFor(settings.provider);
-  const run = await runner.run(
-    {
+  let selected: Awaited<ReturnType<typeof invokeSelectedAgent>>;
+  try {
+    selected = await invokeSelectedAgent({
       prompt,
       phase: 'execute',
       timeout: 0,
       permission: 'autonomous',
       inactivityTimeoutMs: options.inactivityTimeoutMs,
-    },
-    settings,
-  );
+    });
+  } catch (err) {
+    return {
+      exitCode: 1,
+      output: err instanceof Error ? err.message : String(err),
+      cost: null,
+    };
+  }
+  const { run } = selected;
 
   let output: string;
   let cost = run.usage;

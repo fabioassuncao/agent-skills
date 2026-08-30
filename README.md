@@ -249,6 +249,18 @@ person: `authentication`, `configuration`, `repository_state` and
 A failing test is not retried into passing, and a missing credential is not
 waited out.
 
+With failover enabled, provider health is learned from real invocations and
+persisted in the project's `providers.json`. `provider_down`, provider crashes,
+rate limits, timeouts and stalls can move the next attempt through the configured
+chain; `network` stays on the same provider because changing a remote service
+does not repair the user's connection, and `task_execution` never fails over.
+An unavailable provider enters exponential cooldown (60s, 120s, 240s, up to 30
+minutes) and admits exactly one `half_open` probe when the cooldown expires. If
+every provider is cooling down, the run waits for the shortest remaining
+cooldown instead of failing. Authentication blocks by default; opting into it
+requires both `failoverOnAuth: true` and an authentication retry policy whose
+`failover` is not `never`.
+
 ### `resume` -- Continue an interrupted pipeline
 
 ```bash
@@ -1257,6 +1269,7 @@ Every phase (`analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review`, `
   projects/
     issue-flow-4b21c0e9f7a3/           # One directory per project: <slug>-<hash12>
       metadata.json                    # Project identity and timestamps
+      providers.json                   # Durable agent health, circuit and cooldown state
       issues/
         42/                            # One directory per issue identifier
           issue.md                     # Issue statement (local issues only)
@@ -1366,7 +1379,14 @@ Preferences that apply to every project, all keys optional:
       "rateLimit": { "retryForever": true, "maxDelayMs": 900000 },
       "providerDown": { "maxAttempts": 4, "failover": "after_attempts" }
     },
-    "providers": { "failover": true, "chain": ["claude", "codex"], "cooldownMs": 60000 },
+    "providers": {
+      "failover": true,
+      "chain": ["claude", "codex"],
+      "cooldownMs": 60000,
+      "maxCooldownMs": 1800000,
+      "failureWindowMs": 300000,
+      "failuresToTrip": 3
+    },
     "queue": { "onIssueFailure": "skip", "maxIssueAttempts": 3 },
     "watchdog": { "inactivityTimeoutMs": 600000 },
     "journal": { "enabled": true, "maxFileBytes": 10485760 },
@@ -1402,6 +1422,9 @@ the scalar knobs one variable each -- `ISSUE_FLOW_RESILIENCE_PROFILE`,
 `ISSUE_FLOW_RESILIENCE_FAILOVER_ON_AUTH`, `ISSUE_FLOW_RESILIENCE_FAILOVER`,
 `ISSUE_FLOW_RESILIENCE_PROVIDER_CHAIN`,
 `ISSUE_FLOW_RESILIENCE_PROVIDER_COOLDOWN_MS`,
+`ISSUE_FLOW_RESILIENCE_PROVIDER_MAX_COOLDOWN_MS`,
+`ISSUE_FLOW_RESILIENCE_PROVIDER_FAILURE_WINDOW_MS`,
+`ISSUE_FLOW_RESILIENCE_PROVIDER_FAILURES_TO_TRIP`,
 `ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`,
 `ISSUE_FLOW_RESILIENCE_MAX_ISSUE_ATTEMPTS`,
 `ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`,

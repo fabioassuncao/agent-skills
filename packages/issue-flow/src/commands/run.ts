@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
+import { resetAgentInvocationState } from '../agents/invoke.js';
 import { describeRunAgents } from '../agents/resolve.js';
 import {
   getActiveResilienceConfig,
@@ -431,6 +432,7 @@ async function runIssueSession(
   mode: string,
   input: IssueSessionInput,
 ): Promise<IssueRunResult> {
+  resetAgentInvocationState();
   // Resolved once, at the top: every phase that runs below shares the process
   // cache, so the git call and the legacy migration happen a single time for
   // the whole run instead of once per phase.

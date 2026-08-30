@@ -2,9 +2,11 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolveAgentFor } from '../agents/resolve.js';
+import { getActiveResilienceConfig } from '../config.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { classify } from '../resilience/errors.js';
 import type { RetryPolicy } from '../resilience/policy.js';
+import { resolvePolicy } from '../resilience/policy.js';
 import { fixedBackoffPolicy, withRetry } from '../resilience/retry.js';
 import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
@@ -455,6 +457,19 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
           if (!failure.retryable) {
             plan = await loadTaskPlan(paths.prdFile);
             plan = setLastError(plan, 'fatal_claude_failure', errorMessage);
+            if (resolvePolicy(failure.kind, getActiveResilienceConfig()).onExhausted === 'block') {
+              plan = {
+                ...plan,
+                runState: {
+                  currentPhase: 'execute',
+                  attempt,
+                  owner: plan.runState?.owner ?? null,
+                  status: 'blocked',
+                  blockedReason: errorMessage,
+                  lastHeartbeatAt: isoNow(),
+                },
+              };
+            }
             await saveTaskPlan(paths.prdFile, plan);
             return;
           }

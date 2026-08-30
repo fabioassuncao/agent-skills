@@ -90,6 +90,9 @@ npx issue-flow run 42 --mode manual
 # Watch the run live in the browser (see "Web Monitoring" below)
 npx issue-flow run 42 --web
 
+# Unattended profile: retries, watchdog, journal and provider failover
+npx issue-flow run 42 --continuous
+
 # Continue User Story numbering from the last used in this project
 npx issue-flow run 42 --continue
 
@@ -98,6 +101,13 @@ npx issue-flow run 42 --start-us 27
 ```
 
 Executes all phases in order: **init** → **analyze** → **prd** → **plan** → **execute** → **review** → **pr**. Automatically resumes from the last incomplete phase if pipeline state exists. On review failure, its findings are saved verbatim to `lastReviewFindings` in `tasks.json`, and a correction cycle (re-execute + re-review) runs up to `maxCorrectionCycles`. The re-execute step reads `lastReviewFindings` and treats the issue as unresolved even if every user story already has `passes: true`, until the findings are addressed and the field is cleared back to `null`.
+
+`--continuous` (alias `--resilient`) enables the unattended profile: long-lived
+retry budgets, the inactivity watchdog, journal, queue skip policy and agent
+failover. Provider health/cooldown is persisted in the project-level
+`providers.json`; network and task-execution failures never switch provider,
+and authentication blocks unless explicitly opted into. `--no-failover`
+overrides the profile.
 
 `--continue` and `--start-us <n>` control User Story (`US-NNN`) numbering continuity across `plan` runs of the same project — see [`plan`](#plan----convert-prd-to-task-plan) below.
 

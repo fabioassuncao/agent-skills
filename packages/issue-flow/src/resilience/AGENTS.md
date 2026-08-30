@@ -95,6 +95,10 @@ which is a much louder change than editing a JSON file.
   `authentication` gets a `failover` other than `never`, and it never leaks to
   the other three human-action kinds. Silently switching provider because the
   main one lost its credential hides exactly what the user needs to be told.
+- **Retry decides when; health decides where.** `shouldFailover()` opens the
+  primary's circuit after the configured attempt count. `agents/select.ts`
+  then chooses the next healthy provider. Network and task-execution failures
+  never poison provider health.
 - **The state machine lives here and only here.** `RUN_TRANSITIONS` is the whole
   table; `canTransition()` is the only reader. `completed` and `cancelled` are
   terminal, and `blocked` is left only by `actor: 'human'` — a pipeline that

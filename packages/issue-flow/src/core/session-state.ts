@@ -88,6 +88,30 @@ export type SessionEvent =
        */
       kind?: FailureKind;
     }
+  | {
+      type: 'agent:attempt';
+      at: string;
+      attempt: number;
+      provider: string;
+      model?: string | null;
+      primaryProvider: string;
+    }
+  | {
+      type: 'failover';
+      at: string;
+      from: string;
+      to: string;
+      reason: FailureKind | null;
+      cooldownUntil?: string | null;
+    }
+  | {
+      type: 'agent:result';
+      at: string;
+      provider: string;
+      success: boolean;
+      failureKind?: FailureKind;
+      cooldownUntil?: string | null;
+    }
   | { type: 'stories:update'; at: string; stories: UserStory[] }
   | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }

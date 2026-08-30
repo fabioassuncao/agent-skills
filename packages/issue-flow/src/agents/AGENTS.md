@@ -28,6 +28,15 @@ only argv and stream parsing move here.
   process. After the process exits it is unrecoverable.
 - **`--fallback-model` is not exposed.** A native fallback the pipeline
   cannot observe would compete with the failover of #69.
+- **Provider health is durable.** `health.ts` persists it in the project-level
+  `providers.json`; a restart during cooldown must not relearn the outage.
+- **Failover is keyed by `FailureKind`, never by provider name.** `select.ts`
+  applies `resolvePolicy()` to the primary's recorded failure, skips an open
+  circuit, and hands exactly one invocation through `half_open`.
+- **No provider available means waiting.** Selection waits for the shortest
+  cooldown through the process abort signal; it does not turn cooldown into a
+  failed invocation. Authentication stays blocked unless explicit policy
+  permits failover.
 
 ## Gotchas
 

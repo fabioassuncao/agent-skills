@@ -949,6 +949,26 @@ function readResilienceConfigEnv(
   if (cooldown !== undefined) {
     providers.cooldownMs = cooldown;
   }
+  const maxCooldown = readNumberEnv(env, 'ISSUE_FLOW_RESILIENCE_PROVIDER_MAX_COOLDOWN_MS', warn);
+  if (maxCooldown !== undefined) {
+    providers.maxCooldownMs = maxCooldown;
+  }
+  const failureWindow = readNumberEnv(
+    env,
+    'ISSUE_FLOW_RESILIENCE_PROVIDER_FAILURE_WINDOW_MS',
+    warn,
+  );
+  if (failureWindow !== undefined) {
+    providers.failureWindowMs = failureWindow;
+  }
+  const failuresToTrip = readNumberEnv(
+    env,
+    'ISSUE_FLOW_RESILIENCE_PROVIDER_FAILURES_TO_TRIP',
+    warn,
+  );
+  if (failuresToTrip !== undefined) {
+    providers.failuresToTrip = failuresToTrip;
+  }
   if (Object.keys(providers).length > 0) layer.providers = providers;
 
   const queue: Record<string, unknown> = {};

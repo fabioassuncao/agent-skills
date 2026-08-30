@@ -185,8 +185,74 @@ export const resilienceProvidersConfigSchema = z
     failover: z.boolean(),
     chain: z.array(z.string().min(1)),
     cooldownMs: z.number().nonnegative(),
+    maxCooldownMs: z.number().nonnegative(),
+    failureWindowMs: z.number().positive(),
+    failuresToTrip: z.number().int().positive(),
   })
   .partial();
+
+export const providerHealthStatusSchema = z.enum([
+  'healthy',
+  'degraded',
+  'unavailable',
+  'rate_limited',
+  'auth_failed',
+  'half_open',
+]);
+
+export const providerHealthRecordSchema = z.object({
+  status: providerHealthStatusSchema.default('healthy'),
+  failures: z
+    .array(
+      z.object({
+        at: z.string(),
+        kind: z.enum([
+          'network',
+          'timeout',
+          'stalled',
+          'rate_limit',
+          'provider_down',
+          'provider_crash',
+          'authentication',
+          'configuration',
+          'repository_state',
+          'task_execution',
+          'internal',
+          'unknown',
+        ]),
+      }),
+    )
+    .default([]),
+  consecutiveFailures: z.number().int().nonnegative().default(0),
+  cooldownLevel: z.number().int().nonnegative().default(0),
+  cooldownUntil: z.string().nullable().default(null),
+  lastFailureKind: z
+    .enum([
+      'network',
+      'timeout',
+      'stalled',
+      'rate_limit',
+      'provider_down',
+      'provider_crash',
+      'authentication',
+      'configuration',
+      'repository_state',
+      'task_execution',
+      'internal',
+      'unknown',
+    ])
+    .nullable()
+    .default(null),
+  lastFailureAt: z.string().nullable().default(null),
+  lastSuccessAt: z.string().nullable().default(null),
+  probeInFlight: z.boolean().default(false),
+  probeStartedAt: z.string().nullable().default(null),
+});
+
+export const providersHealthSchema = z.object({
+  schemaVersion: z.literal(1).default(1),
+  providers: z.record(z.string(), providerHealthRecordSchema).default({}),
+});
 
 /** `resilience.queue` — what a failing issue does to the rest of them (US-027). */
 export const resilienceQueueConfigSchema = z
@@ -378,6 +444,9 @@ export type GlobalRetryConfig = z.infer<typeof globalRetryConfigSchema>;
 export type GlobalCommitConfig = z.infer<typeof globalCommitConfigSchema>;
 export type ResilienceRetryConfig = z.infer<typeof resilienceRetryConfigSchema>;
 export type ResilienceProvidersConfig = z.infer<typeof resilienceProvidersConfigSchema>;
+export type ProviderHealthStatus = z.infer<typeof providerHealthStatusSchema>;
+export type ProviderHealthRecord = z.infer<typeof providerHealthRecordSchema>;
+export type ProvidersHealth = z.infer<typeof providersHealthSchema>;
 export type ResilienceQueueConfig = z.infer<typeof resilienceQueueConfigSchema>;
 export type ResilienceWatchdogConfig = z.infer<typeof resilienceWatchdogConfigSchema>;
 export type ResilienceJournalConfig = z.infer<typeof resilienceJournalConfigSchema>;

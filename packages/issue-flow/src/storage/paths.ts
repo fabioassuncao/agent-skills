@@ -21,6 +21,9 @@ export const QUEUES_DIR_NAME = 'queues';
 /** Run-ownership lock, a sibling of `issues/` inside the project directory. */
 export const RUN_LOCK_FILENAME = 'run.lock';
 
+/** Persisted agent-provider health, shared by every run of one project. */
+export const PROVIDERS_HEALTH_FILENAME = 'providers.json';
+
 export interface GetGlobalRootOptions {
   /** Environment source. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;

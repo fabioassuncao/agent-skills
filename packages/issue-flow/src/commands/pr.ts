@@ -277,7 +277,7 @@ export async function runPr(
       if (!result.success) {
         return {
           ok: false,
-          transient: isTransientFailure(1, result.error ?? ''),
+          transient: result.retryExhausted !== true && isTransientFailure(1, result.error ?? ''),
           error: `PR creation failed: ${result.error}`,
         };
       }

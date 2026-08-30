@@ -105,7 +105,7 @@ export async function runPlan(
       if (!result.success) {
         return {
           ok: false,
-          transient: isTransientFailure(1, result.error ?? ''),
+          transient: result.retryExhausted !== true && isTransientFailure(1, result.error ?? ''),
           error: `Task plan generation failed: ${result.error}`,
         };
       }

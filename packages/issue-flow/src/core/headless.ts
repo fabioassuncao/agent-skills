@@ -1,12 +1,23 @@
 import { readFile } from 'node:fs/promises';
 import chalk from 'chalk';
-import { runnerFor } from '../agents/registry.js';
+import { invokeSelectedAgent } from '../agents/invoke.js';
 import { resolveAgentFor } from '../agents/resolve.js';
-import type { AgentEvent, AgentPermission, AgentPhase, AgentProviderId } from '../agents/types.js';
+import type {
+  AgentEvent,
+  AgentInvocation,
+  AgentPermission,
+  AgentPhase,
+  AgentProviderId,
+  AgentRunResult,
+} from '../agents/types.js';
+import { getActiveResilienceConfig } from '../config.js';
+import { resolvePolicy } from '../resilience/policy.js';
+import { withRetry } from '../resilience/retry.js';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
 import { DECOMPOSITION_THRESHOLDS, timeoutsByPhase } from './decompose.js';
-import { type ClaudeUsage, parseUsage } from './metrics.js';
+import { type ClaudeUsage, parseUsage, sumUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
+import { getShutdownSignal } from './shutdown.js';
 import { isoNow } from './state-manager.js';
 import { getInactivityTimeout, getOutputCallback, isVerbose } from './verbose.js';
 
@@ -48,6 +59,8 @@ export interface HeadlessResult {
   cost: HeadlessCost | null;
   error: string | null;
   agent?: { provider: AgentProviderId; model: string | null };
+  /** The resilience budget was spent inside the facade; an outer artifact retry must not repeat it. */
+  retryExhausted?: boolean;
 }
 
 export const DEFAULT_HEADLESS_TIMEOUT_MS = 900_000;
@@ -104,6 +117,39 @@ function printAgentEvent(event: AgentEvent, onOutput?: (line: string) => void): 
   emit(`${prefix}${toolIcon} ${toolLabel} ${contextText}`);
 }
 
+async function invokeHeadlessAgent(
+  invocation: AgentInvocation,
+): Promise<{ run: AgentRunResult; retryExhausted: boolean }> {
+  const config = getActiveResilienceConfig();
+  if (config.providers?.failover !== true) {
+    return { run: (await invokeSelectedAgent(invocation)).run, retryExhausted: false };
+  }
+
+  let usage: ClaudeUsage | null = null;
+  const outcome = await withRetry(() => invokeSelectedAgent(invocation), {
+    policy: (failure) => resolvePolicy(failure.kind, config),
+    signal: getShutdownSignal(),
+    evaluate: (selected) => selected.failure,
+    onAttempt: ({ value, failure, willRetry, delayMs, attempt }) => {
+      if (value.run.usage !== null) usage = sumUsage(usage, value.run.usage);
+      if (failure === null || !willRetry) return;
+      getSessionPublisher().publish({
+        type: 'retry',
+        at: isoNow(),
+        attempt,
+        delaySeconds: delayMs / 1000,
+        reason: failure.message,
+        kind: failure.kind,
+      });
+    },
+  });
+
+  return {
+    run: usage === null ? outcome.value.run : { ...outcome.value.run, usage },
+    retryExhausted: outcome.exhausted,
+  };
+}
+
 /**
  * Invoke the resolved agent in headless mode.
  *
@@ -125,7 +171,6 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   } = options;
   const timeout = await escalatedTimeout(configuredTimeout, options.timeoutHistory);
   const settings = await resolveAgentFor(phase);
-  const runner = runnerFor(settings.provider);
 
   const verbose = isVerbose();
   const effectiveOnOutput = onOutput ?? getOutputCallback();
@@ -144,19 +189,16 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     emit(connectorLine);
 
     const startTime = Date.now();
-    const run = await runner.run(
-      {
-        prompt,
-        phase,
-        addDirs,
-        timeout,
-        permission,
-        maxTurns,
-        allowedTools,
-        onEvent: (event) => printAgentEvent(event, effectiveOnOutput),
-      },
-      settings,
-    );
+    const { run, retryExhausted } = await invokeHeadlessAgent({
+      prompt,
+      phase,
+      addDirs,
+      timeout,
+      permission,
+      maxTurns,
+      allowedTools,
+      onEvent: (event) => printAgentEvent(event, effectiveOnOutput),
+    });
 
     const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
     const durationStr = formatDuration(elapsedSec);
@@ -166,7 +208,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     emit(doneLine);
     emit(connectorLine);
 
-    return mapHeadlessResult(run, outputFormat);
+    return mapHeadlessResult(run, outputFormat, retryExhausted);
   }
 
   const spinner = statusMessage ? createSpinner(statusMessage).start() : null;
@@ -178,19 +220,16 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   }
 
   try {
-    const run = await runner.run(
-      {
-        prompt,
-        phase,
-        addDirs,
-        timeout,
-        permission,
-        maxTurns,
-        allowedTools,
-        inactivityTimeoutMs: getInactivityTimeout(),
-      },
-      settings,
-    );
+    const { run, retryExhausted } = await invokeHeadlessAgent({
+      prompt,
+      phase,
+      addDirs,
+      timeout,
+      permission,
+      maxTurns,
+      allowedTools,
+      inactivityTimeoutMs: getInactivityTimeout(),
+    });
 
     const elapsed = timer?.stop() ?? 0;
     const dur = useColor()
@@ -199,11 +238,11 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
 
     if (!run.success) {
       spinner?.fail(`${statusMessage}${dur}`);
-      return mapHeadlessResult(run, outputFormat);
+      return mapHeadlessResult(run, outputFormat, retryExhausted);
     }
 
     spinner?.succeed(`${statusMessage}${dur}`);
-    return mapHeadlessResult(run, outputFormat);
+    return mapHeadlessResult(run, outputFormat, retryExhausted);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const catchElapsed = timer?.stop() ?? 0;
@@ -231,6 +270,7 @@ function mapHeadlessResult(
     agent: { provider: AgentProviderId; model: string | null };
   },
   outputFormat: 'json' | 'text' | 'stream-json',
+  retryExhausted = false,
 ): HeadlessResult {
   if (outputFormat === 'text') {
     return {
@@ -239,6 +279,7 @@ function mapHeadlessResult(
       cost: null,
       error: run.error,
       agent: run.agent,
+      ...(retryExhausted ? { retryExhausted: true } : {}),
     };
   }
   if (!run.success) {
@@ -248,6 +289,7 @@ function mapHeadlessResult(
       cost: null,
       error: run.error,
       agent: run.agent,
+      ...(retryExhausted ? { retryExhausted: true } : {}),
     };
   }
   return {
@@ -256,6 +298,7 @@ function mapHeadlessResult(
     cost: run.usage,
     error: null,
     agent: run.agent,
+    ...(retryExhausted ? { retryExhausted: true } : {}),
   };
 }
 

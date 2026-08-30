@@ -64,7 +64,7 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
       if (!result.success) {
         return {
           ok: false,
-          transient: isTransientFailure(1, result.error ?? ''),
+          transient: result.retryExhausted !== true && isTransientFailure(1, result.error ?? ''),
           error: `PRD generation failed: ${result.error}`,
         };
       }
