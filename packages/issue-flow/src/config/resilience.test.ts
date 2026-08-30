@@ -7,14 +7,14 @@ import {
   loadResilienceConfig,
   PROJECT_CONFIG_FILENAME,
   setResilienceCliOverrides,
-} from './config.js';
-import { resolvePolicy } from './resilience/policy.js';
-import { resilienceConfigSchema } from './storage/schemas.js';
+} from '../config.js';
+import { resolvePolicy } from '../resilience/policy.js';
+import { resilienceConfigSchema } from '../storage/schemas.js';
 
 // Same seams the rest of config.test.ts fakes: the loader never has to discover
 // a real repository to answer a question about a temporary directory.
-vi.mock('./utils/git.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./utils/git.js')>();
+vi.mock('../utils/git.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/git.js')>();
   return {
     ...actual,
     getRemoteUrl: vi.fn(async () => null),

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadRoutingConfig, PROJECT_CONFIG_FILENAME } from './config.js';
+import { loadRoutingConfig, PROJECT_CONFIG_FILENAME } from '../config.js';
 
 describe('the routing configuration ladder', () => {
   const roots: string[] = [];
