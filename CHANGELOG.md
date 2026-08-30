@@ -12,6 +12,46 @@ Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
 the fact, so they list what changed rather than explaining why. Everything from
 0.9.0 onwards was written at release time.
 
+## [0.16.0] - 2026-08-30
+
+A versão sai de `issue-flow --version` e passa a aparecer onde o usuário já está
+olhando: na headline da TUI, no header do painel e — quando a CLI e o monitor
+estão em releases diferentes — nos dois lados, dizendo que estão. Era o dado que
+faltava para o `--restart-web` da 0.15.0 ser acionável: sem ver as duas versões,
+não há como saber que o painel na tela é o antigo.
+
+### Added
+
+- **A versão na TUI.** A visão limpa abre com
+  `Issue Flow v0.16.0 · #42 · <título>`, e `run`/`execute` começam com
+  `Issue Flow v0.16.0 · starting pipeline for issue #42 …`, o que também torna
+  todo `run.log` atribuível a um build.
+
+- **A versão no painel.** Um chip ao lado da marca nos dois headers — dashboard
+  e detalhe. Ele mostra a versão do **monitor**, vinda de `/api/health`: os
+  assets da página vivem na memória daquele processo, então é ela que explica o
+  que está na tela.
+
+- **As duas versões, lado a lado.** Quem executa o pipeline e quem serve o
+  painel são processos distintos e podem estar em releases diferentes. O card
+  *Harnesses e configuração efetiva* ganha `Issue Flow (execução)` — versão,
+  Node e plataforma — e `Monitor (este painel)`; divergindo, o card explica e
+  aponta `--restart-web`. A CLI diz o mesmo no terminal: a linha de reúso passa
+  a nomear a versão do monitor reaproveitado, e um aviso compara as duas. Nada é
+  imposto — o run segue contra o monitor antigo.
+
+- **`environment.cliVersion` no `session.json`.** Aditivo como `agent` e
+  `model`: um snapshot escrito antes dele lê `null`. A TUI projeta esse campo em
+  vez de ler o manifesto, então uma sessão retomada ou reexibida continua
+  nomeando o build que a produziu, não o que está lendo.
+
+### Changed
+
+- **Uma única leitura da versão** (`src/version.ts`), usada pela CLI, pelo
+  servidor web e pelo snapshot da sessão. Eram três caminhos relativos
+  diferentes, e o do servidor já havia falhado em silêncio no bundle. Uma versão
+  errada é pior do que nenhuma quando a tela promete nomear o build em execução.
+
 ## [0.15.0] - 2026-08-30
 
 Depois de atualizar o Issue Flow, o monitor web continuava servindo a interface
@@ -1083,6 +1123,7 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
+[0.16.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.16.0
 [0.15.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.15.0
 [0.14.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.14.0
 [0.13.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.13.0
