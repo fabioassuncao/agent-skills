@@ -5,7 +5,7 @@ Three mechanisms answer three different questions about a run:
 | Mechanism | Question | Default |
 |---|---|---|
 | [Acceptance contract](#the-acceptance-contract) | Did the work actually pass objective checks? | **L1**, on |
-| [Shadow routing](#shadow-routing) | Which harness *would* be the right one for this task? | **shadow** — records, acts on nothing |
+| [Shadow routing](#shadow-routing) | Which harness/model target fits this phase? | **shadow** — records, acts on nothing |
 | [Escalation](#escalation) | The attempts are not converging; what do we change? | **off** |
 
 Configured through the [`verify`](configuration.md#verify) and
@@ -115,21 +115,24 @@ A reviewer verdict of `failed` makes the whole verdict `failed`; a reviewer
 
 ## Shadow routing
 
-The router classifies a task, filters the candidate harnesses by capability and
-scores them against priors. It is the **lowest rung of the agent ladder**: it
-never overrides an explicit `agent.phases` or `--agent`.
+The router classifies a task, expands eligible candidates across harness and
+model tier, then scores quality, relative cost and relative latency with the
+selected profile. It is the **lowest rung of the agent ladder**: it never
+overrides an explicit `agent.phases` or `--agent`.
 
 ```bash
 issue-flow routing           # the resolved configuration
-issue-flow routing report    # agreement between the selected and the actual harness
+issue-flow routing explain   # target and source for every phase
+issue-flow routing use recommended --global
+issue-flow routing report    # agreement between the selected and actual target
 ```
 
 | `mode` | Behaviour |
 |--------|-----------|
 | `off` | Records nothing |
 | `shadow` (**default**) | Decides, records `selected` and `actual` on the execution record, **changes nothing**. No terminal output outside `--verbose` |
-| `recommend` | Reserved — decision surfaced, still not acted on |
-| `active` | Reserved — applies only where nothing was configured |
+| `recommend` | Prints the suggested harness/tier and changes nothing |
+| `active` | Applies the selected harness/model only when that phase has no explicit selection; any application failure keeps the original target and records a warning |
 
 `profile` biases the score: `economy`, `balanced` (default), `quality`, `speed`.
 
@@ -140,14 +143,18 @@ Invariants worth knowing:
 - **No chain-of-thought.** What is persisted is `reasonCodes`, priors and scores
    — never free text from a model. The codes are `HIGH_PRIOR`,
   `HIGH_HISTORICAL_SUCCESS`, `LOWER_EXPECTED_LATENCY`, `MISSING_CAPABILITY`,
-  `PROVIDER_UNAVAILABLE`, `EXPLICIT_CONFIG`, `TIE_BREAK`, `COLD_START`.
+  `PROVIDER_UNAVAILABLE`, `EXPLICIT_CONFIG`, `TIE_BREAK`, `COLD_START`,
+  `CHEAPER_TIER_SUFFICIENT`, `STRONGER_TIER_FOR_RISK`,
+  `RECOMMENDED_POLICY`.
 - **Permission is not a score dimension.** A candidate never becomes more
   permissive than the configured phase.
 - **Cost `unknown` does not score cost.** "Not reported" is not `$0`.
 
-`issue-flow routing report` reads the recorded decisions and reports how often
-the shadow choice agreed with what actually ran — which is the data a later
-`active` mode would need before it could be trusted.
+The embedded `recommended` policy is the token-economy table from
+[`agents.md`](agents.md#token-economy) as versioned code. It is enabled with a
+command, JSON, or the loopback dashboard; the factory default remains
+`shadow` with no policy. `issue-flow routing report` reads recorded decisions
+and reports how often the selected and actual targets agreed.
 
 ## Escalation
 

@@ -12,6 +12,28 @@ Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
 the fact, so they list what changed rather than explaining why. Everything from
 0.9.0 onwards was written at release time.
 
+## [Unreleased]
+
+### Added
+
+- **Routing por harness e modelo (#104).** O catálogo versionado expande cada
+  harness em tiers `fast`, `mid` e `strong`; os perfis ponderam qualidade,
+  custo relativo e latência relativa, e a escada de escalada agora resolve um
+  modelo concreto sem repetir tiers já tentados.
+- **Política recomendada opt-in.** A tabela de economia de tokens virou código
+  e pode ser ativada com `issue-flow routing use recommended --global`,
+  inspecionada por fase com `routing explain` ou aplicada pelo painel.
+- **Configuração de routing no monitor.** Em loopback, cada fase salva harness
+  e modelo, e o mesmo card controla modo, perfil e política. A API adiciona
+  `POST /api/config/routing` e devolve o catálogo em `GET /api/config`.
+
+### Changed
+
+- **`recommend` e `active` agora têm efeito.** `recommend` imprime o alvo;
+  `active` aplica harness/modelo somente em fases sem seleção explícita e
+  degrada para a seleção original com diagnóstico de warning se o alvo não
+  puder ser aplicado. O default continua `shadow`, sem política ativa.
+
 ## [0.16.0] - 2026-08-30
 
 A versão sai de `issue-flow --version` e passa a aparecer onde o usuário já está

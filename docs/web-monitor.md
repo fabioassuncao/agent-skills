@@ -110,11 +110,15 @@ text/background pair meets WCAG AA (4.5:1 for text, 3:1 for the focus ring).
 Nothing here is loaded from the network: the palette is plain CSS custom
 properties in `app.css`, and the panel remains offline-capable.
 
-## Read-only by contract
+## Active execution is read-only
 
-`snapshot.readOnly` stays `true`, `capabilities` stays empty, and the server
-registers no write route. The interface exposes no control that edits, deletes,
-reorders or changes the status of anything.
+`snapshot.readOnly` stays `true`: the interface never edits, deletes, reorders
+or changes the status of the active run. On a loopback binding, health advertises
+`config:agent:write` and `config:routing:write`; those capabilities reveal
+controls that save **global preferences for future executions** only. Each phase
+can save a harness and concrete tier/model, and routing mode, profile and the
+recommended policy can be changed in the same card. Remote bindings advertise
+neither capability and expose no mutation controls.
 
 ## Single instance, detached from the pipeline
 
@@ -227,9 +231,10 @@ local.
 | `GET /api/sessions` | Every active session, with the summary fields the dashboard cards need |
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
 | `GET /api/events?session=<id>` | Journal entries for that session |
-| `GET /api/config?session=<id>` | Captured effective configuration and its origin |
+| `GET /api/config?session=<id>` | Captured effective configuration, resolved routing settings and the installed-harness model catalog |
 | `GET /api/diagnostics?session=<id>` | Correlated records from the global diagnostic log |
 | `POST /api/config/agent` | Save a global provider/model preference for future runs; loopback only |
+| `POST /api/config/routing` | Save global routing mode/profile/policy for future runs; loopback only |
 
 `GET /api/sessions` exists so the client does not need N× `/api/status` fetches
 just to paint the list. `issueDescription` is a short whitespace-collapsed

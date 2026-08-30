@@ -93,11 +93,12 @@ behavior), and answers `404`/`409` when there are zero/several — genuinely
 ambiguous without an id. `GET /api/sessions` always lists every entry
 `SessionSource.list()` returns, `[]` when there are none.
 
-`GET /api/config` returns the configuration captured in the requested snapshot;
+`GET /api/config` returns the configuration captured in the requested snapshot,
+the live routing preference and the installed-harness model catalog;
 `GET /api/diagnostics` filters the machine-wide JSONL log by session. The only
-write route, `POST /api/config/agent`, delegates to the canonical agent
-preference writer and is advertised/enabled only for loopback bindings. Remote
-monitoring must never expose configuration mutation.
+write routes, `POST /api/config/agent` and `POST /api/config/routing`, delegate
+to the canonical preference writers and are advertised/enabled only for
+loopback bindings. Remote monitoring must never expose configuration mutation.
 
 `GET /api/events?session=<id>` reads the rotated journal first and the current
 generation second. Missing files and partial/malformed lines are empty/skipped,

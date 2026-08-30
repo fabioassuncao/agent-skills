@@ -217,17 +217,16 @@ o token que um tema herda do outro por engano.
 
 ## Escrita limitada a preferências futuras
 
-O estado de execução continua somente leitura (`snapshot.readOnly === true`). A
-única mutação é `POST /api/config/agent`, que salva preferência global para
-execuções **futuras**, aparece via capability e só funciona em loopback. Nunca
-inferir permissão pela versão: o client renderiza o formulário apenas quando
-`/api/health.capabilities` contém `config:agent:write`.
+O estado de execução continua somente leitura (`snapshot.readOnly === true`). As
+únicas mutações são `POST /api/config/agent` e `POST /api/config/routing`, que
+salvam preferências globais para execuções **futuras**, aparecem via capability
+e só funcionam em loopback. Nunca inferir permissão pela versão: o client
+renderiza os formulários apenas quando `/api/health.capabilities` anuncia as
+duas capacidades correspondentes.
 
-Quando essa etapa chegar, o contrato esperado é: as rotas de escrita passam a
-ser anunciadas em `capabilities` (o client decide o que renderizar a partir
-disso, nunca da versão do servidor), `readOnly` passa a `false`, e cada
-mutação responde com o snapshot atualizado para que a UI não precise adivinhar
-o efeito nem esperar o próximo poll. Enquanto `capabilities` estiver vazio,
+Cada mutação responde com `{ ok, file, appliesTo: 'future executions' }`; o
+client atualiza a preferência viva no próximo `GET /api/config`, sem jamais
+alterar o snapshot da execução. Enquanto as capabilities estiverem ausentes,
 nenhum controle de escrita deve aparecer na tela.
 
 ## Métricas (tokens e custo)

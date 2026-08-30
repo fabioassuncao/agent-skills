@@ -27,7 +27,7 @@ actually carries, so a global `config.json` that sets `web.host` but not
 `web.port` leaves a project-level `web.port` untouched. Nested objects are
 replaced whole rather than field by field.
 
-Three keys deviate, deliberately:
+Four keys deviate, deliberately:
 
 - **`resilience`** climbs all five rungs and merges `retry` one level deeper —
   per failure kind *and* per field, because that table is two levels deep by
@@ -35,15 +35,11 @@ Three keys deviate, deliberately:
 - **`agent`** climbs all five rungs and merges `phases`, `claude` and `codex`
   key by key, so a project's `phases.plan` does not erase a global
   `phases.execute`.
+- **`routing`** has no environment rung, but merges `escalation` and `ceilings`
+  one level deeper: defaults < global < project < CLI.
 - **`policy`** replaces the "machine" rung with *what the repository declares
   about itself*: defaults < discovered conventions < `.issue-flow.json` <
   `ISSUE_FLOW_POLICY_*` < CLI. See [Conventions](conventions.md).
-
-**Known gap.** `mergeConfigLayers()` implements and tests the table above, but
-`loadWebConfig()` does not read the global rung yet: today `web` resolves
-**CLI > env > `.issue-flow.json` > default**. This concerns the `web` key of
-`config.json` only — the storage tree itself is fully wired up, and
-`resilience`, `agent` and `telemetry` do read the global file.
 
 A missing file is silent — it is the common case. Invalid JSON, a non-object
 root, an unreadable path or an invalid key each degrade to "no preference" with
@@ -55,9 +51,10 @@ For agent selection, the web monitor captures the resolved provider/model and
 the winning source at session start. Its configuration card presents the ladder
 as **built-in default → global user → project → environment → CLI → phase/step
 override**, with the effective value highlighted. A loopback-bound monitor can
-save the global user preference for future runs; project, environment, CLI and
-phase overrides remain visible and continue to win according to the table
-above. An active session is never reconfigured retroactively.
+save global provider/model preferences per phase and routing preferences for
+future runs; project, environment, CLI and phase overrides remain visible and
+continue to win according to the table above. An active session is never
+reconfigured retroactively.
 
 ## `.issue-flow.json`
 
@@ -170,6 +167,7 @@ See [Verification and routing](verification.md).
   "routing": {
     "mode": "shadow",
     "profile": "balanced",
+    "policy": "recommended",
     "escalation": { "enabled": false, "minAttemptsBeforeEscalation": 2, "maxEscalations": 2 },
     "ceilings": { "maxCostUsdPerIssue": null, "maxDurationMsPerIssue": null }
   }
@@ -180,6 +178,7 @@ See [Verification and routing](verification.md).
 |-----|--------|---------|
 | `mode` | `off` \| `shadow` \| `recommend` \| `active` | `shadow` |
 | `profile` | `economy` \| `balanced` \| `quality` \| `speed` | `balanced` |
+| `policy` | `recommended` | absent (adaptive score) |
 | `escalation.enabled` | boolean | `false` |
 | `escalation.minAttemptsBeforeEscalation` | integer > 0 | `2` |
 | `escalation.maxEscalations` | integer ≥ 0 | `2` |
@@ -190,6 +189,12 @@ See [Verification and routing](verification.md).
 | `ceilings.onCeiling` | `block` | `block` |
 
 See [Verification and routing](verification.md#shadow-routing).
+
+`routing` is accepted in both `.issue-flow.json` and
+`~/.issue-flow/config.json`. Resolution is
+`default → global → project → CLI`; there is no environment-variable rung.
+The recommended policy and `active` remain independent opt-ins: writing the
+policy does not change the default `shadow` mode.
 
 ### `resilience`
 
@@ -287,7 +292,8 @@ indistinguishable from a value you actually wrote.
   "commit": { "signoff": false, "conventional": true },
   "resilience": { "profile": "continuous" },
   "telemetry": { "enabled": true },
-  "agent": { "provider": "claude", "phases": { "execute": { "provider": "codex" } } }
+  "agent": { "provider": "claude", "phases": { "execute": { "provider": "codex" } } },
+  "routing": { "mode": "shadow", "policy": "recommended" }
 }
 ```
 
@@ -301,8 +307,9 @@ indistinguishable from a value you actually wrote.
 | `resilience` | The same object `.issue-flow.json` accepts |
 | `telemetry` | The same object `.issue-flow.json` accepts |
 | `agent` | Machine default provider, model and per-phase overrides |
+| `routing` | Machine-wide routing mode, profile, policy, escalation and ceilings |
 
-There is no `verify`, `routing`, `issues`, `prReview` or `policy` rung in this
+There is no `verify`, `issues`, `prReview` or `policy` rung in this
 file — those are per-project decisions and resolve from `.issue-flow.json`
 upwards only.
 
@@ -323,7 +330,7 @@ upwards only.
 | `ISSUE_FLOW_RESILIENCE_RETRY` | The whole per-kind `retry` table, as JSON — it is too shaped for one variable per field |
 
 There are no environment variables for `verify` and `routing`: they resolve
-**CLI > `.issue-flow.json` > default**.
+**CLI > `.issue-flow.json` > `~/.issue-flow/config.json` > default**.
 
 The provider chain is comma-separated
 (`ISSUE_FLOW_RESILIENCE_PROVIDER_CHAIN=claude,codex`). Boolean variables read

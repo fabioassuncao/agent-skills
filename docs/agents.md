@@ -201,6 +201,18 @@ so a large PRD cannot hit `ARG_MAX`.
 | `execute` | the only iterative loop; most of the spend | the phase worth configuring first |
 | `prd`, `generate`, `pr` | structured writing | mid-tier model |
 
+This table is executable policy in `src/routing/policy.ts`, backed by the
+versioned model catalog in `src/routing/models.ts`. It remains opt-in:
+
+```bash
+issue-flow routing use recommended --global
+issue-flow routing explain
+```
+
+Set `routing.mode` to `recommend` to print the target without applying it, or
+to `active` to apply it where the phase has no explicit `agent` selection.
+The factory default remains `shadow`.
+
 A homogeneous run (every phase on the same agent) prints the same `Tokens:`
 line as before. A mixed run prints **one line per agent**. Codex and
 Antigravity do not report USD: `costUsd` stays absent ("not reported", never

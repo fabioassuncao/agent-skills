@@ -324,11 +324,12 @@ tested contract — the bridge between them is `issue-flow policy --json`. See
 - **`--pr-review` is read-only by policy, not by sandbox.** Write tools are
   excluded and the prompt forbids edits, but Bash stays available for `git`/`gh`
   inspection.
-- **Shadow routing acts on nothing.** It records what it would have chosen;
-  `recommend` and `active` are not implemented yet.
+- **Routing stays shadow by default.** `recommend` prints the harness/model
+  target and `active` applies it only when that phase has no explicit agent
+  selection. The embedded token-economy policy is opt-in.
 - **Execution control in the web panel is read-only.** On loopback only, a
-  capability-gated form may save global harness/model preferences for future
-  runs; it never changes the active execution.
+  capability-gated form may save global harness/model preferences per phase and
+  routing mode/profile/policy for future runs; it never changes the active run.
 
 ## Documentation
 

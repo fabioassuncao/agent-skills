@@ -452,17 +452,24 @@ this repository's convention produces. Each subcommand accepts `--json`, and
 resolved. `commit` also accepts `--issue`, `--breaking` and `--scope`. See
 [Git conventions](git-conventions.md).
 
-### `routing` — the shadow router
+### `routing` — harness and model routing
 
 ```bash
 issue-flow routing              # the resolved routing configuration
 issue-flow routing --json
-issue-flow routing report       # agreement between the selected and the actual harness
+issue-flow routing explain      # resolved target and origin for every phase
+issue-flow routing explain --json
+issue-flow routing use recommended --global
+issue-flow routing report       # agreement between selected and actual targets
 issue-flow routing report --issue 42 --json
 ```
 
-The router runs in `shadow` mode by default: it decides, records `selected` and
-`actual` on the execution record, and changes nothing. See
+The router scores `(harness, model tier)` targets. It runs in `shadow` mode by
+default: it records `selected` and `actual` and changes nothing. `recommend`
+prints the target; `active` applies it only where the phase has no explicit
+agent selection. `use recommended` writes the embedded token-economy policy to
+`~/.issue-flow/config.json` by default (`--project` writes `.issue-flow.json`),
+without changing the mode. See
 [Verification and routing](verification.md#shadow-routing).
 
 ### `bench` — synthetic or real corpus
