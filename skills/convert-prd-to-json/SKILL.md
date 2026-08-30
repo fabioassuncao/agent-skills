@@ -10,6 +10,17 @@ description: >
 
 # PRD → JSON Converter
 
+> **Repository policy — read this first.** Every decision below that depends on
+> this repository's conventions (labels, Issue Templates, Issue Types, title,
+> base branch, branch and commit format, Pull Request body) follows
+> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
+> Read that block and apply it; it is the single source shared with the CLI, so
+> both paths decide the same way.
+>
+> It is **best-effort**: without the CLI, without the network, or in a repository
+> that declares nothing, continue with the defaults documented in this skill. A
+> skill that needs the network to work is a regression.
+
 ## The Job
 
 Read `issues/{ISSUE_NUMBER}/prd.md` and convert it to `issues/{ISSUE_NUMBER}/tasks.json`.
@@ -66,12 +77,8 @@ Read `issues/{ISSUE_NUMBER}/prd.md` and convert it to `issues/{ISSUE_NUMBER}/tas
 3. **Priority**: Based on dependency order, then document order (1 = highest priority, executed first)
 4. **All stories start with**: `"passes": false` and `"notes": ""`
 5. **branchName**: Use the branch created in Phase 2 of the main skill (current branch name).
-   When creating one, follow the repository's convention rather than assuming
-   Issue Flow's default:
-
-   ```bash
-   issue-flow policy --json 2>/dev/null | jq -r '.git.branchConvention // "issue/{N}-{slug}"'
-   ```
+   When creating one, follow `git.branchConvention` from [the shared block](../_shared/repository-policy.md)
+   rather than assuming Issue Flow's default of `issue/{N}-{slug}`.
 6. **Always verify**: Every story has "Typecheck passes" as the last acceptance criterion
 7. **Always verify**: UI stories have "Verify in browser using playwright-cli if available; otherwise use the playwright MCP/skill" as acceptance criterion
 8. **Initialize issue execution state**: `"issueStatus": "pending"`, `"completedAt": null`, `"lastAttemptAt": null`, `"lastError": null`
