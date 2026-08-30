@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -1504,6 +1504,44 @@ describe('FilePublisher', () => {
       expect(warn).not.toHaveBeenCalled();
       const written = JSON.parse(await readFile(filePath, 'utf-8')) as SessionSnapshot;
       expect(written.sessionId).toBe('s');
+    });
+  });
+
+  it('touches the live file without changing content or version, then stops on close', async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, 'session.json');
+      const publisher = new FilePublisher(filePath, {
+        throttleMs: 0,
+        heartbeatMs: 10,
+        onWarn: () => {},
+      });
+      publisher.publish({
+        type: 'session:start',
+        at: '2026-08-03T12:00:00Z',
+        sessionId: 's',
+        issueNumber: 1,
+        phases: ['init'],
+      });
+      await publisher.flush();
+
+      const content = await readFile(filePath, 'utf-8');
+      const version = publisher.version();
+      const old = new Date('2000-01-01T00:00:00Z');
+      await utimes(filePath, old, old);
+
+      const deadline = Date.now() + 1000;
+      while ((await stat(filePath)).mtimeMs === old.getTime() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      expect((await stat(filePath)).mtimeMs).toBeGreaterThan(old.getTime());
+      expect(await readFile(filePath, 'utf-8')).toBe(content);
+      expect(publisher.version()).toBe(version);
+
+      await publisher.close();
+      await utimes(filePath, old, old);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect((await stat(filePath)).mtimeMs).toBe(old.getTime());
     });
   });
 

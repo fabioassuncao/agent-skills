@@ -371,6 +371,16 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       async () => {
         // Re-read plan to get latest state
         plan = await loadTaskPlan(paths.prdFile);
+        // Publish the plan before naming its active story. This covers direct
+        // `issue-flow execute` runs and resumes that never pass through the
+        // plan runner, while retaining the empty-plan no-op contract.
+        if (plan.userStories.length > 0) {
+          getSessionPublisher().publish({
+            type: 'stories:update',
+            at: isoNow(),
+            stories: plan.userStories,
+          });
+        }
         // Baseline for story attribution: whatever was still pending before the
         // agent ran is what this iteration can claim credit for.
         const storiesBefore = plan.userStories;

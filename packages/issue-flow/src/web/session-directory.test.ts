@@ -2,8 +2,16 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createInitialSnapshot, type SessionSnapshot } from '../core/session-state.js';
-import { type SessionDirectoryHandle, watchSessionDirectory } from './session-directory.js';
+import {
+  createInitialSnapshot,
+  FilePublisher,
+  type SessionSnapshot,
+} from '../core/session-state.js';
+import {
+  DEFAULT_STALE_AFTER_MS,
+  type SessionDirectoryHandle,
+  watchSessionDirectory,
+} from './session-directory.js';
 
 function makeSnapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
   return { ...createInitialSnapshot(), sessionId: 'session-1', status: 'running', ...overrides };
@@ -59,6 +67,10 @@ describe('web/session-directory', () => {
     const handle = watch();
     await handle.refresh();
     expect(handle.sessions()).toEqual([]);
+  });
+
+  it('allows three missed 10-second heartbeats plus scheduling slack by default', () => {
+    expect(DEFAULT_STALE_AFTER_MS).toBe(90_000);
   });
 
   it('discovers a valid session.json under projects/<id>/issues/<n>/', async () => {
@@ -120,6 +132,31 @@ describe('web/session-directory', () => {
 
     await writeFile(file, JSON.stringify(makeSnapshot({ sessionId: 'sess-a' })), 'utf-8');
     await waitFor(() => handle.sessions().length === 1);
+  });
+
+  it('keeps a quiet live phase visible by heartbeat, then expires it after heartbeats stop', async () => {
+    const file = join(home, 'projects', 'proj-a', 'issues', '1', 'session.json');
+    const publisher = new FilePublisher(file, {
+      throttleMs: 0,
+      heartbeatMs: 10,
+      onWarn: () => {},
+    });
+    publisher.publish({
+      type: 'session:start',
+      at: '2026-08-30T05:00:00Z',
+      sessionId: 'sess-a',
+      issueNumber: 1,
+      phases: ['execute'],
+    });
+    await publisher.flush();
+
+    const handle = watch({ pollIntervalMs: 5, staleAfterMs: 40 });
+    await waitFor(() => handle.sessions().length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(handle.sessions()).toHaveLength(1);
+
+    await publisher.close();
+    await waitFor(() => handle.sessions().length === 0);
   });
 
   it('close() stops polling: sessions() keeps its last value instead of updating', async () => {

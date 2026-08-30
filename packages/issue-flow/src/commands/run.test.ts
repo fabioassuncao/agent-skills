@@ -149,6 +149,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 import { execa } from 'execa';
 import { parseJournal } from '../core/journal.js';
 import { listPullRequests } from '../core/session-git.js';
+import { getSessionPublisher } from '../core/session-publisher.js';
 import { MemoryPublisher, NullPublisher, type SessionSnapshot } from '../core/session-state.js';
 import { beginShutdown, resetShutdownState } from '../core/shutdown.js';
 import type { IssueProvider } from '../issues/provider.js';
@@ -379,6 +380,32 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(snapshot.phases.every((p) => p.status === 'completed')).toBe(true);
     // Nada foi escrito na árvore de trabalho: o artefato de runtime saiu do repo.
     expect(existsSync(join(tmp, 'issues'))).toBe(false);
+  });
+
+  it('publica as stories assim que plan termina, antes de execute começar', async () => {
+    setWebCliOverrides({ enabled: true, port: await getFreePort() });
+    vi.mocked(runPlan).mockImplementationOnce(async () => {
+      const paths = await globalPaths();
+      await mkdir(paths.issueDir, { recursive: true });
+      await writeFile(
+        paths.tasksFile,
+        JSON.stringify(makePlan({ userStories: [makeStory()] }), null, 2),
+        'utf-8',
+      );
+      return 0;
+    });
+    let storiesAtExecuteStart: string[] = [];
+    vi.mocked(runExecute).mockImplementationOnce(async () => {
+      storiesAtExecuteStart = getSessionPublisher()
+        .snapshot()
+        .stories.map((story) => story.id);
+      return 0;
+    });
+
+    const { code } = await runCaptured();
+
+    expect(code).toBe(0);
+    expect(storiesAtExecuteStart).toEqual(['US-001']);
   });
 
   it('matar o servidor durante a execução não afeta o pipeline', async () => {

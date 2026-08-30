@@ -372,9 +372,6 @@
       if (!stillThere) {
         state.selectedSessionId = null;
         state.etag = null;
-      } else if (sessions.length === 1) {
-        // Seleção explícita deixa de fazer sentido com uma única sessão.
-        state.selectedSessionId = null;
       }
     }
 
@@ -387,10 +384,6 @@
       return { mode: 'detail', session: null };
     }
 
-    if (sessions.length === 1) {
-      return { mode: 'detail', session: sessions[0] };
-    }
-
     return { mode: 'dashboard', session: null };
   }
 
@@ -398,9 +391,9 @@
     state.viewMode = mode;
     els.viewDashboard.hidden = mode !== 'dashboard';
     els.viewDetail.hidden = mode !== 'detail';
-    // Back só quando o usuário escolheu um card e ainda há dashboard para voltar.
+    // Back quando o usuário escolheu um card e existe uma lista para voltar.
     const showBack =
-      mode === 'detail' && state.selectedSessionId !== null && state.sessions.length >= 2;
+      mode === 'detail' && state.selectedSessionId !== null && state.sessions.length >= 1;
     els.backToDashboard.hidden = !showBack;
     if (mode === 'dashboard' && state.selectedStoryId !== null) {
       closeDrawer();

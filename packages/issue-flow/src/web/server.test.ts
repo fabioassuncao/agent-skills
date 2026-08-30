@@ -309,6 +309,7 @@ describe('startWebServer', () => {
 
     const css = await fetch(`${handle.url}/app.css`);
     expect(css.status).toBe(200);
+    expect(await css.text()).toContain('[hidden] {\n  display: none !important;\n}');
 
     const js = await fetch(`${handle.url}/app.js`);
     expect(js.status).toBe(200);
@@ -317,6 +318,8 @@ describe('startWebServer', () => {
     expect(jsText).toContain('api/sessions');
     expect(jsText).toContain('renderDashboard');
     expect(jsText).toContain('pollAgain');
+    expect(jsText).toContain('state.sessions.length >= 1');
+    expect(jsText).not.toContain('Seleção explícita deixa de fazer sentido com uma única sessão');
     expect(jsText).toContain("el('span', 'dashboard-card-head'");
     expect(jsText).not.toContain("el('div', 'dashboard-card-head'");
   });

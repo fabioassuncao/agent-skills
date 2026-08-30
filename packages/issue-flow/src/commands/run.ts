@@ -1064,20 +1064,21 @@ async function runPipelinePhases(
         () => runPlan(issueNumber, resolvedIssue, { continueFlag: continueNumbering, startUs }),
         'plan',
       )();
-      // Persist the phase-selection modes into the newly created tasks.json
-      if (effectiveNoBranch || effectivePrReview) {
-        try {
-          const plan = await loadTaskPlan(tasksPath);
-          if (effectiveNoBranch) {
-            plan.noBranch = true;
-          }
+      // Read the newly-created plan once: publish its stories immediately so
+      // the first execute iteration never points at a story absent from the
+      // snapshot, and persist phase-selection modes from the same object.
+      try {
+        const plan = await loadTaskPlan(tasksPath);
+        publishStorySeed(publisher, plan.userStories, isoNow());
+        if (effectiveNoBranch || effectivePrReview) {
+          if (effectiveNoBranch) plan.noBranch = true;
           if (effectivePrReview) {
             plan.prReview = { ...plan.prReview, enabled: true, rounds: plan.prReview?.rounds ?? 0 };
           }
           await saveTaskPlan(tasksPath, plan);
-        } catch {
-          /* non-critical: tasks.json may not exist yet if plan phase didn't create it */
         }
+      } catch {
+        /* non-critical: tasks.json may not exist yet if plan phase didn't create it */
       }
       // A queue shares one branch: the first issue's plan decides it, every
       // later issue has it written over whatever slug the agent derived from

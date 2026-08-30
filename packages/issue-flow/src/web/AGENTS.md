@@ -56,7 +56,10 @@ file `FilePublisher` already writes) on a configurable interval (default
 and keeps a `sessionId → ActiveSession` map. A file that fails validation
 (corrupted, mid-write, incompatible schema) is skipped, never crashes the
 scan; a session whose file has gone `DEFAULT_STALE_AFTER_MS` without an
-update is dropped from the map on the next scan.
+update is dropped from the map on the next scan. `FilePublisher` keeps that
+mtime alive with a 10s `utimes` heartbeat which does not rewrite content or
+invalidate the content-derived ETag; the 90s stale window tolerates three
+missed beats plus scheduler and filesystem delays.
 
 Polling rather than `fs.watch` is deliberate: `fs.watch`'s `recursive` option
 is only reliably supported on macOS and Windows, while the `~/.issue-flow`

@@ -33,12 +33,11 @@ export const DEFAULT_POLL_INTERVAL_MS = 3000;
 
 /**
  * A session stops being reported once its file has gone this long without an
- * update. `FilePublisher` throttles writes to ~1s and force-flushes on every
- * phase/session boundary, so a live run's file is never quiet for long; this
- * threshold only needs to be comfortably above one throttle window plus one
- * poll interval to avoid flapping a session in and out on timing alone.
+ * update. `FilePublisher` touches a live session every 10s without rewriting
+ * its content. Three missed heartbeats plus ample scheduling/filesystem slack
+ * avoid flapping while still removing an abruptly killed run promptly.
  */
-export const DEFAULT_STALE_AFTER_MS = 30_000;
+export const DEFAULT_STALE_AFTER_MS = 90_000;
 
 export interface ActiveSession {
   /** Directory the session.json was read from, one level up from the file. */

@@ -1,4 +1,4 @@
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, rename, utimes, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { FailureKind } from '../resilience/errors.js';
@@ -25,6 +25,9 @@ export const DEFAULT_LOG_LIMIT = 200;
 
 /** Default minimum interval between FilePublisher disk writes. */
 export const DEFAULT_THROTTLE_MS = 1000;
+
+/** Default interval for touching a live session file without rewriting it. */
+export const DEFAULT_SESSION_HEARTBEAT_MS = 10_000;
 
 export type SessionEvent =
   | {
@@ -1055,6 +1058,8 @@ export class MemoryPublisher implements SessionPublisher {
 export interface FilePublisherOptions extends MemoryPublisherOptions {
   /** Minimum interval between disk writes (ms). Default 1000. */
   throttleMs?: number;
+  /** Interval between mtime-only heartbeats (ms). Zero disables it. Default 10000. */
+  heartbeatMs?: number;
 }
 
 /**
@@ -1068,6 +1073,7 @@ export class FilePublisher extends MemoryPublisher {
   private readonly filePath: string;
   private readonly throttleMs: number;
   private timer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
   private lastWriteStartedAt = 0;
   private lastWrittenVersion = 0;
   private writeChain: Promise<void> = Promise.resolve();
@@ -1077,6 +1083,11 @@ export class FilePublisher extends MemoryPublisher {
     super(options);
     this.filePath = filePath;
     this.throttleMs = options.throttleMs ?? DEFAULT_THROTTLE_MS;
+    const heartbeatMs = options.heartbeatMs ?? DEFAULT_SESSION_HEARTBEAT_MS;
+    if (heartbeatMs > 0) {
+      this.heartbeatTimer = setInterval(() => this.enqueueHeartbeat(), heartbeatMs);
+      this.heartbeatTimer.unref();
+    }
   }
 
   protected override afterPublish(event: SessionEvent): void {
@@ -1122,6 +1133,25 @@ export class FilePublisher extends MemoryPublisher {
     });
   }
 
+  /**
+   * Keep directory-based discovery alive without changing snapshot content or
+   * its content-derived ETag. The write chain serializes the touch with atomic
+   * snapshot replacement, and no heartbeat is attempted before the first file
+   * has been written successfully.
+   */
+  private enqueueHeartbeat(): void {
+    if (this.closed) return;
+    this.writeChain = this.writeChain.then(async () => {
+      if (this.closed || this.lastWrittenVersion === 0) return;
+      const now = new Date();
+      try {
+        await utimes(this.filePath, now, now);
+      } catch (err) {
+        this.warnOnce(err);
+      }
+    });
+  }
+
   override async flush(): Promise<void> {
     if (this.timer !== null) {
       clearTimeout(this.timer);
@@ -1134,8 +1164,12 @@ export class FilePublisher extends MemoryPublisher {
   }
 
   override async close(): Promise<void> {
-    await this.flush();
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     this.closed = true;
+    await this.flush();
   }
 }
 
