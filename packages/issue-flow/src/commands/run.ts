@@ -61,7 +61,7 @@ import type { ExecutionPlan } from '../execution/types.js';
 import { parseIssueArguments } from '../issues/args.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { getProvider } from '../issues/registry.js';
-import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import type { IssueSource, ResolvedIssue } from '../issues/types.js';
 import { recommendedTarget } from '../routing/policy.js';
 import {
   bindDiagnosticContext,
@@ -72,16 +72,10 @@ import { acquireRunLock, describeRunLockOwner } from '../storage/lock.js';
 import type { IssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths, resolveQueuePaths } from '../storage/resolve.js';
 import type { RunLock } from '../storage/schemas.js';
-import { formatPhaseLine, loadPhaseTiming, snapshotTimingFields } from '../telemetry/timing.js';
 import type { PullRequestRef, TaskPlan, UserStory } from '../types.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 import { runPipelineWithRenderer } from '../ui/pipeline-renderer.js';
-import {
-  printQueueSummary,
-  printRunSummary,
-  type QueueIssueSummary,
-  type RunSummaryPrReview,
-} from '../ui/summary.js';
+import { printQueueSummary, printRunSummary, type QueueIssueSummary } from '../ui/summary.js';
 import {
   committedStoryIds,
   describePreflight,
@@ -102,126 +96,28 @@ import { type PrQueueContext, runPr } from './pr.js';
 import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
+import {
+  publishInstrumentedPhaseEnd,
+  publishIssueDetails,
+  publishStorySeed,
+  toIssueNumber,
+} from './run/publish.js';
+import {
+  type IssueRunResult,
+  type PrReviewOutcome,
+  QUEUE_PR_PHASES,
+  QUEUE_PR_PHASES_WITH_REVIEW,
+  type QueueFailureMode,
+  type QueueRunContext,
+  RUNNABLE_PHASES,
+  RUNNABLE_PHASES_NO_BRANCH,
+  RUNNABLE_PHASES_WITH_PR_REVIEW,
+  RUNNABLE_QUEUE_PR_PHASES,
+  RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW,
+} from './run/types.js';
 
-/**
- * Numeric form of an identifier, or `null` when the origin uses a non-numeric
- * one. Published as-is in session.json: a local id like 'auth-refactor' has no
- * number, and reporting it as 0 would claim an Issue that does not exist.
- */
-function toIssueNumber(id: string): number | null {
-  const parsed = Number.parseInt(id, 10);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-async function publishInstrumentedPhaseEnd(
-  publisher: SessionPublisher,
-  phase: string,
-  issueNumber: string,
-  success: boolean,
-  error?: string,
-): Promise<void> {
-  const at = isoNow();
-  const startedAt = publisher.snapshot().phases.find((entry) => entry.name === phase)?.startedAt;
-  const wallMs =
-    startedAt === null || startedAt === undefined
-      ? null
-      : Math.max(0, Date.parse(at) - Date.parse(startedAt));
-  const timing = await loadPhaseTiming(phase, wallMs);
-  publisher.publish({
-    type: 'phase:end',
-    at,
-    phase,
-    success,
-    ...(error === undefined ? {} : { error }),
-    ...snapshotTimingFields(timing),
-  });
-  if (isVerbose()) {
-    printInfo(
-      formatPhaseLine({
-        issueNumber: toIssueNumber(issueNumber) ?? issueNumber,
-        phase,
-        iteration: timing.iteration,
-        wallMs,
-        cliDurationMs: timing.cliDurationMs,
-        harnessStartupMs: timing.harnessStartupMs,
-        ttftMs: timing.ttftMs,
-        numTurns: timing.numTurns,
-        outputTokens: timing.outputTokens,
-      }),
-    );
-  }
-}
-
-/**
- * Seed the snapshot with the stories a `tasks.json` already holds on disk, so
- * the monitor shows the plan instead of "no user story yet" until the first
- * execute iteration republishes them.
- *
- * Must be called **after** `session:start`, which resets the snapshot through
- * `createInitialSnapshot()`. An empty plan publishes nothing: the event would
- * bump the publisher's version without adding any content.
- *
- * Returns whether anything was published.
- */
-export function publishStorySeed(
-  publisher: SessionPublisher,
-  stories: readonly UserStory[],
-  at: string,
-): boolean {
-  if (stories.length === 0) return false;
-  publisher.publish({ type: 'stories:update', at, stories: [...stories] });
-  return true;
-}
-
-/**
- * Publish the Issue's structural data (title, description, labels, state) so
- * the panel shows what is being implemented without a detour through GitHub.
- *
- * Same window as the story seed: right after `session:start`, which resets the
- * snapshot. The data comes from the `ResolvedIssue` the run already holds — no
- * extra provider call — and the description goes out whole, untruncated.
- */
-export function publishIssueDetails(publisher: SessionPublisher, issue: Issue, at: string): void {
-  publisher.publish({
-    type: 'issue:update',
-    at,
-    number: issue.number,
-    // Left undefined (rather than null) when the origin has no remote, so the
-    // reducer keeps whatever URL session:start already published.
-    url: issue.remoteRef ?? undefined,
-    title: issue.title,
-    description: issue.body,
-    labels: issue.labels,
-    state: issue.state,
-  });
-}
-
-/** Runnable phase lists (excluding 'init' which is handled separately). */
-const RUNNABLE_PHASES: PipelinePhase[] = ['prd', 'plan', 'execute', 'review', 'pr'];
-const RUNNABLE_PHASES_NO_BRANCH: PipelinePhase[] = ['prd', 'plan', 'execute', 'review'];
-const RUNNABLE_PHASES_WITH_PR_REVIEW: PipelinePhase[] = [...RUNNABLE_PHASES, 'pr-review'];
-
-/**
- * Phases of a queue's closing pass: the work is already committed by the
- * per-issue runs, so all that is left is the single consolidated Pull Request.
- */
-const QUEUE_PR_PHASES = ['init', 'pr'] as const satisfies readonly PipelinePhase[];
-const QUEUE_PR_PHASES_WITH_REVIEW = [
-  'init',
-  'pr',
-  'pr-review',
-] as const satisfies readonly PipelinePhase[];
-const RUNNABLE_QUEUE_PR_PHASES: PipelinePhase[] = ['pr'];
-const RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW: PipelinePhase[] = ['pr', 'pr-review'];
-
-/**
- * What the `pr-review` phase left behind, for the steps that run after it: the
- * automatic issue close, the highlighted warning and the final summary.
- *
- * Same shape the summary consumes: `requestedChanges` drives the close
- * suppression and is true on exit code 2 even when the plan is gone.
- */
-type PrReviewOutcome = RunSummaryPrReview;
+export { publishIssueDetails, publishStorySeed } from './run/publish.js';
+export type { QueueFailureMode } from './run/types.js';
 
 function verificationForSummary(
   value: {
@@ -303,52 +199,8 @@ export interface RunPipelineOptions {
   onIssueFailure?: QueueFailureMode;
 }
 
-/** What one failing Issue does to the rest of the queue. */
-export type QueueFailureMode =
-  | /** End the run where it failed. The behaviour that has always been. */ 'stop'
-  | /** Set it aside, run the independent work, come back to it. */ 'skip'
-  | /** Set it aside for a human, and never come back to it. */ 'block';
-
 /** Attempts an Issue gets before the queue stops handing it out. */
 const DEFAULT_MAX_ISSUE_ATTEMPTS = 2;
-
-/**
- * Everything a queue hands to the run of one of its issues.
- *
- * Its presence is what tells `runPipelinePhases` it is a member of a queue
- * rather than a standalone pipeline: the Pull Request moves to the end of the
- * queue, the branch is shared, commits carry the issue scope, and the terminal
- * summary is the queue's, not the issue's.
- */
-interface QueueRunContext {
-  /** State of the queue, for the branch every issue of it shares. */
-  plan: ExecutionPlan;
-  /** True when `init` already ran in this process for the queue. */
-  preChecked: boolean;
-  /** Issue already resolved by the planner, if this is the primary one. */
-  resolved?: ResolvedIssue;
-  /**
-   * Set on the final pass of a queue, which runs no implementation phase at
-   * all: only `pr` (and the optional `pr-review`), for the single Pull Request
-   * that consolidates every issue.
-   */
-  finalPr?: PrQueueContext;
-}
-
-/** What one issue's run reports back to the caller. */
-interface IssueRunResult {
-  code: number;
-  /** Phase that failed, `null` on success. */
-  failedPhase: string | null;
-  /** `branchName` of the issue's plan once the `plan` phase produced one. */
-  branchName: string | null;
-  storyCount: number;
-  elapsedSeconds: number;
-  /** Verdict of the `pr-review` phase, when it ran. */
-  review?: PrReviewOutcome | null;
-  /** Set when the run stopped to hand control over to a queue. */
-  queue?: { plan: ExecutionPlan; resumed: boolean; resolved: ResolvedIssue };
-}
 
 /**
  * Entry point of `issue-flow run`.

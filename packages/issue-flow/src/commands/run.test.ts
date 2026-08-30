@@ -150,7 +150,7 @@ import { execa } from 'execa';
 import { parseJournal } from '../core/journal.js';
 import { listPullRequests } from '../core/session-git.js';
 import { getSessionPublisher } from '../core/session-publisher.js';
-import { MemoryPublisher, NullPublisher, type SessionSnapshot } from '../core/session-state.js';
+import { MemoryPublisher, type SessionSnapshot } from '../core/session-state.js';
 import { beginShutdown, resetShutdownState } from '../core/shutdown.js';
 import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
@@ -173,7 +173,7 @@ import { runPr } from './pr.js';
 import { runPrReview } from './pr-review.js';
 import { runPrd } from './prd.js';
 import { runReview } from './review.js';
-import { publishIssueDetails, publishStorySeed, runPipeline } from './run.js';
+import { runPipeline } from './run.js';
 
 /**
  * `run` resolves every artifact through the global storage, so every test in
@@ -1135,53 +1135,6 @@ function makeStory(overrides: Partial<UserStory> = {}): UserStory {
     ...overrides,
   };
 }
-
-describe('publishStorySeed', () => {
-  it('publica as stories do plano', () => {
-    const publisher = new MemoryPublisher();
-    expect(publishStorySeed(publisher, [makeStory()], '2026-08-03T12:00:00Z')).toBe(true);
-
-    expect(publisher.snapshot().stories.map((s) => s.id)).toEqual(['US-001']);
-    expect(publisher.version()).toBe(1);
-  });
-
-  it('não publica nada — nem bump de versão — com um plano sem stories', () => {
-    const publisher = new MemoryPublisher();
-    expect(publishStorySeed(publisher, [], '2026-08-03T12:00:00Z')).toBe(false);
-
-    expect(publisher.snapshot().stories).toEqual([]);
-    expect(publisher.version()).toBe(0);
-  });
-});
-
-describe('publishIssueDetails', () => {
-  it('publica os dados estruturais da Issue resolvida', () => {
-    const publisher = new MemoryPublisher();
-    publishIssueDetails(
-      publisher,
-      makeResolved({ title: 'Enriquecer o snapshot', body: 'Corpo', labels: ['enhancement'] })
-        .issue,
-      '2026-08-03T12:00:00Z',
-    );
-
-    expect(publisher.snapshot().issue).toEqual({
-      number: 42,
-      url: 'https://github.com/acme/repo/issues/42',
-      title: 'Enriquecer o snapshot',
-      description: 'Corpo',
-      labels: ['enhancement'],
-      state: 'open',
-    });
-  });
-
-  it('com NullPublisher a publicação é um no-op', () => {
-    const publisher = new NullPublisher();
-    publishIssueDetails(publisher, makeResolved().issue, '2026-08-03T12:00:00Z');
-
-    expect(publisher.snapshot().issue.title).toBeNull();
-    expect(publisher.version()).toBe(0);
-  });
-});
 
 describe('runPipeline — enriquecimento do snapshot no início da sessão (issue 29, US-003/US-004)', () => {
   let tmp: string;
