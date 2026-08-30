@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, InvalidArgumentError, Option } from 'commander';
 import { parseAgentPhaseFlag } from './agents/resolve.js';
 import { type AgentCliOverrides, isAgentProviderId } from './agents/types.js';
 import {
@@ -353,7 +353,9 @@ withUserStoryNumberingOptions(
               '--on-issue-failure <mode>',
               'In a queue, on a failing issue: stop | skip | block',
               parseQueueFailureMode,
-            ),
+            )
+            .option('-d, --background', 'Detach after confirmation and return the terminal')
+            .addOption(new Option('--detached-child').hideHelp()),
         ),
       ),
     ),
@@ -373,6 +375,8 @@ withUserStoryNumberingOptions(
       retryLimit?: number;
       retryForever?: boolean;
       onIssueFailure?: 'stop' | 'skip' | 'block';
+      background?: boolean;
+      detachedChild?: boolean;
     },
   ) => {
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
@@ -405,6 +409,8 @@ withUserStoryNumberingOptions(
         retryLimit: options.retryLimit,
         retryForever: options.retryForever,
         onIssueFailure: options.onIssueFailure,
+        background: options.background,
+        detachedChild: options.detachedChild,
       },
     );
     process.exit(code);
@@ -476,6 +482,17 @@ withGlobalOptions(
     );
   },
 );
+
+withGlobalOptions(
+  program
+    .command('ps')
+    .description('Every issue-flow run active on this machine')
+    .option('--json', 'Emit the listing as JSON')
+    .option('--watch', 'Refresh the listing until interrupted'),
+).action(async (options: { json?: boolean; watch?: boolean }) => {
+  const { runPs } = await import('./commands/ps.js');
+  process.exit(await runPs(options));
+});
 
 withGlobalOptions(
   program.command('runs').description('History of the runs of this project, with how each ended'),
@@ -807,5 +824,16 @@ withGlobalOptions(
     process.exit(code);
   },
 );
+
+program.action(async () => {
+  const { listLiveRuns } = await import('./execution/registry.js');
+  const runs = await listLiveRuns();
+  if (runs.length === 0) {
+    program.help();
+    return;
+  }
+  const { runPs } = await import('./commands/ps.js');
+  process.exit(await runPs());
+});
 
 program.parse();

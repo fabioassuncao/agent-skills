@@ -36,6 +36,7 @@ import { FilePublisher, MemoryPublisher, type SessionPublisher } from '../core/s
 import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getInactivityTimeout, isVerbose, setInactivityTimeout } from '../core/verbose.js';
+import { backgroundRejection, spawnDetachedRun } from '../execution/detach.js';
 import {
   markQueueIssueBlocked,
   markQueueIssueCompleted,
@@ -205,6 +206,10 @@ export interface RunPipelineOptions {
   yes?: boolean;
   /** `--only`: run just the issues informed, skipping discovery. */
   only?: boolean;
+  /** `--background`: parent process should detach after confirmation. */
+  background?: boolean;
+  /** Hidden: this process is the child of a `--background` spawn. */
+  detachedChild?: boolean;
   /** `--continue`: name the (automatic) User Story numbering continuity. */
   continueNumbering?: boolean;
   /** `--start-us <n>`: force the first plan of this run to start at `n`. */
@@ -297,10 +302,19 @@ export async function runPipeline(
     return 1;
   }
 
+  if (options.background === true && options.detachedChild !== true) {
+    const reason = backgroundRejection(mode);
+    if (reason !== null) {
+      printError(reason);
+      return 1;
+    }
+    return detachAfterConfirm(requested, noBranch, prReview, options);
+  }
+
   // Ownership of the run, for the whole invocation — a queue is one run, not
   // one per issue. Two invocations in the same repository share a working tree
   // and a branch, so "a different issue" is not a different lock.
-  const ownership = await claimRunOwnership(requested[0] as string);
+  const ownership = await claimRunOwnership(requested[0] as string, options.detachedChild === true);
   if (!ownership.ok) {
     printError(
       `Another issue-flow run owns this project: ${describeRunLockOwner(ownership.owner)}.`,
@@ -386,7 +400,7 @@ type RunOwnership =
  * exists to stop two runs from colliding, and it must never be the reason a
  * single run cannot start.
  */
-async function claimRunOwnership(target: string): Promise<RunOwnership> {
+async function claimRunOwnership(target: string, detached = false): Promise<RunOwnership> {
   let lockFile: string;
   try {
     lockFile = (await resolveProjectPaths()).runLockFile;
@@ -394,7 +408,7 @@ async function claimRunOwnership(target: string): Promise<RunOwnership> {
     return { ok: true, interruptedBy: null, release: async () => {} };
   }
 
-  const result = await acquireRunLock(lockFile, { target });
+  const result = await acquireRunLock(lockFile, { target, detached });
   if (!result.ok) return result;
 
   return {
@@ -464,14 +478,15 @@ async function runIssueSession(
   // without `--web` is what an unattended run wants.
   const surfaces: SessionPublisher[] = [];
   const journalEnabled = resilience.journal?.enabled === true;
-  if (webConfig.enabled || journalEnabled) {
+  const persistSnapshot = webConfig.enabled || input.runOptions?.detachedChild === true;
+  if (persistSnapshot || journalEnabled) {
     // resolveIssuePaths never creates directories, and a run may well be the
     // first thing to touch this issue's global folder — so the writer creates
     // it. Only when a surface asked for it: with monitoring off and no journal
     // the pipeline still creates nothing at all (issue 25, US-009).
     await mkdir(paths.issueDir, { recursive: true });
   }
-  if (webConfig.enabled) {
+  if (persistSnapshot) {
     surfaces.push(
       new FilePublisher(paths.sessionFile, {
         logLimit: webConfig.logLimit,
@@ -1377,6 +1392,49 @@ interface DecideQueueInput {
  * pipeline. With several issues informed there is nothing to degrade to: the
  * user asked for a queue, so the error is reported and the run stops.
  */
+/**
+ * Confirm the queue (if needed) and spawn the same command without `--background`.
+ * The child acquires the lock with `detached: true` and writes `run.log`.
+ */
+async function detachAfterConfirm(
+  requested: string[],
+  noBranch: boolean | undefined,
+  prReview: boolean | undefined,
+  options: RunPipelineOptions,
+): Promise<number> {
+  const childFlags = [...process.argv.slice(2)];
+  if (options.yes !== true && options.only !== true) {
+    try {
+      const issuesConfig = await loadIssuesConfig();
+      const resolution = await resolveCommandIssue(requested[0] as string, undefined, {
+        config: issuesConfig,
+      });
+      if (resolution.ok) {
+        const decision = await decideQueue({
+          requested,
+          resolved: resolution.resolved,
+          noBranch: noBranch ?? false,
+          prReview: prReview ?? false,
+          runOptions: options,
+        });
+        if (decision.kind === 'stop') return decision.code;
+        if (decision.kind === 'queue' && !childFlags.includes('--yes')) childFlags.push('--yes');
+        if (decision.kind === 'single' && !childFlags.includes('--only')) childFlags.push('--only');
+      }
+    } catch {
+      // Discovery is an enrichment; a detach still starts the run that was asked for.
+    }
+  }
+
+  const paths = await resolveIssuePaths(requested[0] as string);
+  const { pid, logFile } = await spawnDetachedRun({ paths, argv: childFlags });
+  printSuccess(`Detached run started (pid ${pid}).`);
+  printInfo(`Log: ${logFile}`);
+  printInfo('Follow with: issue-flow ps');
+  printInfo(`Stop with: kill ${pid}`);
+  return 0;
+}
+
 async function decideQueue(input: DecideQueueInput): Promise<QueueDecision> {
   const primary = input.requested[0] as string;
   const single = input.requested.length === 1;

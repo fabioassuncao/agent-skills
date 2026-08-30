@@ -1,8 +1,7 @@
-import { readdir, readFile, stat as statFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type JournalEntry, parseJournal } from '../core/journal.js';
 import type { ValidatedSessionSnapshot } from '../schemas.js';
-import { sessionSnapshotSchema } from '../schemas.js';
 import {
   EVENTS_FILENAME,
   type GetGlobalRootOptions,
@@ -12,6 +11,7 @@ import {
   ROTATED_EVENTS_FILENAME,
   SESSION_FILENAME,
 } from '../storage/paths.js';
+import { readSessionFile } from '../storage/session-file.js';
 
 /**
  * Multi-session discovery for the web monitoring server (US-003).
@@ -102,38 +102,6 @@ async function discoverSessionFiles(root: string): Promise<string[]> {
   );
 
   return perProject.flat();
-}
-
-interface ReadResult {
-  snapshot: ValidatedSessionSnapshot;
-  updatedAtMs: number;
-}
-
-/**
- * Read and validate one `session.json`. Anything short of a fully valid file
- * (missing, mid-write, corrupted, written by an incompatible future version)
- * reads as "not currently a session" — the directory scan must never fail
- * because one file is momentarily inconsistent (`FilePublisher` writes via a
- * temp file + rename, but a reader can still race a concurrent write).
- */
-async function readSessionFile(filePath: string): Promise<ReadResult | null> {
-  let raw: string;
-  let mtimeMs: number;
-  try {
-    const [content, stat] = await Promise.all([readFile(filePath, 'utf-8'), statFile(filePath)]);
-    raw = content;
-    mtimeMs = stat.mtimeMs;
-  } catch {
-    return null;
-  }
-
-  try {
-    const parsed = sessionSnapshotSchema.safeParse(JSON.parse(raw));
-    if (!parsed.success || parsed.data.sessionId === null) return null;
-    return { snapshot: parsed.data, updatedAtMs: mtimeMs };
-  } catch {
-    return null;
-  }
 }
 
 async function readJournalFile(filePath: string): Promise<JournalEntry[]> {

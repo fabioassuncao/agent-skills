@@ -77,6 +77,8 @@ export interface AcquireRunLockOptions {
    * hand turns it off and calls `touchRunLock` itself.
    */
   heartbeat?: boolean;
+  /** The owner is a process spawned by `--background`. */
+  detached?: boolean;
 }
 
 /**
@@ -245,6 +247,7 @@ export async function acquireRunLock(
       target: options.target,
       startedAt: at,
       lastHeartbeatAt: at,
+      ...(options.detached === true ? { detached: true } : {}),
     };
 
     if (await claim(lockFile, mine)) {

@@ -28,6 +28,8 @@ export const PROVIDERS_HEALTH_FILENAME = 'providers.json';
 export const SESSION_FILENAME = 'session.json';
 export const EVENTS_FILENAME = 'events.jsonl';
 export const ROTATED_EVENTS_FILENAME = 'events.1.jsonl';
+export const RUN_LOG_FILENAME = 'run.log';
+export const ROTATED_RUN_LOG_FILENAME = 'run.log.1';
 
 export interface GetGlobalRootOptions {
   /** Environment source. Defaults to process.env. */
@@ -177,6 +179,8 @@ export interface IssuePaths {
   sessionFile: string;
   eventsFile: string;
   rotatedEventsFile: string;
+  runLogFile: string;
+  rotatedRunLogFile: string;
   decompositionFile: string;
   lastBranchFile: string;
   archiveDir: string;
@@ -275,6 +279,8 @@ export function getIssuePaths(
     // snapshot above is the projection; this pair is the history.
     eventsFile: join(issueDir, EVENTS_FILENAME),
     rotatedEventsFile: join(issueDir, ROTATED_EVENTS_FILENAME),
+    runLogFile: join(issueDir, RUN_LOG_FILENAME),
+    rotatedRunLogFile: join(issueDir, ROTATED_RUN_LOG_FILENAME),
     // "This issue looks larger than one run": written only when the signals
     // agree, and read by a person rather than by the pipeline.
     decompositionFile: join(issueDir, 'decomposition.md'),

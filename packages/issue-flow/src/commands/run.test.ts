@@ -586,6 +586,22 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(snapshot.issue.number).toBeNull();
   });
 
+  it('recusa --background com --mode manual sem destacar nada', async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    try {
+      const code = await runPipeline('42', 'manual', undefined, undefined, undefined, {
+        background: true,
+      });
+      expect(code).toBe(1);
+      expect(lines.join('\n')).toMatch(/manual/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('sem flags, a checagem de pré-requisitos roda com a origem github', async () => {
     const { code } = await runCaptured();
 

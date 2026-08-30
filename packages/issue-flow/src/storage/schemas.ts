@@ -391,6 +391,8 @@ export const runLockSchema = z.object({
   target: z.string().min(1),
   startedAt: z.string().min(1),
   lastHeartbeatAt: z.string().min(1),
+  /** Absent on a foreground run written before this field existed. */
+  detached: z.boolean().optional(),
 });
 
 /**

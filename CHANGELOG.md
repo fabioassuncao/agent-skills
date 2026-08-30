@@ -14,6 +14,14 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Added
+
+- **`--background` / `issue-flow ps`** (#82). `run -d` destaca o pipeline
+  depois da confirmação de escopo, escreve `run.log` (com rotação) e marca
+  `run.lock.detached`. `issue-flow ps` (e a invocação nua quando há runs)
+  lista todas as execuções da máquina a partir do lock, sem depender de
+  `--web`.
+
 ### Changed
 
 - **Saída do terminal em modo clean** (#81). `issue-flow run` deixa de

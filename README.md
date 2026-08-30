@@ -122,6 +122,7 @@ Executes all phases in order: **init** -> **prd** -> **plan** -> **execute** -> 
 | `--agent <claude\|codex>` | Run every phase on this agent (overrides `phases` too) |
 | `--agent-model <model>` | Same, for the model |
 | `--agent-phase <phase>=<provider>[:<model>]` | Override one phase (repeatable) |
+| `-d, --background` | Detach after confirmation. Prints the pid and `run.log`; follow with `issue-flow ps`. Refused with `--mode manual` and in CI / a non-TTY |
 | `-v, --verbose` | Full agent stream, one line per story, and the complete preflight report. The default is a one-screen clean view (phases, `N/M` stories, the active story, elapsed / remaining time) |
 
 `--pr-review` is resolved like `--no-branch`: **flag > persisted value (`prReview.enabled` in `tasks.json`) > default (off)**. Opting in once persists `prReview.enabled` as soon as a `tasks.json` exists (including mid-pipeline resumes such as `--from pr --pr-review`), so a later run keeps the phase without repeating the flag. Combining `--pr-review` with `--no-branch` fails immediately with exit code `1` -- with no PR there is nothing to review. When the review comes back as `REQUEST_CHANGES`, the run prints the report path, **leaves the issue open** (locally and on the remote), does **not** mark `issueStatus: completed`, and still exits `0`.
@@ -344,6 +345,8 @@ you while it is busy. These five commands read the state that already exists --
 `events.jsonl` -- and none of them touches the pipeline.
 
 ```bash
+issue-flow run 42 --background    # detach after confirmation; the pipeline keeps going
+issue-flow ps                     # every live run on this machine (also: `issue-flow` alone)
 issue-flow status                 # what is running, in which phase, since when
 issue-flow status 42 --json       # the same, assembled as JSON
 issue-flow runs                   # history: how each issue ended, and why

@@ -89,6 +89,10 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   repository share a working tree and a branch, so "a different issue" is not a different
   lock. Re-entering from the same pid+host is not a conflict and its release is a no-op —
   a nested acquisition must never remove the file the outer one still owns.
+  `detached` is optional and additive: a lock written before it existed is a
+  foreground run. `run.log` / `run.log.1` live on `IssuePaths` and are owned
+  by `--background`; rotation is size-capped in `run-log.ts`.
+  `execution/registry.ts` is the only cross-project reader of `run.lock`.
 - **`providers.json` is project-level durable state.** Its path comes from
   `resolveProjectPaths().providersHealthFile`; agent code never joins the name.
   Writes are atomic, unknown provider keys stay readable, and cooldown survives
