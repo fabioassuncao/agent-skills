@@ -13,6 +13,9 @@ those live in the documents referenced below, which are the source of truth.
 
 - [`README.md`](README.md) — what the tool does, how the pipeline works, and the
   entry point to every other document
+- [`docs/project-status.md`](docs/project-status.md) — what "experimental" means
+  here: how the project was built, the risks, where it should not be used yet,
+  and token consumption
 - [`docs/commands.md`](docs/commands.md) — every command and flag, and the exit
   codes
 - [`docs/configuration.md`](docs/configuration.md) — the precedence ladder,

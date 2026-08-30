@@ -2,6 +2,16 @@
 
 **Turn an issue into a reviewed Pull Request, without sitting in front of it.**
 
+> [!WARNING]
+> **Experimental project, under active development.** Issue Flow was built mostly
+> with the help of AI coding agents, and it has not been audited. Expect bugs,
+> incomplete implementations, regressions and possibly undiscovered security
+> flaws. **Do not use it on real projects, production environments, critical
+> systems or repositories with sensitive information** — today it is meant for
+> testing, evaluation and disposable repositories. Keep backups and review every
+> change it produces. Token consumption is not optimized yet.
+> Full notice: [**Project status**](docs/project-status.md).
+
 Issue Flow is a CLI that orchestrates the whole path — analyse, plan, implement,
 verify, review, deliver — by driving a coding agent in headless mode. It works
 with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the default),
@@ -25,6 +35,7 @@ npx issue-flow run 42 --web   # …and watch it live in the browser
 
 ## Table of contents
 
+- [Project status: experimental](#project-status-experimental)
 - [What it does](#what-it-does)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -40,6 +51,32 @@ npx issue-flow run 42 --web   # …and watch it live in the browser
 - [Limitations and things worth knowing](#limitations-and-things-worth-knowing)
 - [Documentation](#documentation)
 - [Development](#development)
+
+## Project status: experimental
+
+Issue Flow is **experimental and under active development**, and it was developed
+mostly with the help of AI coding agents — Claude Code and Codex among them.
+Bugs, unexpected behaviour, incomplete implementations and regressions are
+likely, and there is a real possibility of vulnerabilities or security flaws that
+have not been found yet — which matters here, because the tool drives an agent
+with write access to your working tree, runs commands declared by the repository
+and talks to GitHub with your credentials.
+
+**At this stage we do not recommend using it on real projects, production
+environments, critical systems or repositories containing sensitive
+information.** The recommended use today is testing, experimentation, evaluating
+the tool, and disposable or easily recoverable projects. Keep backups, run it on
+a dedicated branch, and review carefully every change it produces.
+
+**Token efficiency is still being improved.** Depending on the task, the model,
+the harness and the flow being executed, a run can consume significantly more
+tokens than necessary. Cost optimization, model selection, context usage and the
+balance between quality, speed and token consumption are part of the roadmap.
+
+None of this means the tool is unusable — it is used to develop itself. It means
+these limitations describe the **current stage of maturity** of the project, and
+they are what the roadmap is aimed at. The full notice, with the precautions
+worth taking, is in [**Project status**](docs/project-status.md).
 
 ## What it does
 
@@ -300,6 +337,10 @@ tested contract — the bridge between them is `issue-flow policy --json`. See
 
 ## Limitations and things worth knowing
 
+The maturity of the project as a whole — and where it should not be used yet —
+is in [**Project status**](docs/project-status.md). What follows is the list of
+design decisions and sharp edges worth knowing about.
+
 - **Artifacts are machine-local.** They live under `~/.issue-flow`, not in the
   repository, so they are not shared through git. Local issues are machine-local
   too — use `generate --both` to keep the demand on GitHub as well.
@@ -335,6 +376,7 @@ tested contract — the bridge between them is `issue-flow policy --json`. See
 
 | Document | What it covers |
 |----------|----------------|
+| [Project status](docs/project-status.md) | What experimental means here: risks, where not to use it, token consumption |
 | [Commands](docs/commands.md) | Every command and flag, and the exit codes |
 | [Configuration](docs/configuration.md) | The precedence ladder, every key, every environment variable |
 | [Agents](docs/agents.md) | Claude, Codex, Cursor, Antigravity: selection, auth, permission, token economy |

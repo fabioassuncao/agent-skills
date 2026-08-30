@@ -14,6 +14,17 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Added
+
+- **An explicit experimental-project notice.** `docs/project-status.md` states
+  how the project was built (mostly with AI coding agents), the risks that come
+  with that — bugs, incomplete implementations, regressions, possibly
+  undiscovered security flaws — where it should **not** be used yet (real
+  projects, production, critical systems, repositories with sensitive
+  information), and that token consumption is not optimized yet. The notice is
+  surfaced at the top of both READMEs and printed by `issue-flow init`, the first
+  command a new user runs.
+
 ### Changed
 
 - **Breaking:** Issue Flow now requires Node.js `>=22.13.0` to use its built-in

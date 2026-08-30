@@ -401,6 +401,11 @@ issue-flow init --scope apps/api
 issue-flow init --check-only    # prerequisites only, as earlier releases did
 ```
 
+It opens with the experimental-project notice — `init` is the first command a
+new user runs, so it is where the maturity of the tool is stated. The full text
+is in [**Project status**](project-status.md); `--json` and the compact preflight
+inside `run` skip it.
+
 Verifies `git` (inside a repo), the **selected** agent binary, and `gh`
 (authenticated). `gh` is blocking only when the issue origin is GitHub: with
 `--local`, or `issues.preferredProvider: "local"`, a missing or unauthenticated

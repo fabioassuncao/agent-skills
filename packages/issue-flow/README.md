@@ -2,6 +2,17 @@
 
 **Turn an issue into a reviewed Pull Request, without sitting in front of it.**
 
+> ⚠️ **Experimental — under active development.** This project was built mostly
+> with the help of AI coding agents and has not been audited. Expect bugs,
+> incomplete implementations, regressions and possibly undiscovered security
+> flaws. **Not recommended for real projects, production environments, critical
+> systems or repositories with sensitive information** — today it is meant for
+> testing, evaluation and disposable repositories. Keep backups, run it on a
+> dedicated branch and review every change it produces. Token consumption is not
+> optimized yet: a run may use significantly more tokens than necessary.
+> Full notice:
+> [**Project status**](https://github.com/fabioassuncao/issue-flow/blob/main/docs/project-status.md).
+
 A CLI that orchestrates the whole path — analyse, plan, implement, verify,
 review, deliver — by driving a coding agent in headless mode:
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the default),
@@ -22,7 +33,8 @@ npx issue-flow run 42 --web   # …and watch it live at http://localhost:3737
 > [Agents](https://github.com/fabioassuncao/issue-flow/blob/main/docs/agents.md) ·
 > [Storage](https://github.com/fabioassuncao/issue-flow/blob/main/docs/storage.md) ·
 > [Web monitoring](https://github.com/fabioassuncao/issue-flow/blob/main/docs/web-monitor.md) ·
-> [Resilience](https://github.com/fabioassuncao/issue-flow/blob/main/docs/resilience.md)
+> [Resilience](https://github.com/fabioassuncao/issue-flow/blob/main/docs/resilience.md) ·
+> [Project status](https://github.com/fabioassuncao/issue-flow/blob/main/docs/project-status.md)
 
 ## Requirements
 
