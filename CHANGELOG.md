@@ -16,6 +16,12 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **Convenção de organização do código (#99, #103).**
+  [`docs/code-organization.md`](docs/code-organization.md) descreve a camada
+  de cada diretório sob `src/`, onde vai código novo e o limite de tamanho
+  como sinal. Os cinco `AGENTS.md` que faltavam (`conventions`, `execution`,
+  `issues`, `scaffold`, `utils`) fecham a cobertura dos 17 diretórios.
+
 - **Routing por harness e modelo (#104).** O catálogo versionado expande cada
   harness em tiers `fast`, `mid` e `strong`; os perfis ponderam qualidade,
   custo relativo e latência relativa, e a escada de escalada agora resolve um
@@ -28,6 +34,18 @@ the fact, so they list what changed rather than explaining why. Everything from
   `POST /api/config/routing` e devolve o catálogo em `GET /api/config`.
 
 ### Changed
+
+- **Organização interna sem mudança de comportamento (#100–#103).**
+  `run.ts`, `config.ts` e `session-state.ts` passaram a fachadas sobre
+  `commands/run/`, `config/` e `core/session/`. A escrita atômica convergiu
+  em `utils/fs.ts` (mkdir do destino + tratamento de `EXDEV`). `tasks.json`,
+  `session.json`, `.issue-flow.json`, variáveis de ambiente e exit codes
+  documentados permanecem iguais.
+
+- **Biome cobre o pacote inteiro (#99).** `web/public/`, `scripts/*.mjs` e
+  `*.config.ts` entram no `includes`. `npm run check` deixou de mutar a
+  árvore (reproduz o gate do CI); o comportamento mutante ficou em
+  `npm run fix`.
 
 - **`recommend` e `active` agora têm efeito.** `recommend` imprime o alvo;
   `active` aplica harness/modelo somente em fases sem seleção explícita e
