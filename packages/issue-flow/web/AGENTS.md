@@ -120,6 +120,12 @@ se cada mudança acrescentar "só mais um".
 rolagem em 1440x900 **com o cartão de erros e avisos aberto**. Antes de
 acrescentar linha ali, meça (`getBoundingClientRect().bottom <= innerHeight`).
 
+A partir de 960px o `#panel-execution` vira um grid de duas colunas: Contexto
+fica ao lado de Estado agora / Andamento, e Saída ocupa a largura toda. Os
+dois breakpoints do painel são 640px (estreito) e 960px (largo) — um
+componente novo se encaixa nesses, não inventa o terceiro. `main` tem
+`max-width: 1200px`. Sem rolagem horizontal em 360, 768 e 1440.
+
 "Contexto" roda um degrau abaixo (`--font-size-md` em todo o bloco): é
 referência, não estado. "Próximos passos" é uma linha só — `renderNextSteps()`
 junta os passos com `·` num `<span>`, e o rótulo vem do HTML

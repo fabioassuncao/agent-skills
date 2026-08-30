@@ -170,7 +170,7 @@ body {
 }
 
 main {
-  max-width: 960px;
+  max-width: 1200px;
   margin: 0 auto;
   /* O rodape usa dois degraus de 24px para separar o fim do conteúdo sem
      introduzir um sexto token de espaçamento. */
@@ -201,6 +201,8 @@ main > *,
   border-radius: var(--radius-medium);
   padding: var(--space-16);
   box-shadow: var(--shadow);
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 /* Fluxo inline, não flex: o número da issue e o título dela são uma frase só,
@@ -302,6 +304,11 @@ select:focus-visible,
   display: grid;
   gap: var(--space-16);
   align-content: start;
+}
+
+.columns {
+  display: grid;
+  gap: var(--space-16);
 }
 
 /* O gap do grid já separa o título do conteúdo. */
@@ -618,8 +625,9 @@ progress {
 
 .now-grid {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-4) var(--space-12);
+  min-width: 0;
 }
 
 .now-grid dt {
@@ -704,19 +712,6 @@ progress {
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 560px) {
-  .plain-list .history-entry {
-    flex-wrap: wrap;
-  }
-
-  .history-type {
-    flex-basis: auto;
-  }
-
-  .history-message {
-    flex-basis: 100%;
-  }
-}
 
 .plain-list li:last-child {
   border-bottom: none;
@@ -958,11 +953,6 @@ progress {
   font-size: var(--font-size-md);
 }
 
-@media (max-width: 719px) {
-  .kanban {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 
 /* ---- Drawer de detalhes ---- */
 
@@ -1227,19 +1217,6 @@ progress {
   font-weight: 400;
 }
 
-@media (max-width: 720px) {
-  .config-phase-row {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .config-phase-row.is-editable {
-    grid-template-columns: 1fr;
-  }
-
-  .config-form {
-    grid-template-columns: 1fr;
-  }
-}
 
 /* ---- Diversos ---- */
 
@@ -1255,32 +1232,9 @@ progress {
 }
 
 .noscript {
-  max-width: 960px;
+  max-width: 1200px;
   margin: var(--space-16) auto;
   padding: 0 var(--space-16);
-}
-
-@media (min-width: 720px) {
-  .columns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-16);
-  }
-}
-
-@media (max-width: 719px) {
-  .columns {
-    display: grid;
-    gap: var(--space-16);
-  }
-
-  .header-side {
-    align-items: flex-start;
-  }
-
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ---- Views: dashboard multi-sessão vs detalhe (#35) ---- */
@@ -1422,6 +1376,102 @@ progress {
   background: var(--state-run);
   border-radius: var(--radius-pill);
   transition: width 0.3s ease;
+}
+
+/* Dois breakpoints, no contêiner — não um por componente. 640px é o
+   estreito (uma coluna); 960px é o largo (Contexto vira coluna lateral). */
+@media (max-width: 639px) {
+  .plain-list .history-entry {
+    flex-wrap: wrap;
+  }
+
+  .history-type {
+    flex-basis: auto;
+  }
+
+  .history-message {
+    flex-basis: 100%;
+  }
+
+  .kanban {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .config-phase-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .config-phase-row.is-editable {
+    grid-template-columns: 1fr;
+  }
+
+  .config-form {
+    grid-template-columns: 1fr;
+  }
+
+  .header-side {
+    align-items: flex-start;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plain-list li {
+    flex-wrap: wrap;
+  }
+
+  .item-title {
+    white-space: normal;
+  }
+
+  .item-side {
+    flex-basis: 100%;
+    max-width: none;
+    text-align: left;
+  }
+}
+
+@media (min-width: 640px) {
+  .columns {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 960px) {
+  #panel-execution {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+    grid-template-areas:
+      'now context'
+      'progress context'
+      'output output';
+    align-items: start;
+  }
+
+  #panel-execution > * {
+    min-width: 0;
+  }
+
+  #panel-execution .block-now {
+    grid-area: now;
+  }
+
+  #panel-execution .block-context {
+    grid-area: context;
+    overflow-x: auto;
+  }
+
+  #panel-execution .block-context .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #panel-execution .block-progress {
+    grid-area: progress;
+  }
+
+  #panel-execution .block-output {
+    grid-area: output;
+  }
 }
 
 /* Qualquer animação ou transição do painel para quando o usuário pede menos
