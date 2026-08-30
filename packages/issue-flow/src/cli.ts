@@ -7,6 +7,7 @@ import {
   resolveUserStoryNumberingFlags,
 } from './cli-options.js';
 import { setIssuesCliOverrides, setWebCliOverrides } from './config.js';
+import { installShutdownHandlers } from './core/shutdown.js';
 import { setGlobalTimeout, setVerbose } from './core/verbose.js';
 import {
   IssueFlagError,
@@ -139,6 +140,11 @@ program
   .version(version);
 
 program.hook('preAction', (_thisCommand, actionCommand) => {
+  // Installed once, before any command runs: a `Ctrl+C` during a six-hour run
+  // has to write a checkpoint and stop the agent, not kill the process
+  // mid-phase and leave `session.json` on `running` forever.
+  installShutdownHandlers();
+
   const opts = actionCommand.opts();
   if (opts.verbose) {
     setVerbose(true);

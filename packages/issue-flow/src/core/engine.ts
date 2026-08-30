@@ -22,6 +22,7 @@ import {
   publishStoryMetrics,
 } from './session-metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
+import { getShutdownSignal } from './shutdown.js';
 import {
   allStoriesPass,
   applyStoryMetrics,
@@ -348,6 +349,10 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       },
       {
         policy: executeRetryPolicy(config),
+        // A `Ctrl+C` during a fifteen-minute backoff must stop in that instant,
+        // not fifteen minutes later. `abortableDelay` resolves `false` on the
+        // abort, which `withRetry` reports as `aborted` rather than a failure.
+        signal: getShutdownSignal(),
         // The exit code and the output are all the evidence the CLI leaves
         // behind, which is exactly what `isTransientFailure()` used to be given
         // here — `classify()` is the same verdict plus the kind.

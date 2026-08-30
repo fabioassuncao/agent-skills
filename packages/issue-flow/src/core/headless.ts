@@ -4,6 +4,7 @@ import { execa } from 'execa';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
 import { type ClaudeUsage, parseUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
+import { registerChild } from './shutdown.js';
 import { isoNow } from './state-manager.js';
 import { getOutputCallback, isVerbose } from './verbose.js';
 
@@ -289,6 +290,16 @@ async function runHeadlessVerbose(options: {
     timeout,
     stripFinalNewline: false,
   });
+  // A `Ctrl+C` must reach the agent, not just this process: without this the
+  // child is orphaned and keeps writing to the repository after the pipeline
+  // that started it is gone.
+  const unregisterChild = registerChild({
+    kill: (signal) => subprocess.kill(signal),
+    done: subprocess.then(
+      () => undefined,
+      () => undefined,
+    ),
+  });
 
   let resultText = '';
   let isError = false;
@@ -317,6 +328,7 @@ async function runHeadlessVerbose(options: {
 
   // Wait for the process to finish
   const proc = await subprocess;
+  unregisterChild();
 
   // Close connector with elapsed time
   const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
@@ -404,13 +416,23 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
   pushRepeatedFlag(args, '--allowedTools', allowedTools);
   pushRepeatedFlag(args, '--add-dir', addDirs);
 
+  const subprocess = execa('claude', args, {
+    stdin: 'ignore',
+    reject: false,
+    timeout,
+    stripFinalNewline: false,
+  });
+  const unregisterChild = registerChild({
+    kill: (signal) => subprocess.kill(signal),
+    done: subprocess.then(
+      () => undefined,
+      () => undefined,
+    ),
+  });
+
   try {
-    const proc = await execa('claude', args, {
-      stdin: 'ignore',
-      reject: false,
-      timeout,
-      stripFinalNewline: false,
-    });
+    const proc = await subprocess;
+    unregisterChild();
 
     const stdout = proc.stdout?.toString() ?? '';
     const stderr = proc.stderr?.toString() ?? '';
@@ -461,6 +483,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
       error: null,
     };
   } catch (err) {
+    unregisterChild();
     const message = err instanceof Error ? err.message : String(err);
     const catchElapsed = timer?.stop() ?? 0;
     const catchDur = useColor()

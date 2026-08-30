@@ -3,6 +3,7 @@ import { type ClassifiedFailure, classify } from '../resilience/errors.js';
 import { fixedBackoffPolicy, withRetry } from '../resilience/retry.js';
 import { printRetry } from '../ui/logger.js';
 import { getSessionPublisher } from './session-publisher.js';
+import { getShutdownSignal } from './shutdown.js';
 import { isoNow } from './state-manager.js';
 
 export interface PhaseAttemptResult {
@@ -48,7 +49,10 @@ export async function runPhaseWithRetry(options: PhaseRetryOptions): Promise<Pha
 
   const outcome = await withRetry<PhaseAttemptResult>((attempt) => options.attempt(attempt), {
     policy: fixedBackoffPolicy(retryLimit, backoffBaseSeconds, backoffMaxSeconds),
-    signal: options.signal,
+    // The caller's own signal when it has one, and the process-wide shutdown
+    // otherwise: a backoff nobody can interrupt is a `Ctrl+C` that appears to
+    // do nothing for two minutes.
+    signal: options.signal ?? getShutdownSignal(),
     evaluate: (result) => (result.ok ? null : phaseFailure(result)),
     onAttempt: ({ attempt, failure, willRetry, delayMs }) => {
       if (failure === null || !willRetry) return;

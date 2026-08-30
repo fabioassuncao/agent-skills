@@ -21,6 +21,7 @@ import { listPullRequests, publishGitState } from '../core/session-git.js';
 import { beginUsageScope, getRunUsageTotals } from '../core/session-metrics.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
 import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
+import { onShutdown } from '../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { isVerbose } from '../core/verbose.js';
 import {
@@ -489,10 +490,38 @@ async function runIssueSession(
     storyCount: 0,
     elapsedSeconds: 0,
   };
+
+  // What a `Ctrl+C` leaves behind. Registered for the duration of this issue
+  // only — a queue runs several, and each must checkpoint its own plan — and
+  // deliberately split across the two shutdown phases: the state is written
+  // while the agent is still alive, and the surfaces are closed after it is
+  // gone, so nothing the checkpoint published is lost on the way out.
+  const releaseCheckpoint = onShutdown({
+    phase: 'checkpoint',
+    run: async () => {
+      await pauseIssue(paths.tasksFile, issueNumber);
+      publisher.publish({
+        type: 'log',
+        at: isoNow(),
+        level: 'warn',
+        message: `Interrupted during issue #${issueNumber}. A checkpoint was saved; resume with \`issue-flow resume ${issueNumber}\`.`,
+      });
+      publisher.publish({ type: 'session:end', at: isoNow(), status: 'failed' });
+    },
+  });
+  const releaseClose = onShutdown({
+    phase: 'close',
+    run: async () => {
+      await publisher.close();
+    },
+  });
+
   try {
     result = await runPipelinePhases(issueNumber, paths, mode, publisher, input);
     return result;
   } finally {
+    releaseCheckpoint();
+    releaseClose();
     // A run that only decided to become a queue published nothing: closing the
     // session here would write a `session.json` for a pipeline that never ran.
     if (result.queue === undefined) {
@@ -507,6 +536,41 @@ async function runIssueSession(
     // and serve other invocations. Only this run's own publication ends here.
     await publisher.close();
     setSessionPublisher(undefined);
+  }
+}
+
+/**
+ * Mark an interrupted issue as paused, in the one place resumption reads.
+ *
+ * `pipeline` still says which phases finished — that is what `resume` continues
+ * from — and `runState` is what says *why* the run is not running: paused by a
+ * person, not failed, not still going. Before this field, a `Ctrl+C` left
+ * `issueStatus: 'in_progress'` and nothing else, and the difference between
+ * "someone stopped it" and "it died" was unrecoverable.
+ *
+ * Never throws: a checkpoint that cannot be written must not stop the rest of
+ * the shutdown, and the phases already marked complete are still on disk.
+ */
+async function pauseIssue(tasksFile: string, issueNumber: string): Promise<void> {
+  try {
+    const plan = await loadTaskPlan(tasksFile);
+    await saveTaskPlan(tasksFile, {
+      ...plan,
+      runState: {
+        ...(plan.runState ?? {
+          currentPhase: null,
+          attempt: 0,
+          lastHeartbeatAt: null,
+          blockedReason: null,
+          owner: null,
+        }),
+        status: 'paused',
+        lastHeartbeatAt: isoNow(),
+      },
+    });
+  } catch {
+    // No plan yet (interrupted before the `plan` phase), or an unreadable one.
+    printWarning(`Could not write a checkpoint for issue #${issueNumber}.`);
   }
 }
 

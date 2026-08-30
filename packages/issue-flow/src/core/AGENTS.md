@@ -96,6 +96,31 @@ never had them must not gain artificial nulls on a round trip.
   off means the pipeline creates nothing at all" is a documented invariant of
   issue 25 and a journal writing by default would break it.
 
+## shutdown.ts: the order of a Ctrl+C is the design
+
+- **The sequence is fixed**: abort the process-wide signal → write the
+  checkpoint → `SIGTERM` the child, grace, `SIGKILL` → close the surfaces →
+  exit (130 for `SIGINT`, 143 for `SIGTERM`). Each position is load-bearing.
+  The signal fires first because every retry backoff already waits on it, so an
+  interrupt during a fifteen-minute delay stops in that instant. The checkpoint
+  runs **while the child is still alive**, because checkpointing after the kill
+  races the very writes it is trying to capture. The journal and the snapshot
+  close **last**, so everything the steps above published is on disk.
+- **A second interrupt ends it now.** Someone who pressed `Ctrl+C` twice has
+  said what they want, and waiting out the remaining grace to be polite is not
+  it.
+- **`getShutdownSignal()` works without handlers installed.** It creates the
+  controller lazily, so a backoff that captured the signal behaves identically
+  in a test that never installs anything — which is what keeps every existing
+  path unchanged.
+- **`installShutdownHandlers()` is idempotent.** A second set of handlers would
+  run the whole sequence twice: two checkpoints, two kills, two exits.
+- **Every child must be deregistered when it finishes normally.** `registerChild`
+  returns the function that does it; a set that only grows has the shutdown
+  signalling pids that belong to something else entirely by then.
+- **A hook that throws does not stop the ones after it.** The journal still has
+  to be closed even when the checkpoint could not be written.
+
 ## executor.ts output contract
 
 On the happy path (`exitCode === 0` and parseable JSON envelope),
