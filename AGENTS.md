@@ -1,7 +1,8 @@
 # Issue Flow
 
-CLI and Agent Skills that take a GitHub issue from statement to merged Pull
-Request, through Claude Code.
+CLI and Agent Skills that take an issue — from GitHub or from files — from
+statement to reviewed Pull Request, through Claude Code, Codex CLI, Cursor CLI
+or Antigravity CLI.
 
 This file is an **index**. It holds no rule, command or convention of its own —
 those live in the documents referenced below, which are the source of truth.
@@ -10,16 +11,30 @@ those live in the documents referenced below, which are the source of truth.
 
 ## Start here
 
-- [`README.md`](README.md) — what the tool does, every command, the file
- structure, the configuration and the web monitor
+- [`README.md`](README.md) — what the tool does, how the pipeline works, and the
+  entry point to every other document
+- [`docs/commands.md`](docs/commands.md) — every command and flag, and the exit
+  codes
+- [`docs/configuration.md`](docs/configuration.md) — the precedence ladder,
+  `.issue-flow.json`, `~/.issue-flow/config.json` and every environment variable
+- [`docs/agents.md`](docs/agents.md) — Claude, Codex, Cursor and Antigravity:
+  selection by phase, authentication, permission, token economy, troubleshooting
+- [`docs/issues.md`](docs/issues.md) — GitHub and local providers, conflict
+  resolution, hierarchy discovery and multi-issue queues
+- [`docs/storage.md`](docs/storage.md) — the global tree, the project id,
+  `tasks.json`, `session.json`, telemetry and the legacy migration
+- [`docs/web-monitor.md`](docs/web-monitor.md) — the dashboard, its HTTP API and
+  the single-instance server
+- [`docs/resilience.md`](docs/resilience.md) — failure taxonomy, retry table,
+  failover, watchdog, journal and decomposition
+- [`docs/verification.md`](docs/verification.md) — the acceptance contract, the
+  independent reviewer, shadow routing and escalation
 - [`docs/conventions.md`](docs/conventions.md) — how conventions are discovered,
- the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
+  the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
 - [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and
- Pull Request titles; provider-independent by construction
-- [`docs/agents.md`](docs/agents.md) — Claude Code and Codex CLI: selection by
- phase, authentication, token economy and troubleshooting
+  Pull Request titles; provider-independent by construction
 - [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
- usage model, and the parity contract between the skills and the CLI
+  usage model, and the parity contract between the skills and the CLI
 
 ## Research
 
@@ -47,7 +62,7 @@ the code, and was learned the hard way.
 
 | Area | Document |
 |---|---|
-| The agent layer (Claude / Codex, selection by phase) | [`packages/issue-flow/src/agents/AGENTS.md`](packages/issue-flow/src/agents/AGENTS.md) |
+| The agent layer (Claude / Codex / Cursor / Antigravity, selection by phase) | [`packages/issue-flow/src/agents/AGENTS.md`](packages/issue-flow/src/agents/AGENTS.md) |
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
 | Execution telemetry in `tasks.json` | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |

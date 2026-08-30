@@ -84,7 +84,8 @@ formats. The environment covers the scalar knobs one variable each
 `ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`,
 `ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`,
 `ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE`, and the rest listed in the
-[README](../README.md#issue-flowconfigjson)); the per-kind `retry` table is too
+[configuration reference](configuration.md#environment-variables)); the per-kind
+`retry` table is too
 shaped for a shell variable and travels whole as JSON in
 `ISSUE_FLOW_RESILIENCE_RETRY`.
 

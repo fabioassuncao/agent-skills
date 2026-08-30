@@ -158,7 +158,7 @@ present. `ignoreUserConfig: true` is the CI recommendation.
 ## Headless examples
 
 ```bash
-# Default: Claude, eight phases, same argv as before
+# Default: Claude on every phase, same argv as before
 npx issue-flow run 42
 
 # Everything on Codex
