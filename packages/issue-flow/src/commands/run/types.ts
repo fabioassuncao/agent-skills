@@ -1,6 +1,8 @@
 import type { PipelinePhase } from '../../core/pipeline.js';
+import type { SessionPublisher } from '../../core/session-state.js';
 import type { ExecutionPlan } from '../../execution/types.js';
 import type { ResolvedIssue } from '../../issues/types.js';
+import type { IssuePaths } from '../../storage/paths.js';
 import type { RunLock } from '../../storage/schemas.js';
 import type { RunSummaryPrReview } from '../../ui/summary.js';
 import type { PrQueueContext } from '../pr.js';
@@ -132,6 +134,15 @@ export interface IssueSessionInput {
 export type RunIssueSession = (
   issueNumber: string,
   mode: string,
+  input: IssueSessionInput,
+) => Promise<IssueRunResult>;
+
+/** Phase orchestrator injected into the session to avoid a session ↔ phases cycle. */
+export type RunPipelinePhases = (
+  issueNumber: string,
+  paths: IssuePaths,
+  mode: string,
+  publisher: SessionPublisher,
   input: IssueSessionInput,
 ) => Promise<IssueRunResult>;
 
