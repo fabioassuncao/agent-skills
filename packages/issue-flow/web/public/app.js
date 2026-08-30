@@ -976,7 +976,6 @@
     const stateClass =
       state === 'open' ? 'state-open' : state === 'closed' ? 'state-closed' : 'state-unknown';
     meta.appendChild(el('span', 'badge ' + stateClass, state || 'estado desconhecido'));
-    meta.appendChild(el('span', 'muted', 'Prioridade: Não definida'));
     els.issueSummary.appendChild(meta);
 
     const labels = issue.labels || [];
