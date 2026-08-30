@@ -175,6 +175,37 @@ Hover e foco por teclado precisam ser **distinguíveis um do outro**. Em
 visível em cima do hover. É a única regra do `app.css` que mexe em `outline` —
 antes ela o suprimia e dava a mesma aparência aos dois estados.
 
+## Como verificar uma mudança aqui
+
+Nada nesta pasta é coberto por teste automatizado, então a verificação é um
+navegador com **dados de verdade**. `python3 -m http.server` dentro de
+`web/public/` basta para inspecionar o CSS, mas o painel fica no estado
+desconectado — não dá para exercitar alertas, Kanban, drawer nem métricas.
+
+Para isso, sirva o servidor real de um `ISSUE_FLOW_HOME` descartável:
+
+1. Escreva um ou mais `session.json` (o schema é `sessionSnapshotSchema` em
+   `src/schemas.ts`) em `<home>/projects/<projeto>/issues/<n>/session.json`,
+   com `events.jsonl` ao lado no formato `{ seq, event }` da aba Histórico.
+   **Duas** sessões abrem o dashboard; uma só abre direto no detalhe.
+2. `npm run build` e `ISSUE_FLOW_HOME=<home> node dist/cli.js web serve --port
+   <p> --host 127.0.0.1`. O servidor lê os assets de `web/public/` (não uma
+   cópia em `dist/`), então basta reiniciá-lo para pegar uma edição.
+3. Uma sessão some após **90s** sem heartbeat: `touch` periódico no
+   `session.json` a mantém viva pelo tempo da verificação.
+
+Os estados que só aparecem sob condição se forçam do console: o `.banner` de
+desconexão, substituindo `window.fetch` por um que rejeita (e restaurando
+depois); o armazenamento bloqueado, com um `Object.defineProperty(window,
+'localStorage', { get() { throw … } })` num script de inicialização; a troca de
+tema do SO, pela emulação de `prefers-color-scheme` do DevTools, que dispara o
+evento `change` real da media query.
+
+Para contraste, **meça na página** (ler os tokens com
+`getComputedStyle(document.documentElement)` e calcular a razão em JS), nunca a
+partir dos valores no arquivo: só assim a cascata resolvida aparece, incluindo
+o token que um tema herda do outro por engano.
+
 ## Escrita: o que ainda não existe
 
 A interface é somente leitura por contrato (`snapshot.readOnly === true`,

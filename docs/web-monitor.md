@@ -74,6 +74,37 @@ Switching tabs never interrupts polling: both views are re-rendered on every
 refresh, so the Kanban is already current the moment it is opened, and an open
 drawer stays open across refreshes, updating in place.
 
+## Light and dark theme
+
+The panel ships both themes and a **"Tema"** select next to the **"Atualizar"**
+control — in the dashboard header *and* in the detail header, mirrored, so
+changing it in one immediately reflects in the other. It has three states:
+
+| State | What it does |
+|-------|--------------|
+| **Sistema** (default) | Follows the operating system, live: switching the OS theme repaints the panel with no reload |
+| **Claro** | Forces the light theme, whatever the OS says |
+| **Escuro** | Forces the dark theme, whatever the OS says |
+
+The choice is stored in `localStorage` under `issue-flow:theme`, so it is **per
+browser** (per origin, in fact), not per session, per project or per machine:
+another browser — or the same browser on another device watching the same
+monitor over the network — keeps its own preference. There is no CLI flag, no
+environment variable and no `.issue-flow.json` key for it; it is a client-side
+display setting and never reaches the server.
+
+The stored theme is applied by a tiny inline script in the `<head>`, before the
+stylesheet loads, so a reload with a forced theme never flashes the opposite
+palette. With `localStorage` unavailable (a private window with storage
+blocked, a hardened profile) the panel still loads and the select still switches
+the theme for that tab — the choice just does not survive the reload.
+
+Both themes declare their own `color-scheme`, so `<select>`, `<progress>` and
+the scrollbars follow the **effective** theme rather than the OS one, and every
+text/background pair meets WCAG AA (4.5:1 for text, 3:1 for the focus ring).
+Nothing here is loaded from the network: the palette is plain CSS custom
+properties in `app.css`, and the panel remains offline-capable.
+
 ## Read-only by contract
 
 `snapshot.readOnly` stays `true`, `capabilities` stays empty, and the server
