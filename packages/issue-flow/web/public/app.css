@@ -619,24 +619,42 @@ progress {
   white-space: nowrap;
 }
 
-.pulse {
+/* Indicador ao vivo: um componente, uma keyframe, nos dois lugares
+   (fase corrente e card do dashboard). Sem uppercase nem letter-spacing —
+   o ponto e o rótulo ao lado bastam. */
+.live {
   display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: var(--radius-pill);
   background: var(--state-run);
-  margin-right: var(--space-8);
-  animation: pulse 1.4s ease-in-out infinite;
+  flex: none;
+  animation: live-pulse 1.4s ease-in-out infinite;
 }
 
-@keyframes pulse {
+@keyframes live-pulse {
   50% {
     opacity: 0.3;
   }
 }
 
+.live-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--state-run);
+}
+
+.now-phase {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pulse {
+  .live {
     animation: none;
   }
 }
@@ -1407,32 +1425,3 @@ progress {
   transition: width 0.3s ease;
 }
 
-.dashboard-live-dot {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--state-run);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.dashboard-live-dot::before {
-  content: '';
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: var(--space-8);
-  border-radius: var(--radius-pill);
-  background: var(--state-run);
-  vertical-align: middle;
-  animation: dashboard-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes dashboard-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}

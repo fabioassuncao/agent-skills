@@ -167,6 +167,21 @@
     return node;
   }
 
+  // Ponto pulsante único do painel — o mesmo componente em "Executando agora"
+  // e no card do dashboard. Sem texto: o rótulo adjacente carrega o significado.
+  function liveDot() {
+    const dot = el('span', 'live');
+    dot.setAttribute('aria-hidden', 'true');
+    return dot;
+  }
+
+  // Ícone textual (○ ● ✓ ✗): a cor e o rótulo ao lado já dizem o estado.
+  function statusIcon(status, symbol) {
+    const icon = el('span', 'item-icon icon-' + status, symbol || PHASE_ICONS[status] || '○');
+    icon.setAttribute('aria-hidden', 'true');
+    return icon;
+  }
+
   function link(href, text, className) {
     const node = el('a', className, text);
     node.href = href;
@@ -835,7 +850,10 @@
       card.appendChild(progress);
 
       if (session.status === 'running') {
-        card.appendChild(el('span', 'dashboard-live-dot', 'ao vivo'));
+        const live = el('span', 'live-label');
+        live.appendChild(liveDot());
+        live.appendChild(document.createTextNode('ao vivo'));
+        card.appendChild(live);
       }
 
       card.addEventListener('click', () => {
@@ -1049,9 +1067,9 @@
     }
 
     const grid = el('dl', 'now-grid');
-    const phase = el('dd');
+    const phase = el('dd', 'now-phase');
     if (snapshot.currentPhase) {
-      phase.appendChild(el('span', 'pulse'));
+      phase.appendChild(liveDot());
       phase.appendChild(document.createTextNode(snapshot.currentPhase));
     } else {
       phase.textContent = '—';
@@ -1398,9 +1416,7 @@
     for (const phase of snapshot.phases) {
       const item = el('li');
       item.className = 'detail-row';
-      item.appendChild(
-        el('span', 'item-icon icon-' + phase.status, PHASE_ICONS[phase.status] || '○'),
-      );
+      item.appendChild(statusIcon(phase.status));
       const main = el('div', 'item-main');
       main.appendChild(el('div', 'item-title', phase.name));
       if (phase.error) main.appendChild(el('div', 'item-error', phase.error));
@@ -1448,7 +1464,7 @@
       const item = el('li', storyStage === 'executing' ? 'story-executing' : null);
       item.classList.add('detail-row');
       const status = story.passes ? 'completed' : 'pending';
-      item.appendChild(el('span', 'item-icon icon-' + status, story.passes ? '✓' : '○'));
+      item.appendChild(statusIcon(status, story.passes ? '✓' : '○'));
       const main = el('div', 'item-main');
       const title = el('div', 'item-title');
       title.appendChild(el('span', 'story-id', story.id));
@@ -1507,13 +1523,7 @@
     card.dataset.storyId = story.id;
 
     const head = el('span', 'kanban-card-head');
-    head.appendChild(
-      el(
-        'span',
-        'item-icon icon-' + (story.passes ? 'completed' : 'pending'),
-        story.passes ? '✓' : '○',
-      ),
-    );
+    head.appendChild(statusIcon(story.passes ? 'completed' : 'pending', story.passes ? '✓' : '○'));
     head.appendChild(el('span', 'story-id', story.id));
     card.appendChild(head);
 
