@@ -14,7 +14,171 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Changed
+
+- **The Agent Skills are portable again, and no longer need the CLI.** Every
+  `SKILL.md` referenced `../_shared/repository-policy.md`, a path outside the
+  skill directory. The open specification says to use paths relative to the
+  skill root, and every real client — `npx skills`, Cursor, Codex, OpenCode,
+  Gemini CLI, Antigravity, the Microsoft Agent Framework — copies or scans only
+  the directory holding the `SKILL.md`. `skills/_shared/` has no `SKILL.md`, so
+  it is not a skill and was never installed: the link resolved in this
+  repository and dangled everywhere the skills were actually used, including in
+  every existing `~/.agents/skills/` install.
+
+  **What changed for users.** A skill installed on its own now works on its own,
+  including `npx skills add fabioassuncao/issue-flow --skill <name>`. Nothing
+  needs to be uninstalled; reinstalling picks up the self-contained layout.
+
+  - `skills/_shared/repository-policy.md` is now
+    `skills/_shared/contracts/repository-conventions.md`, and it describes a
+    **capability with three providers** rather than one command: the Issue Flow
+    CLI when it is on the PATH, reading the repository directly when it is not,
+    and the documented defaults last. "No CLI" used to jump straight to
+    defaults, which quietly made the CLI a prerequisite for quality.
+  - `skills/_shared/agent-config.md` is removed. No skill referenced it, and
+    which agent runs a phase is a CLI decision, not a portable one.
+  - Each skill now carries what it reads in its own `references/`, generated
+    from `skills/_shared/contracts/` by `scripts/sync-skill-contracts.mjs`.
+    `npm run skills:check` fails when a copy drifts, and runs in CI.
+  - Frontmatter is now exactly the open specification — `name`, `description`,
+    `license`, `compatibility`, `metadata` — on all ten skills. No
+    `allowed-tools` (experimental, support varies), no vendor fields.
+  - `SKILL.md` bodies shrank from up to 435 lines to at most 209, with the
+    templates, schemas and report formats moved into `references/` and loaded on
+    demand.
+  - `execute-tasks` now treats `AGENTS.md` as the canonical source of project
+    conventions and `CLAUDE.md` as a pointer to follow, matching the policy the
+    rest of the project already states. It previously read `CLAUDE.md` as the
+    source and never mentioned `AGENTS.md`.
+  - `convert-prd-to-json` no longer requires handing control to the Claude Code
+    `resolve-issue` sub-agent, and **archives** a stale `progress.txt` instead of
+    deleting it. It previously ran `rm -f` on it without asking.
+  - `review-issue` now announces in its `description` that standalone use closes
+    the issue, and confirms before doing so.
+  - `generate-local-issue` bundles `scripts/content-hash.sh`, so `contentHash`
+    is computed rather than hand-assembled. It needs `node` or `python3`.
+  - `init-repository` carries the scaffold baseline in
+    `references/repository-scaffold.md`, so its no-CLI path no longer points at
+    a document that is not installed with it.
+  - A `<N>` placeholder in `generate-local-issue`'s `description` is now `{N}`:
+    the first parses as an XML tag, which the Claude profile rejects outright.
+
+- **The CLI no longer points users at a Claude Code sub-agent they may not
+  have.** A missing task plan used to suggest running "the resolve-issue skill";
+  it now names `issue-flow plan <N>` and the portable `convert-prd-to-json`
+  skill, either of which produces the plan.
+
+- **The source tree carries no generated file at all, and the skills are
+  published from a branch.** Materialising every shared contract into every
+  skill kept them self-contained but left copies in the repository. The
+  assumption behind that — that the git tree *is* the distribution artifact —
+  turned out to be only half true: the installer accepts a git ref, verified in
+  its own `source-parser.test.ts` (`parseSource('owner/repo#feature/install')`)
+  and in `src/git.ts`, which passes `--branch` to a shallow clone.
+
+  So `main` and `develop` now hold sources only, and CI assembles the complete
+  tree and force-pushes it to an orphan `skills` branch that is never merged.
+
+  ```bash
+  npx skills add fabioassuncao/issue-flow#skills
+  ```
+
+  - **A ref is now required.** Two installers take one:
+    `npx skills add …#skills` and
+    `gh skill install … --pin skills` (`--pin` accepts a tag, a SHA or a
+    branch). Without it the installer reads the default branch, where the shared
+    contracts have not been materialised, and the skills arrive with references
+    pointing at absent files. The installer cannot warn about this, so it is
+    documented in the README, in `docs/skills.md` and in a new
+    `skills/README.md`. `gemini skills install` documents `--path` but no branch
+    flag; from it, copy a skill directory out of the `skills` branch instead.
+  - A release also publishes `skills-vX.Y.Z`, so a version can be pinned.
+  - `result-blocks.md` bundled three unrelated contracts and each consumer used
+    exactly one, so it split by owner into `completion-signal.md`,
+    `review-result-block.md` and `pr-review-result-block.md` — one shared
+    contract fewer, and no skill carrying two blocks it never emits.
+  - `scripts/build-skills-tree.mjs` assembles the tree;
+    `scripts/sync-skill-contracts.mjs` became `sync-prompt-contracts.mjs` and
+    now covers only the CLI prompts.
+  - **`validate-skills.mjs` gained two modes.** Over the sources, a cited
+    reference may be absent when `_shared/contracts/` holds it. Over an
+    assembled tree (`--tree`), nothing may be missing. CI runs both on every
+    pull request, and the publish workflow runs the strict one again before
+    pushing — a dangling reference in the published tree is invisible to us and
+    fatal to the user.
+  - A `justfile` gives `just check`, `just verify` and `just build` over the
+    npm scripts, which stay the CI entry point.
+
+  Result: **19 committed generated files become 0.** `skills/_shared/contracts/`
+  holds five sources; everything else is owned by exactly one skill.
+
+- **Only genuinely shared text is duplicated.** The first pass materialised
+  every contract into every consumer, which produced 42 generated files from
+  1049 lines of source. Most of that was not shared at all: five of the eleven
+  contracts were cited by a **single** skill, and their only other reader was a
+  CLI prompt — which is a build artifact, not a committed file.
+
+  - Those five (`prd-structure`, `pr-body`, `pr-review-report`,
+    `issue-review-report`, `progress-log`) moved into the skill that owns them
+    and are now hand-written files with no generation at all.
+  - `packages/issue-flow/prompts/_contracts/` is generated by `prebuild` and
+    `pretest` and is no longer versioned. The npm package is built and `files`
+    already ships `prompts`, so committing it bought nothing. The skills side
+    keeps its copies because there the git tree *is* the distribution artifact:
+    `npx skills add <owner>/<repo>` reads the default branch and documents no
+    branch or tag support.
+  - `repository-conventions.md` went from ten copies to six. The four skills
+    that used a handful of its lines now state those lines themselves; the six
+    that decide from the whole policy keep the contract. Its 36-line annotated
+    JSON payload moved to `docs/commands.md`, beside the other `--json`
+    contracts — a skill needs to know which fields to read, not the schema.
+  - **The consumer map is gone.** `scripts/sync-skill-contracts.mjs` now derives
+    what to generate from the `references/*.md` each `SKILL.md` actually cites,
+    and deletes a generated file nothing cites. The hand-written list it replaces
+    had drifted and left four dead files that no check caught.
+
+  Result: **42 generated files and 4576 lines become 19 and ~1900.** No skill
+  lost a reference it uses, and each one still installs on its own.
+
+  Symlinks were considered and rejected on three counts: `vercel-labs/skills`
+  rejects every link entry in a downloaded archive outright
+  (`throw new Error('Archive links are not supported')`); git's own
+  `core.symlinks` documentation says that where symlinks are unsupported they are
+  "checked out as small plain files that contain the link text", so on a Windows
+  checkout the agent would read `../../_shared/contracts/…` as the contract
+  itself; and no skill among 185 installed from dozens of publishers contains
+  one.
+
+- **The CLI's headless prompts and the skills now share one source.**
+  `packages/issue-flow/prompts/*.md` restated the `tasks.json` shape, the PRD
+  structure, the issue and Pull Request body structures, the duplicate-detection
+  strategy and the result blocks — a second implementation that had already
+  drifted from the skills. Prompts now include those contracts at render time
+  with `<!-- include:<name>.md -->`, expanded by `loadPrompt` from
+  `prompts/_contracts/`, which the same sync script generates. Repository
+  prompt overrides in `.issue-flow/prompts/` keep working and can use includes
+  too. A missing include fails loudly instead of silently rendering nothing.
+
 ### Added
+
+- **Structural validation of the skills.** `npm run skills:check` (and
+  `src/policy/skills-structure.test.ts`, and a CI step) enforce the
+  specification's limits, the frontmatter field set, that every relative
+  reference resolves **inside** the skill directory — in `SKILL.md`, `README.md`
+  and every file under `references/` — that no file is reachable only through
+  another reference, that nothing in `name` or `description` parses as an XML
+  tag, that bundled scripts are executable, and that every generated contract
+  copy matches its source.
+
+- **[`docs/skills.md`](docs/skills.md)** — the Agent Skills as a portable,
+  CLI-independent interface: the catalogue with requirements and side effects,
+  installation paths for each agent, a compatibility matrix verified against
+  each product's own documentation, what Agent Skills and MCP each are, when the
+  CLI actually helps, and the rules a new skill must follow.
+  `docs/skills-and-agents.md` is now scoped to the Claude Code sub-agent, and
+  the previous claim that `npx skills` installs into `.claude/skills/` is
+  corrected: it installs into `~/.agents/skills/` and links each agent at it.
 
 - **SQLite as the canonical structured-state store (#91).** Versioned
   migrations, transactional repositories, automatic non-destructive import,

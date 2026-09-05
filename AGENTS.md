@@ -36,8 +36,13 @@ those live in the documents referenced below, which are the source of truth.
   the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
 - [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and
   Pull Request titles; provider-independent by construction
-- [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
-  usage model, and the parity contract between the skills and the CLI
+- [`docs/skills.md`](docs/skills.md) — the ten Agent Skills as a portable,
+  CLI-independent interface: catalogue, per-agent installation, the verified
+  compatibility matrix, the single source behind every shared contract, and the
+  rules a new skill must follow
+- [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the Claude Code
+  `resolve-issue` sub-agent, and the parity contract between the skills and the
+  CLI
 
 ## Research
 
@@ -89,6 +94,7 @@ the code, and was learned the hard way.
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
 | Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |
+| The Agent Skills, and the contracts they share with the prompts | [`skills/AGENTS.md`](skills/AGENTS.md) |
 | Acceptance contract and independent review | [`packages/issue-flow/src/verify/AGENTS.md`](packages/issue-flow/src/verify/AGENTS.md) |
 | Shadow routing | [`packages/issue-flow/src/routing/AGENTS.md`](packages/issue-flow/src/routing/AGENTS.md) |
 | Real / synthetic benchmark | [`packages/issue-flow/src/benchmark/AGENTS.md`](packages/issue-flow/src/benchmark/AGENTS.md) |

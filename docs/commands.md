@@ -470,6 +470,47 @@ issue-flow policy --scope apps/api   # resolve for a subdirectory, in a monorepo
 issue-flow policy --json             # versioned JSON — the bridge for the Agent Skills
 ```
 
+`--json` is the bridge the Agent Skills read, so its payload is a published
+contract rather than a debugging convenience: adding a field is safe (readers
+ignore what they do not know), and removing or renaming one bumps
+`schemaVersion`. `src/policy/policy-parity.test.ts` pins the field names.
+
+The payload:
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "root": "/abs/path",          // repository root
+  "scope": "apps/api",          // subdirectory resolved, or null
+  "enabled": true,              // false when the repository turned discovery off
+  "issues": {
+    "templates": [ /* name, path, format, labels, type, title, content */ ],
+    "types": ["Bug", "Feature"],       // organization Issue Types, when any
+    "labels": [ /* name, description, color — the ones that REALLY exist */ ],
+    "titleConvention": null,
+    "allowLabelCreation": false
+  },
+  "pullRequests": {
+    "template": "…",            // content of the default PR template
+    "templates": [ /* every template, for the multi-template layout */ ],
+    "baseBranch": "develop",
+    "titleConvention": null
+  },
+  "git": {
+    "branchConvention": null,
+    "commitConvention": null,
+    "pullRequestTitleConvention": null,
+    "issueReference": null,
+    "typeMap": null,
+    "allowedTypes": null,
+    "scopes": null
+  },
+  "docs": [ /* path, kind, scope, referencedFrom, content */ ],
+  "codeowners": "…",
+  "sources": [ /* provenance of every value above */ ]
+}
+```
+
 Everything is best-effort: a repository that declares nothing resolves to an
 empty policy with no error and no warning. A missing or unauthenticated `gh`, or
 no network at all, degrades the same way — the `Sources` section then reports the

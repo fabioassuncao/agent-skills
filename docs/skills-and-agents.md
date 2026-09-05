@@ -1,7 +1,15 @@
-# Issue Flow: Skills & Sub-Agent Architecture
+# The `resolve-issue` sub-agent
 
-Issue Flow can also be used interactively within [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via **skills** and the **`resolve-issue` sub-agent**. This document covers that usage model.
+This document covers the **Claude Code-specific** half of the interactive usage
+model: the `resolve-issue` sub-agent, which orchestrates the Agent Skills into
+one pipeline with modes, an auto-correction loop and phase resumption.
 
+> **The skills themselves are not Claude Code-specific and do not need this.**
+> They follow the open [Agent Skills](https://agentskills.io) format, work in
+> any compatible agent, and require neither the sub-agent nor the Issue Flow
+> CLI. Start at [**Agent Skills**](skills.md) — the catalogue, installation per
+> agent, the verified compatibility matrix and the contribution rules.
+>
 > For the CLI-first approach, see the [main README](../README.md) and the
 > [command reference](commands.md).
 
@@ -69,6 +77,10 @@ Skills and sub-agents are invoked differently in Claude Code:
 > **Important**: The `resolve-issue` sub-agent is **not** a skill and cannot be invoked with `/resolve-issue`. Use `@resolve-issue` or natural language instead.
 
 ## Components
+
+The skills below are documented in full — requirements, side effects,
+compatibility — in [Agent Skills](skills.md). This table is the orchestration
+view.
 
 | Component | Type | Description |
 |-----------|------|-------------|
@@ -148,22 +160,29 @@ The skills and the CLI are two paths to the same outcome, and **a user is
 entitled to the same decisions from both**. That is a contract, not an
 aspiration, and it is pinned by `src/policy/policy-parity.test.ts`.
 
-The skills are markdown and cannot import TypeScript, so the bridge between them
-is `issue-flow policy --json` — the inspection command of the policy layer,
-whose payload is therefore a published contract with a `schemaVersion`, not a
-debugging convenience. Adding a field is safe (readers ignore what they do not
-know); removing or renaming one bumps the version.
+The skills are markdown and cannot import TypeScript, so the rule they both
+follow is written once, in
+[`skills/_shared/contracts/repository-conventions.md`](../skills/_shared/contracts/repository-conventions.md),
+and materialised into every skill's own `references/` — see
+[how the skills stay in one piece](skills.md#how-the-skills-stay-in-one-piece).
+A skill that re-derives the invocation is a skill that will drift from it, and
+the parity test fails on the attempt.
 
-**One source, many references.** [`skills/_shared/repository-policy.md`](../skills/_shared/repository-policy.md)
-describes how to obtain and apply the policy. Every skill that takes a policy
-decision *references* it; none reproduces it. A skill that re-derives the
-invocation is a skill that will drift from it, and the parity test fails on the
-attempt.
+That contract names **three providers**, in order:
 
-The step is **best-effort by design**. Without the CLI, without the network, on
-a timeout, or in a repository that declares nothing, each skill continues with
-its own documented defaults. A skill that needs the network to work is a
-regression, so the fallback is part of the contract rather than an error path.
+1. `issue-flow policy --json` — preferred, because it normalises everything into
+   one payload with a `schemaVersion`. Adding a field is safe (readers ignore
+   what they do not know); removing or renaming one bumps the version.
+2. **Reading the repository directly** — `.github/ISSUE_TEMPLATE/`, the PR
+   template, `AGENTS.md`, `gh label list`, `gh api orgs/{org}/issue-types`,
+   `origin/HEAD`. Not a degraded mode: everything the CLI resolves is
+   discoverable from the repository itself.
+3. The documented defaults, only when neither answered.
+
+The step is **best-effort by design**: without the CLI, without the network, on
+a timeout, or in a repository that declares nothing, each skill continues. A
+skill that needs the network to work is a regression, so the fallback is part of
+the contract rather than an error path.
 
 ### What each path decides from
 
@@ -378,29 +397,20 @@ A malformed verdict is never coerced into `APPROVE`: it fails with `1` and the r
 
 The review is **intended to be read-only** on both surfaces: Write/Edit are not allowed, and the prompt forbids edits, commits and `gh pr review|comment|merge` (Bash remains available for inspection). On `REQUEST_CHANGES`, the sub-agent and `run` leave the issue open (and do not mark the local plan completed) and report the blockers with the report path; `run` itself still exits `0`. See [the CLI reference](commands.md#pr-review--reviewing-a-pull-request-as-a-whole) for the flags and the [`prReview` key](configuration.md#prreview) of `.issue-flow.json`.
 
-## Installation (Claude Code)
-
-Issue Flow has two types of components with different installation methods:
+## Installation
 
 | Component | Type | Portable | Claude Code required |
-|-----------|------|----------|---------------------|
-| `analyze-issue`, `generate-prd`, `convert-prd-to-json`, `execute-tasks`, `create-pr`, `review-issue`, `review-pr`, `generate-issue`, `generate-local-issue`, `init-repository` | Skills (`skills/`) | Yes -- works with any tool that supports [Agent Skills](https://agentskills.io) | No |
-| `resolve-issue` (orchestrator) | Sub-agent (`agents/`) | **No** -- exclusive to Claude Code | **Yes** |
+|---|---|---|---|
+| The ten skills in [`skills/`](../skills/) | Agent Skills | **Yes** — any compatible agent | No |
+| `resolve-issue` | Claude Code sub-agent | **No** | **Yes** |
 
-### Full installation (sub-agent + all skills)
+**Skills:** see [Agent Skills → Installing](skills.md#installing). In short,
+`npx skills add fabioassuncao/issue-flow` — which installs into
+`~/.agents/skills/` (or the project's `.agents/skills/`) and links each agent's
+own directory at it — or copy a skill's directory into the location your agent
+scans.
 
-Installs everything: the sub-agent orchestrator + all skills. This is the only way to get the full pipeline with modes, auto-correction loop, and pipeline resumption.
-
-```bash
-# Install all skills + sub-agent
-npx skills add fabioassuncao/issue-flow
-```
-
-This installs all skills into `.claude/skills/` and the sub-agent into `.claude/agents/`.
-
-**Sub-agent only (manual):**
-
-If you only need the sub-agent orchestrator:
+**The sub-agent**, which is what adds the orchestration:
 
 ```bash
 mkdir -p .claude/agents
@@ -408,48 +418,23 @@ curl -sSL https://raw.githubusercontent.com/fabioassuncao/issue-flow/main/agents
   -o .claude/agents/resolve-issue.md
 ```
 
-The sub-agent also requires the skills it orchestrates to be installed (see below).
+It needs the skills it orchestrates to be installed as well.
 
-### Skills only (any Agent Skills-compatible tool)
-
-If you use a tool other than Claude Code (or prefer to use skills individually without the orchestrator), install only the skills:
-
-```bash
-# All skills
-npx skills add fabioassuncao/issue-flow
-
-# A specific skill only
-npx skills add fabioassuncao/issue-flow --skill generate-issue
-```
-
-**Manual:**
-
-1. Download the desired skill folder from `skills/` in this repository.
-2. Copy it into your project's `.claude/skills/` directory.
-
-Skills are automatically available in any tool that supports [Agent Skills](https://agentskills.io).
+> **It runs with `permissionMode: bypassPermissions`.** It does not ask before
+> writing files, running commands or calling `gh` — which is the point of an
+> unattended pipeline, and a reason to install it deliberately rather than by
+> default. The skills have no such setting.
 
 ### What works without the sub-agent
 
-Without the `resolve-issue` sub-agent, each skill can still be used independently:
+Every skill, on its own: creating issues locally or on GitHub, analysing one,
+generating a PRD, converting it to a task plan, executing the stories, opening a
+Pull Request, reviewing an issue, reviewing a Pull Request.
 
-| Capability | Available without sub-agent? |
-|-----------|------------------------------|
-| Create issues (`generate-issue`) | Yes |
-| Create local issues (`generate-local-issue`) | Yes |
-| Analyze issues (`analyze-issue`) | Yes |
-| Generate PRDs (`generate-prd`) | Yes |
-| Convert PRD to JSON (`convert-prd-to-json`) | Yes |
-| Execute tasks (`execute-tasks`) | Yes |
-| Create PRs (`create-pr`) | Yes |
-| Review issues (`review-issue`) | Yes |
-| Review Pull Requests (`review-pr`) | Yes |
-| **Full orchestrated pipeline** | **No -- requires sub-agent** |
-| **Execution modes (auto/manual)** | **No -- requires sub-agent** |
-| **Auto-correction loop** | **No -- requires sub-agent** |
-| **Pipeline state resumption** | **No -- requires sub-agent** |
-
-Without the sub-agent, you can still run the full workflow manually by invoking each skill in sequence.
+What the sub-agent adds, and only it: the orchestrated end-to-end pipeline, the
+`auto`/`manual` mode gate, the auto-correction loop, and resumption across
+phases. Without it you can still run the whole workflow by invoking each skill
+in sequence.
 
 ## Headless / CI Usage
 

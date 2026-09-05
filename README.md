@@ -20,8 +20,10 @@ with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the default)
 agent per phase if you want. The issue can live on GitHub or as plain files in
 the global storage.
 
-It also ships as a set of [Agent Skills and a sub-agent](docs/skills-and-agents.md)
-for interactive use inside Claude Code.
+It also publishes ten [**Agent Skills**](docs/skills.md) that follow the open
+format and work in any compatible agent — Claude Code, Codex, Cursor, OpenCode,
+Gemini CLI, Antigravity — **without this CLI**. A Claude Code
+[sub-agent](docs/skills-and-agents.md) orchestrates them into one pipeline.
 
 ```bash
 npx issue-flow init      # check prerequisites and repository conventions
@@ -47,7 +49,7 @@ npx issue-flow run 42 --web   # …and watch it live in the browser
 - [Agents](#agents)
 - [Adapting to your repository](#adapting-to-your-repository)
 - [Unattended runs](#unattended-runs)
-- [Skills and sub-agent](#skills-and-sub-agent)
+- [Agent Skills](#agent-skills)
 - [Limitations and things worth knowing](#limitations-and-things-worth-knowing)
 - [Documentation](#documentation)
 - [Development](#development)
@@ -322,19 +324,36 @@ stuck mid-merge are clamped to zero attempts.
 
 See [**Resilience**](docs/resilience.md).
 
-## Skills and sub-agent
+## Agent Skills
 
-Issue Flow also ships as [Agent Skills](https://agentskills.io) and a
-`resolve-issue` sub-agent for interactive use inside Claude Code:
+Ten [Agent Skills](https://agentskills.io) — issue authoring, analysis, PRD,
+task plan, execution, Pull Request, and both reviews:
 
 ```bash
-npx skills add fabioassuncao/issue-flow
-npx skills add fabioassuncao/issue-flow --skill generate-issue
+npx skills add fabioassuncao/issue-flow#skills                          # all of them
+npx skills add fabioassuncao/issue-flow#skills --skill generate-issue   # just one
 ```
 
+The `#skills` ref names the branch carrying the assembled tree — the default
+branch holds sources. With the GitHub CLI, `gh skill install
+fabioassuncao/issue-flow <skill> --pin skills` does the same.
+[**Agent Skills**](docs/skills.md) explains why, and what to do with an
+installer that cannot pass a ref.
+
+**They do not need this CLI.** Each one is self-contained, carries its own
+references, and works in any agent that implements the open format. Where the
+CLI *is* installed, a skill uses it for a more deterministic answer — resolving
+the repository's conventions, computing a branch name — and falls back to
+reading the repository itself where it is not.
+
 The skills and the CLI are two paths to the same decisions, and that parity is a
-tested contract — the bridge between them is `issue-flow policy --json`. See
-[**Skills & sub-agent**](docs/skills-and-agents.md).
+tested contract: the rules they share are written once, in
+`skills/_shared/contracts/`, and materialised into both.
+
+The catalogue, per-agent installation, the verified compatibility matrix and the
+contribution rules are in [**Agent Skills**](docs/skills.md). The Claude
+Code-only orchestrator is in
+[**the sub-agent**](docs/skills-and-agents.md).
 
 ## Limitations and things worth knowing
 
@@ -388,7 +407,8 @@ design decisions and sharp edges worth knowing about.
 | [Verification and routing](docs/verification.md) | Acceptance contract, independent reviewer, shadow router, escalation |
 | [Conventions](docs/conventions.md) | How the repository's own conventions are discovered and applied |
 | [Git conventions](docs/git-conventions.md) | Branch, commit and Pull Request title |
-| [Skills & sub-agent](docs/skills-and-agents.md) | The interactive usage model and the parity contract |
+| [Agent Skills](docs/skills.md) | The portable skills: catalogue, installation, compatibility, contributing |
+| [Skills & sub-agent](docs/skills-and-agents.md) | The Claude Code orchestrator and the parity contract |
 | [Contributing](packages/issue-flow/CONTRIBUTING.md) | Environment, scripts, local testing, release process |
 | [Changelog](CHANGELOG.md) | Version history |
 
