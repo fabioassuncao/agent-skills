@@ -9,17 +9,17 @@
  * second reader was a CLI prompt — which is a build artifact, not a committed
  * file. Those moved into the skill that owns them.
  *
- * The copies that remain are *inside* each skill on purpose. Every real client —
- * `npx skills`, Cursor, Codex, OpenCode, Antigravity, the Microsoft Agent
- * Framework — copies or scans only the directory holding the SKILL.md, so a
- * `../_shared/` link resolves in this repository and dangles everywhere the
- * skill is actually used. Git makes it worse on Windows: with `core.symlinks`
+ * The copies that remain are *inside* each skill on purpose. Installing one
+ * directory does not install its siblings, so a `../_shared/` link that works
+ * in this repository would dangle in an individual installation.
+ * Git makes it worse on Windows: with `core.symlinks`
  * false, "symbolic links are checked out as small plain files that contain the
  * link text", so a symlink would be read as its own target path.
  */
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { markdownResources } from './skills-format.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -35,7 +35,7 @@ export const PROMPTS_DIR = 'packages/issue-flow/prompts';
 export const GENERATED_PREFIX = '<!-- Generated from ';
 
 export function generatedHeader(from) {
-  return `${GENERATED_PREFIX}${from} — do not edit. Run \`npm run skills:sync\`. -->`;
+  return `${GENERATED_PREFIX}${from} — generated artifact; do not edit. -->`;
 }
 
 /** Every skill directory, in name order. */
@@ -58,8 +58,9 @@ export async function listSkills() {
  */
 export function citedReferences(skillMd) {
   const found = new Set();
-  for (const [, name] of skillMd.matchAll(/(?:\]\(|`)references\/([a-z0-9-]+\.md)/g)) {
-    found.add(name);
+  for (const { target } of markdownResources(skillMd).links) {
+    const match = target.match(/^references\/([a-z0-9-]+\.md)(?:#.*)?$/);
+    if (match) found.add(match[1]);
   }
   return found;
 }

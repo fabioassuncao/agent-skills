@@ -2,16 +2,13 @@
 /**
  * Structural validation of every Agent Skill in `skills/`.
  *
- * Pins the parts of https://agentskills.io/specification that a reviewer cannot
- * hold in their head, plus the one rule the spec states and no tool enforces:
+ * Checks https://agentskills.io/specification plus the Issue Flow packaging
+ * contract (which is stricter than the open format in several respects):
  * **a skill may not reference anything outside its own directory**.
  *
- * That rule is not pedantry. Every real client — `npx skills`, Cursor, Codex,
- * OpenCode, Gemini CLI, Antigravity, the Microsoft Agent Framework — installs or
- * scans the directory that holds the SKILL.md and nothing above it. A `../`
- * reference is a link that resolves in the repository and dangles everywhere the
- * skill is actually used, which is the worst kind of defect: invisible to the
- * author, invisible to CI, visible only to the user.
+ * An individual installation contains the Skill directory, not its siblings.
+ * A sibling reference can resolve in the repository but dangle after copying,
+ * so checking the source tree alone is insufficient.
  *
  * Two modes, because the working tree and the published tree are not the same
  * thing:
@@ -29,9 +26,11 @@
  *
  * Exits 0 when clean, 1 when any error was found. Warnings never fail.
  */
-import { readFile, readdir, stat } from 'node:fs/promises';
-import { isAbsolute, join, normalize, relative, resolve } from 'node:path';
+import { lstat, readdir, readFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { markdownResources, parseFrontmatter } from './skills-format.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -44,8 +43,7 @@ if (treeIndex !== -1 && !TREE) {
   process.exit(2);
 }
 
-const SKILLS =
-  TREE === null ? join(ROOT, 'skills') : isAbsolute(TREE) ? TREE : resolve(ROOT, TREE);
+const SKILLS = TREE === null ? join(ROOT, 'skills') : isAbsolute(TREE) ? TREE : resolve(ROOT, TREE);
 
 /**
  * Contracts that live in `skills/_shared/contracts/` and are materialised into
@@ -108,87 +106,15 @@ function warn(skill, message) {
   warnings.push(`${skill}: ${message}`);
 }
 
-/**
- * Minimal YAML frontmatter reader.
- *
- * Deliberately not a YAML library: the spec's frontmatter is a flat map of
- * scalars plus one nested string map, adding a dependency to parse that would
- * be its own kind of overengineering. Anything this cannot parse is reported
- * rather than guessed at.
- */
-function parseFrontmatter(content) {
-  if (!content.startsWith('---\n')) return { error: 'missing YAML frontmatter' };
-
-  const end = content.indexOf('\n---', 3);
-  if (end === -1) return { error: 'frontmatter is never closed' };
-
-  const raw = content.slice(4, end + 1);
-  const body = content.slice(content.indexOf('\n', end + 1) + 1);
-  const fields = {};
-
-  let key = null;
-  let folded = null;
-  let nested = null;
-
-  for (const line of raw.split('\n')) {
-    if (line.trim() === '') {
-      if (folded !== null) folded.push('');
-      continue;
-    }
-
-    const indented = /^\s/.test(line);
-
-    if (indented && nested !== null) {
-      const pair = line.trim().match(/^([\w.-]+):\s*(.*)$/);
-      if (pair === null) return { error: `cannot parse metadata line: ${line.trim()}` };
-      nested[pair[1]] = pair[2].replace(/^["']|["']$/g, '');
-      continue;
-    }
-
-    if (indented && folded !== null) {
-      folded.push(line.trim());
-      continue;
-    }
-
-    const match = line.match(/^([\w.-]+):\s*(.*)$/);
-    if (match === null) return { error: `cannot parse frontmatter line: ${line}` };
-
-    if (folded !== null && key !== null) fields[key] = folded.join(' ').trim();
-    folded = null;
-    nested = null;
-
-    key = match[1];
-    const value = match[2].trim();
-
-    if (value === '>' || value === '|' || value === '>-' || value === '|-') {
-      folded = [];
-    } else if (value === '') {
-      nested = {};
-      fields[key] = nested;
-    } else {
-      fields[key] = value.replace(/^["']|["']$/g, '');
-    }
-  }
-
-  if (folded !== null && key !== null) fields[key] = folded.join(' ').trim();
-
-  return { fields, body };
-}
-
-/** Every local link and inline path a SKILL.md points at. */
+/** Paths used by both inline resource citations and Markdown links. */
 function localReferences(content) {
-  const found = new Set();
-
-  for (const [, target] of content.matchAll(/\]\(([^)\s]+)\)/g)) {
-    if (/^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(target)) continue;
-    found.add(target.split('#')[0]);
-  }
-  // `references/foo.md` and `scripts/foo.sh` written as inline code.
-  for (const [, target] of content.matchAll(/`((?:\.\.\/|\.\/)?(?:references|scripts|assets)\/[^`\s]+)`/g)) {
-    found.add(target);
-  }
-
-  return [...found].filter((t) => t !== '');
+  return [
+    ...new Set(
+      markdownResources(content)
+        .links.map(({ target }) => target.split('#')[0])
+        .filter(Boolean),
+    ),
+  ];
 }
 
 /** Rough token estimate. Good enough to catch a body that doubled in size. */
@@ -208,9 +134,11 @@ async function validateSkill(name) {
     return;
   }
 
-  const parsed = parseFrontmatter(content);
-  if (parsed.error !== undefined) {
-    error(name, parsed.error);
+  let parsed;
+  try {
+    parsed = parseFrontmatter(content);
+  } catch (err) {
+    error(name, err.message);
     return;
   }
 
@@ -239,7 +167,7 @@ async function validateSkill(name) {
     }
   }
 
-  if (typeof fields.description !== 'string' || fields.description === '') {
+  if (typeof fields.description !== 'string' || fields.description.trim() === '') {
     error(name, '`description` is required and must be a non-empty string');
   } else if (fields.description.length > LIMITS.description) {
     error(
@@ -258,10 +186,13 @@ async function validateSkill(name) {
     }
   }
 
+  if (fields.license !== undefined && typeof fields.license !== 'string')
+    error(name, '`license` must be a string');
+
   // --- optional fields -----------------------------------------------------
   if (fields.compatibility !== undefined) {
-    if (typeof fields.compatibility !== 'string') {
-      error(name, '`compatibility` must be a string');
+    if (typeof fields.compatibility !== 'string' || fields.compatibility.trim() === '') {
+      error(name, '`compatibility` must be a non-empty string');
     } else if (fields.compatibility.length > LIMITS.compatibility) {
       error(
         name,
@@ -273,7 +204,11 @@ async function validateSkill(name) {
   }
 
   if (fields.metadata !== undefined) {
-    if (typeof fields.metadata !== 'object' || fields.metadata === null) {
+    if (
+      typeof fields.metadata !== 'object' ||
+      fields.metadata === null ||
+      Array.isArray(fields.metadata)
+    ) {
       error(name, '`metadata` must be a map of string keys to string values');
     } else {
       for (const [k, v] of Object.entries(fields.metadata)) {
@@ -303,120 +238,115 @@ async function validateSkill(name) {
     error(name, `SKILL.md body is ~${tokens} tokens (max ${LIMITS.tokens})`);
   }
 
-  // --- portability: nothing may point outside the skill --------------------
-  for (const target of localReferences(content)) {
-    const resolved = normalize(join(dir, target));
-    const outside = relative(dir, resolved).startsWith('..');
-
-    if (outside) {
-      error(
-        name,
-        `\`${target}\` points outside the skill directory — it will dangle wherever the skill is installed`,
-      );
-      continue;
-    }
-
-    try {
-      await stat(resolved);
-    } catch {
-      if (!suppliedByBuild(target)) {
-        error(name, `\`${target}\` does not exist`);
-      }
-    }
-  }
-
-  // --- a shipped file nothing points at is dead weight -------------------
-  //
-  // A dead reference is not a broken one, so nothing used to catch it: four
-  // generated files sat in the tree that no SKILL.md cited. They cost the
-  // reader nothing at runtime and the maintainer every time they are edited.
-  try {
-    const refs = await readdir(join(dir, 'references'), { withFileTypes: true });
-    const cited = new Set(localReferences(content));
-    for (const entry of refs) {
-      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
-      if (cited.has(`references/${entry.name}`)) continue;
-      error(name, `references/${entry.name} is never cited by SKILL.md — remove it`);
-    }
-  } catch {
-    /* no references/ */
-  }
-
-  // --- a reference may not be reachable only through another reference ----
-  //
-  // "Keep file references one level deep from SKILL.md. Avoid deeply nested
-  // reference chains." An agent that only meets a file by following a link
-  // inside another file may never open it — and if that file was never shipped,
-  // the link is simply broken, which is how the three-skill defect got through
-  // the first version of this check.
-  const named = new Set(localReferences(content));
-  try {
-    const refs = await readdir(join(dir, 'references'), { withFileTypes: true });
-    for (const entry of refs) {
-      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
-      const body = await readFile(join(dir, 'references', entry.name), 'utf-8');
-
-      for (const target of localReferences(body)) {
-        const resolved = normalize(join(dir, target));
-        if (relative(dir, resolved).startsWith('..')) {
-          error(name, `references/${entry.name}: \`${target}\` points outside the skill`);
-          continue;
-        }
-        try {
-          await stat(resolved);
-        } catch {
-          if (!suppliedByBuild(target)) {
-            error(name, `references/${entry.name}: \`${target}\` does not exist`);
-          }
-          continue;
-        }
-        if (!named.has(target) && target !== `references/${entry.name}`) {
-          error(
-            name,
-            `references/${entry.name} points at \`${target}\`, which SKILL.md never names — ` +
-              'a reference reachable only through another reference is a chain',
-          );
-        }
-      }
-    }
-  } catch {
-    /* no references/ */
-  }
-
-  // --- the README ships with the skill, so its links must resolve too -----
-  try {
-    const readme = await readFile(join(dir, 'README.md'), 'utf-8');
-    for (const target of localReferences(readme)) {
-      const resolved = normalize(join(dir, target));
-      if (relative(dir, resolved).startsWith('..')) {
-        error(name, `README.md: \`${target}\` points outside the skill directory`);
+  // Validate every shipped file, including nested references and generated contracts.
+  const files = new Map();
+  async function walk(folder) {
+    for (const entry of await readdir(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      const rel = relative(dir, path).split('\\').join('/');
+      const info = await lstat(path);
+      if (info.isSymbolicLink()) {
+        error(name, `${rel}: symlinks are not portable`);
         continue;
       }
-      try {
-        await stat(resolved);
-      } catch {
-        if (!suppliedByBuild(target)) {
-          error(name, `README.md: \`${target}\` does not exist`);
-        }
+      if (info.isDirectory()) {
+        await walk(path);
+        continue;
+      }
+      if (!info.isFile()) {
+        error(name, `${rel}: unsupported file type`);
+        continue;
+      }
+      files.set(
+        rel,
+        /\.(md|sh|py|mjs|js|json|ya?ml)$/.test(path) ? await readFile(path, 'utf8') : null,
+      );
+      if (
+        rel.startsWith('scripts/') &&
+        /\.(sh|py|mjs|js)$/.test(rel) &&
+        (info.mode & 0o111) === 0
+      ) {
+        error(name, `${rel}: script is not executable`);
+      }
+      if (
+        TREE === null &&
+        path.endsWith('.md') &&
+        files.get(rel).startsWith('<!-- Generated from ')
+      ) {
+        error(name, `${rel}: generated files do not belong in the source tree`);
       }
     }
-  } catch {
-    warn(name, 'no README.md: humans browsing the repository have nothing to read');
   }
-
-  // --- scripts must be runnable -------------------------------------------
-  try {
-    const scripts = await readdir(join(dir, 'scripts'), { withFileTypes: true });
-    for (const entry of scripts) {
-      if (!entry.isFile()) continue;
-      const info = await stat(join(dir, 'scripts', entry.name));
-      // 0o111 — executable by someone. A script nobody can run is a broken step.
-      if ((info.mode & 0o111) === 0) {
-        error(name, `scripts/${entry.name} is not executable`);
+  await walk(dir);
+  for (const target of localReferences(body)) {
+    if (!files.has(target) && suppliedByBuild(target)) {
+      files.set(
+        target,
+        await readFile(join(ROOT, 'skills/_shared/contracts', target.slice(11)), 'utf8'),
+      );
+    }
+  }
+  const named = new Set(localReferences(body));
+  for (const [file, text] of files) {
+    if (file.startsWith('references/') && !named.has(file)) {
+      error(name, `${file}: must be cited directly by SKILL.md`);
+    }
+    if (text === null) continue;
+    const prose = file === 'SKILL.md' ? body : text;
+    const flat = prose.replace(/\s+/g, ' ');
+    if (/\bnpx\b[^`\n]*\bissue-flow(?:@|\s)/.test(flat)) {
+      error(
+        name,
+        `${file}: downloading Issue Flow at runtime is forbidden; use the portable fallback`,
+      );
+    }
+    if (
+      /~\/\.issue-flow|ISSUE_FLOW_HOME|\bissue-flow\s+(?:db|resume|web|routing|agent)\b/.test(flat)
+    ) {
+      error(name, `${file}: depends on private CLI runtime/state`);
+    }
+    if (/\b(?:Read|Write|Edit|Bash|Task|WebFetch|Skill)\s*\(/.test(flat) || /!`/.test(flat)) {
+      error(name, `${file}: provider-specific tool invocation or dynamic context injection`);
+    }
+    if (!file.endsWith('.md')) continue;
+    for (const { target, rootRelative } of markdownResources(prose).links) {
+      let decoded;
+      try {
+        decoded = decodeURIComponent(target);
+      } catch {
+        error(name, `${file}: malformed URL ${target}`);
+        continue;
+      }
+      const [path, anchor] = decoded.split('#');
+      if (isAbsolute(path) || /^[A-Za-z]:/.test(path) || path.includes('\\')) {
+        error(name, `${file}: absolute or non-portable path ${target}`);
+        continue;
+      }
+      const resolved = path
+        ? resolve(rootRelative ? dir : dirname(join(dir, file)), path)
+        : join(dir, file);
+      const rel = relative(dir, resolved).split('\\').join('/');
+      if (rel === '..' || rel.startsWith('../') || isAbsolute(rel)) {
+        error(name, `${file}: ${target} points outside the skill`);
+        continue;
+      }
+      if (!files.has(rel)) {
+        // Directory links are useful, but may not point at an absent directory.
+        try {
+          if (!(await lstat(resolved)).isDirectory()) throw new Error();
+        } catch {
+          error(name, `${file}: ${target} does not exist`);
+        }
+        continue;
+      }
+      if (
+        anchor &&
+        files.get(rel) !== null &&
+        !markdownResources(files.get(rel)).anchors.has(anchor)
+      ) {
+        error(name, `${file}: ${target} has an invalid anchor`);
       }
     }
-  } catch {
-    /* no scripts/ — the common case */
   }
 
   // --- self-documentation --------------------------------------------------
@@ -427,6 +357,9 @@ async function validateSkill(name) {
 
 async function main() {
   const entries = await readdir(SKILLS, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) error(entry.name, 'skill directory is a symlink');
+  }
   const skills = entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('_') && !e.name.startsWith('.'))
     .map((e) => e.name)
@@ -473,7 +406,9 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`✓ ${skills.length} skills conform to the Agent Skills specification`);
+  console.log(
+    `✓ ${skills.length} skills pass structural and portability checks (not behavioral certification)`,
+  );
 }
 
 main().catch((err) => {

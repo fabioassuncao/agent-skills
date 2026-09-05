@@ -41,8 +41,10 @@ async function script(name: string, ...args: string[]): Promise<string> {
 }
 
 describe('the published skills', () => {
-  it('conform to the Agent Skills specification', async () => {
-    await expect(script('validate-skills.mjs')).resolves.toContain('conform to the Agent Skills');
+  it('pass structural and portability checks specification', async () => {
+    await expect(script('validate-skills.mjs')).resolves.toContain(
+      'pass structural and portability checks',
+    );
   }, 30_000);
 
   it('supply every prompt contract from a single source', async () => {
@@ -56,7 +58,7 @@ describe('the published skills', () => {
     try {
       await script('build-skills-tree.mjs', '--out', out);
       await expect(script('validate-skills.mjs', '--tree', out)).resolves.toContain(
-        'conform to the Agent Skills',
+        'pass structural and portability checks',
       );
     } finally {
       await rm(out, { recursive: true, force: true });

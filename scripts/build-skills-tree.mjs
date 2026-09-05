@@ -8,23 +8,22 @@
  * handful of contracts in `skills/_shared/contracts/` that more than one skill
  * cites. Nothing is duplicated there.
  *
- * A skill only works when it is self-contained, though — every real client
- * copies or scans the directory holding the SKILL.md and nothing above it. So
- * the tree that gets published is assembled: each skill directory, plus a copy
+ * Individual installation requires a self-contained directory. So the tree
+ * that gets published is assembled: each skill directory, plus a copy
  * of every shared contract its SKILL.md actually cites.
  *
  * That published tree is what `npx skills add fabioassuncao/issue-flow#skills`
  * installs. The default branch carries sources, not the artifact.
  */
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { cp, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   CONTRACTS_DIR,
-  ROOT,
-  SKILLS_DIR,
   citedReferences,
   generatedHeader,
   listSkills,
+  ROOT,
+  SKILLS_DIR,
   sharedContracts,
 } from './skill-contracts.mjs';
 
@@ -43,10 +42,56 @@ async function main() {
   // repository. `join(ROOT, '/tmp/x')` would quietly produce '<repo>/tmp/x'.
   const outAbs = isAbsolute(out) ? out : resolve(ROOT, out);
 
+  // Never recursively remove a caller's directory. Rebuild only a tree we own.
+  const marker = '.issue-flow-skills-build.json';
+  let ancestor = outAbs;
+  while (true) {
+    try {
+      await lstat(ancestor);
+      break;
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      ancestor = dirname(ancestor);
+    }
+  }
+  const physicalOut = resolve(await realpath(ancestor), relative(ancestor, outAbs));
+  const physicalRoot = await realpath(ROOT);
+  const rootRelative = relative(physicalRoot, physicalOut);
+  if (
+    !rootRelative ||
+    (!rootRelative.startsWith('..') && !rootRelative.startsWith('dist/')) ||
+    relative(physicalOut, physicalRoot).split('/')[0] !== '..'
+  ) {
+    throw new Error('Unsafe --out: use dist/<name> or a separate empty temporary directory');
+  }
+  let entries = [];
+  try {
+    if ((await lstat(outAbs)).isSymbolicLink()) throw new Error('Output must not be a symlink');
+    entries = await readdir(outAbs);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  if (entries.length) {
+    let owned;
+    try {
+      owned = JSON.parse(await readFile(join(outAbs, marker), 'utf8'));
+    } catch {
+      throw new Error('Refusing to replace a nonempty directory without a build manifest');
+    }
+    if (
+      owned.source !== physicalRoot ||
+      !Array.isArray(owned.skills) ||
+      entries.some((name) => name !== marker && !owned.skills.includes(name))
+    ) {
+      throw new Error('Refusing to remove unrecognized files in the output directory');
+    }
+  }
+
   await rm(outAbs, { recursive: true, force: true });
   await mkdir(outAbs, { recursive: true });
 
   const skills = await listSkills();
+  await writeFile(join(outAbs, marker), `${JSON.stringify({ source: physicalRoot, skills })}\n`);
   const shared = await sharedContracts();
   const sources = new Map();
   let materialised = 0;
@@ -58,6 +103,8 @@ async function main() {
     // The whole directory: SKILL.md, README.md, references/, scripts/, assets/.
     // `scripts/` must stay executable, which `cp` preserves.
     await cp(from, to, { recursive: true });
+    // An individual copied skill carries its license, not only an SPDX label.
+    await cp(join(ROOT, 'LICENSE'), join(to, 'LICENSE'));
 
     const skillMd = await readFile(join(from, 'SKILL.md'), 'utf-8');
     for (const name of citedReferences(skillMd)) {
@@ -78,6 +125,8 @@ async function main() {
       materialised += 1;
     }
   }
+
+  await writeFile(join(outAbs, marker), `${JSON.stringify({ source: physicalRoot, skills })}\n`);
 
   console.log(
     `✓ built ${skills.length} skills into ${out} ` +
