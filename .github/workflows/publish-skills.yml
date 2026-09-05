@@ -1,0 +1,88 @@
+# Publish the assembled Agent Skills tree.
+#
+# The default branch carries **sources**: each skill's own references, plus the
+# few contracts in `skills/_shared/contracts/` that more than one skill cites.
+# A skill only works when it is self-contained, though, so the tree users
+# install is assembled here and pushed to the `skills` branch.
+#
+#   npx skills add fabioassuncao/issue-flow#skills
+#
+# The branch is orphaned — no shared history, force-pushed every time — so it
+# never merges into anything and never conflicts.
+name: Publish skills
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: publish-skills
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Assemble the tree
+        run: node scripts/build-skills-tree.mjs --out dist/skills
+
+      # A dangling reference in the published tree is invisible to us and fatal
+      # to the user, so this gate runs before anything is pushed.
+      - name: Validate the assembled tree
+        run: node scripts/validate-skills.mjs --tree dist/skills
+
+      - name: Push to the skills branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd dist/skills
+
+          cat > README.md <<'READ'
+          # Issue Flow — Agent Skills
+
+          Assembled from the sources in
+          [`skills/`](https://github.com/fabioassuncao/issue-flow/tree/main/skills)
+          on the default branch. **Do not edit this branch** — it is force-pushed
+          on every publish.
+
+              npx skills add fabioassuncao/issue-flow#skills
+              npx skills add fabioassuncao/issue-flow#skills@create-pr
+
+          Documentation:
+          [docs/skills.md](https://github.com/fabioassuncao/issue-flow/blob/main/docs/skills.md)
+          READ
+
+          git init -q -b skills
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish skills from ${GITHUB_SHA}"
+          git push -q --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            skills
+
+      # A tag gives users something stable to pin: `#v0.19.0` installs the tree
+      # as it was at that release.
+      - name: Tag the published tree
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd dist/skills
+          git tag "skills-${GITHUB_REF_NAME}"
+          git push -q --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "skills-${GITHUB_REF_NAME}"

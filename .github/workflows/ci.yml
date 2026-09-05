@@ -31,6 +31,16 @@ jobs:
 
       - run: npm run lint
 
+      # The Agent Skills are a published interface, and the ways they break are
+      # invisible from inside this repository: a `../` reference resolves here
+      # and dangles wherever a skill is installed.
+      - run: npm run skills:check
+
+      # And the working tree is not what users install — it holds sources. This
+      # assembles the tree the `skills` branch publishes and validates it
+      # strictly, so a broken artifact fails on the PR rather than on the user.
+      - run: npm run skills:verify
+
       - run: npm run typecheck
 
       - run: npm test
