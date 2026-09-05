@@ -317,7 +317,13 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   if (!existsSync(paths.prdFile)) {
     printError(`PRD file not found at ${paths.prdFile}`);
     if (config.issueNumber) {
-      emitLog(`Have you run the resolve-issue skill for issue #${config.issueNumber} first?`);
+      // `resolve-issue` is the Claude Code sub-agent, which most users do not
+      // have. Name the command and the portable skill instead — both produce
+      // the plan this step is missing.
+      emitLog(
+        `Run \`issue-flow plan ${config.issueNumber}\` first, ` +
+          'or the convert-prd-to-json skill, to create it.',
+      );
     }
     return 1;
   }
