@@ -622,6 +622,14 @@ Migration is **automatic**: the first command that resolves a path for a project
 copies an existing `<projectRoot>/issues/` tree into the global storage before
 reading anything. There is no command to run and no flag to pass.
 
+The same fallback also applies per issue: if the global project already exists
+but one issue is present only in `<projectRoot>/issues/N/`, resolving that issue
+copies it. This permits an initial handoff from the interactive skills to the
+CLI. It is deliberately not a two-way synchronization protocol: an existing
+global destination wins, later local edits are ignored, and CLI state is never
+copied back into the repository. After adoption, continue that issue through
+the CLI. See the [reproduced skills/CLI continuity matrix](research/2026-09-05-pipeline-iterations-corrections-continuity.md#4-continuity-between-skills-and-cli).
+
 That same first resolution imports the global project's structured JSON state
 into SQLite. The importer records a SHA-256 hash for every source artifact, so
 restarts resume without duplicating rows; it imports the project, plans and

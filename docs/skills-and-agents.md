@@ -19,16 +19,30 @@ Issue Flow uses a **sub-agent + skills** architecture:
 
 **This is the one place the two surfaces genuinely differ.** The skills and the
 sub-agent write to `<projectRoot>/issues/{N}/` — inside the repository, where the
-session that invoked them is already working. The CLI writes to
-`~/.issue-flow/projects/<project-id>/issues/{N}/` (see
-[Storage](storage.md)) and treats a repository-level `issues/` tree as a legacy
-directory it copies from and never writes to.
+session that invoked them is already working. The CLI writes compatibility
+artifacts to `~/.issue-flow/projects/<project-id>/issues/{N}/` and, with the
+default driver, keeps structured state in SQLite (see [Storage](storage.md)). It
+never writes back to the repository-level tree.
 
-The consequence is worth stating plainly: **artifacts produced by the skills are
-not the ones the CLI reads, and vice versa.** A run started interactively does
-not resume with `issue-flow resume`, and an `issue-flow run` cannot be picked up
-by `@resolve-issue`. Pick one surface per issue. Add `/issues` to `.gitignore`
-unless you deliberately want the interactive artifacts committed.
+There is one directional compatibility bridge. When the CLI first encounters a
+legacy issue whose global destination does not exist, it copies the local
+artifacts without overwriting anything and imports valid structured state into
+SQLite. A skill-created `tasks.json` can therefore seed the CLI, including its
+pipeline flags: `issue-flow resume` continues from the next incomplete phase.
+This is a **one-time adoption, not synchronization**:
+
+- after the global issue directory exists, later edits under the repository's
+  `issues/{N}/` are not merged into CLI state;
+- CLI changes are never exported back for `@resolve-issue` to read;
+- a copied `session.json` is not adopted as live execution state, and legacy
+  journal events require an explicit `issue-flow db import --with-events`.
+
+In practice, pick one surface per issue. The only supported switch is an initial
+skills → CLI handoff, after which the CLI remains authoritative. CLI → skills
+and repeated alternation are unsupported. Add `/issues` to `.gitignore` unless
+you deliberately want the interactive artifacts committed. The reproduced
+behaviour and loss matrix are recorded in the
+[#107 investigation](research/2026-09-05-pipeline-iterations-corrections-continuity.md#4-continuity-between-skills-and-cli).
 
 ### Issue sources
 
@@ -111,6 +125,11 @@ when another process owns the run, read the journal to name the phase that was
 interrupted, and stop on a repository state that needs a human. A skill running
 inside your session has you sitting in front of it, which is the same guarantee
 by other means.
+
+That parity does not imply a shared checkpoint. Each surface normally resumes
+its own `tasks.json`; the initial skills → CLI adoption described above can
+transfer phase flags, but not a live owner/session, and there is no reverse
+transfer.
 
 ## Operating a run: a CLI-only surface, by construction
 
