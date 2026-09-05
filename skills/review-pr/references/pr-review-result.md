@@ -1,0 +1,36 @@
+## Pull Request review report
+
+Use these eight headings in order:
+
+```markdown
+## Executive summary
+## Strengths
+## Issues found
+## Suggested improvements
+## Architectural observations
+## Risks identified
+## Required before merge
+## Final recommendation
+```
+
+Anchor findings to the PR head revision. In Issues found and Required before merge use `- [severity] path/to/file:line — Short title`, with severity blocker/high/medium/low. Omit the line only for a whole-file finding. Explain below the item. Empty sections contain _None._
+
+Example finding accepted by the report index:
+
+```markdown
+- [severity] path/to/file.ts:123 — Short title of the problem
+```
+
+APPROVE means no blocker or meaningful improvement; APPROVE_WITH_SUGGESTIONS means non-blocking improvements; REQUEST_CHANGES means a concrete blocker, such as a defect, missing critical verification or mandatory requirement. Do not turn a preference into a blocker. Declare files reviewed fully, skimmed or omitted when coverage is limited. An incomplete required review must not be presented as approval.
+
+Finish with:
+
+```text
+<pr-review-result>
+RECOMMENDATION: APPROVE
+BLOCKERS:
+- None
+</pr-review-result>
+```
+
+Use one of the three recommendations, exactly. REQUEST_CHANGES lists at least one blocker. Missing or malformed output is a failed review, never APPROVE. This block is the last output.

@@ -40,7 +40,7 @@ Create a tasks.json file at __TASKS_PATH__ with this exact structure:
   "maxCorrectionCycles": 3,
   "lastReviewFindings": null,
   "pipeline": {
-    "analyzeCompleted": true,
+    "analyzeCompleted": false,
     "prdCompleted": true,
     "jsonCompleted": true,
     "executionCompleted": false,
@@ -65,7 +65,8 @@ Rules:
 - Priority should order stories by dependency (build foundations first)
 - Story ids MUST start at __NEXT_US_NUMBER__ and increase sequentially — never
   restart at US-001 when __NEXT_US_NUMBER__ says otherwise
-- acceptanceCriteria must include "Typecheck passes" for code changes
+- acceptanceCriteria must name relevant checks from the repository toolchain; include
+  typechecking only when the project has a typechecker
 - issueUrl is already resolved above: a GitHub URL when the source is `github`,
   the path of the local issue file when the source is `local`. Use it verbatim
   and never derive it yourself
@@ -90,9 +91,25 @@ silent, the defaults above still apply.
 
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
+
+Use the repository's applicable issue template instead of layering another body template over it. Fill required fields; ask when two templates fit equally. Keep the PR template's sections, explaining non-applicable ones briefly.
+
+Use existing label casing. Never create a label unless explicitly opted in by issues.allowLabelCreation and the action is authorized. Drop labels known to be absent; report lost classification. When the registry is unavailable, report that validation could not be performed rather than claiming the label does not exist. Local metadata labels are free-form and should reuse the local vocabulary.
+
+Prefer native fields over labels and textual prefixes. Do not reintroduce a type prefix when the repository uses native Issue Types unless its declared title convention requires it. Defaults apply only to undeclared choices; obtain the fallback taxonomy from the bundled conventions helper where supplied.
 <!-- /if -->
 
 ## Branch naming
 
 `branchName` is `__BRANCH_NAME__`. Copy it exactly. The CLI computed it from the
 repository convention; do not slugify the title yourself.
+
+## Evidence before completion
+
+Use fresh evidence from the revision being delivered. Read the repository's test/build instructions and execute the relevant checks after the final meaningful change. Record commands, results and material coverage limits. An earlier green run, a checked checkbox or another agent's claim is not current verification.
+
+If a required check fails or cannot run, report the failure or unverified criterion. Do not mark that criterion passed or emit a completion/approval signal. Discover checks appropriate to the stack; do not require TypeScript checks in a project without TypeScript. For UI acceptance, use an available browser capability and record what was exercised; missing browser verification remains pending when required.
+
+For bug fixes, reproduce the defect with a focused check before correcting it when the repository and environment permit. Follow existing testing conventions; do not impose universal TDD or tests that merely restate the implementation.
+
+Evaluate review feedback against the code and requirements before applying it. Reproduce valid defects where feasible. Record why an incorrect or inapplicable finding was rejected, with evidence, rather than changing code just to satisfy its wording. Re-review after valid fixes.

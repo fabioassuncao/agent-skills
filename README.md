@@ -12,7 +12,7 @@
 > change it produces. Token consumption is not optimized yet.
 > Full notice: [**Project status**](docs/project-status.md).
 
-Issue Flow is a CLI that orchestrates the whole path — analyse, plan, implement,
+Issue Flow provides an independent CLI and portable Agent Skills. The CLI orchestrates the whole path — analyse, plan, implement,
 verify, review, deliver — by driving a coding agent in headless mode. It works
 with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the default),
 [Codex CLI](https://developers.openai.com/codex/noninteractive), Cursor CLI and
@@ -20,8 +20,8 @@ with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the default)
 agent per phase if you want. The issue can live on GitHub or as plain files in
 the global storage.
 
-It also ships as a set of [Agent Skills and a sub-agent](docs/skills-and-agents.md)
-for interactive use inside Claude Code.
+Its eleven [Agent Skills](docs/skills-and-agents.md), including the full
+`resolve-issue` workflow, run directly in compatible coding agents without the CLI.
 
 ```bash
 npx issue-flow init      # check prerequisites and repository conventions
@@ -107,6 +107,9 @@ worth taking, is in [**Project status**](docs/project-status.md).
   branch, commit and branch conventions are [discovered, not imposed](docs/conventions.md).
 
 ## Requirements
+
+These requirements apply to the CLI. Skill requirements are listed in
+[Skills and the CLI](docs/skills-and-agents.md#use-without-the-cli).
 
 - **Node.js** ≥ 22.13.0
 - **Git**, available in `PATH`, inside a repository
@@ -223,7 +226,7 @@ Every flag is documented in [**Commands**](docs/commands.md).
 
 ## Where things are written
 
-**Nothing is written inside your repository.** Every artifact lives in a
+**CLI pipeline artifacts** live in a
 machine-wide storage tree keyed by a deterministic project id:
 
 ```
@@ -324,17 +327,21 @@ See [**Resilience**](docs/resilience.md).
 
 ## Skills and sub-agent
 
-Issue Flow also ships as [Agent Skills](https://agentskills.io) and a
-`resolve-issue` sub-agent for interactive use inside Claude Code:
+Install one Skill, a selected set, or the portable full workflow independently:
 
 ```bash
-npx skills add fabioassuncao/issue-flow
-npx skills add fabioassuncao/issue-flow --skill generate-issue
+npx skills add fabioassuncao/issue-flow --list
+npx skills add fabioassuncao/issue-flow --skill review-issue -a codex
+npx skills add fabioassuncao/issue-flow --skill resolve-issue -a claude-code codex
+npx skills add fabioassuncao/issue-flow --skill '*' -a opencode
 ```
 
-The skills and the CLI are two paths to the same decisions, and that parity is a
-tested contract — the bridge between them is `issue-flow policy --json`. See
-[**Skills & sub-agent**](docs/skills-and-agents.md).
+Each generated directory contains all its references and bundled helpers.
+The CLI is optional; shared rules come from canonical sources at build time.
+A thin Claude subagent adapter can be installed separately. See
+[Skills and the CLI](docs/skills-and-agents.md), the
+[agent compatibility matrix](docs/skills-compatibility.md), and
+[contributor guide](docs/skills.md).
 
 ## Limitations and things worth knowing
 
@@ -342,7 +349,7 @@ The maturity of the project as a whole — and where it should not be used yet �
 is in [**Project status**](docs/project-status.md). What follows is the list of
 design decisions and sharp edges worth knowing about.
 
-- **Artifacts are machine-local.** They live under `~/.issue-flow`, not in the
+- **CLI artifacts are machine-local.** They live under `~/.issue-flow`, not in the
   repository, so they are not shared through git. Local issues are machine-local
   too — use `generate --both` to keep the demand on GitHub as well.
 - **The CLI and the skills do not share artifacts.** The skills and the
@@ -351,7 +358,7 @@ design decisions and sharp edges worth knowing about.
   other — pick one per issue.
 - **`--mode manual` is not a CLI planning mode.** On the CLI it is recorded in the
   run header and refuses `--background`; it does not stop the pipeline after the
-  artifacts. That behaviour belongs to the `resolve-issue` sub-agent.
+  artifacts. That behaviour belongs to the portable `resolve-issue` Skill.
 - **Per-story cost is an approximation.** The harness reports usage per
   invocation, not per story. When one iteration completes several stories, its
   tokens and cost are split evenly among them.
@@ -388,7 +395,10 @@ design decisions and sharp edges worth knowing about.
 | [Verification and routing](docs/verification.md) | Acceptance contract, independent reviewer, shadow router, escalation |
 | [Conventions](docs/conventions.md) | How the repository's own conventions are discovered and applied |
 | [Git conventions](docs/git-conventions.md) | Branch, commit and Pull Request title |
-| [Skills & sub-agent](docs/skills-and-agents.md) | The interactive usage model and the parity contract |
+| [Agent Skills](docs/skills-and-agents.md) | Independent usage, installation and optional CLI integration |
+| [Skill authoring](docs/skills.md) | Sources, generated artifacts, sync, checks and isolation |
+| [Skill compatibility](docs/skills-compatibility.md) | Official host support and observed installation behavior |
+| [Skill evals](docs/skills-evals.md) | Behavioral scenarios, runners and evidence |
 | [Contributing](packages/issue-flow/CONTRIBUTING.md) | Environment, scripts, local testing, release process |
 | [Changelog](CHANGELOG.md) | Version history |
 
@@ -400,6 +410,9 @@ Dated investigations that produced knowledge rather than rules live in
 ```bash
 cd packages/issue-flow
 npm install
+npm run skills:sync    # regenerate Skills and packaged prompt contracts
+npm run skills:check   # read-only drift and portability check
+npm run skills:test    # isolated artifacts and helper behavior
 npm run build          # tsup → dist/
 npm run typecheck
 npm test

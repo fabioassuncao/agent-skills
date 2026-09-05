@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInitialSnapshot } from '../core/session-state.js';
 import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import { touchStoredSession } from '../storage/db/repository.js';
@@ -114,19 +114,23 @@ describe('web/session-directory', () => {
 
   it('expires sessions after their database heartbeat stops', async () => {
     const publisher = publishSession();
-    await publisher.flush();
-    const handle = watch({ staleAfterMs: 30 });
+    await publisher.close();
+    const handle = watch({ pollIntervalMs: 60_000 });
     await waitFor(() => handle.sessions().length === 1);
-    await waitFor(() => handle.sessions().length === 0);
 
-    // Keep the assertion independent from CI scheduling: the production window
-    // is 90 seconds, while this test compresses it to 30 ms.
-    await touchStoredSession(
-      context('proj-a', '42'),
-      'sess-a',
-      new Date(Date.now() + 1000).toISOString(),
-    );
-    await waitFor(() => handle.sessions().length === 1);
+    // Advance only the query clock. All persisted snapshots must age together;
+    // a 30 ms real-time window can expire before the first scan on loaded CI.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + DEFAULT_STALE_AFTER_MS * 2);
+    try {
+      await handle.refresh();
+      expect(handle.sessions()).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+
+    await touchStoredSession(context('proj-a', '42'), 'sess-a');
+    await handle.refresh();
+    expect(handle.sessions()).toHaveLength(1);
   });
 
   it('reads compatibility sessions and journals without SQLite in JSON mode', async () => {

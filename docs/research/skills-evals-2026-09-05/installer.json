@@ -1,0 +1,51 @@
+{
+  "installer": "1.5.23",
+  "results": [
+    {
+      "scenario": "discovery",
+      "status": "PASS",
+      "count": 11
+    },
+    {
+      "scenario": "individual direct paths, copied resources",
+      "status": "PASS",
+      "count": 11
+    },
+    {
+      "scenario": "all Skills, copy, Claude/Codex/OpenCode and list",
+      "status": "PASS"
+    },
+    {
+      "scenario": "all Skills, symlink, Claude/Codex/OpenCode and list",
+      "status": "PASS"
+    },
+    {
+      "scenario": "subset and recursive discovery",
+      "status": "PASS"
+    },
+    {
+      "scenario": "Git URL clone, discovery and complete artifacts",
+      "status": "PASS"
+    },
+    {
+      "scenario": "Git URL update invocation",
+      "exitCode": 1,
+      "status": "OBSERVED",
+      "output": "Checking for skill updates\u2026\n\nUpdating for: Universal\nRefreshing 11 skill(s)\u2026\n\nUpdating analyze-issue\u2026\n  \u2717 Failed to update analyze-issue\nUpdating convert-prd-to-json\u2026\n  \u2717 Failed to update convert-prd-to-json\nUpdating create-pr\u2026\n  \u2717 Failed to update create-pr\nUpdating execute-tasks\u2026\n  \u2717 Failed to update execute-tasks\nUpdating generate-issue\u2026\n  \u2717 Failed to update generate-issue\nUpdating generate-local-issue\u2026\n  \u2717 Failed to update generate-local-issue\nUpdating generate-prd\u2026\n  \u2717 Failed to update generate-prd\nUpdating init-repository\u2026\n  \u2717 Failed to update init-repository\nUpdating resolve-issue\u2026\n  \u2717 Failed to update resolve-issue\nUpdating review-issue\u2026\n  \u2717 Failed to update review-issue\nUpdating review-pr\u2026\n  \u2717 Failed to update review-pr\n\nFailed to update 11 skill(s)"
+    },
+    {
+      "scenario": "Git revision refresh through add",
+      "status": "PASS"
+    },
+    {
+      "scenario": "global install/list in disposable user container",
+      "status": "PASS"
+    },
+    {
+      "scenario": "local update invocation",
+      "status": "OBSERVED",
+      "output": "Checking for skill updates\u2026\n\nNo project skills to update.\nInstall project skills with npx skills add <package>",
+      "limitation": "GitHub update of the new artifacts requires this revision to be published. Local-source update is not a remote lifecycle test."
+    }
+  ]
+}

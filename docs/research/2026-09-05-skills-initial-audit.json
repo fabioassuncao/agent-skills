@@ -1,0 +1,220 @@
+{
+  "commit": "557bcec",
+  "skills": [
+    {
+      "name": "analyze-issue",
+      "lines": 93,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; no direct command in entrypoint",
+      "providerDependency": "Orchestrator references",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Analyze demand before planning",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "convert-prd-to-json",
+      "lines": 203,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md",
+        "docs/git-conventions.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; direct conventions/init calls",
+      "providerDependency": "Orchestrator references",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Build task plan",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "create-pr",
+      "lines": 317,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md",
+        "docs/git-conventions.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; direct conventions/init calls",
+      "providerDependency": "No proprietary tool requirement",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Publish pull request",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "execute-tasks",
+      "lines": 269,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md",
+        "docs/git-conventions.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; direct conventions/init calls",
+      "providerDependency": "Named tools / CLAUDE-specific instructions",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Implement task plan",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "generate-issue",
+      "lines": 430,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; no direct command in entrypoint",
+      "providerDependency": "Named tools / CLAUDE-specific instructions",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Create GitHub demand",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "generate-local-issue",
+      "lines": 435,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; direct conventions/init calls",
+      "providerDependency": "Named tools / CLAUDE-specific instructions",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Create local demand",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "generate-prd",
+      "lines": 171,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; no direct command in entrypoint",
+      "providerDependency": "Orchestrator references",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Write requirements",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "init-repository",
+      "lines": 165,
+      "structure": "SKILL.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md",
+        "../../docs/conventions.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; direct conventions/init calls",
+      "providerDependency": "No proprietary tool requirement",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Fill repository convention gaps",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "review-issue",
+      "lines": 363,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; no direct command in entrypoint",
+      "providerDependency": "Orchestrator references",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Verify issue resolution",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    },
+    {
+      "name": "review-pr",
+      "lines": 297,
+      "structure": "SKILL.md + README.md",
+      "frontmatter": "name matches directory; description present; no proprietary frontmatter",
+      "selfContained": false,
+      "externalDependencies": [
+        "../_shared/repository-policy.md",
+        "docs/git-conventions.md"
+      ],
+      "progressiveDisclosure": "External policy only; detailed procedure remains in entrypoint",
+      "cliDependency": "Indirect policy command and automatic npx download; direct conventions/init calls",
+      "providerDependency": "Named tools / CLAUDE-specific instructions",
+      "sharedResources": [
+        "repository-policy.md"
+      ],
+      "scripts": "Inline commands; no bundled script files",
+      "portability": "Fails individual-copy dependency closure",
+      "triggering": "Description present; needs explicit positive/negative scenarios",
+      "responsibility": "Review complete pull request",
+      "corrections": "Internalize resources, remove implicit CLI download, revise triggers and independent inputs; see audit report for skill-specific corrections"
+    }
+  ]
+}

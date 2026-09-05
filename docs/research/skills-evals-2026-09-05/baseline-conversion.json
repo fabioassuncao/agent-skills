@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-05T22:40:51.281Z",
+  "provider": "claude",
+  "version": "2.1.261 (Claude Code)",
+  "baseline": "557bcec",
+  "mode": "catalogue selection + explicit isolated behavior (not native discovery certification)",
+  "corpusHash": "d9b0048667529c87dc58d2575deda05119d4d73f389e4c8a0af2872ddd1da058",
+  "results": [
+    {
+      "id": "convert-standalone",
+      "skill": "convert-prd-to-json",
+      "kind": "behavior",
+      "status": "FAIL",
+      "durationMs": 46774,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 3376,
+        "cacheReadTokens": 125616,
+        "cacheCreationTokens": 14366,
+        "costUsd": 0.292064,
+        "cliDurationMs": 46069,
+        "apiDurationMs": 46824,
+        "ttftMs": 2155,
+        "numTurns": 9
+      },
+      "hashes": {
+        "convert-prd-to-json": "7959404fb3953ba692eded002eff3d62e5e1269e2f6b711ba96c9bfa28297a7c"
+      },
+      "failures": [
+        "issues/42/tasks.json: canonical validation failed: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"issueUrl\"\n    ],\n    \"message\": \"Invalid input: expected string, received null\"\n  }\n]\n"
+      ],
+      "error": null,
+      "answer": "\u2705 Task plan created: issues/42/tasks.json\n\n1 user story:\n  US-001 (priority 1): Normalize absent strings\n\nStories with browser verification: none (no UI surface)\nEstimated complexity: Low\n\nThree judgment calls worth flagging, all from the skill's best-effort clause:\n\n- **`issueUrl` is `null`.** The skill's template wants `https://github.com/{owner}/{repo}/issues/42`, but README and the PRD both say this is a local-only repo with no remote, and `git remote -v` is empty. I left it null rather than fabricate an owner/repo.\n- **`branchName` is `fix/42-empty-input`,** per your instruction, not the current branch (`main`). The skill's checklist asks that branchName match the current git branch, but you scoped out checkout, so the intended branch wins and the file records where the work belongs.\n- **\"Typecheck passes\" is included** because the skill mandates it on every story, but this fixture is plain JavaScript ESM with no typechecker and a no-dependencies rule. Treat it as \"the module parses and imports cleanly\" (`node --check`), not as a TS run \u2014 otherwise it's unsatisfiable here.\n\nThere was no pre-existing `tasks.json` or `progress.txt`, so the archive check was a no-op. I also set `pipeline.prdCompleted` to `true` since `prd.md` already exists; everything downstream of the conversion stays `false`.\n\nStopping here as instructed \u2014 no checkout, no implementation.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../convert-prd-to-json/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/prd.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la .claude/skills/ && ls -la .claude/skills/_shared/ ..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-ry9Qud/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-ry9Qud/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node -e \"const t=require('./issues/42/tasks.json'); conso..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/tasks.json": "{\n  \"project\": \"issue-flow-eval-ry9Qud\",\n  \"issueNumber\": 42,\n  \"issueUrl\": null,\n  \"branchName\": \"fix/42-empty-input\",\n  \"description\": \"Handle empty input in normalize(value): return an empty string for null and undefined, trim strings, and keep numbers unsupported.\",\n  \"issueStatus\": \"pending\",\n  \"completedAt\": null,\n  \"lastAttemptAt\": null,\n  \"lastError\": null,\n  \"correctionCycle\": 0,\n  \"maxCorrectionCycles\": 3,\n  \"lastReviewFindings\": null,\n  \"pipeline\": {\n    \"prdCompleted\": true,\n    \"jsonCompleted\": true,\n    \"executionCompleted\": false,\n    \"reviewCompleted\": false,\n    \"prCreated\": false\n  },\n  \"userStories\": [\n    {\n      \"id\": \"US-001\",\n      \"title\": \"Normalize absent strings\",\n      \"description\": \"As a caller of normalize(value), I want null and undefined to return an empty string and strings to be trimmed so that absent or padded input is handled predictably.\",\n      \"acceptanceCriteria\": [\n        \"normalize(null) and normalize(undefined) return an empty string\",\n        \"String input is trimmed of leading and trailing whitespace\",\n        \"Numbers remain unsupported (existing behaviour for numeric input is unchanged)\",\n        \"node --test passes all cases, including null, undefined and whitespace\",\n        \"Typecheck passes\"\n      ],\n      \"priority\": 1,\n      \"passes\": false,\n      \"notes\": \"\"\n    }\n  ]\n}\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Valid pending task plan; no compulsory handoff or execution."
+      ],
+      "manualReview": false
+    }
+  ]
+}

@@ -27,7 +27,16 @@ jobs:
           node-version: ${{ matrix.node-version }}
           package-manager-cache: false
 
-      - run: npm install
+      - run: npm ci
+
+      - run: npm run skills:check
+
+      - run: npm run skills:test
+
+      - run: npm run skills:eval -- --check
+
+      - run: npm run skills:install-test
+        if: runner.os == 'Linux' && matrix.node-version == 22
 
       - run: npm run lint
 
@@ -41,3 +50,6 @@ jobs:
       # registered twice, a bad import — throws before any command runs and no
       # unit test sees it, because none of them import the entry point.
       - run: node dist/cli.js --help
+
+      - run: npm run skills:cli-test
+        if: runner.os == 'Linux' && matrix.node-version == 22

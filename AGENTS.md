@@ -39,6 +39,10 @@ those live in the documents referenced below, which are the source of truth.
 - [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
   usage model, and the parity contract between the skills and the CLI
 
+- [`docs/skills.md`](docs/skills.md) — Skill sources, artifacts, sync and validation
+- [`docs/skills-compatibility.md`](docs/skills-compatibility.md) — official host support
+- [`docs/skills-evals.md`](docs/skills-evals.md) — behavioral scenarios and evidence
+
 ## Research
 
 Investigations that produced knowledge rather than rules. They are dated,
@@ -51,6 +55,9 @@ decisions — never a source of truth for behaviour.
   verification and escalation issues
 - [`docs/research/2026-08-30-harness-baseline.md`](docs/research/2026-08-30-harness-baseline.md)
   — latency baseline (before table) for instrumentation `#79`; phases 3–4 are `#89`
+
+- [`docs/research/2026-09-05-skills-portability.md`](docs/research/2026-09-05-skills-portability.md)
+  — complete Skill audit, architecture and measured validation
 
 ## Developing
 

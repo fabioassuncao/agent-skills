@@ -1,0 +1,33 @@
+---
+name: execute-tasks
+description: "Implement stories from an existing JSON task plan with checks, focused commits and progress tracking. Use when asked to execute a plan or continue its implementation; not to create a plan or only review work."
+license: MIT
+compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ for bundled helpers, Git for repository operations, and authenticated GitHub access only for remote work.
+---
+
+# Execute Tasks
+
+Use this Skill only for its requested responsibility. Work in the consumer project, honoring its instructions and existing authorization. Resource links below belong to this installed Skill; project inputs and outputs belong to the consumer repository.
+
+## Workflow
+
+1. Identify the requested input, scope and output; read [issue input](references/issue-input.md) when resolving a demand or artifact location.
+2. For repository-dependent decisions, read [repository policy](references/repository-policy.md).
+3. Follow [execute-tasks](references/execute-tasks.md), loading the resources below when that procedure needs them.
+4. Return the requested artifact or evidence-based result; report material blockers without expanding the task.
+
+## Resources to load when needed
+
+- Only when an installed CLI can enrich policy/scaffold decisions: [cli-integration](references/cli-integration.md).
+- When reading, creating or updating a task plan: [plan-format](references/plan-format.md).
+- When naming branches, commits or PRs: [git-conventions](references/git-conventions.md).
+- Before implementing, reviewing or claiming completion: [evidence](references/evidence.md).
+- When execution reports completion: [completion-signal](references/completion-signal.md).
+
+## Bundled helpers
+
+Paths in commands are relative to this Skill root. Execute by absolute resolved path while keeping the consumer project as the working directory. Run a helper with `--help` first. No helper installs the Issue Flow CLI.
+
+- [scripts/optional-cli.mjs](scripts/optional-cli.mjs)
+- [scripts/conventions.mjs](scripts/conventions.mjs)
+- [scripts/artifacts.mjs](scripts/artifacts.mjs)

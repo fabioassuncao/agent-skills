@@ -16,6 +16,10 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- Eleven independent Agent Skills, including portable `resolve-issue`, with
+  deterministic source-to-artifact generation, isolated bundled helpers,
+  installer validation and opt-in behavioral evals (#111).
+
 - **SQLite as the canonical structured-state store (#91).** Versioned
   migrations, transactional repositories, automatic non-destructive import,
   JSON compatibility mode, indexed monitor/`ps`/`usage`, projection
@@ -31,6 +35,13 @@ the fact, so they list what changed rather than explaining why. Everything from
   information), and that token consumption is not optimized yet. The notice is
   surfaced at the top of both READMEs and printed by `issue-flow init`, the first
   command a new user runs.
+
+### Fixed
+
+- Preserve the `node:sqlite` import in production bundles; npm artifact isolation
+  now exercises the full pipeline without installed Skills.
+- Use supported GitHub diff commands in PR review prompts and align smoke
+  assertions with global storage and unverified acceptance contracts.
 
 ### Changed
 

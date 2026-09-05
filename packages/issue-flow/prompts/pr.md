@@ -62,6 +62,12 @@ silent, the defaults above still apply.
 
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
+
+Use the repository's applicable issue template instead of layering another body template over it. Fill required fields; ask when two templates fit equally. Keep the PR template's sections, explaining non-applicable ones briefly.
+
+Use existing label casing. Never create a label unless explicitly opted in by issues.allowLabelCreation and the action is authorized. Drop labels known to be absent; report lost classification. When the registry is unavailable, report that validation could not be performed rather than claiming the label does not exist. Local metadata labels are free-form and should reuse the local vocabulary.
+
+Prefer native fields over labels and textual prefixes. Do not reintroduce a type prefix when the repository uses native Issue Types unless its declared title convention requires it. Defaults apply only to undeclared choices; obtain the fallback taxonomy from the bundled conventions helper where supplied.
 <!-- /if -->
 
 <!-- if:__REPO_PR_TEMPLATE__ -->
@@ -80,3 +86,11 @@ When the repository has several templates under `.github/PULL_REQUEST_TEMPLATE/`
 pick the one matching the nature of this issue and say in the body which one you
 picked. If none clearly fits, ask rather than guess.
 <!-- /if -->
+
+## Authorized publication
+
+A request to analyze, plan or review does not itself request a remote comment, closure, push or PR. Publish only when the user's request or existing session authorization includes that action. Preparing a concrete draft, diff and verification result comes before asking for any missing authorization. Do not ask again for authorization already granted.
+
+Before creating an issue or PR, check for an existing equivalent item. Reuse a matching open PR instead of creating another. Updating, closing or reopening an existing item requires authorization for that action. On an uncertain publication result, query the remote before retrying to avoid duplicates.
+
+Pass user text as structured tool arguments or a UTF-8 body file, never shell interpolation. Use argument arrays for commands. Verify success before deleting a draft. If publishing fails, preserve the draft and report the failed operation and actionable reason. Never force-push.

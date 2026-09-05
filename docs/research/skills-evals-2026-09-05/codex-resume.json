@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-05T22:48:39.706Z",
+  "provider": "codex",
+  "version": "codex-cli 0.153.4",
+  "baseline": null,
+  "mode": "catalogue selection + explicit isolated behavior (not native discovery certification)",
+  "corpusHash": "be26b1749aed99a32e2a6c1bebb4a04c6ea66c27918a42c2932a75fa3780c3d8",
+  "results": [
+    {
+      "id": "resolve-resume-pr-review",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 84812,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 32125,
+        "outputTokens": 1740,
+        "cacheReadTokens": 145152,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "resolve-issue": "043b0531e3bbca48500aab7bb7a7bdeaf419031cdf4ca7ebaaea12b4b83cb73f"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Preserved completed implementation. All 3 tests and additional whitespace/number checks passed.\n\nPR #7 review remains blocked: exact PR revisions and diff are unavailable offline. Saved the [review report](issues/42/pr-review/pr-7-round-1.md) and updated progress. Status remains `in_progress`; `prReviewCompleted=false`. No external services contacted.\n\n<pr-review-result>\nRECOMMENDATION: REQUEST_CHANGES\nBLOCKERS:\n- Exact PR head/base revisions and full diff are unavailable; required PR review remains incomplete.\n</pr-review-result>",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'pwd; cat README.md; cat .agents/skills/reso..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"cat .agents/skills/resolve-issue/references..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"git status --short; git branch --show-curre..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"cat AGENTS.md; node .agents/skills/resolve-..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node .agents/skills/resolve-issue/scripts/a..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"node --input-type=module <<'NODE'\nimport fs..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/tasks.json": "{\n  \"project\": \"fixture\",\n  \"issueNumber\": 42,\n  \"issueUrl\": \"\",\n  \"branchName\": \"fix/42-empty-input\",\n  \"description\": \"Handle empty input\",\n  \"issueStatus\": \"in_progress\",\n  \"completedAt\": null,\n  \"lastAttemptAt\": \"2026-09-05T22:49:56.219Z\",\n  \"lastError\": {\n    \"message\": \"Exact PR head/base revisions and full diff are unavailable under the local-only constraint; required whole-PR review remains incomplete.\",\n    \"at\": \"2026-09-05T22:49:56.219Z\",\n    \"category\": \"pr_review_blocked\"\n  },\n  \"correctionCycle\": 0,\n  \"maxCorrectionCycles\": 3,\n  \"lastReviewFindings\": null,\n  \"pipeline\": {\n    \"prdCompleted\": true,\n    \"jsonCompleted\": true,\n    \"executionCompleted\": true,\n    \"reviewCompleted\": true,\n    \"prCreated\": true,\n    \"prReviewCompleted\": false\n  },\n  \"userStories\": [\n    {\n      \"id\": \"US-001\",\n      \"title\": \"Normalize absent strings\",\n      \"description\": \"Return empty string for null and undefined\",\n      \"acceptanceCriteria\": [\n        \"node --test passes including null and undefined\"\n      ],\n      \"priority\": 1,\n      \"passes\": true,\n      \"notes\": \"\"\n    }\n  ],\n  \"pullRequest\": {\n    \"number\": 7,\n    \"url\": \"https://github.com/example/fixture/pull/7\",\n    \"headBranch\": \"fix/42-empty-input\",\n    \"createdAt\": \"2026-09-05T00:00:00Z\"\n  }\n}\n",
+        "normalize.mjs": "export function normalize(value) { return value == null ? '' : value.trim(); }\n"
+      },
+      "rubric": [
+        "Resumes the pending PR review even after prCreated; unavailable review evidence leaves the flow incomplete.",
+        "Does not redo implementation or fabricate approval."
+      ],
+      "manualReview": false
+    }
+  ]
+}

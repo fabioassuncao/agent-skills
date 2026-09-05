@@ -12,24 +12,30 @@ import { POLICY_SCHEMA_VERSION, type PolicyExec, type RepositoryPolicy } from '.
 /**
  * Parity between the CLI and the Agent Skills.
  *
- * The two are paths to the same outcome, and a user is entitled to the same
- * decisions from both. The skills are markdown and cannot import TypeScript, so
- * `issue-flow policy --json` is the only bridge — which makes its payload a
- * published contract rather than a debugging convenience.
+ * Both surfaces consume canonical repository decisions. Skills carry their own
+ * generated references and pure helpers; policy JSON is optional enrichment.
+ * Its versioned field names remain a public integration contract.
  *
- * This file pins **decisions**, never generated text: an LLM's prose is not
- * deterministic, and asserting on it would pin nothing. What it pins is the
- * inputs both paths decide from — the chosen template, the surviving labels, the
- * Issue Type, the title convention and the base branch — plus the field names
- * the skills read out of the JSON. Rename one of those and every skill silently
- * falls back to its defaults: nothing fails, and the two paths quietly diverge.
+ * These tests pin deterministic inputs/decisions and generated reference parity,
+ * never the wording of an LLM's output. Behavior is evaluated separately by the
+ * isolated Skill scenarios.
  */
 
 const REPO_ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
-const SHARED_BLOCK = join(REPO_ROOT, 'skills/_shared/repository-policy.md');
+const SHARED_BLOCK = join(REPO_ROOT, 'skills-src/_shared/repository-policy.md');
+
+async function sharedPolicy(): Promise<string> {
+  const policy = await readFile(SHARED_BLOCK, 'utf-8');
+  const decisions = await readFile(
+    join(REPO_ROOT, 'skills-src/_shared/repository-decisions.md'),
+    'utf-8',
+  );
+  return policy.replace('<!-- contract:repository-decisions -->', decisions.trimEnd());
+}
 
 /** Skills that take a policy decision and must therefore read the shared block. */
 const POLICY_AWARE_SKILLS = [
+  'resolve-issue',
   'init-repository',
   'generate-issue',
   'generate-local-issue',
@@ -93,75 +99,24 @@ function load(exec: PolicyExec = noTooling): Promise<RepositoryPolicy> {
   return loadRepositoryPolicy({ root, env: {}, cli: {}, warn, exec, cache: false });
 }
 
-describe('the shared block is referenced, never copied', () => {
-  it('exists and documents the contract fields the skills read', async () => {
-    const block = await readFile(SHARED_BLOCK, 'utf-8');
-
-    for (const field of CONTRACT_FIELDS) {
-      const leaf = field.split('.').pop() as string;
-      expect(block, field).toContain(leaf);
-    }
-  });
-
-  it('states the best-effort contract, which is what keeps a skill offline-safe', async () => {
-    const block = await readFile(SHARED_BLOCK, 'utf-8');
-
-    expect(block).toContain('Best-effort');
-    expect(block).toContain('Never fail');
-    // A skill that needs the network to work is a regression, and the block has
-    // to say so, because that is the rule a future author is most likely to drop.
-    expect(block).toContain('regression');
-  });
-
-  it('is referenced by every skill that takes a policy decision', async () => {
+describe('portable policy contracts', () => {
+  it('materializes the canonical policy in every policy-aware artifact', async () => {
+    const source = await sharedPolicy();
     for (const skill of POLICY_AWARE_SKILLS) {
-      const content = await readFile(join(REPO_ROOT, 'skills', skill, 'SKILL.md'), 'utf-8');
-      expect(content, skill).toContain('_shared/repository-policy.md');
+      const installed = await readFile(
+        join(REPO_ROOT, 'skills', skill, 'references/repository-policy.md'),
+        'utf-8',
+      );
+      expect(installed, skill).toBe(source);
     }
   });
 
-  it('is the only place that spells out how to invoke the command', async () => {
-    // "One source, many references" — a skill that re-derives the invocation is
-    // a skill that will drift from it.
-    for (const skill of POLICY_AWARE_SKILLS) {
-      const content = await readFile(join(REPO_ROOT, 'skills', skill, 'SKILL.md'), 'utf-8');
-      expect(content, skill).not.toContain('issue-flow policy --json');
-    }
-  });
-});
-
-describe('initialization has one core behind both interfaces', () => {
-  it('gives the skill the same plan the CLI renders', async () => {
-    const skill = await readFile(join(REPO_ROOT, 'skills/init-repository/SKILL.md'), 'utf-8');
-
-    // The skill does not re-derive the analysis: it asks the CLI, which is the
-    // only way "one core, two interfaces" can be true rather than aspirational.
-    expect(skill).toContain('issue-flow init --json');
-    expect(skill).toContain('issue-flow init --apply');
-  });
-
-  it('tells the skill to fall back rather than fail when the CLI is absent', async () => {
-    const skill = (await readFile(join(REPO_ROOT, 'skills/init-repository/SKILL.md'), 'utf-8'))
-      .split(/\s+/)
-      .join(' ');
-
-    expect(skill).toContain('If the CLI is not available');
-    expect(skill).toContain('do not tell the user to install anything');
-  });
-
-  it('states the non-destructive rule in the skill, not only in the code', async () => {
-    const skill = (await readFile(join(REPO_ROOT, 'skills/init-repository/SKILL.md'), 'utf-8'))
-      .split(/\s+/)
-      .join(' ');
-
-    expect(skill).toContain('Never overwrite a convention that exists');
-  });
-
-  it('documents the same agent entry-point chain the scaffolding writes', async () => {
-    const skill = await readFile(join(REPO_ROOT, 'skills/init-repository/SKILL.md'), 'utf-8');
-
-    expect(skill).toContain('CLAUDE.md  →  AGENTS.md');
-    expect(skill).toContain('Read and follow the instructions in AGENTS.md.');
+  it('keeps the versioned optional CLI payload documented', async () => {
+    const integration = await readFile(
+      join(REPO_ROOT, 'skills-src/_shared/cli-integration.md'),
+      'utf-8',
+    );
+    for (const field of CONTRACT_FIELDS) expect(integration, field).toContain(field);
   });
 });
 
@@ -175,22 +130,9 @@ describe('neither path creates labels', () => {
     });
   });
 
-  it('tells the skills the same thing, in the shared block', async () => {
-    // Whitespace-normalized: the block is prose and wraps, so a line break must
-    // not be the thing that decides whether this rule is still stated.
-    const block = (await readFile(SHARED_BLOCK, 'utf-8')).split(/\s+/).join(' ');
-
-    expect(block).toContain('Never create one');
-    expect(block).toContain('allowLabelCreation');
-  });
-
-  it('leaves label creation behind an explicit opt-in, off by default', async () => {
-    const skill = await readFile(join(REPO_ROOT, 'skills/generate-issue/SKILL.md'), 'utf-8');
-
-    // The only surviving `gh label create` sits inside the opt-in branch.
-    const occurrences = skill.split('gh label create').length - 1;
-    expect(occurrences).toBe(1);
-    expect(skill).toContain('Never create a label');
+  it('keeps label creation opt-in in the portable contract', async () => {
+    const block = await sharedPolicy();
+    expect(block).toContain('issues.allowLabelCreation');
   });
 });
 

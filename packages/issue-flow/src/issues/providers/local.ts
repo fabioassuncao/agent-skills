@@ -10,8 +10,11 @@ import { writeFileAtomic } from '../../utils/fs.js';
 import { getProjectRoot } from '../../utils/git.js';
 import { run } from '../../utils/shell.js';
 import { hashIssueContent } from '../hash.js';
+import { parseIssueMarkdown } from '../markdown.js';
 import type { IssueProvider } from '../provider.js';
 import type { Issue, IssueDraft, IssueMetadata } from '../types.js';
+
+export { parseIssueMarkdown } from '../markdown.js';
 
 /** Timeout for the optional remote probes done while allocating an identifier. */
 const REMOTE_PROBE_TIMEOUT_MS = 10_000;
@@ -72,31 +75,6 @@ function normalizeId(id: string): string {
 
 function toNumber(id: string): number | null {
   return /^\d+$/.test(id) ? Number.parseInt(id, 10) : null;
-}
-
-/**
- * Title lives in the leading H1, body is everything after it.
- *
- * Only the first non-empty line is considered: an H1 further down belongs to
- * the body (issue descriptions routinely use headings), so promoting it would
- * silently retitle the Issue.
- */
-export function parseIssueMarkdown(content: string): { title: string; body: string } {
-  const lines = content.replace(/\r\n?/g, '\n').split('\n');
-  const headingIndex = lines.findIndex((line) => line.trim().length > 0);
-  const heading = headingIndex === -1 ? undefined : lines[headingIndex].match(/^#[ \t]+(.*)$/);
-
-  if (!heading) {
-    return { title: '', body: lines.join('\n').trim() };
-  }
-
-  return {
-    title: heading[1].trim(),
-    body: lines
-      .slice(headingIndex + 1)
-      .join('\n')
-      .trim(),
-  };
 }
 
 function renderIssueMarkdown(title: string, body: string): string {

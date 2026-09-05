@@ -282,8 +282,8 @@ issue-flow init --check-only    # prerequisites only, as earlier releases did
 ```
 
 The same capability is available interactively through the
-[`init-repository`](../skills/init-repository/SKILL.md) skill, which calls this
-command rather than re-deriving the analysis.
+[`init-repository`](../skills/init-repository/SKILL.md) Skill, which inspects the repository directly and renders candidates with
+bundled canonical renderers. This CLI command is an optional optimization.
 
 ### The three verdicts
 
@@ -333,8 +333,7 @@ document.
 
 ## How the flows consume all this
 
-Every flow reads the same resolved policy — there is no second discovery
-anywhere:
+Every CLI flow reads the same resolved policy:
 
 | Flow | What it does with the conventions |
 |---|---|
@@ -346,10 +345,12 @@ anywhere:
 | `review`, `pr-review` | Add policy conformance as an explicit axis, citing the document behind every rule |
 | `init` | Reports and fills only what is missing |
 
-The Agent Skills consume the same thing through `issue-flow policy --json`, via
-[`skills/_shared/repository-policy.md`](../skills/_shared/repository-policy.md) —
-one source, referenced by every skill, never copied. A parity test fails if the
-two paths start deciding differently.
+Agent Skills discover the consumer repository directly, with optional enrichment
+from `issue-flow policy --json`. Shared decisions are authored once under
+[`skills-src/_shared/`](../skills-src/_shared/) and materialized into each Skill
+and applicable packaged prompts. Pure naming rules are bundled from the CLI's
+canonical modules. See [the source/artifact contract](skills.md); installed
+Skills never read the Issue Flow source tree.
 
 ## Customizing
 

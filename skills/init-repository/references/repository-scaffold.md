@@ -1,0 +1,9 @@
+# Repository scaffold
+
+Inspect .github/ISSUE_TEMPLATE, PR templates, root/scoped AGENTS.md and other agent bridges, CONTRIBUTING.md, conventions documents, CODEOWNERS and optional GitHub organization defaults. Existing conventions win. Do not infer a missing template merely from a missing filename when another supported location already supplies it.
+
+Render candidates using `scripts/scaffold.mjs` with JSON on stdin: {"projectName":"Example","hasIssueTypes":false,"documents":["docs/conventions.md"]}. Output is an array of {path,content}, generated from the same taxonomy/renderers as the CLI. Node.js 22.13+ is required; the Issue Flow package is not.
+
+Plan create/keep/review before writing. Issue forms and PR template are required only if absent; AGENTS.md is an index of existing rule documents. CLAUDE.md is an optional bridge containing only a pointer to AGENTS.md. A conventions document is unnecessary when existing documents already cover those rules. A proposed labels.json is contextual, only when a successful discovery confirms no label taxonomy; it does not create remote labels. With native Issue Types, omit fallback type labels.
+
+Honor organization templates instead of forking them locally. Keep blank issue creation enabled in a new chooser. Never overwrite existing files or follow a destination symlink. Immediately before an approved create, recheck and use exclusive creation. Existing instructionful CLAUDE.md content requires a separately reviewed migration, never automatic replacement.

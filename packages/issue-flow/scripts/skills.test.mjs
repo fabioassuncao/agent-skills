@@ -1,0 +1,320 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { cp, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { artifactRoot, assemble, compare, files, repoRoot, sourceRoot } from './skills-build.mjs';
+import { frontmatter, validateSkill } from './skills-check.mjs';
+import { corpusPath, grade, observeLine, validateCorpus } from './skills-eval.mjs';
+
+async function temporary(fn) {
+  const root = await mkdtemp(join(tmpdir(), 'issue-flow skill test '));
+  try {
+    return await fn(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function run(file, args = [], options = {}) {
+  const result = spawnSync(process.execPath, [file, ...args], {
+    encoding: 'utf8',
+    timeout: 10000,
+    ...options,
+  });
+  assert.equal(result.error, undefined);
+  return result;
+}
+
+test('generation is reproducible and tracked artifacts are current', async () => {
+  const first = await assemble();
+  const second = await assemble();
+  assert.deepEqual(first, second);
+  assert.deepEqual(await compare(first), []);
+});
+
+const manifest = JSON.parse(await readFile(join(sourceRoot, 'manifest.json'), 'utf8'));
+test('eval corpus covers every Skill and rejects escaping fixtures and absent outcomes', async () => {
+  const corpus = JSON.parse(await readFile(corpusPath, 'utf8'));
+  const names = Object.keys(manifest.skills);
+  validateCorpus(corpus, names);
+  const escaped = structuredClone(corpus);
+  escaped.scenarios[0].fixture = { '../outside': 'invalid' };
+  assert.throws(() => validateCorpus(escaped, names));
+  const missing = structuredClone(corpus);
+  missing.scenarios = missing.scenarios.filter((s) => s.skill !== 'resolve-issue');
+  assert.throws(() => validateCorpus(missing, names));
+});
+
+test('eval grader checks behavior, not just JSON syntax or a claimed pass', async () =>
+  temporary(async (root) => {
+    assert.ok((await grade({ kind: 'negative', skill: 'review-issue' }, '{}', root, [])).length);
+    assert.deepEqual(
+      await grade({ kind: 'negative', skill: 'review-issue' }, '{"skill":null}', root, []),
+      [],
+    );
+    assert.ok(
+      (
+        await grade(
+          { kind: 'negative', skill: 'review-issue' },
+          '{"skill":"invented-skill"}',
+          root,
+          [],
+        )
+      ).length,
+    );
+    assert.ok(
+      (
+        await grade(
+          { kind: 'behavior', assertions: [{ path: 'missing.json', check: 'completed-evidence' }] },
+          'done',
+          root,
+          [],
+        )
+      ).length,
+    );
+    await writeFile(join(root, 'tasks.json'), '{"issueUrl":null}');
+    const invalid = await grade(
+      { kind: 'behavior', assertions: [{ path: 'tasks.json', check: 'plan' }] },
+      'done',
+      root,
+      [],
+    );
+    assert.ok(invalid.some((f) => f.includes('canonical validation failed')));
+    const changed = await grade(
+      {
+        kind: 'behavior',
+        fixture: { 'tasks.json': 'original' },
+        assertions: [{ path: 'tasks.json', unchanged: true }],
+      },
+      'unchanged',
+      root,
+      [],
+    );
+    assert.ok(changed.some((f) => f.includes('changed')));
+  }));
+
+test('eval observer retains model/actions and discards thinking and unrelated payloads', () => {
+  const evidence = { model: null, actions: [] };
+  observeLine(
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        model: 'fixture-model',
+        content: [
+          { type: 'thinking', thinking: 'must not be retained' },
+          { type: 'text', text: 'unneeded intermediate text' },
+          {
+            type: 'tool_use',
+            name: 'Bash',
+            input: { command: 'node --test', extra: 'not retained' },
+          },
+        ],
+      },
+    }),
+    evidence,
+  );
+  assert.deepEqual(evidence, {
+    model: 'fixture-model',
+    actions: [{ kind: 'tool', name: 'Bash', detail: 'node --test' }],
+  });
+});
+
+for (const name of Object.keys(manifest.skills)) {
+  test(`${name}: copied directory has complete dependency closure and executable helpers`, async () =>
+    temporary(async (root) => {
+      const skill = join(root, name);
+      await cp(join(artifactRoot, name), skill, { recursive: true });
+      assert.deepEqual(await validateSkill(skill), []);
+      for (const file of await files(skill)) {
+        if (!file.endsWith('.mjs')) continue;
+        const result = run(join(skill, file), ['--help'], { cwd: tmpdir() });
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(result.stdout.trim());
+      }
+    }));
+}
+
+test('strict YAML rejects duplicate keys, wrong types and aliases', () => {
+  assert.throws(() => frontmatter('---\nname: a\nname: b\n---\ntext'));
+  assert.throws(() => frontmatter('---\nname: &a a\ndescription: *a\n---\ntext'));
+});
+
+test('isolation rejects side-effect package imports and parent paths in instructions', async () =>
+  temporary(async (root) => {
+    const skill = join(root, 'analyze-issue');
+    await cp(join(artifactRoot, 'analyze-issue'), skill, { recursive: true });
+    await writeFile(join(skill, 'scripts/leaked.mjs'), "import 'unbundled-package';\n");
+    const entry = join(skill, 'SKILL.md');
+    await writeFile(entry, `${await readFile(entry, 'utf8')}\nRead \`../../docs/policy.md\`.\n`);
+    const errors = await validateSkill(skill);
+    assert.ok(errors.some((e) => e.includes('non-bundled dependency')));
+    assert.ok(errors.some((e) => e.includes('escaping path')));
+  }));
+
+for (const [label, alteration, expected] of [
+  [
+    'mismatched name',
+    (t) => t.replace('name: analyze-issue', 'name: Wrong_Name'),
+    /name must match/,
+  ],
+  ['missing description', (t) => t.replace(/^description:.*\n/m, ''), /Invalid description/],
+  [
+    'non-string description',
+    (t) => t.replace(/^description:.*$/m, 'description: [one, two]'),
+    /Invalid description/,
+  ],
+  [
+    'proprietary field',
+    (t) => t.replace('license: MIT', 'allowed-tools: Bash'),
+    /Unsupported core field/,
+  ],
+  ['escaping link', (t) => `${t}\n[bad](../outside.md)\n`, /escaping path/],
+  ['encoded traversal', (t) => `${t}\n[bad](%2e%2e/outside.md)\n`, /escaping path/],
+  ['missing asset', (t) => `${t}\n![missing](assets/missing.svg)\n`, /broken resource/],
+  ['missing code reference', (t) => `${t}\nRun \`scripts/missing.mjs\`.\n`, /broken resource/],
+  ['broken anchor', (t) => `${t}\n[bad](references/analyze-issue.md#absent)\n`, /missing anchor/],
+  [
+    'implicit CLI',
+    (t) => `${t}\nnpx --yes issue-flow@latest policy --json\n`,
+    /implicit CLI installation/,
+  ],
+]) {
+  test(`validator rejects ${label} in an isolated artifact`, async () =>
+    temporary(async (root) => {
+      const skill = join(root, 'analyze-issue');
+      await cp(join(artifactRoot, 'analyze-issue'), skill, { recursive: true });
+      const entry = join(skill, 'SKILL.md');
+      await writeFile(entry, alteration(await readFile(entry, 'utf8')));
+      assert.match((await validateSkill(skill)).join('\n'), expected);
+    }));
+}
+
+test('escaping resource symlinks fail even when their targets exist', async () =>
+  temporary(async (root) => {
+    const skill = join(root, 'analyze-issue');
+    await cp(join(artifactRoot, 'analyze-issue'), skill, { recursive: true });
+    await writeFile(join(root, 'outside.md'), 'private');
+    await symlink(join(root, 'outside.md'), join(skill, 'references/outside.md'));
+    assert.match((await validateSkill(skill)).join('\n'), /Symlink/);
+  }));
+
+test('tampering with either shared or skill-specific output is detected without changing files', async () => {
+  const expected = await assemble();
+  const path = 'skills/analyze-issue/references/repository-policy.md';
+  expected.set(path, Buffer.from('different source'));
+  assert.ok((await compare(expected)).includes(path));
+  assert.notEqual(await readFile(join(repoRoot, path), 'utf8'), 'different source');
+});
+
+test('optional CLI absence, failure, malformed, incompatible and valid payloads', async () =>
+  temporary(async (root) => {
+    const script = join(artifactRoot, 'analyze-issue/scripts/optional-cli.mjs');
+    const env = { ...process.env, PATH: root };
+    assert.equal(run(script, ['policy'], { env }).stdout.trim(), 'null');
+    const binary = join(root, 'issue-flow');
+    for (const [body, expected] of [
+      ['exit 1', null],
+      ['echo malformed', null],
+      ['echo \'{"schemaVersion":99}\'', null],
+      [
+        'echo \'{"schemaVersion":1,"issues":{},"git":{},"pullRequests":{}}\'',
+        { schemaVersion: 1, issues: {}, git: {}, pullRequests: {} },
+      ],
+    ]) {
+      await writeFile(binary, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+      assert.deepEqual(JSON.parse(run(script, ['policy', 'apps/api'], { env }).stdout), expected);
+    }
+    await writeFile(binary, '#!/bin/sh\nexec /bin/sleep 20\n', { mode: 0o755 });
+    const start = Date.now();
+    assert.equal(run(script, ['policy'], { env }).stdout.trim(), 'null');
+    assert.ok(Date.now() - start < 9000);
+  }));
+
+test('packaged issue hash normalizes CRLF and validates metadata without the repository', async () =>
+  temporary(async (root) => {
+    const script = join(root, 'artifacts.mjs');
+    await cp(join(artifactRoot, 'generate-local-issue/scripts/artifacts.mjs'), script);
+    const file = join(root, 'issue with spaces.md');
+    await writeFile(file, '\r\n# A title\r\n\r\nBody with emoji 🐛\r\n');
+    const first = JSON.parse(run(script, ['issue', file], { cwd: root }).stdout);
+    await writeFile(file, '# A title\n\nBody with emoji 🐛\n');
+    assert.deepEqual(JSON.parse(run(script, ['issue', file], { cwd: root }).stdout), first);
+    const metadata = {
+      schemaVersion: 1,
+      id: '1',
+      number: 1,
+      source: 'local',
+      title: first.title,
+      labels: [],
+      state: 'open',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      contentHash: first.contentHash,
+    };
+    const meta = join(root, 'metadata.json');
+    await writeFile(meta, JSON.stringify(metadata));
+    assert.equal(run(script, ['issue', file, meta]).status, 0);
+    await writeFile(meta, JSON.stringify({ ...metadata, contentHash: 'sha256:wrong' }));
+    assert.equal(run(script, ['issue', file, meta]).status, 1);
+    await writeFile(file, 'Not a title\n# Later heading\n');
+    assert.equal(run(script, ['issue', file]).status, 1);
+  }));
+
+test('documented plan is accepted by the actual schema; corrupt and duplicate plans fail', async () =>
+  temporary(async (root) => {
+    const guide = await readFile(
+      join(artifactRoot, 'convert-prd-to-json/references/plan-format.md'),
+      'utf8',
+    );
+    const plan = JSON.parse(guide.match(/```json\n([\s\S]*?)\n```/)[1]);
+    const file = join(root, 'tasks.json');
+    const script = join(artifactRoot, 'convert-prd-to-json/scripts/artifacts.mjs');
+    await writeFile(file, JSON.stringify(plan));
+    assert.equal(run(script, ['plan', file]).status, 0);
+    plan.userStories.push({ ...plan.userStories[0] });
+    await writeFile(file, JSON.stringify(plan));
+    assert.equal(run(script, ['plan', file]).status, 1);
+    plan.lastError = { message: 'wrong shape' };
+    await writeFile(file, JSON.stringify(plan));
+    assert.equal(run(script, ['plan', file]).status, 1);
+  }));
+
+test('scaffold candidate rendering does not write consumer files', async () =>
+  temporary(async (root) => {
+    const script = join(artifactRoot, 'init-repository/scripts/scaffold.mjs');
+    const rendered = run(script, [], {
+      cwd: root,
+      input: JSON.stringify({
+        projectName: 'A project',
+        hasIssueTypes: true,
+        documents: ['CONTRIBUTING.md'],
+      }),
+    });
+    assert.equal(rendered.status, 0, rendered.stderr);
+    const assets = JSON.parse(rendered.stdout);
+    assert.ok(
+      assets.some(
+        (asset) => asset.path === 'AGENTS.md' && asset.content.includes('CONTRIBUTING.md'),
+      ),
+    );
+    assert.ok(
+      !assets.find((asset) => asset.path === '.github/labels.json').content.includes('type:bug'),
+    );
+    assert.deepEqual(await files(root), []);
+  }));
+
+test('isolated helper follows naming precedence and never closes via commit', () => {
+  const script = join(artifactRoot, 'create-pr/scripts/conventions.mjs');
+  const call = (operation, input) =>
+    JSON.parse(run(script, [], { input: JSON.stringify({ operation, input }) }).stdout);
+  assert.equal(call('changeType', { issueType: 'Bug', labels: ['enhancement'] }).type, 'fix');
+  assert.equal(
+    call('branch', { type: 'fix', issueNumber: 42, title: 'Login fails' }),
+    'fix/42-login-fails',
+  );
+  const commit = call('commit', { type: 'fix', subject: 'Fix expiry', issueNumber: 42 });
+  assert.match(commit, /Refs #42/);
+  assert.doesNotMatch(commit, /Closes/);
+});

@@ -276,3 +276,19 @@ git reset --hard HEAD~1
 | `npm version` bumped the files but created no commit or tag | The `preversion`/`postversion` hooks were bypassed (e.g. `--ignore-scripts`) | Revert the manifest change and re-run `npm version` without `--ignore-scripts` |
 | Published package missing `prompts/` or `web/public/` | New asset directory not added to `files` in `package.json` | Add it, verify with `npm pack --dry-run`, publish a patch |
 | Tag pushed but nothing published | Expected — there is no publish workflow | Run `npm publish` locally as described above |
+
+## Agent Skills and prompt contracts
+
+Read [the Skill contributor guide](../../docs/skills.md) before editing Skills.
+Author `skills-src/` and `prompts-src/`; commit generated `skills/` and `prompts/`
+with them. Run `npm run skills:sync`, then `npm run skills:check` and
+`npm run skills:test`. CI checks drift before any generation. Never fix an
+artifact manually or make CLI runtime loading depend on installed Skills.
+
+`npm run skills:install-test` validates real Vercel installer output in temporary
+projects; `-- --global-container` also tests user scope in Docker.
+`npm run skills:eval -- --check` validates the scenario corpus without spending
+tokens. Real [behavioral evals](../../docs/skills-evals.md) are opt-in and reuse
+the configured local harness authentication. Generated eval caches/results are
+not part of the npm package. The CLI package remains `dist/`, `prompts/`, and
+`web/`; Skill source, installer dependencies and eval tooling are development-only.

@@ -159,7 +159,8 @@ Git conventions (`commitlint`, release-please, semantic-release, Changesets,
 commitlint file is never `import()`ed. The canonical implementation lives in
 `src/conventions/git/` — this layer only *finds* what the repository declared.
 
-`issue-flow policy --json` is the bridge for the Agent Skills: they are markdown
-and cannot import TypeScript, so a versioned JSON document on stdout is the only
-interface available to them. `schemaVersion` therefore belongs to the payload,
-not to the CLI, and is bumped only when a reader would have to change.
+`issue-flow policy --json` is an optional bridge for Agent Skills. They also
+support direct repository discovery, and their pure helpers are bundled from
+canonical source during development. The JSON remains a published versioned
+contract: `schemaVersion` belongs to the payload and changes only when a reader
+would have to change. See [Skill architecture](../../../../docs/skills.md).

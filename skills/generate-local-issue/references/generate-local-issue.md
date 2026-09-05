@@ -1,0 +1,11 @@
+# Create a local issue
+
+Read repository-policy, issue-authoring and local-issue-files. Honor the selected consumer directory; use the Git root when available, otherwise the user-specified project. Never create files in the Skill installation directory.
+
+Analyze the demand and check existing issues/*/metadata.json and candidate issue bodies for duplicates. Treat an unreadable metadata file as a reported problem and reserve its directory name. Local-only work must not probe GitHub. Optional remote duplicate/number checks apply only when the user requests remote coordination; inability to reach GitHub cannot prevent local creation.
+
+Use a supplied safe identifier or allocate above the local numeric directory/metadata maximum (and known remote Issue/PR maximum when coordinated). Offline numbering cannot guarantee uniqueness against an unseen remote. Reject unsafe path segments. Check both destination files and reserve a new directory exclusively before writing; a collision must never overwrite another issue.
+
+Write a leading H1 title and the body derived from the actual template or shared authoring guide. Follow local-issue-files to calculate the canonical hash and metadata with the bundled helper. Write body before metadata, verify both, and preserve partial work if validation fails. Never remove a pre-existing directory while recovering.
+
+Return the two paths and any limitation. The demand can be consumed by the other standalone workflows or resolve-issue. It is not a resumable CLI session.

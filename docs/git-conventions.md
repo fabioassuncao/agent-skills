@@ -1,9 +1,9 @@
 # Git conventions
 
 Canonical rules for branches, commits and Pull Requests. CLI, prompts, skills
-and the `resolve-issue` agent all consume the same implementation in
-`packages/issue-flow/src/conventions/git/`. They do not reimplement slugify or
-invent a type.
+and the portable `resolve-issue` Skill consume the same implementation in
+`packages/issue-flow/src/conventions/git/`. Skills ship bundled helpers generated from those modules; they do not import
+the source tree or require the CLI at runtime.
 
 See also [`docs/conventions.md`](conventions.md) for how conventions are
 discovered, and `issue-flow conventions` / `issue-flow policy --json` for the

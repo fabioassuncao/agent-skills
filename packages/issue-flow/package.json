@@ -20,9 +20,15 @@
     "check": "biome check . && tsc --noEmit",
     "fix": "biome check --write . && tsc --noEmit",
     "prepack": "npm run build",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm test",
+    "prepublishOnly": "npm run skills:check && npm run skills:test && npm run lint && npm run typecheck && npm test",
     "preversion": "node scripts/git-version.mjs check",
-    "postversion": "node scripts/git-version.mjs commit"
+    "postversion": "node scripts/git-version.mjs commit",
+    "skills:sync": "node scripts/skills-build.mjs",
+    "skills:check": "node scripts/skills-check.mjs",
+    "skills:test": "node --test scripts/skills.test.mjs",
+    "skills:install-test": "node scripts/skills-install-test.mjs",
+    "skills:eval": "node scripts/skills-eval.mjs",
+    "skills:cli-test": "node scripts/skills-cli-test.mjs"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -47,7 +53,7 @@
     "github"
   ],
   "license": "MIT",
-  "author": "Fábio Assunção",
+  "author": "F\u00e1bio Assun\u00e7\u00e3o",
   "homepage": "https://github.com/fabioassuncao/issue-flow#readme",
   "bugs": {
     "url": "https://github.com/fabioassuncao/issue-flow/issues"
@@ -68,8 +74,12 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.10",
     "@types/node": "^22.14.0",
+    "esbuild": "^0.28.2",
+    "mdast-util-from-markdown": "^2.0.3",
+    "skills": "1.5.23",
     "tsup": "^8.4.0",
     "typescript": "^5.8.3",
-    "vitest": "^3.1.1"
+    "vitest": "^3.1.1",
+    "yaml": "^2.9.0"
   }
 }

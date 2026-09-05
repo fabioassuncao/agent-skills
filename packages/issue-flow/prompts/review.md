@@ -18,25 +18,33 @@ __ISSUE_BODY__
 Steps:
 1. Read the task plan from __TASKS_PATH__ to understand what was supposed to be implemented
 2. Analyze the codebase to verify all acceptance criteria are met
-3. Run the project's test suite and typecheck
+3. Run the project's relevant verification commands
 4. Check for regressions
 
-At the end, output your result in this exact format:
+## Issue review result
 
+Write a report with summary, requirements and evidence, implementation review, tests, regressions and remaining findings. Distinguish unmet from unverified requirements.
+
+Finish with exactly one machine-readable block. PASS requires every acceptance criterion verified and no unresolved blocker. Missing evidence, an incomplete review or a malformed result is never approval.
+
+```text
 <review-result>
 STATUS: PASS
 </review-result>
+```
 
-Or if there are issues:
+For failure or incomplete verification:
 
+```text
 <review-result>
 STATUS: FAIL
 FINDINGS:
-- Finding 1
-- Finding 2
+- [US-001] Concrete defect or missing verification and supporting evidence
+- [GENERAL] Finding not tied to a story
 </review-result>
+```
 
-IMPORTANT: You MUST include the <review-result> block in your output.
+One finding per line in the block. Put explanations in the report above it. The result block is last. The caller owns orchestration and publication; this signal never independently authorizes closure.
 
 IMPORTANT: On FAIL, these FINDINGS are saved verbatim and handed to a correction iteration that has no other context about this review session — it only sees this text. Write each finding as a self-contained, actionable defect report: name the exact file and line, describe what is wrong and why, and state (or strongly imply) what a correct fix looks like. Avoid vague findings like "tests could be improved" — either the codebase fails an acceptance criterion or a regression, or it doesn't.
 
@@ -55,6 +63,12 @@ silent, the defaults above still apply.
 
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
+
+Use the repository's applicable issue template instead of layering another body template over it. Fill required fields; ask when two templates fit equally. Keep the PR template's sections, explaining non-applicable ones briefly.
+
+Use existing label casing. Never create a label unless explicitly opted in by issues.allowLabelCreation and the action is authorized. Drop labels known to be absent; report lost classification. When the registry is unavailable, report that validation could not be performed rather than claiming the label does not exist. Local metadata labels are free-form and should reuse the local vocabulary.
+
+Prefer native fields over labels and textual prefixes. Do not reintroduce a type prefix when the repository uses native Issue Types unless its declared title convention requires it. Defaults apply only to undeclared choices; obtain the fallback taxonomy from the bundled conventions helper where supplied.
 
 ### Repository policy conformance
 
@@ -79,3 +93,13 @@ that fails on style is a review that gets ignored.
 Never restate a repository rule as if it were your own standard, and never invent
 one it does not declare.
 <!-- /if -->
+
+## Evidence before completion
+
+Use fresh evidence from the revision being delivered. Read the repository's test/build instructions and execute the relevant checks after the final meaningful change. Record commands, results and material coverage limits. An earlier green run, a checked checkbox or another agent's claim is not current verification.
+
+If a required check fails or cannot run, report the failure or unverified criterion. Do not mark that criterion passed or emit a completion/approval signal. Discover checks appropriate to the stack; do not require TypeScript checks in a project without TypeScript. For UI acceptance, use an available browser capability and record what was exercised; missing browser verification remains pending when required.
+
+For bug fixes, reproduce the defect with a focused check before correcting it when the repository and environment permit. Follow existing testing conventions; do not impose universal TDD or tests that merely restate the implementation.
+
+Evaluate review feedback against the code and requirements before applying it. Reproduce valid defects where feasible. Record why an incorrect or inapplicable finding was rejected, with evidence, rather than changing code just to satisfy its wording. Re-review after valid fixes.

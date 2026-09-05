@@ -1,0 +1,32 @@
+---
+name: generate-local-issue
+description: "Create a local issue as issue.md and metadata.json in the consumer project. Use when asked to record a demand locally or offline; not when the requested destination is GitHub or the user wants immediate implementation."
+license: MIT
+compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ for bundled helpers, Git for repository operations, and authenticated GitHub access only for remote work.
+---
+
+# Generate Local Issue
+
+Use this Skill only for its requested responsibility. Work in the consumer project, honoring its instructions and existing authorization. Resource links below belong to this installed Skill; project inputs and outputs belong to the consumer repository.
+
+## Workflow
+
+1. Identify the requested input, scope and output; read [issue input](references/issue-input.md) when resolving a demand or artifact location.
+2. For repository-dependent decisions, read [repository policy](references/repository-policy.md).
+3. Follow [generate-local-issue](references/generate-local-issue.md), loading the resources below when that procedure needs them.
+4. Return the requested artifact or evidence-based result; report material blockers without expanding the task.
+
+## Resources to load when needed
+
+- Only when an installed CLI can enrich policy/scaffold decisions: [cli-integration](references/cli-integration.md).
+- When writing a demand or checking duplicates: [issue-authoring](references/issue-authoring.md).
+- When creating or validating local issue files: [local-issue-files](references/local-issue-files.md).
+- When naming branches, commits or PRs: [git-conventions](references/git-conventions.md).
+
+## Bundled helpers
+
+Paths in commands are relative to this Skill root. Execute by absolute resolved path while keeping the consumer project as the working directory. Run a helper with `--help` first. No helper installs the Issue Flow CLI.
+
+- [scripts/optional-cli.mjs](scripts/optional-cli.mjs)
+- [scripts/conventions.mjs](scripts/conventions.mjs)
+- [scripts/artifacts.mjs](scripts/artifacts.mjs)

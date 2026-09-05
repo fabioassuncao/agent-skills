@@ -1,0 +1,7 @@
+## Authorized publication
+
+A request to analyze, plan or review does not itself request a remote comment, closure, push or PR. Publish only when the user's request or existing session authorization includes that action. Preparing a concrete draft, diff and verification result comes before asking for any missing authorization. Do not ask again for authorization already granted.
+
+Before creating an issue or PR, check for an existing equivalent item. Reuse a matching open PR instead of creating another. Updating, closing or reopening an existing item requires authorization for that action. On an uncertain publication result, query the remote before retrying to avoid duplicates.
+
+Pass user text as structured tool arguments or a UTF-8 body file, never shell interpolation. Use argument arrays for commands. Verify success before deleting a draft. If publishing fails, preserve the draft and report the failed operation and actionable reason. Never force-push.

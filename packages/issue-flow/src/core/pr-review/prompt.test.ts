@@ -48,13 +48,18 @@ describe('pr-review prompt', () => {
     for (const command of [
       'gh pr view',
       'gh pr diff __PR_NUMBER__ --name-only',
-      'gh pr diff __PR_NUMBER__ --stat',
+      'gh pr view __PR_NUMBER__ --json files,headRefOid,baseRefOid',
       'git log',
       'CLAUDE.md',
       'README.md',
     ]) {
       expect(template).toContain(command);
     }
+  });
+
+  it('does not request unsupported gh diff flags', () => {
+    expect(template).not.toContain('gh pr diff __PR_NUMBER__ --stat');
+    expect(template).toContain('git diff <base-sha>...<head-sha> -- <path>');
   });
 
   it('asks for exactly the canonical report sections', () => {
