@@ -51,6 +51,9 @@ decisions — never a source of truth for behaviour.
   verification and escalation issues
 - [`docs/research/2026-08-30-harness-baseline.md`](docs/research/2026-08-30-harness-baseline.md)
   — latency baseline (before table) for instrumentation `#79`; phases 3–4 are `#89`
+- [`docs/research/2026-09-05-pipeline-iterations-corrections-continuity.md`](docs/research/2026-09-05-pipeline-iterations-corrections-continuity.md)
+  — current phase and iteration boundaries, correction-cycle triggers, benchmark
+  limitations and the one-way handoff between skills and CLI (`#107`)
 
 ## Developing
 
