@@ -49,6 +49,18 @@ Root files next to those directories (`cli.ts`, `config.ts`, `types.ts`,
 - A **configuration domain** → its own loader under `config/`, with its own
   `set*CliOverrides` and mutable state. Domains do not import each other.
 
+## Skill and prompt sources
+
+Portable Skill instructions live in repository-root `skills-src/`. CLI prompt
+templates live in package `prompts-src/`. Their committed distributions are
+`skills/` and package `prompts/`, respectively. Pure domain rules stay under
+`src/`; bundling entry points in `scripts/skill-entries/` package those rules
+for independent Skill use. The CLI loads its own packaged resources at runtime.
+
+The [Skill source/artifact contract](skills.md) defines ownership, shared
+resources, generation and validation. Follow it when changing a shared rule or
+adding a workflow; the [eval guide](skills-evals.md) covers observable behavior.
+
 ## Size as a signal, not a hard rule
 
 - A production file above ~500 lines, or a function above ~80–100 lines,

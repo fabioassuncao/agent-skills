@@ -8,6 +8,10 @@ works the same way regardless of where the issue lives.
 | `github` (default) | GitHub issues, read through `gh` | `gh` installed and authenticated |
 | `local` | `issue.md` + `metadata.json` under `~/.issue-flow/…/issues/<n>/` | nothing beyond git — works offline, in a repo with no remote, or on a demand that is not public yet |
 
+This page describes CLI providers. Standalone Skills read the selected issue
+directly, using files or an authenticated GitHub capability; see
+[Skill inputs and artifacts](skills-and-agents.md#artifacts-and-optional-cli-integration).
+
 The issue content is fetched **in the CLI** and injected into every prompt
 (`analyze`, `prd`, `plan`, `review`, `pr`). The agent never runs
 `gh issue view`, so all phases see byte-identical content and a local issue is

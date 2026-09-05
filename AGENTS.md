@@ -1,8 +1,8 @@
 # Issue Flow
 
-CLI and Agent Skills that take an issue — from GitHub or from files — from
-statement to reviewed Pull Request, through Claude Code, Codex CLI, Cursor CLI
-or Antigravity CLI.
+An independent CLI and portable Agent Skills that take an issue — from GitHub
+or from files — from statement to reviewed Pull Request. CLI harnesses and
+Skill host compatibility are documented separately below.
 
 This file is an **index**. It holds no rule, command or convention of its own —
 those live in the documents referenced below, which are the source of truth.
@@ -36,9 +36,8 @@ those live in the documents referenced below, which are the source of truth.
   the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
 - [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and
   Pull Request titles; provider-independent by construction
-- [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — the interactive
-  usage model, and the parity contract between the skills and the CLI
-
+- [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — independent Skill
+  installation and use, separate execution state, and optional CLI integration
 - [`docs/skills.md`](docs/skills.md) — Skill sources, artifacts, sync and validation
 - [`docs/skills-compatibility.md`](docs/skills-compatibility.md) — official host support
 - [`docs/skills-evals.md`](docs/skills-evals.md) — behavioral scenarios and evidence
@@ -55,7 +54,6 @@ decisions — never a source of truth for behaviour.
   verification and escalation issues
 - [`docs/research/2026-08-30-harness-baseline.md`](docs/research/2026-08-30-harness-baseline.md)
   — latency baseline (before table) for instrumentation `#79`; phases 3–4 are `#89`
-
 - [`docs/research/2026-09-05-skills-portability.md`](docs/research/2026-09-05-skills-portability.md)
   — complete Skill audit, architecture and measured validation
 
@@ -74,6 +72,7 @@ the code, and was learned the hard way.
 
 | Area | Document |
 |---|---|
+| Skill sources and generated distribution | [`skills-src/AGENTS.md`](skills-src/AGENTS.md), [`skills/AGENTS.md`](skills/AGENTS.md) |
 | The agent layer (Claude / Codex / Cursor / Antigravity, selection by phase) | [`packages/issue-flow/src/agents/AGENTS.md`](packages/issue-flow/src/agents/AGENTS.md) |
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |

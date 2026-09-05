@@ -4,6 +4,10 @@ Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands throug
 `resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr`, `pr-review`, `run` and `execute`)
 and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the same way.
 
+The boundary with standalone Skill artifacts is documented in
+[`docs/storage.md`](../../../../docs/storage.md) and the
+[Skill integration contract](../../../../docs/skills-and-agents.md#artifacts-and-optional-cli-integration).
+
 ## Rules
 
 - **`node:sqlite` has one boundary: `db/driver.ts`.** Consumers use its small
@@ -48,7 +52,7 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
   `addDirs: [issueDir]` to `runHeadless`** — the global tree is outside the working directory, so
   `claude -p` denies both the read and the write without a matching `--add-dir`. `core/executor.ts`
   (the `execute` phase) is the exception: it runs with `--dangerously-skip-permissions`.
-- **A prompt template in `prompts/` must never spell out a path itself.** A relative `issues/<N>/…`
+- **A CLI prompt source in `prompts-src/`, and its generated `prompts/` artifact, must never spell out a path itself.** A relative `issues/<N>/…`
   written into a template silently points the agent at a directory that no longer exists — no error,
   just a step that quietly finds nothing (this is what happened to `prd.md`'s "read the analysis"
   step and to `generate.md`'s duplicate check). Resolve the path in the command, hand it over as a

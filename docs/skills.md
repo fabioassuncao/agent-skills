@@ -25,7 +25,9 @@ skills/<name>/       packages/issue-flow/prompts/
  assets/ (when needed)
 ```
 
-Edit the sources, never a generated copy. `.gitattributes` marks distribution files and packaged prompts as generated for review. Commit sources **and** generated `skills/` and `prompts/` together. The Git repository is directly installable without a postinstall/build hook. `.md.in` prevents installers recursively discovering a second source copy of each Skill. Root `skills/README.md` and `skills/AGENTS.md` are authored indexes, excluded from generation; neither is a required dependency of an installed Skill.
+Edit the sources, never a generated copy. `.gitattributes` marks distribution files and packaged prompts as generated for review. Commit sources **and** generated `skills/` and `prompts/` together. The Git repository is directly installable without a postinstall/build hook. `.md.in` prevents installers recursively discovering a second source copy of each Skill. Root `skills/README.md` and `skills/AGENTS.md` are authored indexes, excluded from generation; neither is a required dependency of an installed Skill. `skills-src/AGENTS.md` points contributors to this contract.
+
+Version sources, the manifest, dependency lockfile, tests, scenarios and documentation. Ignore package `node_modules/`, `dist/` and `.cache/`; this repository also ignores local `issues/` work. Generated distribution files are intentionally **not ignored**. Dated, selected synthetic eval reports under `docs/research/` are committed evidence; routine runner output stays in the ignored cache. See [eval evidence](skills-evals.md#contracts-and-interpretation) before retaining a report.
 
 `manifest.json` maps each artifact-relative destination to one repository-relative source. Shared references are copied at build time. The orchestrator receives phase procedures from the very same files used by the individual Skills. There are eleven independent artifacts, not eleven author-maintained copies of shared rules.
 
@@ -47,17 +49,27 @@ Run in `packages/issue-flow`:
 
 ```bash
 npm ci
-npm run skills:sync
+npm run skills:check    # inspect committed artifacts before any generation
+npm run skills:sync     # regenerate after source changes
 npm run skills:check
 npm run skills:test
 npm run skills:eval -- --check
-npm run skills:install-test
-npm run skills:install-test -- --global-container
-npm run skills:cli-test
 npm run check
 npm test
 npm run build
+npm run skills:install-test
+npm run skills:install-test -- --global-container
+npm run skills:cli-test
 ```
+
+Run `skills:check` once immediately after `npm ci` when reviewing a checkout,
+before any sync, to detect stale committed artifacts. Run sync after source
+edits. `build` compiles the CLI; it does not regenerate Skills or prompts.
+`skills:cli-test` packs the existing build with lifecycle scripts disabled, so
+build first. Installer tests require Git; the global variant additionally
+requires Docker, may pull its pinned Node image, and fetches the pinned Skills
+installer from npm inside the container. Packed CLI tests install
+runtime dependencies from npm, so registry access or a populated cache is needed.
 
 The generator assembles expected bytes before writing, rejects conflicting/escaping sources and produces deterministic bundles. Repeating sync without source/dependency changes produces no diff. `skills:check` is read-only: it compares exact bytes and file sets, then validates all eleven artifacts. CI calls check **without running sync first**, so forgotten generation fails rather than being hidden. CI also exercises installer output and the packed CLI on Linux/Node 22. Dependency versions are locked; intentional compiler upgrades can change generated bundles and require regeneration.
 

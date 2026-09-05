@@ -148,7 +148,7 @@ Inspect the result with:
 
 ```bash
 issue-flow policy            # human-readable, with the provenance of each value
-issue-flow policy --json     # the versioned contract the Agent Skills read
+issue-flow policy --json     # versioned contract for optional Skill enrichment
 ```
 
 ## The default conventions
@@ -368,7 +368,7 @@ Skills never read the Issue Flow source tree.
 }
 ```
 
-### Adjust a prompt
+### Adjust a CLI prompt
 
 | File | Effect |
 |---|---|
@@ -377,6 +377,8 @@ Skills never read the Issue Flow source tree.
 
 `append` is recommended because a full replacement makes the repository inherit
 that prompt's maintenance: later improvements stop reaching it, silently.
+Installed Skills keep their own resources; these overrides affect only the CLI.
+Contributor edits to packaged defaults follow the [source/artifact contract](skills.md#source-and-distribution).
 
 ### Establish conventions for a whole organization
 

@@ -1,8 +1,12 @@
 # Configuration
 
-Issue Flow reads configuration from four layers. Nothing is mandatory: with no
+The Issue Flow CLI reads configuration from four layers. Nothing is mandatory: with no
 configuration at all, every default reproduces the behaviour of a plain
 `issue-flow run 42` against a GitHub issue on Claude Code.
+
+These settings configure the CLI runtime. Agent Skills use their current host's
+configuration and repository instructions; they do not require `.issue-flow.json`
+or a global CLI configuration. See [optional CLI enrichment](skills-and-agents.md#artifacts-and-optional-cli-integration).
 
 - [The precedence ladder](#the-precedence-ladder)
 - [`.issue-flow.json`](#issue-flowjson) — per project
@@ -355,9 +359,13 @@ A repository can adjust any packaged prompt without forking:
 `append` is recommended because replacing a whole prompt makes the repository
 inherit its maintenance: improvements shipped by later releases stop reaching it,
 silently. With both present the replacement wins, with a warning. With neither,
-the prompt is exactly the packaged one — a repository that declares no policy
-renders every prompt byte for byte as it did before this layer existed, pinned by
-a test over every file in `prompts/`.
+the prompt is exactly the packaged one. Empty repository policy removes its
+conditional sections without leaving headings or unresolved placeholders;
+tests cover every packaged prompt. Shared contracts still evolve with releases.
 
 The available `<name>` values are the packaged prompt files: `analyze`,
 `execute`, `generate`, `plan`, `pr`, `pr-review`, `prd`, `review`.
+
+These overrides apply to CLI prompts, not to installed Skills. Issue Flow
+contributors edit `packages/issue-flow/prompts-src/` and synchronize packaged
+prompts from the [canonical sources](skills.md#source-and-distribution).

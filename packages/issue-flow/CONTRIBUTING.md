@@ -25,6 +25,12 @@ cd issue-flow/packages/issue-flow
 npm install
 ```
 
+Node, npm and Git are sufficient for deterministic checks. Authenticated coding
+agents and GitHub access are needed only for real CLI runs or live evals, not
+for unit tests or isolated fixture tests. The optional global installer test
+requires Docker. See [Skill validation](../../docs/skills.md#sync-check-and-test)
+for the complete test sequence and network requirements.
+
 ### Project structure
 
 ```
@@ -47,7 +53,12 @@ src/
   web/          # Monitoring server
   utils/        # Shell, git, filesystem helpers
 
-prompts/*.md              # Prompt templates (packaged, runtime asset)
+prompts-src/*.md.in       # Authored CLI prompt templates
+prompts/*.md              # Generated and committed standalone runtime prompts
+../../skills-src/         # Authored Skill entry points, workflows and shared contracts
+../../skills/             # Generated and committed self-contained Skill distribution
+../../evals/skills/       # Versioned behavioral scenarios
+scripts/skills-*.mjs      # Generation, validation, packaging and eval commands
 web/public/               # Monitoring dashboard (packaged, runtime asset)
 scripts/git-version.mjs   # preversion/postversion hooks: release commit + tag
 ```
@@ -56,8 +67,9 @@ Invariants live next to the code: each of those directories has an `AGENTS.md`.
 The index is the repository [`AGENTS.md`](../../AGENTS.md). Where a new file
 belongs — and when an existing one is already too large — is in
 [`docs/code-organization.md`](../../docs/code-organization.md). Session and plan
-artifacts live in the [global storage](../../docs/storage.md)
+artifacts for the CLI live in the [global storage](../../docs/storage.md)
 (`~/.issue-flow/projects/<id>/issues/<N>/`), not under `<repo>/issues/`.
+Standalone Skills use a [separate local layout](../../docs/skills-and-agents.md#artifacts-and-optional-cli-integration).
 
 `prompts/` and `web/public/` are resolved at runtime relative to the installed
 package (see `core/prompt-resolver.ts`), which is why both are listed in the
@@ -69,6 +81,12 @@ adding it there too, otherwise it works locally and breaks once installed.
 ```bash
 # Build - generates dist/cli.js (ESM bundle with shebang)
 npm run build
+
+# After editing Skill or prompt sources - regenerate committed distribution
+npm run skills:sync
+npm run skills:check
+npm run skills:test
+npm run skills:eval -- --check
 
 # Watch mode - automatic rebuild on save
 npm run dev
@@ -97,7 +115,7 @@ npm run test:watch
 # Integration tests
 npm run test:integration
 
-# Smoke script (real provider probes)
+# Smoke script (deterministic provider stand-ins; no tokens)
 npm run smoke
 ```
 
@@ -150,7 +168,15 @@ npx --prefix packages/issue-flow issue-flow --help
 
 ### 5. Package testing before publishing
 
+After building, `npm run skills:cli-test` packs and installs the CLI in a
+temporary directory, runs the complete fixture pipeline without Skills, and
+checks optional integration with a copied Skill. It needs registry access for
+runtime dependencies and does not modify your global installation.
+
 ```bash
+# Reject stale generated resources before packing
+npm run skills:check
+
 # Generate the tarball without publishing (runs prepack -> npm run build)
 npm pack
 
@@ -166,8 +192,10 @@ npx issue-flow --help
 ## Release process
 
 Releases are **manual**. There is no CI job that publishes to npm — the only
-workflow in the repository is `.github/workflows/ci.yml` (lint, typecheck, test,
-build on pushes and pull requests). Everything below is run from a local
+workflow in the repository is `.github/workflows/ci.yml` (Skill drift, isolation,
+corpus validation, lint, typecheck, tests and build for main pushes and pull
+requests targeting main; installer and packed CLI checks also run on Linux/Node
+22). Everything below is run from a local
 machine by a maintainer with publish rights on the `issue-flow` npm package.
 
 ### Ground rules
@@ -187,9 +215,15 @@ machine by a maintainer with publish rights on the `issue-flow` npm package.
 - **`CHANGELOG.md` is updated before the version bump**, not after. Its section
   for the new version is the body of the GitHub Release.
 - The quality gate lives in the manifest, not in CI: `npm publish` runs
-  `prepublishOnly` (lint + typecheck + tests) and then `prepack`
+  `prepublishOnly` (Skill drift + isolation tests + lint + typecheck + unit tests) and then `prepack`
   (`npm run build`). A failing check aborts the publish, and `dist/` is always
   rebuilt from the current sources — a stale build cannot be published.
+- **`npm run build` and `npm pack` do not sync Skill or prompt sources.** Run
+  `skills:sync` and commit the derived artifacts before the release. `npm pack`
+  runs `prepack`, but not `prepublishOnly`; run `skills:check` explicitly when
+  testing a tarball. Publishing the npm CLI does not install or release Skills
+  into a user's agent; Git-based Skill distribution follows the selected
+  repository revision.
 
 ### Versioning (SemVer)
 
@@ -233,7 +267,7 @@ git commit -m "docs: changelog for vX.Y.Z"
 cd packages/issue-flow
 npm version patch      # or minor / major
 
-# 5. Publish — runs prepublishOnly (lint, typecheck, test) and prepack (build)
+# 5. Publish — runs prepublishOnly (Skill checks, lint, typecheck, tests) and prepack (build)
 npm publish
 
 # 6. Push the commits and the tag
@@ -280,7 +314,8 @@ git reset --hard HEAD~1
 ## Agent Skills and prompt contracts
 
 Read [the Skill contributor guide](../../docs/skills.md) before editing Skills.
-Author `skills-src/` and `prompts-src/`; commit generated `skills/` and `prompts/`
+Author repository-root `skills-src/` and package `prompts-src/`; commit generated
+repository-root `skills/` and package `prompts/`
 with them. Run `npm run skills:sync`, then `npm run skills:check` and
 `npm run skills:test`. CI checks drift before any generation. Never fix an
 artifact manually or make CLI runtime loading depend on installed Skills.

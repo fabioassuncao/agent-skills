@@ -47,7 +47,7 @@ npx issue-flow run 42 --web   # …and watch it live in the browser
 - [Agents](#agents)
 - [Adapting to your repository](#adapting-to-your-repository)
 - [Unattended runs](#unattended-runs)
-- [Skills and sub-agent](#skills-and-sub-agent)
+- [Agent Skills](#agent-skills)
 - [Limitations and things worth knowing](#limitations-and-things-worth-knowing)
 - [Documentation](#documentation)
 - [Development](#development)
@@ -124,10 +124,22 @@ These requirements apply to the CLI. Skill requirements are listed in
 
 ## Installation
 
+For the CLI:
+
 ```bash
 npx issue-flow run 42          # run directly, no install
 npm install -g issue-flow      # or install globally
 ```
+
+For Agent Skills, install directly from Git into your coding agent:
+
+```bash
+npx skills add fabioassuncao/issue-flow --skill resolve-issue -a codex
+```
+
+See [Agent Skills](#agent-skills) for discovery and selection, and the
+[installation guide](docs/skills-and-agents.md#install-skills) for user scope,
+updates and testing a local checkout before publication.
 
 ## The pipeline
 
@@ -245,6 +257,11 @@ read-only.
 Full layout, `tasks.json` and `session.json` field reference, token/cost
 accounting and the migration: [**Storage and artifacts**](docs/storage.md).
 
+**Skill artifacts** default to `<projectRoot>/issues/<id>/`, with explicit
+paths also supported. They have no CLI session, database or telemetry lifecycle.
+See [the storage boundary](docs/skills-and-agents.md#artifacts-and-optional-cli-integration);
+a run cannot be resumed across the two surfaces.
+
 ## Configuration
 
 Everything resolves through one ladder: **CLI flag > environment variable >
@@ -325,7 +342,7 @@ stuck mid-merge are clamped to zero attempts.
 
 See [**Resilience**](docs/resilience.md).
 
-## Skills and sub-agent
+## Agent Skills
 
 Install one Skill, a selected set, or the portable full workflow independently:
 
@@ -352,8 +369,8 @@ design decisions and sharp edges worth knowing about.
 - **CLI artifacts are machine-local.** They live under `~/.issue-flow`, not in the
   repository, so they are not shared through git. Local issues are machine-local
   too — use `generate --both` to keep the demand on GitHub as well.
-- **The CLI and the skills do not share artifacts.** The skills and the
-  `resolve-issue` sub-agent write to `<projectRoot>/issues/{N}/`; the CLI writes
+- **The CLI and the Skills do not share execution state.** The Skills, including
+  portable `resolve-issue`, write to `<projectRoot>/issues/<id>/`; the CLI writes
   to `~/.issue-flow`. A run started on one surface cannot be resumed on the
   other — pick one per issue.
 - **`--mode manual` is not a CLI planning mode.** On the CLI it is recorded in the
@@ -413,6 +430,7 @@ npm install
 npm run skills:sync    # regenerate Skills and packaged prompt contracts
 npm run skills:check   # read-only drift and portability check
 npm run skills:test    # isolated artifacts and helper behavior
+npm run skills:eval -- --check  # scenario validation; no model calls
 npm run build          # tsup → dist/
 npm run typecheck
 npm test
@@ -420,6 +438,9 @@ npm run smoke          # end-to-end, against deterministic stand-ins for claude 
 npm run check          # biome (read-only) + typecheck — gate local do CI
 npm run fix            # biome --write + typecheck (muta arquivos)
 ```
+
+Installer, packed CLI and optional live-model checks are documented in the
+[Skill validation guide](docs/skills.md#sync-check-and-test).
 
 `npm run smoke` builds the CLI and drives it inside throwaway git repositories
 against deterministic stand-ins for `claude` and `gh` — no network, no tokens.

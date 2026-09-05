@@ -73,7 +73,7 @@ the first incomplete phase when pipeline state already exists. A failing
 
 | Flag | Description |
 |------|-------------|
-| `--mode <auto\|manual>` | Recorded in the run header and blocks `--background`. It does **not** stop the CLI pipeline after the artifacts — that behaviour belongs to the [`resolve-issue` sub-agent](skills-and-agents.md#execution-modes) |
+| `--mode <auto\|manual>` | Recorded in the run header and blocks `--background`. It does **not** stop the CLI pipeline after the artifacts — that behaviour belongs to the portable [`resolve-issue` Skill](skills-and-agents.md#use-without-the-cli) |
 | `--from <phase>` | Start at a specific phase instead of the first incomplete one |
 | `--no-branch` | Run on the current branch: no branch is created and no PR is opened. Persisted in `tasks.json`; the persisted value wins on resume |
 | `--pr-review` | Review the created Pull Request after `pr`. Resolved as **flag > `prReview.enabled` in `tasks.json` > off**, and persisted once opted in. Combining it with `--no-branch` fails with exit code `1` |
@@ -444,14 +444,15 @@ never ask and never write an agent preference.
 
 > Full behaviour is in [Conventions](conventions.md). The same capability is
 > available interactively through the
-> [`init-repository`](../skills/init-repository/SKILL.md) skill, which calls this
-> command rather than re-deriving the analysis.
+> [`init-repository`](../skills/init-repository/SKILL.md) Skill. It discovers
+> conventions directly and uses bundled scaffold renderers; this CLI command is
+> an [optional integration](skills-and-agents.md#artifacts-and-optional-cli-integration).
 
 ### `agent` — resolved agent and model per phase
 
 ```bash
 issue-flow agent                                  # provider/model per phase, with provenance
-issue-flow agent --json                           # versioned JSON, the bridge for the skills
+issue-flow agent --json                           # versioned JSON for CLI runtime tooling
 issue-flow agent use codex --model gpt-5.6 --global
 issue-flow agent use claude --project
 issue-flow agent use codex --phase execute --project
@@ -467,7 +468,7 @@ phase. `--json` is a published contract (`schemaVersion` in the payload). See
 ```bash
 issue-flow policy                    # discovered conventions and where each came from
 issue-flow policy --scope apps/api   # resolve for a subdirectory, in a monorepo
-issue-flow policy --json             # versioned JSON — the bridge for the Agent Skills
+issue-flow policy --json             # versioned JSON — optional enrichment for Agent Skills
 ```
 
 Everything is best-effort: a repository that declares nothing resolves to an

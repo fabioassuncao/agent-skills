@@ -20,6 +20,11 @@ review, deliver — by driving a coding agent in headless mode:
 [Antigravity CLI](https://antigravity.google/docs/cli/getting-started/), one
 agent per phase if you want.
 
+The CLI is one of Issue Flow's two independent surfaces. Eleven portable
+[Agent Skills](https://github.com/fabioassuncao/issue-flow/blob/main/docs/skills-and-agents.md),
+including the complete `resolve-issue` workflow, can be installed separately
+and used directly in a compatible coding agent without this npm package.
+
 ```bash
 npx issue-flow init           # check prerequisites and repository conventions
 npx issue-flow run 42         # prd → plan → execute → review → pr
@@ -31,6 +36,8 @@ npx issue-flow run 42 --web   # …and watch it live at http://localhost:3737
 > [Commands](https://github.com/fabioassuncao/issue-flow/blob/main/docs/commands.md) ·
 > [Configuration](https://github.com/fabioassuncao/issue-flow/blob/main/docs/configuration.md) ·
 > [Agents](https://github.com/fabioassuncao/issue-flow/blob/main/docs/agents.md) ·
+> [Agent Skills](https://github.com/fabioassuncao/issue-flow/blob/main/docs/skills-and-agents.md) ·
+> [Skill compatibility](https://github.com/fabioassuncao/issue-flow/blob/main/docs/skills-compatibility.md) ·
 > [Storage](https://github.com/fabioassuncao/issue-flow/blob/main/docs/storage.md) ·
 > [Web monitoring](https://github.com/fabioassuncao/issue-flow/blob/main/docs/web-monitor.md) ·
 > [Resilience](https://github.com/fabioassuncao/issue-flow/blob/main/docs/resilience.md) ·
@@ -38,13 +45,31 @@ npx issue-flow run 42 --web   # …and watch it live at http://localhost:3737
 
 ## Requirements
 
+For this CLI package:
+
 - **Node.js** ≥ 22.13.0
 - **Git**, available in `PATH`, inside a repository
 - **A coding agent** — `npm install -g @anthropic-ai/claude-code` for the default
 - **GitHub CLI** (`gh`), authenticated — only for GitHub issues; a run on local
   issues does not need it
 
-## What it does
+## Agent Skills
+
+Install from the consumer project using Vercel Skills:
+
+```bash
+npx skills add fabioassuncao/issue-flow --list
+npx skills add fabioassuncao/issue-flow --skill resolve-issue -a codex
+```
+
+The selected Skill includes its references and bundled helpers. Installing the
+CLI does not install Skills, and neither surface needs the other. Skills may
+optionally use an installed CLI for repository policy discovery. See the
+[installation and usage guide](https://github.com/fabioassuncao/issue-flow/blob/main/docs/skills-and-agents.md)
+for individual/set/global installation, requirements, updates and local checkout
+testing before a revision is published to GitHub.
+
+## What the CLI does
 
 - The full pipeline `prd` → `plan` → `execute` → `review` → `pr`, plus an
   optional whole-PR review. Every phase is also a standalone command.
@@ -84,8 +109,8 @@ Run `issue-flow <command> --help` for the flags, or read the
 
 ## Where things are written
 
-Nothing is written inside your repository. Artifacts live in a machine-wide tree
-keyed by a deterministic project id:
+CLI pipeline artifacts live in a machine-wide tree keyed by a deterministic
+project id; implementation changes are still written to your repository:
 
 ```
 ~/.issue-flow/projects/<project-id>/issues/42/
@@ -95,6 +120,9 @@ keyed by a deterministic project id:
 `ISSUE_FLOW_HOME` relocates the whole tree. A legacy `<projectRoot>/issues/`
 directory from an earlier release is copied in automatically on first use and
 then left read-only.
+
+Skills default to `<projectRoot>/issues/<id>/` and have separate execution state.
+A run cannot be resumed across the CLI and Skill surfaces.
 
 ## Configuration
 
@@ -107,6 +135,7 @@ mandatory. See the
 
 ```bash
 npm install
+npm run skills:check # check committed Skills and prompts against their sources
 npm run build       # tsup → dist/
 npm run typecheck
 npm test
@@ -114,8 +143,10 @@ npm run smoke       # end-to-end, against deterministic stand-ins for claude and
 npm run check       # biome + typecheck
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup and the release
-process.
+See [CONTRIBUTING.md](https://github.com/fabioassuncao/issue-flow/blob/main/packages/issue-flow/CONTRIBUTING.md) for the full setup and the release
+process. These development commands require a repository checkout. For Skill
+and prompt changes, follow the
+[source, sync and validation guide](https://github.com/fabioassuncao/issue-flow/blob/main/docs/skills.md).
 
 ## Credits
 

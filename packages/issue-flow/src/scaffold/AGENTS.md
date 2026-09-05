@@ -4,6 +4,9 @@ Plan-then-apply initialization from the **resolved** policy: fill gaps,
 never replace. Assets are rendered from `conventions/defaults` so
 taxonomy and files cannot drift.
 
+Bundled renderer use by standalone `init-repository` is documented in
+[Skill architecture](../../../../docs/skills.md#source-and-distribution).
+
 ## Invariants
 
 - **Plan from policy, not a second scan.** The same repository every
