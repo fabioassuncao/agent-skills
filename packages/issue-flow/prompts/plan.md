@@ -24,54 +24,20 @@ unless __NEXT_US_NUMBER__ is itself US-001. Number the first story in this plan
 __NEXT_US_NUMBER__ and every subsequent story sequentially from there (e.g. if
 __NEXT_US_NUMBER__ is US-016, use US-016, US-017, US-018, ...).
 
-Create a tasks.json file at __TASKS_PATH__ with this exact structure:
+Create a tasks.json file at __TASKS_PATH__ following the contract below.
 
-{
-  "project": "<repo-name>",
-  "issueNumber": __ISSUE_NUMBER__,
-  "issueUrl": "__ISSUE_URL__",
-  "branchName": "__BRANCH_NAME__",
-  "description": "<brief description>",
-  "issueStatus": "pending",
-  "completedAt": null,
-  "lastAttemptAt": null,
-  "lastError": null,
-  "correctionCycle": 0,
-  "maxCorrectionCycles": 3,
-  "lastReviewFindings": null,
-  "pipeline": {
-    "analyzeCompleted": true,
-    "prdCompleted": true,
-    "jsonCompleted": true,
-    "executionCompleted": false,
-    "reviewCompleted": false,
-    "prCreated": false
-  },
-  "userStories": [
-    {
-      "id": "__NEXT_US_NUMBER__",
-      "title": "...",
-      "description": "As a ..., I want ... so that ...",
-      "acceptanceCriteria": ["..."],
-      "priority": 1,
-      "passes": false,
-      "notes": ""
-    }
-  ]
-}
+<!-- include:tasks-schema.md -->
 
-Rules:
-- Each user story from the PRD becomes one entry in userStories
-- Priority should order stories by dependency (build foundations first)
-- Story ids MUST start at __NEXT_US_NUMBER__ and increase sequentially — never
-  restart at US-001 when __NEXT_US_NUMBER__ says otherwise
-- acceptanceCriteria must include "Typecheck passes" for code changes
-- issueUrl is already resolved above: a GitHub URL when the source is `github`,
-  the path of the local issue file when the source is `local`. Use it verbatim
-  and never derive it yourself
-- Get the repo name from the repository itself (package name, directory name)
-- If __ISSUE_NUMBER__ is not a number, keep it as a JSON string in issueNumber
-- branchName is already resolved: use __BRANCH_NAME__ verbatim. Do not invent a branch.
+For this run specifically:
+
+- `issueNumber` is __ISSUE_NUMBER__; keep it a JSON string when it is not a number
+- `issueUrl` is `__ISSUE_URL__` — already resolved above. Use it verbatim and
+  never derive it yourself
+- `branchName` is `__BRANCH_NAME__` — already resolved from the repository's
+  convention. Copy it exactly; do not slugify the title yourself
+- `pipeline.analyzeCompleted` and `pipeline.prdCompleted` are `true`: both
+  phases already ran
+- Get the project name from the repository itself (package name, directory name)
 
 IMPORTANT: You MUST write the tasks.json to the file path above. Do not just output it.
 

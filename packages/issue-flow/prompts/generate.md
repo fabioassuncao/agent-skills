@@ -14,23 +14,19 @@ Steps:
 
    Use it for the title and the whole body. A backlog written in two languages
    is harder to search than one written in the "wrong" one.
-3. Check for duplicates before drafting. This is a **multi-strategy search** —
-   one query finds only issues worded the way you happened to word yours:
-   - Local issues: read `__LOCAL_ISSUES_DIR__/*/metadata.json` (the directory may not exist)
-   - Remote issues, only if `gh` is installed and authenticated:
-     - 2-3 different keyword combinations drawn from the title and the core problem:
-       `gh issue list --search "<keyword1> <keyword2>" --state all --limit 30 --json number,title,state,url`
-     - the affected area, when the request names one (auth, database, API…)
-     - a label the request maps to, when the repository has a matching one
-   Judge a candidate on whether it describes the **same problem**, not on textual
-   overlap. If an existing issue already covers the request, still emit the draft,
-   but say so in the body under a "Possible duplicates" section, citing the issue.
+3. Check for duplicates before drafting, following the contract below. The
+   local backlog lives at `__LOCAL_ISSUES_DIR__/*/metadata.json` (the directory
+   may not exist). One difference from the contract applies here: you are
+   drafting, not creating, so when an existing issue already covers the request,
+   **still emit the draft** and say so in the body under a "Possible duplicates"
+   section, citing the issue — rather than stopping or commenting.
 4. Emit the issue draft in the exact format below
 
-The issue should:
-- Have a clear, descriptive title
-- Include context about why the change is needed
-- Include acceptance criteria
+<!-- include:duplicate-detection.md -->
+
+The body and the title follow this contract:
+
+<!-- include:issue-body.md -->
 
 Do NOT create the issue. You are only drafting it: issue-flow persists the
 draft to the destination the user picked (GitHub, local files, or both).

@@ -125,67 +125,19 @@ of "no problem here", not an axis skipped.
 Ground every finding in the diff: cite `file:line`. A finding you cannot point at is
 speculation — leave it out or mark it clearly as a question.
 
-## Step 4 — Verdict criteria
+## Step 4 — Verdict and report
 
-Pick exactly one recommendation, by these criteria:
+The verdict criteria, the report structure and the finding format are the
+contract below. Follow it exactly.
 
-- `APPROVE` — no blocker and no meaningful issue. Nits alone still approve.
-- `APPROVE_WITH_SUGGESTIONS` — nothing blocks the merge, but there are real
-  improvements worth making (readability, duplication, missing non-critical test,
-  stale docs). The default when the PR is sound but imperfect.
-- `REQUEST_CHANGES` — at least one blocker: a bug or regression in the changed
-  behaviour, a security or data-loss risk, a broken/absent test for a critical path,
-  an unimplemented part of the issue/PRD, or a change that contradicts the project's
-  documented conventions in a way that must be fixed before merge — see the
-  severity table on the policy-conformance axis for where that line falls.
+<!-- include:pr-review-report.md -->
 
-A missing preference or a matter of style is never a blocker. When you hesitate
-between two verdicts, pick the more conservative one and explain why in the summary.
+<!-- include:pr-review-result-block.md -->
 
-## Step 5 — Output format
-
-Output the report as Markdown, using exactly these headings, in this order:
-
-```markdown
-## Executive summary
-## Strengths
-## Issues found
-## Suggested improvements
-## Architectural observations
-## Risks identified
-## Required before merge
-## Final recommendation
-```
-
-Under **Issues found** and **Required before merge**, write every item on one line in
-exactly this format, so it can be indexed mechanically:
-
-```
-- [severity] path/to/file.ts:123 — Short title of the problem
-```
-
-- `severity` is one of `blocker`, `high`, `medium`, `low`
-- `path/to/file.ts:123` is the file and line in the PR's head revision; omit `:123`
-  when the finding is about the file as a whole
-- The title is one line; put the explanation in the lines below the item
-- Sections with nothing to report: write `_None._` rather than removing the heading
-
-Finish your output with this block, verbatim, as the very last thing you write:
-
-<pr-review-result>
-RECOMMENDATION: APPROVE
-BLOCKERS:
-- None
-</pr-review-result>
-
-Replace `APPROVE` with `APPROVE_WITH_SUGGESTIONS` or `REQUEST_CHANGES` as decided in
-step 4, and list one line per blocker under `BLOCKERS:` (keep `- None` when there are
-none). Every `REQUEST_CHANGES` must list at least one blocker.
-
-IMPORTANT: You MUST include the `<pr-review-result>` block, with the recommendation
-written exactly as one of `APPROVE`, `APPROVE_WITH_SUGGESTIONS` or `REQUEST_CHANGES`.
-An output without it, or with any other value, is a failed review — it is never read
-as an approval.
+IMPORTANT: You MUST include the `<pr-review-result>` block, with the
+recommendation written exactly as one of `APPROVE`, `APPROVE_WITH_SUGGESTIONS`
+or `REQUEST_CHANGES`. An output without it, or with any other value, is a failed
+review — it is never read as an approval.
 
 <!-- if:__REPO_POLICY__ -->
 ## Repository policy

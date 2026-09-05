@@ -21,24 +21,12 @@ Steps:
 3. Run the project's test suite and typecheck
 4. Check for regressions
 
-At the end, output your result in this exact format:
+At the end, output the `<review-result>` block defined below. It is what the
+pipeline reads; everything else in your answer is for the human.
 
-<review-result>
-STATUS: PASS
-</review-result>
+<!-- include:review-result-block.md -->
 
-Or if there are issues:
-
-<review-result>
-STATUS: FAIL
-FINDINGS:
-- Finding 1
-- Finding 2
-</review-result>
-
-IMPORTANT: You MUST include the <review-result> block in your output.
-
-IMPORTANT: On FAIL, these FINDINGS are saved verbatim and handed to a correction iteration that has no other context about this review session — it only sees this text. Write each finding as a self-contained, actionable defect report: name the exact file and line, describe what is wrong and why, and state (or strongly imply) what a correct fix looks like. Avoid vague findings like "tests could be improved" — either the codebase fails an acceptance criterion or a regression, or it doesn't.
+IMPORTANT: You MUST include the `<review-result>` block in your output.
 
 <!-- if:__REPO_POLICY__ -->
 ## Repository policy

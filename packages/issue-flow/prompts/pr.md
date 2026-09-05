@@ -26,11 +26,13 @@ Steps:
 4. Review the diff: git diff __BASE_BRANCH__...HEAD --stat
 5. Create a well-structured PR using gh pr create
 
-The PR should:
-- Use this title verbatim: `__PR_TITLE_CONVENTION__`
-- Include a summary of changes
-- Include a test plan
-- Cite where the demand is described: the reference above (`__ISSUE_URL__`)
+The PR title is `__PR_TITLE_CONVENTION__` — use it verbatim; it is already
+resolved from the repository's convention.
+
+The body follows the contract below, and must cite where the demand is described
+(`__ISSUE_URL__`).
+
+<!-- include:pr-body.md -->
 
 Issue reference line(s):
 - Include the lines below verbatim in the PR body, each entry on its own line,

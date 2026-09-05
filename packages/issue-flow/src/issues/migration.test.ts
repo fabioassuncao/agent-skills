@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { resolvePackageDir } from '../core/prompt-resolver.js';
+import { expandIncludes, resolvePackageDir } from '../core/prompt-resolver.js';
 import { DRAFT_TAG } from './draft.js';
 
 /**
@@ -70,10 +70,18 @@ const ISSUE_PLACEHOLDERS = [
   '__ISSUE_URL__',
 ];
 
+/**
+ * The prompt as an agent receives it — `<!-- include:… -->` already replaced.
+ *
+ * A rule can live in the prompt or in the contract it includes, and which one
+ * is an implementation detail of where it is maintained. Reading the raw file
+ * would assert on that detail instead of on the prompt.
+ */
 async function readPrompt(name: string): Promise<string> {
   const promptsDir = resolvePackageDir('prompts');
   expect(promptsDir).not.toBeNull();
-  return readFile(join(promptsDir as string, name), 'utf-8');
+  const raw = await readFile(join(promptsDir as string, name), 'utf-8');
+  return expandIncludes(raw, promptsDir as string);
 }
 
 describe('prompt templates consume the resolved Issue', () => {
@@ -113,10 +121,13 @@ describe('prompt templates consume the resolved Issue', () => {
   });
 
   it('plan.md fills issueUrl from the resolved reference', async () => {
-    const content = await readPrompt('plan.md');
+    const content = (await readPrompt('plan.md')).split(/\s+/).join(' ');
 
-    expect(content).toContain('"issueUrl": "__ISSUE_URL__"');
     // The old rule derived the URL from gh, which no local Issue could satisfy.
+    // What replaced it: the reference is already resolved, and the agent copies
+    // it rather than reconstructing one.
+    expect(content).toContain('`issueUrl` is `__ISSUE_URL__`');
+    expect(content).toContain('Use it verbatim and never derive it yourself');
     expect(content).not.toContain('<github-issue-url>');
   });
 

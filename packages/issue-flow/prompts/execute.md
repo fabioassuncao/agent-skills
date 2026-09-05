@@ -11,7 +11,7 @@ You are an autonomous coding agent working on a software project.
 5. If `lastReviewFindings` is non-null, address it first (see below); otherwise pick the **highest priority** user story where `passes: false`
 6. Implement that single user story
 7. Run the quality checks that cover the files you changed (typecheck/lint/test for those paths). The orchestrator runs the full suite at the end of execute and again in review.
-8. Update CLAUDE.md files if you discover reusable patterns (see below)
+8. Record reusable patterns in the nearest `AGENTS.md` (see below)
 9. If checks pass, commit ALL changes with message: `__COMMIT_MESSAGE__`
 10. Update the PRD to set `passes: true` for the completed story
 11. Append your progress to `__PROGRESS_FILE__`
@@ -28,60 +28,40 @@ A prior automated review may have already run against this same code and found i
 - If a finding turns out to be a false positive or already fixed, still clear `lastReviewFindings` to `null`, but say so explicitly in the progress log entry so a human can double-check.
 - If you cannot fully resolve the findings in this iteration, leave `lastReviewFindings` as-is (do not clear it) and record what you did and what remains in the progress log — the orchestrator will invoke another iteration.
 
-## Progress Report Format
+## Progress Log
 
-APPEND to `__PROGRESS_FILE__` (never replace, always append):
-```
-## [Date/Time] - [Story ID]
-- What was implemented
-- Files changed
-- **Learnings for future iterations:** (omit this block when the iteration discovered nothing reusable)
-  - Patterns discovered (e.g., "this codebase uses X for Y")
-  - Gotchas encountered (e.g., "don't forget to update Z when changing W")
-  - Useful context (e.g., "the evaluation panel is in component X")
----
-```
+APPEND to `__PROGRESS_FILE__` — never replace it — following the contract below.
 
-The learnings section is required only when the iteration discovered something reusable. Do not invent patterns.
+<!-- include:progress-log.md -->
 
-## Consolidate Patterns
+## Record reusable knowledge in `AGENTS.md`
 
-If you discover a **reusable pattern** that future iterations should know, add it to the `## Codebase Patterns` section at the TOP of `__PROGRESS_FILE__` (create it if it doesn't exist). This section should consolidate the most important learnings:
+Before committing, check whether anything you learned belongs in the nearest
+`AGENTS.md` — the canonical entry point for any agent of any vendor. **Follow a
+pointer file rather than stopping at it**: a `CLAUDE.md`, `.cursorrules` or
+similar whose whole content forwards to `AGENTS.md` is not a repository without
+conventions, and the content belongs in what it points at, not in the pointer.
 
-```
-## Codebase Patterns
-- Example: Use `sql<number>` template for aggregations
-- Example: Always use `IF NOT EXISTS` for migrations
-- Example: Export types from actions.ts for UI components
-```
-
-Only add patterns that are **general and reusable**, not story-specific details.
-
-## Update CLAUDE.md Files
-
-Before committing, check if any edited files have learnings worth preserving in nearby CLAUDE.md files:
-
-1. **Identify directories with edited files** - Look at which directories you modified
-2. **Check for existing CLAUDE.md** - Look for CLAUDE.md in those directories or parent directories
-3. **Add valuable learnings** - If you discovered something future developers/agents should know:
+1. Look at which directories you modified.
+2. Find the nearest `AGENTS.md` there or above it.
+3. Add only genuinely reusable knowledge:
    - API patterns or conventions specific to that module
-   - Gotchas or non-obvious requirements
+   - Gotchas and non-obvious requirements
    - Dependencies between files
-   - Testing approaches for that area
+   - Testing approach for that area
    - Configuration or environment requirements
 
-**Examples of good CLAUDE.md additions:**
+Good additions:
+
 - "When modifying X, also update Y to keep them in sync"
 - "This module uses pattern Z for all API calls"
-- "Tests require the dev server running on PORT 3000"
-- "Field names must match the template exactly"
+- "Tests require the dev server running on port 3000"
 
-**Do NOT add:**
-- Story-specific implementation details
-- Temporary debugging notes
-- Information already in progress.txt
+Do **not** add story-specific implementation details, temporary debugging notes,
+or anything already in the progress log.
 
-Only update CLAUDE.md if you have **genuinely reusable knowledge** that would help future work in that directory.
+When the repository has no `AGENTS.md` at all, do not create one as a side effect
+of this iteration — say so in the progress log instead.
 
 ## Quality Requirements
 
@@ -122,8 +102,9 @@ If ALL stories are complete and passing and there are no pending review findings
 - Clear `lastError`
 - If `pipeline` object exists, set `pipeline.executionCompleted` to `true`
 
-Then reply with:
-<promise>COMPLETE</promise>
+Then emit the completion marker defined below.
+
+<!-- include:completion-signal.md -->
 
 If there are still stories with `passes: false`, or `lastReviewFindings` is still non-null, end your response normally (another iteration will pick up the next story, or continue addressing the findings).
 If you need to stop for user guidance or another non-transient blocker, record it in top-level `lastError` and do not clear it.

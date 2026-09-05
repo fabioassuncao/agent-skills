@@ -37,6 +37,17 @@ function getPromptsDir(): string {
   return dir;
 }
 
+/**
+ * Directory holding the contracts the prompts include.
+ *
+ * They are generated from `skills/_shared/contracts/` by
+ * `scripts/sync-skill-contracts.mjs`, which is also what the Agent Skills read
+ * out of their own `references/`. One source, two consumers: a rule stated in
+ * a prompt and in a skill cannot drift, because neither of them is where it is
+ * written.
+ */
+const CONTRACTS_SUBDIR = '_contracts';
+
 /** Directory a repository puts its own prompt overrides in. */
 export const PROMPT_OVERRIDE_DIR = '.issue-flow/prompts';
 
@@ -69,6 +80,44 @@ async function readOverride(
   }
 }
 
+/** `<!-- include:name.md -->`, alone on its line. */
+const INCLUDE = /^[ \t]*<!--[ \t]*include:([A-Za-z0-9._-]+)[ \t]*-->[ \t]*$/gm;
+
+/**
+ * Replace every `<!-- include:<file> -->` with the contract of that name.
+ *
+ * A missing contract throws rather than resolving to nothing. A prompt that
+ * silently loses the section defining `tasks.json`, or the one defining the
+ * result block, still runs — and produces output the pipeline cannot parse,
+ * with no error pointing at the cause. Failing here is the only way that defect
+ * is ever seen.
+ *
+ * Includes are not recursive: a contract is a leaf. Nesting them would make the
+ * rendered size of a prompt impossible to reason about from reading it.
+ */
+export async function expandIncludes(template: string, promptsDir: string): Promise<string> {
+  const names = [...template.matchAll(INCLUDE)].map((match) => match[1] as string);
+  if (names.length === 0) return template;
+
+  const contents = new Map<string, string>();
+  for (const name of new Set(names)) {
+    const filePath = join(promptsDir, CONTRACTS_SUBDIR, name);
+    try {
+      const body = await readFile(filePath, 'utf-8');
+      // Drop the "generated from …" banner: it tells a maintainer not to edit
+      // the file, and tells the agent receiving the prompt nothing at all.
+      contents.set(name, body.replace(/^<!--[\s\S]*?-->\s*/, '').trim());
+    } catch {
+      throw new Error(
+        `Prompt include not found: ${filePath}. ` +
+          'Run `npm run skills:sync` to regenerate the contracts.',
+      );
+    }
+  }
+
+  return template.replace(INCLUDE, (_match, name: string) => contents.get(name) as string);
+}
+
 /**
  * Load a prompt template by name, honouring the repository's overrides.
  *
@@ -81,6 +130,10 @@ async function readOverride(
  * `append` is the recommended form. Replacing a whole prompt makes the
  * repository inherit its maintenance: every improvement shipped by a new
  * release stops reaching it, silently.
+ *
+ * `<!-- include:<file> -->` is expanded **after** the override is resolved, so
+ * an override can use includes too — a repository appending its own section can
+ * still pull in the canonical contract instead of restating it.
  *
  * Overrides are opt-in and best-effort — a repository with none, or one that is
  * not a git checkout at all, gets exactly the packaged prompt it got before.
@@ -106,7 +159,7 @@ export async function loadPrompt(name: string, options: LoadPromptOptions = {}):
       root = await getProjectRoot();
     } catch {
       // Not a git repository: no override directory to look in.
-      return packaged;
+      return expandIncludes(packaged, promptsDir);
     }
   }
 
@@ -123,16 +176,16 @@ export async function loadPrompt(name: string, options: LoadPromptOptions = {}):
           'using the replacement and ignoring the appendix.',
       );
     }
-    return replacement;
+    return expandIncludes(replacement, promptsDir);
   }
 
   if (appendix !== null) {
     // One blank line between the two, whatever the packaged prompt ends with,
     // so the appendix never runs into the last paragraph.
-    return `${packaged.replace(/\s*$/, '')}\n\n${appendix}`;
+    return expandIncludes(`${packaged.replace(/\s*$/, '')}\n\n${appendix}`, promptsDir);
   }
 
-  return packaged;
+  return expandIncludes(packaged, promptsDir);
 }
 
 /**

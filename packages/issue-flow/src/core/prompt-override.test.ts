@@ -6,6 +6,7 @@ import { conventionPlaceholders, emptyPolicyPlaceholders } from '../policy/place
 import {
   applyConditionalSections,
   applyPlaceholders,
+  expandIncludes,
   loadPrompt,
   PROMPT_OVERRIDE_DIR,
   resolvePackageDir,
@@ -29,10 +30,23 @@ async function writeOverride(name: string, content: string): Promise<void> {
   await writeFile(join(dir, name), content, 'utf-8');
 }
 
+/**
+ * The packaged prompt as an agent actually receives it: with every
+ * `<!-- include:… -->` already replaced by the contract it names.
+ *
+ * Asserting on the raw file would pin the wrong thing. The contracts are
+ * generated from `skills/_shared/contracts/`, so what a prompt *says* now lives
+ * in two files, and only the expanded form is the prompt.
+ */
+async function packagedPrompt(name: string): Promise<string> {
+  const promptsDir = resolvePackageDir('prompts') as string;
+  const raw = await readFile(join(promptsDir, `${name}.md`), 'utf-8');
+  return expandIncludes(raw, promptsDir);
+}
+
 describe('loadPrompt overrides', () => {
   it('returns the packaged prompt when the repository declares no override', async () => {
-    const packagedDir = resolvePackageDir('prompts');
-    const packaged = await readFile(join(packagedDir as string, 'pr.md'), 'utf-8');
+    const packaged = await packagedPrompt('pr');
 
     expect(await loadPrompt('pr', { projectRoot: root, warn })).toBe(packaged);
     expect(warn).not.toHaveBeenCalled();
@@ -69,8 +83,7 @@ describe('loadPrompt overrides', () => {
     // A directory where a file is expected: readable path, unreadable content.
     await mkdir(join(root, PROMPT_OVERRIDE_DIR, 'pr.md'), { recursive: true });
 
-    const packagedDir = resolvePackageDir('prompts');
-    const packaged = await readFile(join(packagedDir as string, 'pr.md'), 'utf-8');
+    const packaged = await packagedPrompt('pr');
 
     expect(await loadPrompt('pr', { projectRoot: root, warn })).toBe(packaged);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring prompt override'));
@@ -129,7 +142,10 @@ describe('rendered prompts without a policy', () => {
     expect(names.length).toBeGreaterThan(0);
 
     for (const name of names) {
-      const template = await readFile(join(promptsDir, name), 'utf-8');
+      const template = await expandIncludes(
+        await readFile(join(promptsDir, name), 'utf-8'),
+        promptsDir,
+      );
       const rendered = applyPlaceholders(template, noPolicy());
 
       // No heading, no marker, and no unresolved `__REPO_*` left behind for the
@@ -148,8 +164,7 @@ describe('rendered prompts without a policy', () => {
   it('renders the pr prompt exactly as it did before the base branch was resolved', async () => {
     // The non-regression claim of the base-branch fix: on a `main` repository,
     // the three commands are byte for byte the ones that were hard-coded.
-    const promptsDir = resolvePackageDir('prompts') as string;
-    const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
+    const template = await packagedPrompt('pr');
 
     const rendered = applyPlaceholders(template, noPolicy());
 
@@ -159,8 +174,7 @@ describe('rendered prompts without a policy', () => {
   });
 
   it('resolves the three commands against a develop base', async () => {
-    const promptsDir = resolvePackageDir('prompts') as string;
-    const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
+    const template = await packagedPrompt('pr');
 
     const rendered = applyPlaceholders(template, {
       ...emptyPolicyPlaceholders(),
@@ -177,8 +191,7 @@ describe('rendered prompts without a policy', () => {
   });
 
   it('renders the policy section when a policy is projected', async () => {
-    const promptsDir = resolvePackageDir('prompts') as string;
-    const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
+    const template = await packagedPrompt('pr');
 
     const rendered = applyPlaceholders(template, {
       ...noPolicy(),
@@ -192,8 +205,7 @@ describe('rendered prompts without a policy', () => {
   });
 
   it('renders the Pull Request template section only when the repository has one', async () => {
-    const promptsDir = resolvePackageDir('prompts') as string;
-    const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
+    const template = await packagedPrompt('pr');
 
     expect(applyPlaceholders(template, noPolicy())).not.toContain(
       "This repository's Pull Request template",
@@ -211,8 +223,7 @@ describe('rendered prompts without a policy', () => {
   });
 
   it('explains the commit type only when a convention is declared', async () => {
-    const promptsDir = resolvePackageDir('prompts') as string;
-    const template = await readFile(join(promptsDir, 'execute.md'), 'utf-8');
+    const template = await packagedPrompt('execute');
 
     expect(applyPlaceholders(template, noPolicy())).not.toContain('## Commit convention');
 
@@ -231,8 +242,7 @@ describe('review prompts and repository policy', () => {
   const AXIS = 'policy conformance';
 
   async function render(name: string, vars: Record<string, string>): Promise<string> {
-    const promptsDir = resolvePackageDir('prompts') as string;
-    const template = await readFile(join(promptsDir, `${name}.md`), 'utf-8');
+    const template = await packagedPrompt(name);
     return applyPlaceholders(template, {
       ...emptyPolicyPlaceholders(),
       ...conventionPlaceholders(null, 'main'),

@@ -19,27 +19,10 @@ Steps:
 2. Analyze the codebase to understand the context
 3. Generate a structured PRD
 
-Save the PRD to __PRD_PATH__ with this structure:
+Save the PRD to __PRD_PATH__, titled `# PRD: [Issue Title]` and following the
+structure below.
 
-# PRD: [Issue Title]
-
-## Context
-[Why this change is needed]
-
-## Goals
-[What success looks like]
-
-## User Stories
-[US-001, US-002, etc. with acceptance criteria]
-
-## Technical Approach
-[High-level implementation strategy]
-
-## Out of Scope
-[What is explicitly NOT included]
-
-## Dependencies
-[External dependencies or prerequisites]
+<!-- include:prd-structure.md -->
 
 IMPORTANT: You MUST write the PRD to the file path above. Do not just output it.
 
