@@ -6,7 +6,7 @@ and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the
 
 The boundary with standalone Skill artifacts is documented in
 [`docs/storage.md`](../../../../docs/storage.md) and the
-[Skill integration contract](../../../../docs/skills-and-agents.md#artifacts-and-optional-cli-integration).
+[Skill integration contract](../../../../skills/README.md#artifacts-resumption-and-limits).
 
 ## Rules
 

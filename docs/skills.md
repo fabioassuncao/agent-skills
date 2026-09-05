@@ -1,6 +1,6 @@
 # Authoring and distributing Skills
 
-User installation and usage live in [Skills and the CLI](skills-and-agents.md). This document defines the repository's source/artifact contract.
+User installation and usage live in [the Skills guide](../skills/README.md). This document defines the repository's source/artifact contract.
 
 ## Source and distribution
 
@@ -25,9 +25,9 @@ skills/<name>/       packages/issue-flow/prompts/
  assets/ (when needed)
 ```
 
-Edit the sources, never a generated copy. `.gitattributes` marks distribution files and packaged prompts as generated for review. Commit sources **and** generated `skills/` and `prompts/` together. The Git repository is directly installable without a postinstall/build hook. `.md.in` prevents installers recursively discovering a second source copy of each Skill. Root `skills/README.md` and `skills/AGENTS.md` are authored indexes, excluded from generation; neither is a required dependency of an installed Skill. `skills-src/AGENTS.md` points contributors to this contract.
+Edit the sources, never a generated copy. `.gitattributes` marks distribution files and packaged prompts as generated for review. Commit sources **and** generated `skills/` and `prompts/` together. The Git repository is directly installable without a postinstall/build hook. `.md.in` prevents installers recursively discovering a second source copy of each Skill. Root `skills/README.md` is the authored user guide and `skills/AGENTS.md` is an authored index, both excluded from generation; neither is a required dependency of an installed Skill. `skills-src/AGENTS.md` points contributors to this contract.
 
-Version sources, the manifest, dependency lockfile, tests, scenarios and documentation. Ignore package `node_modules/`, `dist/` and `.cache/`; this repository also ignores local `issues/` work. Generated distribution files are intentionally **not ignored**. Dated, selected synthetic eval reports under `docs/research/` are committed evidence; routine runner output stays in the ignored cache. See [eval evidence](skills-evals.md#contracts-and-interpretation) before retaining a report.
+Version sources, the manifest, dependency lockfile, tests, scenarios and documentation. Ignore package `node_modules/`, `dist/` and `.cache/`. Local `issues/` work is not ignored by this repository's committed `.gitignore` files; inspect artifacts before staging. Generated distribution files are intentionally **not ignored**. Dated, selected synthetic eval reports under `docs/research/` are committed evidence; routine runner output stays in the ignored cache. See [eval evidence](skills-evals.md#contracts-and-interpretation) before retaining a report.
 
 `manifest.json` maps each artifact-relative destination to one repository-relative source. Shared references are copied at build time. The orchestrator receives phase procedures from the very same files used by the individual Skills. There are eleven independent artifacts, not eleven author-maintained copies of shared rules.
 

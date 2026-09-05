@@ -1,8 +1,8 @@
 # Issue Flow
 
-An independent CLI and portable Agent Skills that take an issue — from GitHub
-or from files — from statement to reviewed Pull Request. CLI harnesses and
-Skill host compatibility are documented separately below.
+Portable Agent Skills and an independent experimental CLI that take an issue —
+from GitHub or from files — from statement to reviewed Pull Request. CLI
+harnesses and Skill host compatibility are documented separately below.
 
 This file is an **index**. It holds no rule, command or convention of its own —
 those live in the documents referenced below, which are the source of truth.
@@ -13,6 +13,9 @@ those live in the documents referenced below, which are the source of truth.
 
 - [`README.md`](README.md) — what the tool does, how the pipeline works, and the
   entry point to every other document
+- [`skills/README.md`](skills/README.md) — recommended Skill workflow, installation,
+  first issue, capabilities and execution boundaries
+- [`docs/cli.md`](docs/cli.md) — experimental CLI setup, usage and reference map
 - [`docs/project-status.md`](docs/project-status.md) — what "experimental" means
   here: how the project was built, the risks, where it should not be used yet,
   and token consumption
@@ -36,8 +39,6 @@ those live in the documents referenced below, which are the source of truth.
   the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
 - [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and
   Pull Request titles; provider-independent by construction
-- [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — independent Skill
-  installation and use, separate execution state, and optional CLI integration
 - [`docs/skills.md`](docs/skills.md) — Skill sources, artifacts, sync and validation
 - [`docs/skills-compatibility.md`](docs/skills-compatibility.md) — official host support
 - [`docs/skills-evals.md`](docs/skills-evals.md) — behavioral scenarios and evidence
@@ -59,10 +60,12 @@ decisions — never a source of truth for behaviour.
 
 ## Developing
 
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment, issue-to-PR contribution
+  workflow, validation and documentation ownership
 - [`packages/issue-flow/CONTRIBUTING.md`](packages/issue-flow/CONTRIBUTING.md) —
-  environment, scripts, local testing and the release process
-- [`docs/code-organization.md`](docs/code-organization.md) — where each
-  responsibility lives under `src/`, size as a signal, and what not to invent
+  local CLI testing, packaging and the release process
+- [`docs/code-organization.md`](docs/code-organization.md) — architecture, generation and
+  runtime boundaries, code responsibilities and placement conventions
 
 ## The modules that carry their own rules
 
@@ -79,7 +82,7 @@ the code, and was learned the hard way.
 | Default taxonomy and git naming (branch / commit / PR) | [`packages/issue-flow/src/conventions/AGENTS.md`](packages/issue-flow/src/conventions/AGENTS.md) |
 | Multi-issue queue plan, confirm and order | [`packages/issue-flow/src/execution/AGENTS.md`](packages/issue-flow/src/execution/AGENTS.md) |
 | Issue model, providers, resolver and relation graph | [`packages/issue-flow/src/issues/AGENTS.md`](packages/issue-flow/src/issues/AGENTS.md) |
-| Execution telemetry in `tasks.json` | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |
+| Execution telemetry and compatibility projections | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |
 | Git conventions (branch, commit, PR title) | [`docs/git-conventions.md`](docs/git-conventions.md) |
 | Failure taxonomy and retry policy | [`packages/issue-flow/src/resilience/AGENTS.md`](packages/issue-flow/src/resilience/AGENTS.md) |

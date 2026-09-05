@@ -1,11 +1,13 @@
-# Storage and artifacts
+# CLI storage and artifacts
+
+[CLI guide](cli.md) · [Project overview](../README.md)
 
 The Issue Flow CLI keeps pipeline artifacts in a machine-wide storage layer
 rooted at `~/.issue-flow`. Plans, sessions and telemetry are machine-local and
 do not need to be committed or ignored in the consumer repository. Implementation
 phases still edit and commit the project's code.
 
-Agent Skills use a separate [artifact layout](skills-and-agents.md#artifacts-and-optional-cli-integration)
+Agent Skills use a separate [artifact layout](../skills/README.md#artifacts-resumption-and-limits)
 under the consumer project's `issues/<id>/` by default. The database, sessions,
 telemetry and migration described here belong to the CLI; they are not Skill
 runtime requirements or a supported way to transfer a Skill run to the CLI.

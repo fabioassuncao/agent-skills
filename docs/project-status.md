@@ -5,8 +5,11 @@
 > is not finished. Read this page before pointing it at a repository you care
 > about.
 
-This document is the canonical version of the notice; the README and the CLI
-link back to it.
+This document is the canonical notice for the **whole project**, including
+Agent Skills and the CLI. [Agent Skills](../skills/README.md) are the recommended
+starting point among the available interfaces. That recommendation does not
+declare them stable or production-ready. The [CLI](cli.md) is an experimental
+alternative for persistent, unattended orchestration.
 
 ## How it was built
 
@@ -20,11 +23,11 @@ the tool itself does. It shapes what you should expect from it:
   an edge the tests never reached.
 - **There is a real possibility of undiscovered vulnerabilities or security
   flaws.** No independent security audit has been performed. This matters more
-  than usual here, because of what the tool is allowed to do: it drives a coding
-  agent with **write access to your working tree**, runs commands declared by the
-  repository (the [acceptance contract](verification.md#the-acceptance-contract)
-  and your quality checks), and talks to GitHub through `gh` using **your
-  credentials**. A defect in that path is a defect with reach.
+  than usual here: an agent using the workflow may have **write access to your
+  working tree**, run repository commands and access GitHub using **your
+  credentials**. Skills use the current host's tools and permissions; the CLI
+  invokes agent processes, repository acceptance checks and `gh`. A defect in
+  either path can affect the repository.
 
 ## Where not to use it yet
 
@@ -48,13 +51,14 @@ At this stage we **do not recommend** running Issue Flow on:
 If you do run it, the usual precautions are not optional here:
 
 - **Keep backups**, and prefer a repository you can restore from a remote.
-- **Run it on a dedicated branch**, never directly on `main`. Issue Flow creates
-  its own branch by default — keep it that way.
+- **Implement on a dedicated branch**, never directly on `main`. Inspect the
+  branch selected by the workflow before execution.
 - **Review every change it produces** before merging: the diff, the commits, the
-  Pull Request. The acceptance contract and the review phase raise the floor;
-  they do not replace you reading the code.
-- **Watch the first runs.** `--web` gives you a live view; `--background` and
-  `--continuous` are for when you already trust a given setup.
+  Pull Request. Repository checks and automated reviews do not replace you
+  reading the code.
+- **Watch the first runs.** With Skills, inspect the plan and the host's actions.
+  For CLI experiments, use the [monitoring guide](cli.md#monitor-and-resume-a-run)
+  before evaluating unattended execution.
 - **Check out repositories without secrets** where you can, and assume anything
   in the working tree is visible to the agent.
 
@@ -66,13 +70,13 @@ tokens than it needs to.
 
 Cost optimization, model selection, context usage and the balance between
 quality, speed and token consumption are part of the roadmap, not of the current
-guarantees. Today, the honest advice is to watch the reported usage — per phase
-and per story, in the terminal summary and in the
-[web monitor](web-monitor.md) — and to treat the numbers from your first runs as
-the real cost estimate for your repository.
+guarantees. Monitor usage in your host when using Skills. For the CLI, use its
+[usage reporting](storage.md#tokens-and-cost) and [web monitor](web-monitor.md).
+Treat the numbers from your first runs as the real cost estimate for your
+repository; Skill use does not provide the CLI's telemetry.
 
-Related knobs that already exist: [agent selection per phase](agents.md), the
-token economy notes in that same document, and the
+CLI-specific controls include [agent selection per phase](agents.md), the
+token economy notes in that document, and the
 [shadow router](verification.md#shadow-routing), which reports a harness/model
 target without acting on it.
 
@@ -85,5 +89,6 @@ is aimed at. Expect them to shrink, and expect this page to be updated when they
 do.
 
 Known behavioural limits that are not about maturity — design decisions and
-sharp edges worth knowing — are listed under
-[Limitations and things worth knowing](../README.md#limitations-and-things-worth-knowing).
+sharp edges worth knowing — are documented separately for
+[Skills](../skills/README.md#artifacts-resumption-and-limits) and
+[the CLI](cli.md#known-limitations).
