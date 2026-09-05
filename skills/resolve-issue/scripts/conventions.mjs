@@ -1,7 +1,499 @@
-import{readFileSync as oe}from"node:fs";var N=["feat","fix","docs","refactor","perf","test","build","ci","chore","style","revert"];var p="{type}/{N}-{slug}";var f={bug:"fix",documentation:"docs",docs:"docs",refactor:"refactor","tech-debt":"refactor",infra:"ci","ci-cd":"ci",enhancement:"feat",architecture:"feat",investigation:"chore"},E=["claude","codex","cursor","antigravity"];function l(e){return N.includes(e)}function u(e){return E.includes(e.toLowerCase())}var v=/[\u0300-\u036f]/g,w=/[^a-z0-9]+/g;function g(e,n=40){let o=e.replace(/\.lock$/i,"").normalize("NFD").replace(v,"").toLowerCase().replace(w,"-").replace(/^-+|-+$/g,"");if(o=o.replace(/\.{2,}/g,".").replace(/^\.+|\.+$/g,""),o=o.replace(/[^a-z0-9-]+/g,"-").replace(/^-+|-+$/g,""),o.length<=n)return o;let t=o.slice(0,n),i=t.lastIndexOf("-");return i>=Math.floor(n/2)?t.slice(0,i).replace(/-+$/g,""):t.replace(/-+$/g,"")}var P="issue";function k(e){return e==="style"||e==="revert"?"chore":e}function B(e,n,r,s){let o=r!=null,t=e.replaceAll("{type}",n).replaceAll("{N}",o?String(r):"").replaceAll("{slug}",s);return t=t.replace(/\/{2,}/g,"/").replace(/-{2,}/g,"-"),t=t.replace(/\/-/g,"/").replace(/-\//g,"/"),t=t.replace(/^\/+|\/+$/g,"").replace(/^-+|-+$/g,""),o||(t=t.replace(`${n}/-`,`${n}/`).replace(/\/$/g,"")),s===""&&(t=t.replace(/\/-$/,"").replace(/-$/,"")),t.replace(/\/{2,}/g,"/").replace(/^\/+|\/+$/g,"")}function D(e,n){if(e.length<=n)return e;let r=e.indexOf("/"),s=r===-1?"":e.slice(0,r+1),o=r===-1?e:e.slice(r+1),t=n-s.length;if(t<1)return e.slice(0,n);let i=o.slice(0,t),c=i.lastIndexOf("-"),a=c>=Math.floor(t/2)?i.slice(0,c):i;return`${s}${a.replace(/-+$/g,"")}`}function O(e,n,r){if(n===void 0||n.length===0)return e;let s=new Map(n.map(t=>[t.name,t.oid])),o=s.get(e);if(o===void 0||r!==void 0&&o===r)return e;for(let t=2;t<100;t+=1){let i=`${e}-${t}`,c=s.get(i);if(c===void 0||r!==void 0&&c===r)return i}return`${e}-${Date.now()}`}function y(e){let n=k(e.type),r=e.convention??p,s=g(e.title),o=B(r,n,e.issueNumber,s),t=D(o,60);return O(t,e.existingRefs,e.currentOid)}function h(e){let n=e.trim(),r=n.match(/^([^/]+)\/(?:(\d+)(?:-(.*))?|(.*))$/);if(r===null)return{type:null,issueNumber:null,slug:n,raw:n};let s=r[1]??"",o=r[2],t=r[3]??"",i=r[4]??"",c=s===P?"issue":l(s)?s:null;return o!==void 0?{type:c,issueNumber:Number(o),slug:t,raw:n}:{type:c,issueNumber:null,slug:i,raw:n}}var F={bug:"fix",feature:"feat",task:"chore",epic:"chore",idea:"chore",research:"chore",documentation:"docs"},M={bug:"fix",fix:"fix",feature:"feat",enhancement:"feat",architecture:"feat",refactor:"refactor",docs:"docs",documentation:"docs",chore:"chore",perf:"perf",test:"test",ci:"ci"};function d(e){return e.trim().toLowerCase()}function U(e){let n=d(e);return l(n)?n:F[n]??null}function H(e){let n={...f};if(e==null)return n;for(let[r,s]of Object.entries(e))l(s)&&(n[d(r)]=s);return n}function G(e,n){for(let r of e){let s=d(r),o=n[s]??n[s.replace(/^type:/,"")];if(o!==void 0)return o}return null}function I(e){let n=e.match(/^\s*\[([^\]]+)\]/);if(n?.[1]===void 0)return null;let r=d(n[1]);return l(r)?r:M[r]??null}function m(e){if(e.declaredType!==void 0&&e.declaredType!==null)return{type:e.declaredType,source:"declared"};let n=e.labels??[],r=H(e.typeMap),s=G(n,r),o=e.issueType!==void 0&&e.issueType!==null&&e.issueType!==""?U(e.issueType):null;if(o!==null)return d(e.issueType??"")==="task"&&s!==null?{type:s,source:"label"}:s!==null&&s!==o?{type:o,source:"issue-type",conflict:{issueType:o,label:s}}:{type:o,source:"issue-type"};if(s!==null)return{type:s,source:"label"};if(e.titleConvention!==null&&e.title!==void 0){let t=I(e.title);if(t!==null)return{type:t,source:"title"}}else if(e.title!==void 0){let t=I(e.title);if(t!==null)return{type:t,source:"title"}}return{type:"feat",source:"fallback"}}var Y=72,j=72,V=/^US-\d+$/i;function z(e,n){return e.replace(/\r\n/g,`
-`).split(`
-`).map(s=>{if(s.trim()==="")return"";let o=s.split(/\s+/),t=[],i="";for(let c of o){let a=i===""?c:`${i} ${c}`;a.length>n&&i!==""?(t.push(i),i=c):i=a}return i!==""&&t.push(i),t.join(`
-`)}).join(`
-`)}function X(e){if(e==null)return;let n=e.trim();if(!(n===""||u(n)))return n}function q(e){return u(e)?"chore":e}function K(e,n,r,s){let o=r?"!":"",t=n===void 0?`${e}${o}`:`${e}(${n})${o}`,i=s.replace(/\.$/,"").trim(),c=`${t}: `,a=Y-c.length,$=a<1?"":i.length>a?i.slice(0,a).trimEnd():i;return`${c}${$}`}function T(e){let n=q(e.type),r=X(e.scope),s=e.breaking!==void 0&&e.breaking!==null&&e.breaking!=="",o=[K(n,r,s,e.subject)];e.body!==void 0&&e.body!==""&&o.push("",z(e.body,j));let t=[];return e.issueNumber!==void 0&&e.issueNumber!==null&&t.push(`Refs #${e.issueNumber}`),e.storyId!==void 0&&e.storyId!==null&&V.test(e.storyId)&&t.push(`Story: ${e.storyId}`),s&&t.push(`BREAKING CHANGE: ${e.breaking}`),e.signoff===!0?t.push("Signed-off-by:"):typeof e.signoff=="string"&&e.signoff!==""&&t.push(`Signed-off-by: ${e.signoff}`),t.length>0&&o.push("",...t),o.join(`
-`)}var J=["feat","fix"];function x(e){if(e==null)return;let n=e.trim();if(!(n===""||u(n)))return n}function W(e){for(let n of J)if(e.includes(n))return n;return e[0]??"feat"}function Q(e){let n=[...new Set(e.map(r=>x(r)).filter(r=>r!==void 0))];return n.length===1?n[0]:void 0}function b(e){let n=e.types!==void 0&&e.types.length>0?W(e.types):e.type,r=e.scopes!==void 0&&e.scopes.length>0?Q(e.scopes):x(e.scope),s=e.subject.replace(/\.$/,"").trim();return u(n)?r===void 0?`chore: ${s}`:`chore(${r}): ${s}`:r===void 0?`${n}: ${s}`:`${n}(${r}): ${s}`}function C(e){return e.references.map(n=>`${(n.container===!0?n.allChildrenComplete===!0:n.complete)?"Closes":"Refs"} #${n.number}`).join(`
-`)}var R=[{name:"Idea",slug:"idea",order:1,summary:"A hypothesis, opportunity or perceived problem, not yet analysed.",executable:!1,native:!1},{name:"Research",slug:"research",order:2,summary:"An investigation that produces knowledge: analysis, benchmark, feasibility.",executable:!1,native:!1},{name:"Epic",slug:"epic",order:3,summary:"An umbrella objective delivered through sub-issues.",executable:!1,native:!1},{name:"Feature",slug:"feature",order:4,summary:"A new capability or a change to what the product does.",executable:!0,native:!0},{name:"Bug",slug:"bug",order:5,summary:"Existing behaviour that diverges from what is expected.",executable:!0,native:!0},{name:"Task",slug:"task",order:6,summary:"Concrete work that is neither a feature nor a bug.",executable:!0,native:!0}],Z=[{concept:"Documentation",instead:"`Task` + label `docs`",why:"The work is a task; what varies is the area it touches."},{concept:"Maintenance, chore",instead:"`Task`",why:"That is already what `Task` means."},{concept:"Refactor, technical debt",instead:"`Task` + label `tech-debt`",why:"A cross-cutting characteristic, not a distinct nature of work."},{concept:"Security",instead:"the real type (`Bug`/`Task`/`Feature`) + label `security`",why:"It cuts across every type; as a type it would hide whether the item is a flaw or preventive work."},{concept:"Spike, investigation",instead:"`Research`",why:"The same concept under a different name."},{concept:"Enhancement",instead:"`Feature`",why:"A change to what the product does is a feature, whether it is new or an improvement."},{concept:"Proposal, RFC",instead:"`Research`, and an ADR for the decision it produces",why:"The issue carries the investigation; the decision belongs in a document that outlives it."},{concept:"Question",instead:"a Discussion, or `Research` when it needs work",why:"A question that needs no work is not a backlog item."}],ee=[{name:"api",description:"Public interfaces and contracts",color:"006b75"},{name:"backend",description:"Server-side code",color:"5319e7"},{name:"frontend",description:"User-facing code",color:"bfd4f2"},{name:"database",description:"Schema, queries and migrations",color:"c2e0c6"},{name:"infra",description:"Infrastructure, CI and deployment",color:"f9d0c4"},{name:"docs",description:"Documentation",color:"0075ca"},{name:"security",description:"Security or privacy impact",color:"d93f0b"},{name:"tech-debt",description:"Debt paid down rather than capability added",color:"e4e669"},{name:"blocked",description:"Waiting on something outside this repository",color:"b60205"},{name:"good first issue",description:"Good for newcomers",color:"7057ff"}],ne=R.map(e=>({name:`type:${e.slug}`,description:e.summary,color:e.executable?"1d76db":"d4c5f9"})),te=["Context","Problem","Objective","Scope","Out of scope","Acceptance criteria","Dependencies","Risks","References"];var re="Conventional Commits \u2014 type(scope): subject",se=null,L={issueTypes:R,nonTypes:Z,labels:ee,fallbackTypeLabels:ne,bodySections:te,branchConvention:p,commitConvention:re,issueTitleConvention:se};var S={branch:y,parseBranch:h,commit:T,prTitle:b,issueReferences:C,changeType:m,defaults:()=>L};if(process.argv.includes("--help"))console.log("Read JSON {operation,input} from stdin. Operations: branch, parseBranch, commit, prTitle, issueReferences, changeType, defaults. Prints JSON; never runs git or writes files.");else try{let{operation:e,input:n}=JSON.parse(oe(0,"utf8"));if(!Object.hasOwn(S,e))throw new Error("Unknown operation");console.log(JSON.stringify(S[e](n)))}catch(e){console.error(e.message),process.exitCode=1}
+// Generated by skills:sync; do not edit this artifact.
+// Canonical entry point (Issue Flow repository): packages/issue-flow/scripts/skill-entries/conventions.entry.mjs
+// Regenerate: cd packages/issue-flow && npm run skills:sync
+// Bundled for standalone execution; module comments identify original sources.
+
+// packages/issue-flow/scripts/skill-entries/conventions.entry.mjs
+import { readFileSync } from "node:fs";
+
+// packages/issue-flow/src/conventions/git/types.ts
+var CHANGE_TYPES = [
+  "feat",
+  "fix",
+  "docs",
+  "refactor",
+  "perf",
+  "test",
+  "build",
+  "ci",
+  "chore",
+  "style",
+  "revert"
+];
+var DEFAULT_BRANCH_CONVENTION = "{type}/{N}-{slug}";
+var SLUG_MAX_LENGTH = 40;
+var BRANCH_MAX_LENGTH = 60;
+var DEFAULT_LABEL_TYPE_MAP = {
+  bug: "fix",
+  documentation: "docs",
+  docs: "docs",
+  refactor: "refactor",
+  "tech-debt": "refactor",
+  infra: "ci",
+  "ci-cd": "ci",
+  enhancement: "feat",
+  architecture: "feat",
+  investigation: "chore"
+};
+var FORBIDDEN_PROVIDER_NAMES = ["claude", "codex", "cursor", "antigravity"];
+function isChangeType(value) {
+  return CHANGE_TYPES.includes(value);
+}
+function isForbiddenProviderToken(value) {
+  return FORBIDDEN_PROVIDER_NAMES.includes(value.toLowerCase());
+}
+
+// packages/issue-flow/src/conventions/git/slug.ts
+var COMBINING = /[\u0300-\u036f]/g;
+var NON_SLUG = /[^a-z0-9]+/g;
+function slugify(title, maxLength = SLUG_MAX_LENGTH) {
+  const withoutLock = title.replace(/\.lock$/i, "");
+  const normalized = withoutLock.normalize("NFD").replace(COMBINING, "").toLowerCase();
+  let slug = normalized.replace(NON_SLUG, "-").replace(/^-+|-+$/g, "");
+  slug = slug.replace(/\.{2,}/g, ".").replace(/^\.+|\.+$/g, "");
+  slug = slug.replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (slug.length <= maxLength) return slug;
+  const cut = slug.slice(0, maxLength);
+  const lastHyphen = cut.lastIndexOf("-");
+  if (lastHyphen >= Math.floor(maxLength / 2)) {
+    return cut.slice(0, lastHyphen).replace(/-+$/g, "");
+  }
+  return cut.replace(/-+$/g, "");
+}
+
+// packages/issue-flow/src/conventions/git/branch.ts
+var LEGACY_PREFIX = "issue";
+function branchType(type) {
+  return type === "style" || type === "revert" ? "chore" : type;
+}
+function applyConvention(convention, type, issueNumber, slug) {
+  const hasNumber = issueNumber !== void 0 && issueNumber !== null;
+  let result = convention.replaceAll("{type}", type).replaceAll("{N}", hasNumber ? String(issueNumber) : "").replaceAll("{slug}", slug);
+  result = result.replace(/\/{2,}/g, "/").replace(/-{2,}/g, "-");
+  result = result.replace(/\/-/g, "/").replace(/-\//g, "/");
+  result = result.replace(/^\/+|\/+$/g, "").replace(/^-+|-+$/g, "");
+  if (!hasNumber) {
+    result = result.replace(`${type}/-`, `${type}/`).replace(/\/$/g, "");
+  }
+  if (slug === "") {
+    result = result.replace(/\/-$/, "").replace(/-$/, "");
+  }
+  return result.replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
+}
+function truncateBranch(name, max) {
+  if (name.length <= max) return name;
+  const slash = name.indexOf("/");
+  const prefix = slash === -1 ? "" : name.slice(0, slash + 1);
+  const rest = slash === -1 ? name : name.slice(slash + 1);
+  const budget = max - prefix.length;
+  if (budget < 1) return name.slice(0, max);
+  const cut = rest.slice(0, budget);
+  const lastHyphen = cut.lastIndexOf("-");
+  const trimmed = lastHyphen >= Math.floor(budget / 2) ? cut.slice(0, lastHyphen) : cut;
+  return `${prefix}${trimmed.replace(/-+$/g, "")}`;
+}
+function collide(name, existingRefs, currentOid) {
+  if (existingRefs === void 0 || existingRefs.length === 0) return name;
+  const byName = new Map(existingRefs.map((ref) => [ref.name, ref.oid]));
+  const existing = byName.get(name);
+  if (existing === void 0) return name;
+  if (currentOid !== void 0 && existing === currentOid) return name;
+  for (let n = 2; n < 100; n += 1) {
+    const candidate = `${name}-${n}`;
+    const oid = byName.get(candidate);
+    if (oid === void 0 || currentOid !== void 0 && oid === currentOid) {
+      return candidate;
+    }
+  }
+  return `${name}-${Date.now()}`;
+}
+function branchName(input) {
+  const type = branchType(input.type);
+  const convention = input.convention ?? DEFAULT_BRANCH_CONVENTION;
+  const slug = slugify(input.title);
+  const raw = applyConvention(convention, type, input.issueNumber, slug);
+  const truncated = truncateBranch(raw, BRANCH_MAX_LENGTH);
+  return collide(truncated, input.existingRefs, input.currentOid);
+}
+function parseBranch(name) {
+  const raw = name.trim();
+  const match = raw.match(/^([^/]+)\/(?:(\d+)(?:-(.*))?|(.*))$/);
+  if (match === null) {
+    return { type: null, issueNumber: null, slug: raw, raw };
+  }
+  const prefix = match[1] ?? "";
+  const numbered = match[2];
+  const numberedSlug = match[3] ?? "";
+  const unnumberedSlug = match[4] ?? "";
+  const type = prefix === LEGACY_PREFIX ? "issue" : isChangeType(prefix) ? prefix : null;
+  if (numbered !== void 0) {
+    return { type, issueNumber: Number(numbered), slug: numberedSlug, raw };
+  }
+  return { type, issueNumber: null, slug: unnumberedSlug, raw };
+}
+
+// packages/issue-flow/src/conventions/git/change-type.ts
+var ISSUE_TYPE_MAP = {
+  bug: "fix",
+  feature: "feat",
+  task: "chore",
+  epic: "chore",
+  idea: "chore",
+  research: "chore",
+  documentation: "docs"
+};
+var TITLE_PREFIX_MAP = {
+  bug: "fix",
+  fix: "fix",
+  feature: "feat",
+  enhancement: "feat",
+  architecture: "feat",
+  refactor: "refactor",
+  docs: "docs",
+  documentation: "docs",
+  chore: "chore",
+  perf: "perf",
+  test: "test",
+  ci: "ci"
+};
+function normalizeKey(value) {
+  return value.trim().toLowerCase();
+}
+function typeFromIssueType(issueType) {
+  const key = normalizeKey(issueType);
+  if (isChangeType(key)) return key;
+  return ISSUE_TYPE_MAP[key] ?? null;
+}
+function mergedTypeMap(overlay) {
+  const merged = { ...DEFAULT_LABEL_TYPE_MAP };
+  if (overlay === void 0 || overlay === null) return merged;
+  for (const [label, type] of Object.entries(overlay)) {
+    if (isChangeType(type)) {
+      merged[normalizeKey(label)] = type;
+    }
+  }
+  return merged;
+}
+function typeFromLabels(labels, typeMap) {
+  for (const label of labels) {
+    const key = normalizeKey(label);
+    const mapped = typeMap[key] ?? typeMap[key.replace(/^type:/, "")];
+    if (mapped !== void 0) return mapped;
+  }
+  return null;
+}
+function typeFromTitle(title) {
+  const match = title.match(/^\s*\[([^\]]+)\]/);
+  if (match?.[1] === void 0) return null;
+  const key = normalizeKey(match[1]);
+  if (isChangeType(key)) return key;
+  return TITLE_PREFIX_MAP[key] ?? null;
+}
+function resolveChangeType(input) {
+  if (input.declaredType !== void 0 && input.declaredType !== null) {
+    return { type: input.declaredType, source: "declared" };
+  }
+  const labels = input.labels ?? [];
+  const typeMap = mergedTypeMap(input.typeMap);
+  const fromLabels = typeFromLabels(labels, typeMap);
+  const fromIssueType = input.issueType !== void 0 && input.issueType !== null && input.issueType !== "" ? typeFromIssueType(input.issueType) : null;
+  if (fromIssueType !== null) {
+    const issueKey = normalizeKey(input.issueType ?? "");
+    if (issueKey === "task" && fromLabels !== null) {
+      return { type: fromLabels, source: "label" };
+    }
+    if (fromLabels !== null && fromLabels !== fromIssueType) {
+      return {
+        type: fromIssueType,
+        source: "issue-type",
+        conflict: { issueType: fromIssueType, label: fromLabels }
+      };
+    }
+    return { type: fromIssueType, source: "issue-type" };
+  }
+  if (fromLabels !== null) {
+    return { type: fromLabels, source: "label" };
+  }
+  if (input.titleConvention !== null && input.title !== void 0) {
+    const fromTitle = typeFromTitle(input.title);
+    if (fromTitle !== null) {
+      return { type: fromTitle, source: "title" };
+    }
+  } else if (input.title !== void 0) {
+    const fromTitle = typeFromTitle(input.title);
+    if (fromTitle !== null) {
+      return { type: fromTitle, source: "title" };
+    }
+  }
+  return { type: "feat", source: "fallback" };
+}
+
+// packages/issue-flow/src/conventions/git/commit.ts
+var HEADER_MAX = 72;
+var BODY_WIDTH = 72;
+var STORY_ID = /^US-\d+$/i;
+function wrap(text, width) {
+  const paragraphs = text.replace(/\r\n/g, "\n").split("\n");
+  return paragraphs.map((paragraph) => {
+    if (paragraph.trim() === "") return "";
+    const words = paragraph.split(/\s+/);
+    const lines = [];
+    let current = "";
+    for (const word of words) {
+      const next = current === "" ? word : `${current} ${word}`;
+      if (next.length > width && current !== "") {
+        lines.push(current);
+        current = word;
+      } else {
+        current = next;
+      }
+    }
+    if (current !== "") lines.push(current);
+    return lines.join("\n");
+  }).join("\n");
+}
+function sanitizeScope(scope) {
+  if (scope === void 0 || scope === null) return void 0;
+  const trimmed = scope.trim();
+  if (trimmed === "" || isForbiddenProviderToken(trimmed)) return void 0;
+  return trimmed;
+}
+function sanitizeType(type) {
+  return isForbiddenProviderToken(type) ? "chore" : type;
+}
+function headerLine(type, scope, breaking, subject) {
+  const bang = breaking ? "!" : "";
+  const scoped = scope === void 0 ? `${type}${bang}` : `${type}(${scope})${bang}`;
+  const cleaned = subject.replace(/\.$/, "").trim();
+  const prefix = `${scoped}: `;
+  const budget = HEADER_MAX - prefix.length;
+  const clipped = budget < 1 ? "" : cleaned.length > budget ? cleaned.slice(0, budget).trimEnd() : cleaned;
+  return `${prefix}${clipped}`;
+}
+function commitMessage(input) {
+  const type = sanitizeType(input.type);
+  const scope = sanitizeScope(input.scope);
+  const breaking = input.breaking !== void 0 && input.breaking !== null && input.breaking !== "";
+  const lines = [headerLine(type, scope, breaking, input.subject)];
+  if (input.body !== void 0 && input.body !== "") {
+    lines.push("", wrap(input.body, BODY_WIDTH));
+  }
+  const footers = [];
+  if (input.issueNumber !== void 0 && input.issueNumber !== null) {
+    footers.push(`Refs #${input.issueNumber}`);
+  }
+  if (input.storyId !== void 0 && input.storyId !== null && STORY_ID.test(input.storyId)) {
+    footers.push(`Story: ${input.storyId}`);
+  }
+  if (breaking) {
+    footers.push(`BREAKING CHANGE: ${input.breaking}`);
+  }
+  if (input.signoff === true) {
+    footers.push("Signed-off-by:");
+  } else if (typeof input.signoff === "string" && input.signoff !== "") {
+    footers.push(`Signed-off-by: ${input.signoff}`);
+  }
+  if (footers.length > 0) {
+    lines.push("", ...footers);
+  }
+  return lines.join("\n");
+}
+
+// packages/issue-flow/src/conventions/git/pull-request.ts
+var IMPACT = ["feat", "fix"];
+function sanitizeScope2(scope) {
+  if (scope === void 0 || scope === null) return void 0;
+  const trimmed = scope.trim();
+  if (trimmed === "" || isForbiddenProviderToken(trimmed)) return void 0;
+  return trimmed;
+}
+function highestImpact(types) {
+  for (const type of IMPACT) {
+    if (types.includes(type)) return type;
+  }
+  return types[0] ?? "feat";
+}
+function scopesAgree(scopes) {
+  const unique = [
+    ...new Set(scopes.map((scope) => sanitizeScope2(scope)).filter((scope) => scope !== void 0))
+  ];
+  return unique.length === 1 ? unique[0] : void 0;
+}
+function pullRequestTitle(input) {
+  const type = input.types !== void 0 && input.types.length > 0 ? highestImpact(input.types) : input.type;
+  const scope = input.scopes !== void 0 && input.scopes.length > 0 ? scopesAgree(input.scopes) : sanitizeScope2(input.scope);
+  const subject = input.subject.replace(/\.$/, "").trim();
+  if (isForbiddenProviderToken(type)) {
+    return scope === void 0 ? `chore: ${subject}` : `chore(${scope}): ${subject}`;
+  }
+  return scope === void 0 ? `${type}: ${subject}` : `${type}(${scope}): ${subject}`;
+}
+function issueReferenceLines(input) {
+  return input.references.map((ref) => {
+    const closes = ref.container === true ? ref.allChildrenComplete === true : ref.complete;
+    return `${closes ? "Closes" : "Refs"} #${ref.number}`;
+  }).join("\n");
+}
+
+// packages/issue-flow/src/conventions/defaults.ts
+var DEFAULT_ISSUE_TYPES = [
+  {
+    name: "Idea",
+    slug: "idea",
+    order: 1,
+    summary: "A hypothesis, opportunity or perceived problem, not yet analysed.",
+    executable: false,
+    native: false
+  },
+  {
+    name: "Research",
+    slug: "research",
+    order: 2,
+    summary: "An investigation that produces knowledge: analysis, benchmark, feasibility.",
+    executable: false,
+    native: false
+  },
+  {
+    name: "Epic",
+    slug: "epic",
+    order: 3,
+    summary: "An umbrella objective delivered through sub-issues.",
+    executable: false,
+    native: false
+  },
+  {
+    name: "Feature",
+    slug: "feature",
+    order: 4,
+    summary: "A new capability or a change to what the product does.",
+    executable: true,
+    native: true
+  },
+  {
+    name: "Bug",
+    slug: "bug",
+    order: 5,
+    summary: "Existing behaviour that diverges from what is expected.",
+    executable: true,
+    native: true
+  },
+  {
+    name: "Task",
+    slug: "task",
+    order: 6,
+    summary: "Concrete work that is neither a feature nor a bug.",
+    executable: true,
+    native: true
+  }
+];
+var NON_TYPES = [
+  {
+    concept: "Documentation",
+    instead: "`Task` + label `docs`",
+    why: "The work is a task; what varies is the area it touches."
+  },
+  {
+    concept: "Maintenance, chore",
+    instead: "`Task`",
+    why: "That is already what `Task` means."
+  },
+  {
+    concept: "Refactor, technical debt",
+    instead: "`Task` + label `tech-debt`",
+    why: "A cross-cutting characteristic, not a distinct nature of work."
+  },
+  {
+    concept: "Security",
+    instead: "the real type (`Bug`/`Task`/`Feature`) + label `security`",
+    why: "It cuts across every type; as a type it would hide whether the item is a flaw or preventive work."
+  },
+  {
+    concept: "Spike, investigation",
+    instead: "`Research`",
+    why: "The same concept under a different name."
+  },
+  {
+    concept: "Enhancement",
+    instead: "`Feature`",
+    why: "A change to what the product does is a feature, whether it is new or an improvement."
+  },
+  {
+    concept: "Proposal, RFC",
+    instead: "`Research`, and an ADR for the decision it produces",
+    why: "The issue carries the investigation; the decision belongs in a document that outlives it."
+  },
+  {
+    concept: "Question",
+    instead: "a Discussion, or `Research` when it needs work",
+    why: "A question that needs no work is not a backlog item."
+  }
+];
+var DEFAULT_LABELS = [
+  { name: "api", description: "Public interfaces and contracts", color: "006b75" },
+  { name: "backend", description: "Server-side code", color: "5319e7" },
+  { name: "frontend", description: "User-facing code", color: "bfd4f2" },
+  { name: "database", description: "Schema, queries and migrations", color: "c2e0c6" },
+  { name: "infra", description: "Infrastructure, CI and deployment", color: "f9d0c4" },
+  { name: "docs", description: "Documentation", color: "0075ca" },
+  { name: "security", description: "Security or privacy impact", color: "d93f0b" },
+  {
+    name: "tech-debt",
+    description: "Debt paid down rather than capability added",
+    color: "e4e669"
+  },
+  { name: "blocked", description: "Waiting on something outside this repository", color: "b60205" },
+  { name: "good first issue", description: "Good for newcomers", color: "7057ff" }
+];
+var FALLBACK_TYPE_LABELS = DEFAULT_ISSUE_TYPES.map((type) => ({
+  name: `type:${type.slug}`,
+  description: type.summary,
+  color: type.executable ? "1d76db" : "d4c5f9"
+}));
+var DEFAULT_BODY_SECTIONS = [
+  "Context",
+  "Problem",
+  "Objective",
+  "Scope",
+  "Out of scope",
+  "Acceptance criteria",
+  "Dependencies",
+  "Risks",
+  "References"
+];
+var DEFAULT_COMMIT_CONVENTION = "Conventional Commits \u2014 type(scope): subject";
+var DEFAULT_ISSUE_TITLE_CONVENTION = null;
+var DEFAULT_CONVENTIONS = {
+  issueTypes: DEFAULT_ISSUE_TYPES,
+  nonTypes: NON_TYPES,
+  labels: DEFAULT_LABELS,
+  fallbackTypeLabels: FALLBACK_TYPE_LABELS,
+  bodySections: DEFAULT_BODY_SECTIONS,
+  branchConvention: DEFAULT_BRANCH_CONVENTION,
+  commitConvention: DEFAULT_COMMIT_CONVENTION,
+  issueTitleConvention: DEFAULT_ISSUE_TITLE_CONVENTION
+};
+
+// packages/issue-flow/scripts/skill-entries/conventions.entry.mjs
+var operations = {
+  branch: branchName,
+  parseBranch,
+  commit: commitMessage,
+  prTitle: pullRequestTitle,
+  issueReferences: issueReferenceLines,
+  changeType: resolveChangeType,
+  defaults: () => DEFAULT_CONVENTIONS
+};
+if (process.argv.includes("--help")) {
+  console.log(
+    "Read JSON {operation,input} from stdin. Operations: branch, parseBranch, commit, prTitle, issueReferences, changeType, defaults. Prints JSON; never runs git or writes files."
+  );
+} else {
+  try {
+    const { operation, input } = JSON.parse(readFileSync(0, "utf8"));
+    if (!Object.hasOwn(operations, operation)) throw new Error("Unknown operation");
+    console.log(JSON.stringify(operations[operation](input)));
+  } catch (e) {
+    console.error(e.message);
+    process.exitCode = 1;
+  }
+}

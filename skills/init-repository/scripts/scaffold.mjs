@@ -1,15 +1,442 @@
-import{readFileSync as _}from"node:fs";var o="{type}/{N}-{slug}";var a=[{name:"Idea",slug:"idea",order:1,summary:"A hypothesis, opportunity or perceived problem, not yet analysed.",executable:!1,native:!1},{name:"Research",slug:"research",order:2,summary:"An investigation that produces knowledge: analysis, benchmark, feasibility.",executable:!1,native:!1},{name:"Epic",slug:"epic",order:3,summary:"An umbrella objective delivered through sub-issues.",executable:!1,native:!1},{name:"Feature",slug:"feature",order:4,summary:"A new capability or a change to what the product does.",executable:!0,native:!0},{name:"Bug",slug:"bug",order:5,summary:"Existing behaviour that diverges from what is expected.",executable:!0,native:!0},{name:"Task",slug:"task",order:6,summary:"Concrete work that is neither a feature nor a bug.",executable:!0,native:!0}],p=[{concept:"Documentation",instead:"`Task` + label `docs`",why:"The work is a task; what varies is the area it touches."},{concept:"Maintenance, chore",instead:"`Task`",why:"That is already what `Task` means."},{concept:"Refactor, technical debt",instead:"`Task` + label `tech-debt`",why:"A cross-cutting characteristic, not a distinct nature of work."},{concept:"Security",instead:"the real type (`Bug`/`Task`/`Feature`) + label `security`",why:"It cuts across every type; as a type it would hide whether the item is a flaw or preventive work."},{concept:"Spike, investigation",instead:"`Research`",why:"The same concept under a different name."},{concept:"Enhancement",instead:"`Feature`",why:"A change to what the product does is a feature, whether it is new or an improvement."},{concept:"Proposal, RFC",instead:"`Research`, and an ADR for the decision it produces",why:"The issue carries the investigation; the decision belongs in a document that outlives it."},{concept:"Question",instead:"a Discussion, or `Research` when it needs work",why:"A question that needs no work is not a backlog item."}],c=[{name:"api",description:"Public interfaces and contracts",color:"006b75"},{name:"backend",description:"Server-side code",color:"5319e7"},{name:"frontend",description:"User-facing code",color:"bfd4f2"},{name:"database",description:"Schema, queries and migrations",color:"c2e0c6"},{name:"infra",description:"Infrastructure, CI and deployment",color:"f9d0c4"},{name:"docs",description:"Documentation",color:"0075ca"},{name:"security",description:"Security or privacy impact",color:"d93f0b"},{name:"tech-debt",description:"Debt paid down rather than capability added",color:"e4e669"},{name:"blocked",description:"Waiting on something outside this repository",color:"b60205"},{name:"good first issue",description:"Good for newcomers",color:"7057ff"}],h=a.map(e=>({name:`type:${e.slug}`,description:e.summary,color:e.executable?"1d76db":"d4c5f9"}));var f="Conventional Commits \u2014 type(scope): subject";function g(){return["  - type: textarea","    id: acceptance","    attributes:","      label: Acceptance criteria","      description: How anyone can tell this is done. Checks that fail today and pass afterwards.","      value: |","        - [ ] ","    validations:","      required: true"].join(`
-`)}function l(){return["  - type: textarea","    id: references","    attributes:","      label: References","      description: Links, related issues, prior discussion, evidence."].join(`
-`)}function y(e){let n=[`name: "${I(e.slug)} ${e.name}"`,`description: "${e.summary}"`,`type: "${e.name}"`,"body:"],s={idea:["  - type: markdown","    attributes:","      value: |","        Quick capture. Only the first field is required \u2014 triage fills in the rest.","        An Idea is **not approved work**: no agent implements it.","  - type: textarea","    id: idea","    attributes:","      label: The idea","      description: What it is, in a few lines. It does not have to be solved or complete.","    validations:","      required: true","  - type: textarea","    id: problem","    attributes:","      label: Problem or opportunity","      description: What pain or gain is behind it? Leave blank if you do not know yet.",l(),"  - type: textarea","    id: questions","    attributes:","      label: Open questions","      description: What would have to be answered before deciding anything."],research:["  - type: textarea","    id: question","    attributes:","      label: Question to answer","      description: The decision this investigation has to unblock.","    validations:","      required: true","  - type: textarea","    id: context","    attributes:","      label: Context","      description: What is already known, and why the question is open.","  - type: textarea","    id: deliverable","    attributes:","      label: Expected deliverable","      description: A conclusion and a recommendation. Say where durable knowledge will be written down.","    validations:","      required: true",l()],epic:["  - type: markdown","    attributes:","      value: |","        An Epic is never executed directly: it is delivered through its sub-issues.","  - type: textarea","    id: objective","    attributes:","      label: Objective","      description: The state of the product this Epic describes.","    validations:","      required: true","  - type: textarea","    id: scope","    attributes:","      label: Scope","    validations:","      required: true","  - type: textarea","    id: out-of-scope","    attributes:","      label: Out of scope","      description: What this Epic deliberately does not cover. Absence here is what makes scope creep arguable.","  - type: textarea","    id: children","    attributes:","      label: Known sub-issues","      description: Add them as sub-issues once they exist; list what you already foresee."],feature:["  - type: textarea","    id: problem","    attributes:","      label: Problem","      description: What is not possible today, and for whom.","    validations:","      required: true","  - type: textarea","    id: objective","    attributes:","      label: Objective","      description: What becomes true when this is done.","    validations:","      required: true","  - type: textarea","    id: scope","    attributes:","      label: Scope and out of scope","      description: What is included, and what is deliberately not.",g(),"  - type: textarea","    id: dependencies","    attributes:","      label: Dependencies and risks","      description: What has to exist first, and what could go wrong.",l()],bug:["  - type: textarea","    id: current","    attributes:","      label: Current behaviour","    validations:","      required: true","  - type: textarea","    id: expected","    attributes:","      label: Expected behaviour","    validations:","      required: true","  - type: textarea","    id: steps","    attributes:","      label: Steps to reproduce","      value: |","        1.","        2.","        3.","    validations:","      required: true","  - type: input","    id: environment","    attributes:","      label: Environment","      description: Where it happens \u2014 environment, version, component, browser.","    validations:","      required: true","  - type: textarea","    id: evidence","    attributes:","      label: Evidence","      description: Logs, request and response, screenshot, trace id, affected URL.","  - type: dropdown","    id: impact","    attributes:","      label: Impact","      options:",'        - "Data loss or improper exposure"','        - "Feature unavailable, no workaround"','        - "Feature degraded, workaround exists"','        - "Cosmetic or low consequence"',"    validations:","      required: true","  - type: textarea","    id: done","    attributes:","      label: How to tell it is fixed","      description: The check that fails today and passes afterwards.","    validations:","      required: true"],task:["  - type: textarea","    id: what","    attributes:","      label: What has to be done","    validations:","      required: true","  - type: textarea","    id: why","    attributes:","      label: Why","      description: The reason this is worth doing now.","    validations:","      required: true",g(),l()]}[e.slug];if(s===void 0)throw new Error(`No Issue Form body defined for type "${e.slug}"`);return`${[...n,...s].join(`
-`)}
-`}function I(e){return{idea:"\u{1F4A1}",research:"\u{1F52C}",epic:"\u{1F5FA}\uFE0F",feature:"\u2728",bug:"\u{1F41B}",task:"\u{1F527}"}[e]??"\u{1F4CC}"}function m(){return["blank_issues_enabled: true","contact_links:","  - name: How this backlog works","    url: https://github.com/fabioassuncao/issue-flow/blob/main/docs/conventions.md","    about: Issue types, what each one authorizes, labels and the lifecycle.",""].join(`
-`)}function b(){return["## What changed","","<!-- What this Pull Request does, and why. One paragraph is enough. -->","","## How it was tested","",'<!-- The checks you ran, and what they proved. "CI is green" is not a test plan. -->',"","## Related issues","","<!--","One `Closes #N` per issue this resolves, each on its own line and as plain body","text \u2014 GitHub only auto-closes when the line is not inside a code fence.","-->","","## Notes for reviewers","",'<!-- Where to start, and anything you are unsure about. Write "N/A" rather than deleting a section. -->',""].join(`
-`)}function T(e,n){let t=[`# ${e}`,"","This file is an **index**. It holds no rule, command or convention of its own \u2014","those live in the documents referenced below, which are the source of truth.","","> Document once. Reference everywhere it is needed.","","## Start here",""];for(let s of n)t.push(`- [\`${s}\`](${s})`);return n.length===0&&t.push("- [`README.md`](README.md) \u2014 what this project is, and how to run it"),t.push("","## Working on an issue","","- [`docs/conventions.md`](docs/conventions.md) \u2014 issue types, labels, branches,","  commits and Pull Requests: what this repository expects and what it does not","","## What does not belong in this file","","Anything that can live in a document of its own: build and test commands, code","style, architecture rules, testing strategy, operational procedures. If it is a","rule, a standard or reusable knowledge, it belongs in its own document and this","file only points at it.","","An instruction that today exists **only** here does not stay here: move it to the","right document and leave a reference behind. Duplicated instructions in an agent","file age out of sight and start contradicting the source without anyone noticing.",""),t.join(`
-`)}function C(){return`Read and follow the instructions in AGENTS.md.
-`}function x(e){let n=a.map(r=>`| **${r.name}** | ${r.summary} | ${r.executable?"Yes, once it is ready":"**No**"} |`).join(`
-`),t=p.map(r=>`| ${r.concept} | ${r.instead} | ${r.why} |`).join(`
-`),s=c.map(r=>`| \`${r.name}\` | ${r.description} |`).join(`
-`);return`# Conventions
+// Generated by skills:sync; do not edit this artifact.
+// Canonical entry point (Issue Flow repository): packages/issue-flow/scripts/skill-entries/scaffold.entry.mjs
+// Regenerate: cd packages/issue-flow && npm run skills:sync
+// Bundled for standalone execution; module comments identify original sources.
+
+// packages/issue-flow/scripts/skill-entries/scaffold.entry.mjs
+import { readFileSync } from "node:fs";
+
+// packages/issue-flow/src/conventions/git/types.ts
+var DEFAULT_BRANCH_CONVENTION = "{type}/{N}-{slug}";
+
+// packages/issue-flow/src/conventions/defaults.ts
+var DEFAULT_ISSUE_TYPES = [
+  {
+    name: "Idea",
+    slug: "idea",
+    order: 1,
+    summary: "A hypothesis, opportunity or perceived problem, not yet analysed.",
+    executable: false,
+    native: false
+  },
+  {
+    name: "Research",
+    slug: "research",
+    order: 2,
+    summary: "An investigation that produces knowledge: analysis, benchmark, feasibility.",
+    executable: false,
+    native: false
+  },
+  {
+    name: "Epic",
+    slug: "epic",
+    order: 3,
+    summary: "An umbrella objective delivered through sub-issues.",
+    executable: false,
+    native: false
+  },
+  {
+    name: "Feature",
+    slug: "feature",
+    order: 4,
+    summary: "A new capability or a change to what the product does.",
+    executable: true,
+    native: true
+  },
+  {
+    name: "Bug",
+    slug: "bug",
+    order: 5,
+    summary: "Existing behaviour that diverges from what is expected.",
+    executable: true,
+    native: true
+  },
+  {
+    name: "Task",
+    slug: "task",
+    order: 6,
+    summary: "Concrete work that is neither a feature nor a bug.",
+    executable: true,
+    native: true
+  }
+];
+var NON_TYPES = [
+  {
+    concept: "Documentation",
+    instead: "`Task` + label `docs`",
+    why: "The work is a task; what varies is the area it touches."
+  },
+  {
+    concept: "Maintenance, chore",
+    instead: "`Task`",
+    why: "That is already what `Task` means."
+  },
+  {
+    concept: "Refactor, technical debt",
+    instead: "`Task` + label `tech-debt`",
+    why: "A cross-cutting characteristic, not a distinct nature of work."
+  },
+  {
+    concept: "Security",
+    instead: "the real type (`Bug`/`Task`/`Feature`) + label `security`",
+    why: "It cuts across every type; as a type it would hide whether the item is a flaw or preventive work."
+  },
+  {
+    concept: "Spike, investigation",
+    instead: "`Research`",
+    why: "The same concept under a different name."
+  },
+  {
+    concept: "Enhancement",
+    instead: "`Feature`",
+    why: "A change to what the product does is a feature, whether it is new or an improvement."
+  },
+  {
+    concept: "Proposal, RFC",
+    instead: "`Research`, and an ADR for the decision it produces",
+    why: "The issue carries the investigation; the decision belongs in a document that outlives it."
+  },
+  {
+    concept: "Question",
+    instead: "a Discussion, or `Research` when it needs work",
+    why: "A question that needs no work is not a backlog item."
+  }
+];
+var DEFAULT_LABELS = [
+  { name: "api", description: "Public interfaces and contracts", color: "006b75" },
+  { name: "backend", description: "Server-side code", color: "5319e7" },
+  { name: "frontend", description: "User-facing code", color: "bfd4f2" },
+  { name: "database", description: "Schema, queries and migrations", color: "c2e0c6" },
+  { name: "infra", description: "Infrastructure, CI and deployment", color: "f9d0c4" },
+  { name: "docs", description: "Documentation", color: "0075ca" },
+  { name: "security", description: "Security or privacy impact", color: "d93f0b" },
+  {
+    name: "tech-debt",
+    description: "Debt paid down rather than capability added",
+    color: "e4e669"
+  },
+  { name: "blocked", description: "Waiting on something outside this repository", color: "b60205" },
+  { name: "good first issue", description: "Good for newcomers", color: "7057ff" }
+];
+var FALLBACK_TYPE_LABELS = DEFAULT_ISSUE_TYPES.map((type) => ({
+  name: `type:${type.slug}`,
+  description: type.summary,
+  color: type.executable ? "1d76db" : "d4c5f9"
+}));
+var DEFAULT_COMMIT_CONVENTION = "Conventional Commits \u2014 type(scope): subject";
+
+// packages/issue-flow/src/scaffold/assets.ts
+function acceptanceCriteriaField() {
+  return [
+    "  - type: textarea",
+    "    id: acceptance",
+    "    attributes:",
+    "      label: Acceptance criteria",
+    "      description: How anyone can tell this is done. Checks that fail today and pass afterwards.",
+    "      value: |",
+    "        - [ ] ",
+    "    validations:",
+    "      required: true"
+  ].join("\n");
+}
+function referencesField() {
+  return [
+    "  - type: textarea",
+    "    id: references",
+    "    attributes:",
+    "      label: References",
+    "      description: Links, related issues, prior discussion, evidence."
+  ].join("\n");
+}
+function renderIssueForm(type) {
+  const header = [
+    `name: "${emojiFor(type.slug)} ${type.name}"`,
+    `description: "${type.summary}"`,
+    `type: "${type.name}"`,
+    "body:"
+  ];
+  const bodies = {
+    idea: [
+      "  - type: markdown",
+      "    attributes:",
+      "      value: |",
+      "        Quick capture. Only the first field is required \u2014 triage fills in the rest.",
+      "        An Idea is **not approved work**: no agent implements it.",
+      "  - type: textarea",
+      "    id: idea",
+      "    attributes:",
+      "      label: The idea",
+      "      description: What it is, in a few lines. It does not have to be solved or complete.",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: problem",
+      "    attributes:",
+      "      label: Problem or opportunity",
+      "      description: What pain or gain is behind it? Leave blank if you do not know yet.",
+      referencesField(),
+      "  - type: textarea",
+      "    id: questions",
+      "    attributes:",
+      "      label: Open questions",
+      "      description: What would have to be answered before deciding anything."
+    ],
+    research: [
+      "  - type: textarea",
+      "    id: question",
+      "    attributes:",
+      "      label: Question to answer",
+      "      description: The decision this investigation has to unblock.",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: context",
+      "    attributes:",
+      "      label: Context",
+      "      description: What is already known, and why the question is open.",
+      "  - type: textarea",
+      "    id: deliverable",
+      "    attributes:",
+      "      label: Expected deliverable",
+      "      description: A conclusion and a recommendation. Say where durable knowledge will be written down.",
+      "    validations:",
+      "      required: true",
+      referencesField()
+    ],
+    epic: [
+      "  - type: markdown",
+      "    attributes:",
+      "      value: |",
+      "        An Epic is never executed directly: it is delivered through its sub-issues.",
+      "  - type: textarea",
+      "    id: objective",
+      "    attributes:",
+      "      label: Objective",
+      "      description: The state of the product this Epic describes.",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: scope",
+      "    attributes:",
+      "      label: Scope",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: out-of-scope",
+      "    attributes:",
+      "      label: Out of scope",
+      "      description: What this Epic deliberately does not cover. Absence here is what makes scope creep arguable.",
+      "  - type: textarea",
+      "    id: children",
+      "    attributes:",
+      "      label: Known sub-issues",
+      "      description: Add them as sub-issues once they exist; list what you already foresee."
+    ],
+    feature: [
+      "  - type: textarea",
+      "    id: problem",
+      "    attributes:",
+      "      label: Problem",
+      "      description: What is not possible today, and for whom.",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: objective",
+      "    attributes:",
+      "      label: Objective",
+      "      description: What becomes true when this is done.",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: scope",
+      "    attributes:",
+      "      label: Scope and out of scope",
+      "      description: What is included, and what is deliberately not.",
+      acceptanceCriteriaField(),
+      "  - type: textarea",
+      "    id: dependencies",
+      "    attributes:",
+      "      label: Dependencies and risks",
+      "      description: What has to exist first, and what could go wrong.",
+      referencesField()
+    ],
+    bug: [
+      "  - type: textarea",
+      "    id: current",
+      "    attributes:",
+      "      label: Current behaviour",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: expected",
+      "    attributes:",
+      "      label: Expected behaviour",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: steps",
+      "    attributes:",
+      "      label: Steps to reproduce",
+      "      value: |",
+      "        1.",
+      "        2.",
+      "        3.",
+      "    validations:",
+      "      required: true",
+      "  - type: input",
+      "    id: environment",
+      "    attributes:",
+      "      label: Environment",
+      "      description: Where it happens \u2014 environment, version, component, browser.",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: evidence",
+      "    attributes:",
+      "      label: Evidence",
+      "      description: Logs, request and response, screenshot, trace id, affected URL.",
+      "  - type: dropdown",
+      "    id: impact",
+      "    attributes:",
+      "      label: Impact",
+      "      options:",
+      '        - "Data loss or improper exposure"',
+      '        - "Feature unavailable, no workaround"',
+      '        - "Feature degraded, workaround exists"',
+      '        - "Cosmetic or low consequence"',
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: done",
+      "    attributes:",
+      "      label: How to tell it is fixed",
+      "      description: The check that fails today and passes afterwards.",
+      "    validations:",
+      "      required: true"
+    ],
+    task: [
+      "  - type: textarea",
+      "    id: what",
+      "    attributes:",
+      "      label: What has to be done",
+      "    validations:",
+      "      required: true",
+      "  - type: textarea",
+      "    id: why",
+      "    attributes:",
+      "      label: Why",
+      "      description: The reason this is worth doing now.",
+      "    validations:",
+      "      required: true",
+      acceptanceCriteriaField(),
+      referencesField()
+    ]
+  };
+  const body = bodies[type.slug];
+  if (body === void 0) {
+    throw new Error(`No Issue Form body defined for type "${type.slug}"`);
+  }
+  return `${[...header, ...body].join("\n")}
+`;
+}
+function emojiFor(slug) {
+  const map = {
+    idea: "\u{1F4A1}",
+    research: "\u{1F52C}",
+    epic: "\u{1F5FA}\uFE0F",
+    feature: "\u2728",
+    bug: "\u{1F41B}",
+    task: "\u{1F527}"
+  };
+  return map[slug] ?? "\u{1F4CC}";
+}
+function renderIssueTemplateConfig() {
+  return [
+    "blank_issues_enabled: true",
+    "contact_links:",
+    "  - name: How this backlog works",
+    "    url: https://github.com/fabioassuncao/issue-flow/blob/main/docs/conventions.md",
+    "    about: Issue types, what each one authorizes, labels and the lifecycle.",
+    ""
+  ].join("\n");
+}
+function renderPullRequestTemplate() {
+  return [
+    "## What changed",
+    "",
+    "<!-- What this Pull Request does, and why. One paragraph is enough. -->",
+    "",
+    "## How it was tested",
+    "",
+    '<!-- The checks you ran, and what they proved. "CI is green" is not a test plan. -->',
+    "",
+    "## Related issues",
+    "",
+    "<!--",
+    "One `Closes #N` per issue this resolves, each on its own line and as plain body",
+    "text \u2014 GitHub only auto-closes when the line is not inside a code fence.",
+    "-->",
+    "",
+    "## Notes for reviewers",
+    "",
+    '<!-- Where to start, and anything you are unsure about. Write "N/A" rather than deleting a section. -->',
+    ""
+  ].join("\n");
+}
+function renderAgentsMd(projectName, referenced) {
+  const lines = [
+    `# ${projectName}`,
+    "",
+    "This file is an **index**. It holds no rule, command or convention of its own \u2014",
+    "those live in the documents referenced below, which are the source of truth.",
+    "",
+    "> Document once. Reference everywhere it is needed.",
+    "",
+    "## Start here",
+    ""
+  ];
+  for (const path of referenced) {
+    lines.push(`- [\`${path}\`](${path})`);
+  }
+  if (referenced.length === 0) {
+    lines.push("- [`README.md`](README.md) \u2014 what this project is, and how to run it");
+  }
+  lines.push(
+    "",
+    "## Working on an issue",
+    "",
+    "- [`docs/conventions.md`](docs/conventions.md) \u2014 issue types, labels, branches,",
+    "  commits and Pull Requests: what this repository expects and what it does not",
+    "",
+    "## What does not belong in this file",
+    "",
+    "Anything that can live in a document of its own: build and test commands, code",
+    "style, architecture rules, testing strategy, operational procedures. If it is a",
+    "rule, a standard or reusable knowledge, it belongs in its own document and this",
+    "file only points at it.",
+    "",
+    "An instruction that today exists **only** here does not stay here: move it to the",
+    "right document and leave a reference behind. Duplicated instructions in an agent",
+    "file age out of sight and start contradicting the source without anyone noticing.",
+    ""
+  );
+  return lines.join("\n");
+}
+function renderClaudeMd() {
+  return "Read and follow the instructions in AGENTS.md.\n";
+}
+function renderConventionsDoc(hasIssueTypes) {
+  const typeRows = DEFAULT_ISSUE_TYPES.map(
+    (t) => `| **${t.name}** | ${t.summary} | ${t.executable ? "Yes, once it is ready" : "**No**"} |`
+  ).join("\n");
+  const nonTypeRows = NON_TYPES.map((n) => `| ${n.concept} | ${n.instead} | ${n.why} |`).join("\n");
+  const labelRows = DEFAULT_LABELS.map((l) => `| \`${l.name}\` | ${l.description} |`).join("\n");
+  const typeMechanism = hasIssueTypes ? "This organization has GitHub Issue Types, so the type lives in the **native field**." : [
+    "This organization has no GitHub Issue Types, so the type is carried by a",
+    "`type:*` label. If Issue Types are enabled later, move to them and drop these",
+    "labels \u2014 keeping both would create a second truth that drifts."
+  ].join("\n");
+  return `# Conventions
 
 How work is recorded, classified and executed in this repository.
 
@@ -27,12 +454,11 @@ How work is recorded, classified and executed in this repository.
 
 ## Issue types
 
-${e?"This organization has GitHub Issue Types, so the type lives in the **native field**.":["This organization has no GitHub Issue Types, so the type is carried by a","`type:*` label. If Issue Types are enabled later, move to them and drop these","labels \u2014 keeping both would create a second truth that drifts."].join(`
-`)}
+${typeMechanism}
 
 | Type | What it is | Authorizes execution? |
 |---|---|---|
-${n}
+${typeRows}
 
 ### Choosing the type
 
@@ -52,7 +478,7 @@ query.
 
 | Concept | Represent it as | Why |
 |---|---|---|
-${t}
+${nonTypeRows}
 
 ## Labels
 
@@ -61,15 +487,15 @@ area, component and cross-cutting characteristic.
 
 | Label | Meaning |
 |---|---|
-${s}
+${labelRows}
 
 **Never use a label for** priority, type, state or size when a field exists for
 it: the label becomes a second truth that ages on its own.
 
 ## Branches and commits
 
-- Branch: \`${o}\`
-- Commit: ${f}
+- Branch: \`${DEFAULT_BRANCH_CONVENTION}\`
+- Commit: ${DEFAULT_COMMIT_CONVENTION}
 
 The commit type must match the nature of the change. A bug fix committed as
 \`feat:\` corrupts the changelog and any version bump derived from the history.
@@ -93,5 +519,51 @@ line pointing at \`AGENTS.md\`. Any other agent adapter follows the same rule.
 \`\`\`text
 CLAUDE.md  \u2192  AGENTS.md  \u2192  specialized documentation  \u2192  single source of truth
 \`\`\`
-`}function w(e){let n=e?[...h,...c]:c;return`${JSON.stringify(n.map(t=>({name:t.name,description:t.description,color:t.color})),null,2)}
-`}if(process.argv.includes("--help"))console.log("Read JSON {projectName,hasIssueTypes,documents} from stdin. Print canonical candidate {path,content} assets. Does not inspect or modify a repository. Apply only missing, approved files.");else try{let{projectName:e="Project",hasIssueTypes:n=!1,documents:t=["docs/conventions.md"]}=JSON.parse(_(0,"utf8")),s=a.map(i=>({path:`.github/ISSUE_TEMPLATE/${i.order}-${i.slug}.yml`,content:y(i)}));s.push(...[[".github/ISSUE_TEMPLATE/config.yml",m()],[".github/PULL_REQUEST_TEMPLATE.md",b()],["AGENTS.md",T(e,t)],["CLAUDE.md",C()],["docs/conventions.md",x(n)],[".github/labels.json",w(!n)]].map(([i,r])=>({path:i,content:r}))),console.log(JSON.stringify(s))}catch(e){console.error(e.message),process.exitCode=1}
+`;
+}
+function renderLabelsFile(includeTypeLabels) {
+  const labels = includeTypeLabels ? [...FALLBACK_TYPE_LABELS, ...DEFAULT_LABELS] : DEFAULT_LABELS;
+  return `${JSON.stringify(
+    labels.map((label) => ({
+      name: label.name,
+      description: label.description,
+      color: label.color
+    })),
+    null,
+    2
+  )}
+`;
+}
+
+// packages/issue-flow/scripts/skill-entries/scaffold.entry.mjs
+if (process.argv.includes("--help")) {
+  console.log(
+    "Read JSON {projectName,hasIssueTypes,documents} from stdin. Print canonical candidate {path,content} assets. Does not inspect or modify a repository. Apply only missing, approved files."
+  );
+} else {
+  try {
+    const {
+      projectName = "Project",
+      hasIssueTypes = false,
+      documents = ["docs/conventions.md"]
+    } = JSON.parse(readFileSync(0, "utf8"));
+    const result = DEFAULT_ISSUE_TYPES.map((type) => ({
+      path: `.github/ISSUE_TEMPLATE/${type.order}-${type.slug}.yml`,
+      content: renderIssueForm(type)
+    }));
+    result.push(
+      ...[
+        [".github/ISSUE_TEMPLATE/config.yml", renderIssueTemplateConfig()],
+        [".github/PULL_REQUEST_TEMPLATE.md", renderPullRequestTemplate()],
+        ["AGENTS.md", renderAgentsMd(projectName, documents)],
+        ["CLAUDE.md", renderClaudeMd()],
+        ["docs/conventions.md", renderConventionsDoc(hasIssueTypes)],
+        [".github/labels.json", renderLabelsFile(!hasIssueTypes)]
+      ].map(([path, content]) => ({ path, content }))
+    );
+    console.log(JSON.stringify(result));
+  } catch (e) {
+    console.error(e.message);
+    process.exitCode = 1;
+  }
+}
