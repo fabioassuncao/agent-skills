@@ -54,6 +54,9 @@ decisions — never a source of truth for behaviour.
 - [`docs/research/2026-09-05-pipeline-iterations-corrections-continuity.md`](docs/research/2026-09-05-pipeline-iterations-corrections-continuity.md)
   — current phase and iteration boundaries, correction-cycle triggers, benchmark
   limitations and the one-way handoff between skills and CLI (`#107`)
+- [`docs/research/2026-09-05-ai-memory-superpowers.md`](docs/research/2026-09-05-ai-memory-superpowers.md)
+  — the boundary between memory and transactional state, an AI Memory spike,
+  and the Superpowers patterns selected for portable Agent Skills
 
 ## Developing
 
