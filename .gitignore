@@ -1,7 +1,2 @@
 .DS_Store
-
-# Local interactive Skill artifacts and legacy input. CLI runtime artifacts use
-# the separate global storage tree documented in docs/storage.md.
-/issues
-
 /node_modules
