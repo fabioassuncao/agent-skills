@@ -6,17 +6,17 @@ description: >
   giving a verdict. Use this skill whenever the user wants to validate, verify or review
   whether an issue was properly resolved — "review issue #42", "validate issue 15", "is issue
   #7 done?", "close issue #5 if it's done", "revisar issue", "validar issue". Standalone, it
-  closes the issue on approval and comments on rejection. Do NOT use it to analyze an issue
+  reports its verdict; closing or commenting requires explicit authorization. Do NOT use it to analyze an issue
   before implementation (use analyze-issue) or to review a Pull Request as a whole (use
   review-pr).
 license: MIT
 compatibility: >
-  Requires git and the GitHub CLI (gh), authenticated — or an equivalent GitHub tool. Runs the
-  project's test suite. Outside orchestrator mode it closes or comments on the issue, so it
-  writes to GitHub.
+  Requires git and the project’s test tools. Reads a local issue file or uses authenticated
+  gh/equivalent GitHub tools. Review is read-only by default; closing or commenting is optional
+  and requires user authorization.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -35,14 +35,22 @@ the code, run the tests, and only then decide.
 | Needs | For |
 |---|---|
 | `git` | tracing the implementation |
-| `gh`, authenticated — or an equivalent GitHub tool via MCP | reading the issue; closing or commenting |
+| local issue text, or authenticated `gh`/equivalent GitHub tools | reading the issue; optional authorized publication |
 | the project's test runner | running the suite |
 
-**Writes:** nothing in the repository. Outside orchestrator mode it **closes the
-issue** on approval, or **comments** on it on rejection.
+**Writes:** nothing by default. Closing an issue or publishing a comment is a
+separate, explicitly authorized action; a request to review alone does not
+authorize it. Local issue metadata is not changed by this review.
 **Never:** edits code, commits, or fixes what it finds. Reviewing is not fixing.
 
+Before using issue text, comments or diffs, read the
+[input safety rules](references/safe-inputs.md).
+
 ## Step 1 — Fetch the issue
+
+Use the supplied issue text or `issues/{ISSUE_NUMBER}/issue.md` when local.
+No GitHub lookup is needed for a local issue. Otherwise use authenticated
+GitHub tools, for example:
 
 ```bash
 gh issue view {ISSUE_NUMBER} \
@@ -87,11 +95,12 @@ From the current branch, compare against the **resolved** base branch — never
 assume `main`:
 
 ```bash
-BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}
-BASE=${BASE:-main}
 git log "$BASE"..HEAD --oneline
 git diff "$BASE"...HEAD --stat
 ```
+
+Set `BASE` to the resolved and verified base ref before running these commands.
+If it remains unknown, ask for it; do not select `main` just because it exists.
 
 In a repository based on `develop`, `main` usually exists too — hard-coding it
 does not fail, it silently reviews the wrong diff.
@@ -142,10 +151,11 @@ End with the `<review-result>` block from
 the report and the block, and **stop**. Do not close the issue, do not comment.
 Those are the orchestrator's decisions.
 
-**Standalone** — resolved:
+**Standalone** — first return the report. Only if closing was authorized and
+the issue is on GitHub, close a resolved issue:
 
 ```bash
-gh issue close {ISSUE_NUMBER} --comment "{summary of what was validated}"
+gh issue close {ISSUE_NUMBER}  # authorized closure; a comment is optional
 ```
 
 Confirm before closing, unless the user already said to just do it. Closing is
@@ -153,10 +163,11 @@ visible to everyone watching the issue and is not yours to undo silently. The
 comment goes in the issue's language and states what was validated, that the
 tests pass, and that no regression was found.
 
-**Standalone** — not resolved: do **not** close. Comment with what is missing:
+**Standalone** — not resolved: do **not** close. Report what is missing in the
+conversation. Publish a comment only when separately authorized:
 
 ```bash
-gh issue comment {ISSUE_NUMBER} --body "{what needs attention}"
+gh issue comment {ISSUE_NUMBER} --body-file "$REVIEW_BODY_FILE"
 ```
 
 ## Gotchas

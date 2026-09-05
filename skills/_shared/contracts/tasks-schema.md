@@ -91,8 +91,9 @@ work and re-enter a phase nobody asked for.
    given — continue from it.
 3. `priority` follows dependency order first, document order second.
 4. Every story starts `"passes": false` and `"notes": ""`.
-5. Every story that changes code carries `"Typecheck passes"` as its last
-   acceptance criterion.
+5. Every story that changes code carries the project’s applicable quality
+   check as its last acceptance criterion. Use `"Typecheck passes"` when the
+   project has a typechecker; do not invent one for an untyped project.
 6. Every story that changes UI carries a browser-verification criterion.
 
 ### Split a story that is too big

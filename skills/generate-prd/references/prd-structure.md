@@ -45,7 +45,8 @@ Acceptance criteria must be verifiable, never vague:
 - ✅ "Clicking delete shows a confirmation dialog", "Button is disabled while
   loading", "Returns 404 when the resource does not exist"
 
-`Typecheck passes` is always the last criterion of a story that changes code.
+The project’s applicable quality check is the last criterion of a story that
+changes code. Use `Typecheck passes` only when a typechecker actually exists.
 
 ### 4. Functional Requirements
 

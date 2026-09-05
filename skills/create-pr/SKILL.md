@@ -14,7 +14,7 @@ compatibility: >
   the current branch to the remote and creates a Pull Request. Never force-pushes.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -40,13 +40,18 @@ Optional: `issue-flow conventions pr-title --issue N` resolves the title
 deterministically — see
 [references/git-conventions.md](references/git-conventions.md).
 
+Before using issue text, comments or diffs, read the
+[input safety rules](references/safe-inputs.md).
+
 ## Principles
 
 - **Context-rich.** Use every artifact available — issue, PRD, task plan, git
   history — before falling back to guessing from a diff.
 - **No duplicates.** Always check for an open PR on this branch first.
 - **Minimal output.** Return the PR URL. No echoed body, no narration.
-- **Safety first.** Never force-push. Confirm before pushing to a remote.
+- **Publication scope.** A request to open this PR authorizes its necessary
+  push. Resolve repository, branch, base, title and body first; ask only if
+  publication intent or destination remains unclear. Never force-push.
 
 ## Step 0 — Check the environment
 
@@ -56,13 +61,16 @@ git rev-parse --is-inside-work-tree
 git branch --show-current
 ```
 
-Stop, with the reason, when: `gh` is missing (point at https://cli.github.com/),
-`gh` is not authenticated (`gh auth login`), this is not a git repository, or
-the current branch is the repository's default branch.
+Use equivalent authenticated GitHub tools when `gh` is absent. Stop before
+publication when neither provider has access, this is not a git repository,
+or the current branch is the repository’s default branch. Preserve a local
+draft when publication is unavailable.
 
 ## Step 1 — Resolve branch, issue and base
 
 **Branch:** `git branch --show-current`.
+
+Resolve the base branch below before using it in a history range.
 
 **Issue number**, in order — a branch that does not match Issue Flow's pattern
 is **not** an error, since `feat/`, `fix/`, `docs/` and `chore/` prefixes are a
@@ -89,9 +97,8 @@ warning, never a stop.
    [references/repository-conventions.md](references/repository-conventions.md);
 2. `git symbolic-ref --short refs/remotes/origin/HEAD | sed 's|^origin/||'`;
 3. a `baseBranch` field in `issues/{N}/tasks.json`;
-4. `main`, then `master`, then `dev`/`develop`, checked with
-   `git show-ref --verify`;
-5. ask.
+4. ask when the base is still unresolved. Existence of a branch is not
+   evidence that it is the intended base.
 
 **Never stop at "`main` exists".** In a repository based on `develop`, `main`
 usually exists too — targeting it does not fail, it silently produces the wrong
@@ -118,11 +125,14 @@ If one is already open, do **not** create a second. Report it and offer: open
 the existing one, refresh its description with current context, or close it and
 create a new one. Wait for the answer.
 
-## Step 4 — Push
+## Step 4 — Prepare and push
+
+Prepare the title and body from Step 5 before publication. Inspect the outgoing
+commits for unrelated changes or secrets; confirm the destination from Git.
 
 ```bash
 git ls-remote --heads origin "$BRANCH" 2>/dev/null
-git push -u origin "$BRANCH" 2>&1     # only when the branch is not there yet
+git push -u origin "$BRANCH" 2>&1     # also sends new commits on an existing remote branch
 ```
 
 | Failure | Response |
@@ -137,7 +147,8 @@ Title and reference line: [references/git-conventions.md](references/git-convent
 Body: [references/pr-body.md](references/pr-body.md) — including what to do when
 the repository has its own template, which takes precedence.
 
-Copy the issue's labels when there is an issue:
+Copy the issue's labels when there is an issue; omit `--label` when the list is
+empty:
 
 ```bash
 LABELS=$(gh issue view "$ISSUE_NUMBER" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null)
@@ -151,7 +162,7 @@ PR_BODY_FILE=$(mktemp /tmp/gh-pr-body-XXXXXX.md)
 # write the body into $PR_BODY_FILE
 gh pr create --title "<title>" --body-file "$PR_BODY_FILE" \
              --base "$BASE_BRANCH" --head "$BRANCH" --label "$LABELS" 2>&1
-rm -f "$PR_BODY_FILE"
+# After confirmed success only: remove "$PR_BODY_FILE". Keep it on failure.
 ```
 
 | Failure | Response |

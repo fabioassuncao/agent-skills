@@ -81,7 +81,9 @@ trimmed.
 scripts/content-hash.sh issues/<id>/issue.md
 ```
 
-The script is bundled with this skill and needs only `node` or `python3`.
+Resolve `scripts/content-hash.sh` from the directory containing this Skill’s
+`SKILL.md`, not from the project root. Pass the absolute path of the issue file;
+run it with a POSIX shell. It needs `node` or `python3`, with no npm packages.
 
 ## Identifiers
 
@@ -96,7 +98,9 @@ above the local maximum alone is therefore not enough when a remote exists.
    ls issues/ 2>/dev/null
    cat issues/*/metadata.json 2>/dev/null | grep '"number"'
    ```
-2. **Highest remote number**, only when `gh` answers — any failure counts as `0`:
+2. **Highest remote number**, only when remote coordination was requested and
+   `gh` answers — an unavailable lookup contributes `0` and is not a guarantee
+   against future GitHub collisions:
    ```bash
    gh issue list --state all --limit 1 --json number 2>/dev/null || true
    gh pr list    --state all --limit 1 --json number 2>/dev/null || true
@@ -115,13 +119,16 @@ unrelated issues. Fill `remote` with all four fields.
 Before writing anything:
 
 ```bash
-test -e issues/<id>/issue.md && echo COLLISION
+test -e "issues/<id>" && echo COLLISION
 ```
 
 On a collision, stop:
 
-> Local issue `<id>` already exists at `issues/<id>/issue.md`. Remove it, or
-> pick another identifier.
+> The directory `issues/<id>/` is already occupied. Pick another identifier.
+
+Reserve the new directory with an exclusive create (`mkdir` without `-p` for
+the final path). If that fails, stop or choose another identifier; never write
+through an existing directory or symlink.
 
 ## Verify
 

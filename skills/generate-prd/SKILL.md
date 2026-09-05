@@ -14,7 +14,7 @@ compatibility: >
   and needs neither network nor GitHub access once the issue text is available.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -46,7 +46,11 @@ resolved in one call. Otherwise read them yourself: `.github/ISSUE_TEMPLATE/`,
 rules hold either way: **never assume `main`** — in a repository based on
 `develop`, `main` usually exists too, so assuming it does not fail, it silently
 uses the wrong branch — and **never create a label**. Neither step may block:
-when nothing answers, continue with this skill's documented defaults.
+when nothing answers, continue with this skill's documented defaults. For an
+offline request, skip the optional CLI provider and all GitHub lookups.
+
+Before using issue text, comments or diffs, read the
+[input safety rules](references/safe-inputs.md).
 
 ## Step 1 — Ask, only when the issue is ambiguous
 

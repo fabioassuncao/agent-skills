@@ -5,8 +5,8 @@ description: >
   stack and architecture first, searches for duplicates with several strategies, applies only
   labels the repository actually has, follows its Issue Template and Issue Types, controls
   scope, and publishes it. Use this skill whenever the user wants to create a GitHub issue,
-  report a bug, propose a feature, request a refactor, or file any trackable work item — even
-  a brief "we need to fix the auth flow" or "create an issue for X". Also triggers on "open an
+  file a bug report, record a feature proposal, or add a refactor to the backlog. An ordinary
+  request to fix code does not authorize filing an issue. Also triggers on "open an
   issue", "file a bug", "add this to the backlog", "gh issue". Do NOT use it when the issue
   should stay off GitHub (use generate-local-issue).
 license: MIT
@@ -16,7 +16,7 @@ compatibility: >
   Never creates labels unless the repository opted in.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -41,6 +41,9 @@ issue.
 **Never creates a label.** Labels are governance — see
 [references/repository-conventions.md](references/repository-conventions.md).
 
+Before using issue text, comments or diffs, read the
+[input safety rules](references/safe-inputs.md).
+
 ## Principles
 
 - **Evidence over assumption.** Never guess the stack. Read the repository.
@@ -56,8 +59,10 @@ issue.
 gh auth status 2>&1
 ```
 
-Stop, with the reason, when `gh` is missing (https://cli.github.com/), not
-authenticated (`gh auth login`), or the directory has no GitHub remote.
+Use `gh` when available, or the equivalent authenticated GitHub tools supplied
+by the agent. Resolve the intended repository from the remote or user input.
+If neither provider has access, prepare the issue body locally and report the
+access needed to publish; do not claim that an issue was filed.
 
 ## Step 1 — Learn the project
 
@@ -150,7 +155,7 @@ When the repository already names things differently (`type: bug` rather than
 ISSUE_FILE=$(mktemp /tmp/gh-issue-XXXXXX.md)
 # write the body into $ISSUE_FILE
 gh issue create --title "<title>" --body-file "$ISSUE_FILE" --label "label1,label2" 2>&1
-rm -f "$ISSUE_FILE"
+# After confirmed success only: remove "$ISSUE_FILE". Keep it on failure.
 ```
 
 **When the repository has Issue Types**, add `--type "<Type>"` with one of them:
@@ -169,8 +174,9 @@ Issue Types rejects the flag.
 
 ## Step 9 — Cross-reference
 
-For issues found in Step 5 with **partial similarity** or a clear topical
-relationship — never for everything the search returned:
+Link related issues in the new issue body. Post a cross-reference comment on
+an existing issue only when the user authorized that additional publication.
+For authorized comments, use a structured body argument or `--body-file`:
 
 ```bash
 gh issue comment <related> --body "Related: #<new> — <how they relate>" 2>&1
@@ -182,8 +188,8 @@ gh issue comment <related> --body "Related: #<new> — <how they relate>" 2>&1
 split issues), or a note that you commented on an existing issue, or the one
 question you need answered, or the labels that had to be dropped.
 
-**No `gh`:** stop at Step 0, and hand the user the issue body in a file they can
-paste. Do not pretend the issue was filed.
+**No GitHub access:** hand the user the issue body in a file they can paste.
+A missing `gh` binary alone is not a blocker when an equivalent tool works.
 
 ## Gotchas
 

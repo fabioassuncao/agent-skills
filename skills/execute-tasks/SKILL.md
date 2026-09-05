@@ -14,7 +14,7 @@ compatibility: >
   and creates commits on the current branch. Never pushes and never force-pushes.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -46,6 +46,9 @@ resolved in one call. Without it, read them from `AGENTS.md` and the documents i
 points at. Neither path may block: when nothing answers, follow the defaults in
 [references/git-conventions.md](references/git-conventions.md).
 
+Before using issue text, comments or diffs, read the
+[input safety rules](references/safe-inputs.md).
+
 ## Before each iteration
 
 1. **Read the plan** — `issues/{ISSUE_NUMBER}/tasks.json`. Check `issueStatus`,
@@ -61,7 +64,9 @@ points at. Neither path may block: when nothing answers, follow the defaults in
    `.cursorrules` or similar whose whole content forwards to `AGENTS.md` is not
    a repository without conventions.
 4. **Confirm the branch** — `git branch --show-current` must match `branchName`.
-   If it does not, check it out. When it does not exist, create it following
+   Inspect staged and unstaged changes before switching; preserve unrelated
+   work and stop if switching would endanger it. Do not reset or stash someone
+   else’s changes automatically. When the branch does not exist, create it following
    [references/git-conventions.md](references/git-conventions.md).
 
 ## The iteration
@@ -71,7 +76,9 @@ points at. Neither path may block: when nothing answers, follow the defaults in
 **`lastReviewFindings` is non-null?** That is the priority, ahead of any pending
 story. It describes concrete defects in code already marked `passes: true` — it
 is not a new story. Make the smallest correct change that addresses every
-finding. Do not re-implement a story from scratch.
+finding after checking it against the actual code and requirements. Reproduce
+bug findings where feasible; record evidence for false positives instead of
+blindly applying them. Do not re-implement a story from scratch.
 
 Otherwise: the **highest priority** story with `"passes": false`. Priority 1
 before priority 2.
@@ -98,7 +105,9 @@ workflow, or `AGENTS.md` — never assume a command exists.
 Typical shapes: `tsc --noEmit`, `eslint .`, `npm test`, `vitest run`, `pytest`,
 `mypy .`, `ruff check .`, `cargo check && cargo clippy && cargo test`.
 
-**A failing check means no commit.** Fix it first.
+**A failing check means no commit.** Fix it first. Record the command and fresh
+result after the final change; an earlier passing run is not evidence for code
+changed afterwards. A required check that could not run remains unverified.
 
 ### 5. Verify in the browser, when the story changes UI
 
@@ -108,7 +117,8 @@ change, confirm it against the acceptance criteria, and record which tool you
 used.
 
 No browser tooling available? Say so in the progress log as "manual browser
-verification needed". Never record a verification you did not perform.
+verification needed". Never record a verification you did not perform. If
+browser verification is an acceptance criterion, leave the story pending.
 
 ### 6. Commit
 

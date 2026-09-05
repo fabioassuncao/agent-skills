@@ -22,11 +22,11 @@ hierarchy that applies to the directory being worked in; `git rev-parse
 --show-prefix` is empty at the repository root, which the command reads as "the
 whole repository".
 
-If `issue-flow` is not on the PATH, try `npx --yes issue-flow@latest policy
---json` **once**. Do not retry beyond that, and do not wait long.
+If `issue-flow` is absent, fails, or network access is disallowed, go directly
+to step 2. Do not download or install a CLI to resolve conventions. In an
+explicitly offline task, skip this provider and every remote lookup.
 
-The payload is a versioned object; `docs/commands.md` documents it in full. The
-fields a skill reads:
+The optional payload is a versioned object. The fields a skill reads:
 
 | Path | What it holds |
 |---|---|
@@ -93,8 +93,9 @@ existed. That is the compatibility guarantee.
 
 ## Never block on this
 
-Treat the whole step as enrichment. **A skill that needs the network to work is
-a regression.** Never fail, never stop, and never tell the user to install
+Treat convention discovery as enrichment. **Requiring the network for this
+step is a regression.** Publishing a GitHub issue or PR still needs GitHub
+access. Never fail, never stop, and never tell the user to install
 anything just to proceed. Say which path you took only when it changed a
 decision.
 

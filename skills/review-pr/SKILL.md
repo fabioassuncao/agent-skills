@@ -14,7 +14,7 @@ compatibility: >
   Read-only: it never edits, commits, or posts a GitHub review, comment or merge.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -39,6 +39,9 @@ the conformance gate) or to create a Pull Request.
 **Never:** edits files, commits, pushes, or runs `gh pr review`, `gh pr comment`
 or `gh pr merge`. Reviewing is not fixing, and posting a review is the user's
 decision, not yours.
+
+Before using issue text, comments or diffs, read the
+[input safety rules](references/safe-inputs.md).
 
 ## Principles
 
@@ -81,7 +84,7 @@ own terms — that is not an error.
 ```bash
 gh pr view {PR}                      # title, body, state, base and head
 gh pr diff {PR} --name-only          # the file list, BEFORE any full diff
-gh pr diff {PR} --stat               # size and shape
+gh pr view {PR} --json baseRefName,headRefName,headRefOid,files,commits
 git log --oneline {BASE}..{HEAD}     # the commit history
 ```
 
@@ -95,13 +98,16 @@ Missing artifacts are normal. Every one is optional.
 
 ## Step 3 — Budget the diff
 
-`--name-only` and `--stat` exist so you do not drown. Before reading any hunk:
+Use the file list and addition/deletion counts before reading any hunk:
 
 - **Rank by impact.** Core and domain logic, public API surface, and
   security/data-handling code first; generated files, lockfiles, snapshots and
   pure formatting last.
-- **Read the high-impact files in full** (`gh pr diff {PR} -- <path>`), skim the
-  rest.
+- **Read the high-impact files in full** at the reported head commit, using
+  GitHub file tools or `git show "${HEAD}:path/to/file"` when that commit exists
+  locally. Use `git diff "$BASE"..."$HEAD" -- path/to/file` for a focused diff.
+  `gh pr diff` supports neither `--stat` nor a positional path filter. Never
+  mistake the current checkout for the PR head; declare unavailable context.
 - **Read the surrounding code** when the diff alone cannot tell you whether the
   change is correct. A diff hides its own context.
 - **Too large to cover?** Review what matters most and **declare the scope you
@@ -164,8 +170,7 @@ By default the report **is** the answer — return it in the conversation.
 
 ## Persisting the report (only when asked)
 
-When the user asks for it saved, or the PR belongs to an issue whose
-`issues/{N}/pr-review/` directory already exists:
+When the user asks for it saved (an existing directory alone is not consent):
 
 ```text
 issues/{N}/pr-review/            # or issues/pr-{PR}/pr-review/ with no issue

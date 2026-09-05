@@ -1,43 +1,20 @@
 # generate-prd
 
-Generates a structured Product Requirements Document (PRD) from a GitHub issue analysis, with user stories, acceptance criteria, and functional requirements.
+Turn issue text into a PRD with ordered, verifiable stories, without implementing them.
 
-## Usage
+## Use directly
 
-```
-Generate a PRD for issue #42
-```
-
-## Output
-
-Saves to `issues/{N}/prd.md` with:
-
-- Introduction / Overview
-- Goals
-- User Stories (small, dependency-ordered, with acceptance criteria)
-- Functional Requirements
-- Non-Goals (Out of Scope)
-- Design Considerations
-- Technical Considerations
-- Success Metrics
-- Open Questions
-
-### User Story Format
-
-```markdown
-### US-001: [Title]
-**Description:** As a [user], I want [feature] so that [benefit].
-
-**Acceptance Criteria:**
-- [ ] Specific, verifiable criterion
-- [ ] Another criterion
-- [ ] Typecheck passes
+```text
+Generate a PRD from issues/42/issue.md
 ```
 
-Stories are ordered by dependency: schema/database changes first, then backend, then UI.
+A writable directory and issue text. No other Skill, network or CLI required.
 
-If the issue is ambiguous, the skill asks clarifying questions before generating.
+Install the complete skill directory, including its bundled resources, from an
+assembled Issue Flow skills tree. Neither `issue-flow init` nor the Issue Flow
+CLI is required. Natural-language invocation works with compatible agents;
+slash-command syntax depends on the host.
 
-## Requirements
-
-- Output from `analyze-issue` (or equivalent issue analysis)
+The procedure, boundaries and resource links are maintained in
+[SKILL.md](SKILL.md). Installation and development are documented in the
+[Agent Skills guide](https://github.com/fabioassuncao/issue-flow/blob/main/docs/skills.md).

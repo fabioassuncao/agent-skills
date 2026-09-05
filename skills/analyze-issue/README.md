@@ -1,29 +1,20 @@
 # analyze-issue
 
-Fetches and analyzes a GitHub issue to extract context, scope, affected areas, and complexity before planning implementation.
+Analyze a GitHub or local issue before planning, without editing or publishing anything.
 
-## Usage
+## Use directly
 
-```
-Analyze issue #42
-```
-
-```
-What's the scope of issue #42?
+```text
+Analyze the local issue at issues/42/issue.md
 ```
 
-## Output
+Git and issue text; GitHub access only for a remote issue.
 
-The skill produces a structured analysis with:
+Install the complete skill directory, including its bundled resources, from an
+assembled Issue Flow skills tree. Neither `issue-flow init` nor the Issue Flow
+CLI is required. Natural-language invocation works with compatible agents;
+slash-command syntax depends on the host.
 
-- **Issue Summary** — title, goal, reporter context, type (bug/feature/refactor/docs/performance)
-- **Scope Assessment** — affected areas, complexity estimate (Simple/Medium/Complex), dependencies
-- **Technical Notes** — constraints, existing code patterns, files likely to be modified, gotchas
-- **Ambiguities** — unclear aspects that need clarification before proceeding
-
-If critical ambiguities are found, the skill asks 1-3 clarifying questions before proceeding.
-
-## Requirements
-
-- **GitHub CLI** (`gh`) authenticated with the repository
-- **Git** configured inside a repo with a GitHub remote
+The procedure, boundaries and resource links are maintained in
+[SKILL.md](SKILL.md). Installation and development are documented in the
+[Agent Skills guide](https://github.com/fabioassuncao/issue-flow/blob/main/docs/skills.md).

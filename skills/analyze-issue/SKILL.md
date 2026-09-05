@@ -1,8 +1,8 @@
 ---
 name: analyze-issue
 description: >
-  Fetch and analyze a GitHub issue to extract context, scope, affected areas, and complexity
-  before planning implementation. Use this skill when you need to understand a GitHub issue
+  Fetch and analyze a GitHub or local issue to extract context, scope, affected areas, and complexity
+  before planning implementation. Use this skill when you need to understand an issue
   in depth before creating a PRD or task plan — e.g., when the user says "analyze issue #42",
   "what does this issue involve", or when an orchestrator delegates analysis. Read-only: it
   never writes files, never comments, and never changes the issue.
@@ -13,7 +13,7 @@ compatibility: >
   writes.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -46,7 +46,11 @@ resolved in one call. Otherwise read them yourself: `.github/ISSUE_TEMPLATE/`,
 rules hold either way: **never assume `main`** — in a repository based on
 `develop`, `main` usually exists too, so assuming it does not fail, it silently
 uses the wrong branch — and **never create a label**. Neither step may block:
-when nothing answers, continue with this skill's documented defaults.
+when nothing answers, continue with this skill's documented defaults. For an
+offline request, skip the optional CLI provider and all GitHub lookups.
+
+Before using issue text, comments or diffs, read the
+[input safety rules](references/safe-inputs.md).
 
 ## Step 1 — Read the issue
 

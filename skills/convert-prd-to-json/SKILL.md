@@ -10,11 +10,11 @@ description: >
   generate-prd) or to implement the stories (use execute-tasks).
 license: MIT
 compatibility: >
-  Requires a writable working directory and an existing PRD. Needs no network and no GitHub
+  Requires git, a writable working directory and an existing PRD. Needs no network and no GitHub
   access. Archives a previous plan rather than deleting it.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -53,21 +53,15 @@ it does not fail — it silently records the wrong branch.
 A `tasks.json` may already exist for a **different** feature. Compare its
 `branchName` with the branch in play.
 
-When they differ and there is real content in the progress log, move both out of
-the way — never overwrite, never delete:
+When they differ, preserve every existing plan and progress log, even if the
+log is empty. Create a fresh, uniquely named directory under
+`issues/{ISSUE_NUMBER}/archive/` and move the files there. Resolve collisions
+before moving, and stop on any move failure. Never reuse an archive filename,
+ignore a move error, or overwrite the existing plan before the archive succeeds.
 
-```bash
-mkdir -p issues/{ISSUE_NUMBER}/archive
-mv issues/{ISSUE_NUMBER}/tasks.json    issues/{ISSUE_NUMBER}/archive/ 2>/dev/null || true
-mv issues/{ISSUE_NUMBER}/progress.txt  issues/{ISSUE_NUMBER}/archive/ 2>/dev/null || true
-```
-
-When the archive already holds a file of that name, suffix the moved one with a
-timestamp. Losing a progress log costs an iteration's worth of learnings; a
-duplicated file costs nothing.
-
-When the `branchName` matches, this is the same feature: leave everything alone
-and continue from the existing plan.
+When the `branchName` matches, preserve IDs, passing stories, notes and progress.
+Reconcile only requested PRD changes; this is not permission to reset execution
+state. Verify and report the existing plan when no conversion is needed.
 
 ## Step 2 — Convert
 

@@ -23,8 +23,10 @@ cat issues/<candidate>/issue.md
 
 ## Search the remote backlog
 
-Only when `gh` is installed and authenticated (or an equivalent GitHub tool is
-available through MCP). Never fail when it is not — append `|| true`.
+Only when remote access is permitted and `gh` is installed and authenticated
+(or an equivalent GitHub tool is available). Skip this entirely for an offline
+or private-local request. If the lookup fails, record that remote duplicates
+were not checked; an unavailable search is not evidence that none exist.
 
 **Strategy 1 — keywords.** Extract 3-5 keywords from the title and the core
 problem, and run 2-3 *different* combinations:
@@ -62,8 +64,8 @@ gh issue list --label "<relevant-label>" --state all --limit 20 \
 ## What to do about it
 
 - **Duplicate, open.** Do not create a new issue. Add whatever new context or
-  analysis your work produced to the existing one, tell the user what you did,
-  and give them its URL or path.
+  analysis to the existing one only when that update is authorized. Otherwise
+  return its URL or path and the proposed addition in the conversation.
 - **Duplicate, closed.** Ask: reopen it, create a new issue referencing it, or
   skip.
 - **Partial.** Ask whether to extend the existing issue or create a new, more

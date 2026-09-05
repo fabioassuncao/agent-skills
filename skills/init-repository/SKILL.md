@@ -5,7 +5,7 @@ description: >
   template, labels, AGENTS.md and a conventions document — by finding out what it already
   declares and filling only the real gaps. Incremental, non-destructive and idempotent: it
   never overwrites a convention that exists. Use this skill whenever the user wants to set up
-  or standardise a repository's conventions, bootstrap a new project, add issue templates or
+  or standardise a repository's conventions, bootstrap conventions in a new repository, add issue templates or
   adopt AGENTS.md — "initialize this repository", "set up the conventions", "inicializar este
   repositório", "padronizar o repositório", "adicionar templates de issue", "criar AGENTS.md".
   Do NOT use it to create an issue (use generate-issue) or to review one (use review-issue).
@@ -16,7 +16,7 @@ compatibility: >
   or deletes one.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 

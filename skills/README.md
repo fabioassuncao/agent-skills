@@ -9,9 +9,14 @@ contracts are cited by more than one skill, and duplicating them here would mean
 maintaining the same text in several places. So they live once, in
 `_shared/contracts/`, and the tree users install is **assembled**:
 
+Build locally with `npm run skills:verify --prefix packages/issue-flow` from the
+checkout root, then copy one complete directory from `dist/skills/`.
+The commands below require the published branch to exist; see the current
+[publication prerequisite](../docs/skills.md#published-repository-channel).
+
 ```bash
 npx skills add fabioassuncao/issue-flow#skills
-npx skills add fabioassuncao/issue-flow#skills@create-pr   # just one
+npx skills add fabioassuncao/issue-flow#skills --skill create-pr   # just one
 ```
 
 > **The `#skills` part is required.** Without it the installer reads the default

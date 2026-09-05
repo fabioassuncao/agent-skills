@@ -43,12 +43,18 @@ if command -v python3 >/dev/null 2>&1; then
   exec python3 - "$file" <<'PY'
 import hashlib, json, re, sys
 
+# Match ECMAScript String.trim, used by the CLI and the Node path. Python's
+# str.strip differs for BOM, NEL and several control characters.
+js_whitespace = "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+def trim(value):
+    return value.strip(js_whitespace)
+
 raw = open(sys.argv[1], encoding="utf-8").read().replace("\r\n", "\n").replace("\r", "\n")
 lines = raw.split("\n")
-i = next((n for n, l in enumerate(lines) if l.strip()), None)
+i = next((n for n, l in enumerate(lines) if trim(l)), None)
 m = re.match(r"^#[ \t]+(.*)$", lines[i]) if i is not None else None
-title = m.group(1).strip() if m else ""
-body = "\n".join(lines[i + 1:]).strip() if m else raw.strip()
+title = trim(m.group(1)) if m else ""
+body = trim("\n".join(lines[i + 1:])) if m else trim(raw)
 payload = json.dumps({"title": title, "body": body}, separators=(",", ":"), ensure_ascii=False)
 sys.stdout.write("sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest())
 PY

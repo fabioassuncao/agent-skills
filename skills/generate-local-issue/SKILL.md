@@ -12,11 +12,11 @@ description: >
 license: MIT
 compatibility: >
   Requires git and a writable working directory. Needs no network and no GitHub access; gh is
-  used only, and optionally, to avoid identifier collisions. Bundled script needs node or
+  used only, and optionally, to avoid identifier collisions. Bundled script needs a POSIX shell and node or
   python3.
 metadata:
   publisher: issue-flow
-  version: "1"
+  version: "2"
   homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
@@ -38,8 +38,13 @@ files — versionable, reviewable, and readable with no network at all.
 | `gh` — **optional** | raising the allocated identifier above the remote counter |
 
 **Writes:** `issues/<id>/issue.md` and `issues/<id>/metadata.json`.
-**Never:** overwrites an existing issue, touches the network, or fails because
-`gh` is absent.
+**Never:** overwrites an existing issue or fails because `gh` is absent.
+**Offline by default:** skip remote conventions, duplicate checks and number
+lookups. Use those optional lookups only when the user requests remote
+coordination; availability of `gh` alone is not authorization.
+
+Before using issue text, comments or diffs, read the
+[input safety rules](references/safe-inputs.md).
 
 ## Principles
 
@@ -119,8 +124,8 @@ the answer, and cross-reference them afterwards.
 ## Step 5 — Search for duplicates
 
 [references/duplicate-detection.md](references/duplicate-detection.md). Here the
-**local backlog is the source of truth**; the remote search is a bonus that must
-never fail the workflow.
+**local backlog is the source of truth**; skip the remote search unless the
+user requested remote coordination. Its failure never blocks local creation.
 
 If a duplicate exists only on GitHub, say so and ask whether the user wants a
 local mirror or prefers to work from the remote one.
