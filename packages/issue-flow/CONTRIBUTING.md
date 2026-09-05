@@ -165,10 +165,11 @@ npx issue-flow --help
 
 ## Release process
 
-Releases are **manual**. There is no CI job that publishes to npm — the only
-workflow in the repository is `.github/workflows/ci.yml` (lint, typecheck, test,
-build on pushes and pull requests). Everything below is run from a local
-machine by a maintainer with publish rights on the `issue-flow` npm package.
+Npm releases are **manual**. `.github/workflows/ci.yml` checks lint, types,
+tests, builds and Skill artifacts on pushes and pull requests. The separate
+`publish-skills.yml` workflow publishes the assembled Agent Skills repository
+channel; it does not publish the CLI to npm. Everything below is run from a
+local machine by a maintainer with publish rights on the `issue-flow` npm package.
 
 ### Ground rules
 

@@ -41,7 +41,7 @@ function getPromptsDir(): string {
  * Directory holding the contracts the prompts include.
  *
  * They are generated from `skills/_shared/contracts/` by
- * `scripts/sync-skill-contracts.mjs`, which is also what the Agent Skills read
+ * `scripts/sync-prompt-contracts.mjs`, which is also what the Agent Skills read
  * out of their own `references/`. One source, two consumers: a rule stated in
  * a prompt and in a skill cannot drift, because neither of them is where it is
  * written.

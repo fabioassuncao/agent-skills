@@ -8,7 +8,7 @@ one pipeline with modes, an auto-correction loop and phase resumption.
 > They follow the open [Agent Skills](https://agentskills.io) format, work in
 > any compatible agent, and require neither the sub-agent nor the Issue Flow
 > CLI. Start at [**Agent Skills**](skills.md) — the catalogue, installation per
-> agent, the verified compatibility matrix and the contribution rules.
+> agent, the documented compatibility matrix and the contribution rules.
 >
 > For the CLI-first approach, see the [main README](../README.md) and the
 > [command reference](commands.md).
@@ -164,7 +164,7 @@ The skills are markdown and cannot import TypeScript, so the rule they both
 follow is written once, in
 [`skills/_shared/contracts/repository-conventions.md`](../skills/_shared/contracts/repository-conventions.md),
 and materialised into every skill's own `references/` — see
-[how the skills stay in one piece](skills.md#how-the-skills-stay-in-one-piece).
+[how the skills stay in one piece](skills.md#shared-contracts-without-runtime-coupling).
 A skill that re-derives the invocation is a skill that will drift from it, and
 the parity test fails on the attempt.
 
@@ -181,7 +181,7 @@ That contract names **three providers**, in order:
 
 The step is **best-effort by design**: without the CLI, without the network, on
 a timeout, or in a repository that declares nothing, each skill continues. A
-skill that needs the network to work is a regression, so the fallback is part of
+convention lookup that requires the network is a regression, so the fallback is part of
 the contract rather than an error path.
 
 ### What each path decides from
@@ -395,7 +395,10 @@ issues/42/pr-review/          # issues/pr-184/pr-review/ when there is no associ
 
 A malformed verdict is never coerced into `APPROVE`: it fails with `1` and the raw output is preserved in the report. `--fail-on <level>` shifts the threshold (`suggestions` also fails on `APPROVE_WITH_SUGGESTIONS`, `none` never fails on a verdict), but it never suppresses code `1`.
 
-The review is **intended to be read-only** on both surfaces: Write/Edit are not allowed, and the prompt forbids edits, commits and `gh pr review|comment|merge` (Bash remains available for inspection). On `REQUEST_CHANGES`, the sub-agent and `run` leave the issue open (and do not mark the local plan completed) and report the blockers with the report path; `run` itself still exits `0`. See [the CLI reference](commands.md#pr-review--reviewing-a-pull-request-as-a-whole) for the flags and the [`prReview` key](configuration.md#prreview) of `.issue-flow.json`.
+The review is **intended to be read-only** on both surfaces. The portable Skill
+states the boundary in terms of effects; the CLI runner may additionally restrict
+named tools where the provider supports it. The prompt forbids edits, commits
+and `gh pr review|comment|merge`; shell inspection is still possible. On `REQUEST_CHANGES`, the sub-agent and `run` leave the issue open (and do not mark the local plan completed) and report the blockers with the report path; `run` itself still exits `0`. See [the CLI reference](commands.md#pr-review--reviewing-a-pull-request-as-a-whole) for the flags and the [`prReview` key](configuration.md#prreview) of `.issue-flow.json`.
 
 ## Installation
 
@@ -404,11 +407,10 @@ The review is **intended to be read-only** on both surfaces: Write/Edit are not 
 | The ten skills in [`skills/`](../skills/) | Agent Skills | **Yes** — any compatible agent | No |
 | `resolve-issue` | Claude Code sub-agent | **No** | **Yes** |
 
-**Skills:** see [Agent Skills → Installing](skills.md#installing). In short,
-`npx skills add fabioassuncao/issue-flow` — which installs into
-`~/.agents/skills/` (or the project's `.agents/skills/`) and links each agent's
-own directory at it — or copy a skill's directory into the location your agent
-scans.
+**Skills:** see [Agent Skills → Installing](skills.md#installing). Install a
+complete assembled directory. The default source branch is not an installable
+Skill bundle; the guide distinguishes the local build from the publication
+prerequisite for `#skills`.
 
 **The sub-agent**, which is what adds the orchestration:
 

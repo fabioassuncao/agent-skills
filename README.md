@@ -330,9 +330,14 @@ Ten [Agent Skills](https://agentskills.io) — issue authoring, analysis, PRD,
 task plan, execution, Pull Request, and both reviews:
 
 ```bash
+# After the assembled skills branch has been published:
 npx skills add fabioassuncao/issue-flow#skills                          # all of them
 npx skills add fabioassuncao/issue-flow#skills --skill generate-issue   # just one
 ```
+
+For a source checkout, build with `npm run skills:verify --prefix packages/issue-flow`
+and copy a complete directory from `dist/skills/`. The [installation guide](docs/skills.md#installing)
+records the publication prerequisite.
 
 The `#skills` ref names the branch carrying the assembled tree — the default
 branch holds sources. With the GitHub CLI, `gh skill install
