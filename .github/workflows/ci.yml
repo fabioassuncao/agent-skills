@@ -27,13 +27,14 @@ jobs:
           node-version: ${{ matrix.node-version }}
           package-manager-cache: false
 
-      - run: npm install
+      - run: npm ci
 
       - run: npm run lint
 
       # The Agent Skills are a published interface, and the ways they break are
       # invisible from inside this repository: a `../` reference resolves here
       # and dangles wherever a skill is installed.
+      - run: npm run skills:sync
       - run: npm run skills:check
 
       # And the working tree is not what users install — it holds sources. This
