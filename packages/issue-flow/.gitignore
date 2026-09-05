@@ -1,2 +1,4 @@
 /node_modules
 /dist
+# Built from the skills at build/test time — see scripts/sync-skill-contracts.mjs
+/prompts/_contracts

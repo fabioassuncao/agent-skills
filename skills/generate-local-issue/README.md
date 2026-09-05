@@ -2,7 +2,7 @@
 
 Generates detailed, architect-quality issues as local files under `issues/<N>/issue.md` and `issues/<N>/metadata.json`, with no GitHub involved. Analyzes the project's actual stack and architecture before writing, allocates a collision-free identifier, and checks for duplicates against the existing local backlog.
 
-Use it when the issue should not (or cannot) live on GitHub: offline, repository with no remote, `gh` not installed or not authenticated, or a demand that is still private. For issues that belong on GitHub, use [`generate-issue`](../generate-issue/).
+Use it when the issue should not (or cannot) live on GitHub: offline, repository with no remote, `gh` not installed or not authenticated, or a demand that is still private. For issues that belong on GitHub, use [`generate-issue`](https://github.com/fabioassuncao/issue-flow/tree/main/skills/generate-issue).
 
 ## Usage
 

@@ -1,269 +1,187 @@
 ---
 name: execute-tasks
 description: >
-  Iteratively implement user stories from issues/{N}/tasks.json, committing after each
-  passing story and updating the task plan. Use this skill when you have a JSON task plan and
-  need to autonomously implement each user story one at a time with quality checks, commits,
-  and progress tracking. Triggers on: "execute tasks", "implement the stories", "start coding
-  the plan", or when the resolve-issue skill delegates implementation.
+  Iteratively implement the user stories in issues/{N}/tasks.json — one story per iteration,
+  running the project's quality checks, committing, and updating the plan and the progress log
+  before moving on. Use this skill when a JSON task plan exists and the stories need to be
+  built autonomously, or when an orchestrator delegates implementation. Triggers on: "execute
+  tasks", "implement the stories", "start coding the plan", "continue the task plan". Do NOT
+  use it to create the plan (use convert-prd-to-json) or to review the result (use
+  review-issue).
+license: MIT
+compatibility: >
+  Requires git and the project's own toolchain (test runner, linter, typechecker). Writes code
+  and creates commits on the current branch. Never pushes and never force-pushes.
+metadata:
+  publisher: issue-flow
+  version: "1"
+  homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
-# Execute Tasks (Autonomous Agent)
+# Execute a task plan
 
-> **Repository policy — read this first.** Every decision below that depends on
-> this repository's conventions (labels, Issue Templates, Issue Types, title,
-> base branch, branch and commit format, Pull Request body) follows
-> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
-> Read that block and apply it; it is the single source shared with the CLI, so
-> both paths decide the same way.
->
-> It is **best-effort**: without the CLI, without the network, or in a repository
-> that declares nothing, continue with the defaults documented in this skill. A
-> skill that needs the network to work is a regression.
+Work through `issues/{ISSUE_NUMBER}/tasks.json` one story at a time. Implement,
+check, commit, record — then repeat. Every iteration leaves the repository in a
+state someone else could pick up.
 
-You are an autonomous coding agent. Work on one user story at a time, commit it, and repeat.
+**Use it** when a task plan exists and the code has to be written.
+**Do not use it** to plan, or to decide whether the issue is resolved.
 
----
+## Requirements
 
-## Before Starting Each Iteration
+| Needs | For |
+|---|---|
+| `git`, on the branch the plan names | committing each story |
+| `issues/{ISSUE_NUMBER}/tasks.json` | the stories and their acceptance criteria |
+| the project's own toolchain | typecheck, lint, tests |
 
-1. **Read the task plan**: `issues/{ISSUE_NUMBER}/tasks.json`
-   - Check the top-level `issueStatus`, `completedAt`, `lastAttemptAt`, and `lastError`
-2. **Read the progress log**: `issues/{ISSUE_NUMBER}/progress.txt`
-   - Pay special attention to the `## Codebase Patterns` section at the top
-   - These are hard-won learnings from previous iterations — don't repeat mistakes
-3. **Read `CLAUDE.md`** if it exists (project conventions)
-4. **Verify you're on the right branch**: `git branch --show-current`
-   - Should match `branchName` from the JSON
-   - If not, check it out from `branchName` in the plan, or `issue-flow conventions branch --issue {ISSUE_NUMBER}`
+**Writes:** source code, commits on the current branch,
+`issues/{ISSUE_NUMBER}/tasks.json`, `issues/{ISSUE_NUMBER}/progress.txt`, and
+`AGENTS.md` files when a reusable pattern is worth recording.
+**Never:** pushes, force-pushes, rebases, or commits when a check is failing.
 
----
+Optional: when the Issue Flow CLI is on the PATH, `issue-flow policy --json`
+returns the repository's conventions — including its commit convention —
+resolved in one call. Without it, read them from `AGENTS.md` and the documents it
+points at. Neither path may block: when nothing answers, follow the defaults in
+[references/git-conventions.md](references/git-conventions.md).
 
-## The Iteration Loop
+## Before each iteration
 
-### Step 1: Pick the Next Story
+1. **Read the plan** — `issues/{ISSUE_NUMBER}/tasks.json`. Check `issueStatus`,
+   `completedAt`, `lastAttemptAt`, `lastError` and `lastReviewFindings`.
+   [references/tasks-schema.md](references/tasks-schema.md) is the contract.
+2. **Read the progress log** — `issues/{ISSUE_NUMBER}/progress.txt`, its
+   `## Codebase Patterns` section first. Those are hard-won learnings from
+   earlier iterations; re-deriving them wastes the iteration.
+   See [references/progress-log.md](references/progress-log.md).
+3. **Read the project's instructions** — `AGENTS.md` at the repository root and
+   at every level down to the directory you are about to change; the nearest one
+   wins. **Follow a pointer file rather than stopping at it**: a `CLAUDE.md`,
+   `.cursorrules` or similar whose whole content forwards to `AGENTS.md` is not
+   a repository without conventions.
+4. **Confirm the branch** — `git branch --show-current` must match `branchName`.
+   If it does not, check it out. When it does not exist, create it following
+   [references/git-conventions.md](references/git-conventions.md).
 
-Select the **highest priority** story where `"passes": false`.
+## The iteration
 
-Priority 1 comes before priority 2, etc.
+### 1. Pick the work
 
-### Step 2: Understand the Story
+**`lastReviewFindings` is non-null?** That is the priority, ahead of any pending
+story. It describes concrete defects in code already marked `passes: true` — it
+is not a new story. Make the smallest correct change that addresses every
+finding. Do not re-implement a story from scratch.
 
-Read the story's:
-- `description` — the user story
-- `acceptanceCriteria` — what "done" means (these are your definition of done)
+Otherwise: the **highest priority** story with `"passes": false`. Priority 1
+before priority 2.
 
-Explore the codebase as needed to understand:
-- Where to make changes
-- What existing patterns to follow
-- What files are affected
+### 2. Understand it
 
-### Step 3: Implement
+Read the story's `description` and its `acceptanceCriteria` — those criteria
+*are* the definition of done. Explore the codebase enough to know where the
+change goes and which existing patterns it should follow.
 
-Make the necessary code changes to satisfy all acceptance criteria.
+### 3. Implement
 
-**Rules:**
-- Follow existing code patterns — don't invent new conventions
-- Keep changes focused and minimal — only change what's needed for this story
-- If you discover the story is larger than expected, implement the minimum to pass all criteria
+- Follow the patterns already in the codebase; do not invent new conventions.
+- Keep the change minimal and focused. Do not refactor unrelated code.
+- If the story turns out to be bigger than planned, implement the minimum that
+  satisfies every criterion — and say so in the progress log.
 
-### Step 4: Run Quality Checks
+### 4. Check
 
-Run whatever quality checks this project uses. Common examples:
+Run the checks that cover the files you touched. Find the real commands in
+`package.json` scripts, `Makefile`, `pyproject.toml`, `Cargo.toml`, the CI
+workflow, or `AGENTS.md` — never assume a command exists.
+
+Typical shapes: `tsc --noEmit`, `eslint .`, `npm test`, `vitest run`, `pytest`,
+`mypy .`, `ruff check .`, `cargo check && cargo clippy && cargo test`.
+
+**A failing check means no commit.** Fix it first.
+
+### 5. Verify in the browser, when the story changes UI
+
+Use whatever browser automation this environment actually offers — a Playwright
+CLI, an MCP browser tool, a browser skill. Start the dev server, exercise the
+change, confirm it against the acceptance criteria, and record which tool you
+used.
+
+No browser tooling available? Say so in the progress log as "manual browser
+verification needed". Never record a verification you did not perform.
+
+### 6. Commit
 
 ```bash
-# TypeScript projects
-npx tsc --noEmit
-
-# JavaScript/TypeScript linting
-npx eslint . --ext .ts,.tsx,.js,.jsx
-
-# Running tests
-npm test
-# or
-npx vitest run
-# or
-npx jest
-
-# Python projects
-mypy .
-ruff check .
-pytest
-
-# Rust
-cargo check
-cargo clippy
-cargo test
+git add <the files you changed>
+git commit -m "feat: US-002 - Display status badge on task cards"
 ```
 
-Check `package.json` scripts or `CLAUDE.md` to find the right commands.
+**Never `git add -A` or `git add .`** — it is how a `.env`, a credential or an
+unrelated change ends up in history. Name the files.
 
-**Do NOT commit if checks fail.** Fix the issues first.
+Follow [references/git-conventions.md](references/git-conventions.md), and the
+repository's own convention when it declares one.
 
-### Step 5: Browser Verification (If Required)
+### 7. Update the plan
 
-If the story's acceptance criteria includes "Verify in browser using playwright-cli if available; otherwise use the playwright MCP/skill":
+In `issues/{ISSUE_NUMBER}/tasks.json`:
 
-1. Prefer `playwright-cli` for browser verification when it is available in this environment.
-2. If `playwright-cli` is not available, use the `playwright` MCP/skill instead.
-3. Start the dev server if not running.
-4. Navigate to the relevant page.
-5. Interact with the UI change.
-6. Confirm it works as specified in the acceptance criteria.
-7. Note which tool you used and what you verified in the progress log.
+- `passes: true` for the finished story
+- anything useful in its `notes`
+- `issueStatus: "in_progress"` while stories remain
+- `lastAttemptAt` to now; clear `lastError` after a clean iteration
+- `lastReviewFindings` back to `null` once every finding is addressed — leaving
+  it set means the issue is still considered uncorrected. If a finding was a
+  false positive or already fixed, still clear it, and say so in the log.
 
-If browser tools aren't available, note in the progress log that manual browser verification is needed.
+### 8. Record what you learned
 
-### Step 6: Commit
+Append to `issues/{ISSUE_NUMBER}/progress.txt` — never replace it. Format and
+rules in [references/progress-log.md](references/progress-log.md).
 
-Once all quality checks pass:
+When you discovered something genuinely reusable for future work in a directory,
+add it to the nearest `AGENTS.md`: module conventions, non-obvious dependencies
+between files, testing requirements, configuration gotchas. Not story-specific
+detail, not debugging notes, not anything already in the progress log.
 
-```bash
-git add <specific-files-changed>
-git commit -m "feat: [Story ID] - [Story Title]"
+## Stop condition
+
+After each story, ask: is **every** story `passes: true` **and**
+`lastReviewFindings` `null`?
+
+**Yes** — set `issueStatus: "completed"`, `completedAt` and `lastAttemptAt` to
+now, `lastError` to `null`, `pipeline.executionCompleted` to `true`. Then emit
+the completion marker from
+[references/completion-signal.md](references/completion-signal.md) and summarise:
+
+```text
+Issue #{ISSUE_NUMBER} complete — {N} user stories:
+  US-001: [title]
+  US-002: [title]
 ```
 
-**Important:** Do NOT use `git add -A` or `git add .` — always add specific files by name to avoid accidentally committing sensitive files (`.env`, credentials, etc.) or unrelated changes.
+**No** — loop straight back to picking the next story. Do not end the turn
+between stories, and do not ask whether to continue.
 
-Example: `feat: US-002 - Display status badge on task cards`
+## When you cannot finish
 
-### Step 7: Update the Task Plan
+1. Record what you tried in the progress log.
+2. Explain the blocker in the story's `notes`.
+3. Record it in the top-level `lastError` with a timestamp and a short category,
+   and leave it there while blocked.
+4. Ask the user for guidance. Do not guess your way past it.
 
-Update `issues/{ISSUE_NUMBER}/tasks.json`:
-- Set `"passes": true` for the completed story
-- Add any relevant notes to `"notes"` field (e.g., "Found that X pattern was needed")
-- Set `"issueStatus": "in_progress"` if any stories are still pending
-- Set `"completedAt": null` until all stories pass
-- Set `"lastAttemptAt"` to the current ISO timestamp
-- Clear `"lastError"` after a successful, unblocked iteration
+If the story turns out to be fundamentally different from what was planned,
+stop before making large changes and propose a revised breakdown.
 
-```bash
-# Verify the JSON is still valid after editing
-cat issues/{ISSUE_NUMBER}/tasks.json | python3 -m json.tool > /dev/null
-```
+## Gotchas
 
-### Step 8: Append to Progress Log
-
-**Always append, never replace** `issues/{ISSUE_NUMBER}/progress.txt`:
-
-```
-## [ISO datetime] - [Story ID]: [Story Title]
-
-### What was implemented
-[Brief description of changes]
-
-### Files changed
-- path/to/file.ts — [what changed]
-- path/to/another.ts — [what changed]
-
-### Learnings for future iterations
-- [Pattern discovered, e.g., "This codebase uses X for Y"]
-- [Gotcha encountered, e.g., "Must update Z when changing W"]
-- [Useful context, e.g., "The evaluation panel lives in component X"]
-
----
-```
-
-### Step 9: Update Codebase Patterns (If Applicable)
-
-If you discovered a **reusable pattern** that future iterations should know, add it to the `## Codebase Patterns` section at the **top** of `issues/{ISSUE_NUMBER}/progress.txt`.
-
-Create the section if it doesn't exist yet:
-
-```
-## Codebase Patterns
-- [Pattern]: [Brief explanation]
-- [Another pattern]: [Brief explanation]
-```
-
-Only add patterns that are **general and reusable across stories**, not story-specific details.
-
-### Step 10: Update CLAUDE.md (If Applicable)
-
-Before finishing, check if any edited directories have a `CLAUDE.md`. If you discovered something genuinely useful for future work in that directory:
-
-- API patterns or conventions specific to that module
-- Non-obvious dependencies between files
-- Testing requirements for that area
-- Configuration gotchas
-
-**Do NOT add:**
-- Story-specific details
-- Temporary debugging notes
-- Anything already in the progress log
-
----
-
-## Progress Log Format
-
-The first time you write to the progress log, create it with this header:
-
-```
-# Progress Log — Issue #{ISSUE_NUMBER}
-
-## Codebase Patterns
-[Fill in as patterns are discovered]
-
----
-
-[Individual story entries will follow]
-```
-
----
-
-## Stop Condition
-
-After completing each story, check: **are all stories now `"passes": true`?**
-
-**If YES — all stories complete:**
-- Update `issues/{ISSUE_NUMBER}/tasks.json`:
-  - Set `"issueStatus": "completed"`
-  - Set `"completedAt"` to the current ISO timestamp
-  - Set `"lastAttemptAt"` to the current ISO timestamp
-  - Set `"lastError"` to `null`
-```
-<promise>COMPLETE</promise>
-```
-
-Then provide a final summary:
-```
-✅ Issue #{ISSUE_NUMBER} fully resolved!
-
-Completed {N} user stories:
-  ✅ US-001: [title]
-  ✅ US-002: [title]
-  ...
-
-Branch: see `docs/git-conventions.md`
-Ready to open a PR.
-```
-
-**If NO — stories remain:**
-**Loop back to Step 1** and immediately pick the next pending story.
-Continue the loop until all stories pass or you encounter an error
-that triggers the Error Recovery procedure above.
-Do NOT stop or end your response between stories.
-
----
-
-## Error Recovery
-
-If quality checks fail after multiple attempts:
-1. Document what you tried in the progress log
-2. Set `"notes"` in the JSON to explain the blocker
-3. Record the failure in top-level `"lastError"` with timestamp and a short category
-4. Preserve that `"lastError"` while blocked and ask the user for guidance before proceeding
-
-If you realize the story is fundamentally different from what was planned:
-1. Stop and ask the user before making large changes
-2. Propose a revised story breakdown if needed
-
----
-
-## Important Rules
-
-- **Work on ONE story per iteration** — never batch multiple stories in one commit
-- **Never commit broken code** — always pass quality checks first
-- **Always append to the progress log** — never overwrite it
-- **Always read `## Codebase Patterns`** before starting — don't repeat previous mistakes
-- **Keep changes minimal** — don't refactor unrelated code while implementing a story
+- **One story per iteration.** Never batch several into one commit: the plan,
+  the log and the review all key off the one-story-one-commit shape.
+- **Append to the progress log, never overwrite.** It is the only memory the
+  next iteration has.
+- **Read `## Codebase Patterns` before starting.** It exists so the same mistake
+  is not made twice.
+- **`lastReviewFindings` outranks a pending story**, even when every story
+  already passes.

@@ -2,121 +2,87 @@
 name: convert-prd-to-json
 description: >
   Convert a PRD markdown file (issues/{N}/prd.md) into a structured JSON task plan
-  (issues/{N}/tasks.json) suitable for autonomous iterative execution. Use this skill
-  when you have a PRD and need to convert it into a machine-readable task plan with ordered
-  user stories, acceptance criteria, and dependency tracking. Triggers on: "convert prd to json",
-  "create task plan from prd", or when the resolve-issue skill delegates task plan creation.
+  (issues/{N}/tasks.json) that an autonomous execution loop can work through story by story.
+  Splits oversized stories, validates dependency order, and initialises execution state. Use
+  this skill when a PRD exists and needs to become a machine-readable plan, or when an
+  orchestrator delegates task-plan creation. Triggers on: "convert prd to json", "create a task
+  plan from the prd", "turn the PRD into tasks". Do NOT use it to write the PRD itself (use
+  generate-prd) or to implement the stories (use execute-tasks).
+license: MIT
+compatibility: >
+  Requires a writable working directory and an existing PRD. Needs no network and no GitHub
+  access. Archives a previous plan rather than deleting it.
+metadata:
+  publisher: issue-flow
+  version: "1"
+  homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
-# PRD → JSON Converter
+# Convert a PRD into a task plan
 
-> **Repository policy — read this first.** Every decision below that depends on
-> this repository's conventions (labels, Issue Templates, Issue Types, title,
-> base branch, branch and commit format, Pull Request body) follows
-> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
-> Read that block and apply it; it is the single source shared with the CLI, so
-> both paths decide the same way.
->
-> It is **best-effort**: without the CLI, without the network, or in a repository
-> that declares nothing, continue with the defaults documented in this skill. A
-> skill that needs the network to work is a regression.
+Read `issues/{ISSUE_NUMBER}/prd.md` and write
+`issues/{ISSUE_NUMBER}/tasks.json` — the plan an execution loop works through
+one story at a time.
 
-## The Job
+**Use it** when a PRD exists and implementation is next.
+**Do not use it** to write the PRD, or to implement.
 
-Read `issues/{ISSUE_NUMBER}/prd.md` and convert it to `issues/{ISSUE_NUMBER}/tasks.json`.
+## Requirements
 
----
+| Needs | For |
+|---|---|
+| `issues/{ISSUE_NUMBER}/prd.md` | the source of the stories |
+| a writable working directory | the plan and its archive |
+| `git` | reading the current branch |
 
-## Output Format
+**Writes:** `issues/{ISSUE_NUMBER}/tasks.json`, and
+`issues/{ISSUE_NUMBER}/archive/` when an unrelated plan was already there.
+**Never deletes anything.** A previous plan and its progress log are moved, not
+removed.
 
-```json
-{
-  "project": "[Project name from package.json or repo name]",
-  "issueNumber": {ISSUE_NUMBER},
-  "issueUrl": "https://github.com/{owner}/{repo}/issues/{ISSUE_NUMBER}",
-  "branchName": "<branch, following the repository's convention>",
-  "description": "[Feature description from PRD intro]",
-  "issueStatus": "pending",
-  "completedAt": null,
-  "lastAttemptAt": null,
-  "lastError": null,
-  "correctionCycle": 0,
-  "maxCorrectionCycles": 3,
-  "lastReviewFindings": null,
-  "pipeline": {
-    "prdCompleted": false,
-    "jsonCompleted": false,
-    "executionCompleted": false,
-    "reviewCompleted": false,
-    "prCreated": false
-  },
-  "userStories": [
-    {
-      "id": "US-001",
-      "title": "[Story title]",
-      "description": "As a [user], I want [feature] so that [benefit]",
-      "acceptanceCriteria": [
-        "Specific verifiable criterion",
-        "Another criterion",
-        "Typecheck passes"
-      ],
-      "priority": 1,
-      "passes": false,
-      "notes": ""
-    }
-  ]
-}
+Optional: when the Issue Flow CLI is on the PATH, `issue-flow conventions branch
+--issue N` resolves the branch name deterministically — see
+[references/git-conventions.md](references/git-conventions.md). Without it, read
+the repository's own convention from `AGENTS.md` and the documents it points at,
+and fall back to the defaults in that reference. **Never assume `main`** as the
+base: in a repository based on `develop`, `main` usually exists too, so assuming
+it does not fail — it silently records the wrong branch.
+
+## Step 1 — Archive an unrelated plan
+
+A `tasks.json` may already exist for a **different** feature. Compare its
+`branchName` with the branch in play.
+
+When they differ and there is real content in the progress log, move both out of
+the way — never overwrite, never delete:
+
+```bash
+mkdir -p issues/{ISSUE_NUMBER}/archive
+mv issues/{ISSUE_NUMBER}/tasks.json    issues/{ISSUE_NUMBER}/archive/ 2>/dev/null || true
+mv issues/{ISSUE_NUMBER}/progress.txt  issues/{ISSUE_NUMBER}/archive/ 2>/dev/null || true
 ```
 
----
+When the archive already holds a file of that name, suffix the moved one with a
+timestamp. Losing a progress log costs an iteration's worth of learnings; a
+duplicated file costs nothing.
 
-## Conversion Rules
+When the `branchName` matches, this is the same feature: leave everything alone
+and continue from the existing plan.
 
-1. **Each user story from the PRD becomes one JSON entry**
-2. **IDs**: Sequential (US-001, US-002, …)
-3. **Priority**: Based on dependency order, then document order (1 = highest priority, executed first)
-4. **All stories start with**: `"passes": false` and `"notes": ""`
-5. **branchName**: Use the branch created in Phase 2 of the main skill (current branch name).
-   When creating one, follow `git.branchConvention` from [the shared block](../_shared/repository-policy.md)
-   rather than inventing a slug. Prefer `issue-flow conventions branch --issue N` (see `docs/git-conventions.md`).
-6. **Always verify**: Every story has "Typecheck passes" as the last acceptance criterion
-7. **Always verify**: UI stories have "Verify in browser using playwright-cli if available; otherwise use the playwright MCP/skill" as acceptance criterion
-8. **Initialize issue execution state**: `"issueStatus": "pending"`, `"completedAt": null`, `"lastAttemptAt": null`, `"lastError": null`
-9. **Initialize pipeline tracking**: `"correctionCycle": 0`, `"maxCorrectionCycles": 3`, `"lastReviewFindings": null`, and `"pipeline"` object with all flags set to `false`. The pipeline object tracks which phases of the resolve-issue orchestrator have completed, enabling resumption from any point. `lastReviewFindings` holds the verbatim findings of the most recent failed review; non-null means the execute phase must address them before the orchestrator will accept a `<promise>COMPLETE</promise>` signal, even if every story already passes.
-10. **Set `pipeline.jsonCompleted` to `true`** immediately after writing tasks.json, since this conversion step itself is the JSON completion phase.
+## Step 2 — Convert
 
----
+[references/tasks-schema.md](references/tasks-schema.md) is the contract: the
+shape, every field rule, the pipeline flags, the story-splitting rules and the
+ordering rules. Read it now.
 
-## Story Size Validation
+The branch name is not yours to invent — see
+[references/git-conventions.md](references/git-conventions.md), and the
+repository's own convention when it declares one (Requirements, above).
 
-Before writing the JSON, validate each story:
+### Worked example
 
-**Flag stories that are too big (need splitting):**
-- Cannot be described in 2-3 sentences
-- Touches more than one distinct layer (e.g., database + UI in the same story)
-- Acceptance criteria list is longer than 6-7 items
+PRD:
 
-If you find oversized stories, **split them** before writing the JSON. Follow the naming convention:
-- Original: "Add user notification system" (too big)
-- Split into: US-001: Add notifications table, US-002: Create notification service, US-003: Add bell icon to header, US-004: Create dropdown panel, US-005: Mark-as-read functionality
-
----
-
-## Dependency Order Validation
-
-Verify stories are ordered correctly:
-1. Schema/migration changes → first
-2. Backend/API logic → second
-3. UI components → third
-4. Integration/summary views → last
-
-If the order is wrong, reorder and renumber.
-
----
-
-## Example
-
-**Input PRD snippet:**
 ```markdown
 ### US-001: Add status field to tasks table
 **Description:** As a developer, I need to store task status in the database.
@@ -126,7 +92,8 @@ If the order is wrong, reorder and renumber.
 - [ ] Typecheck passes
 ```
 
-**Output JSON entry:**
+Plan entry:
+
 ```json
 {
   "id": "US-001",
@@ -143,61 +110,52 @@ If the order is wrong, reorder and renumber.
 }
 ```
 
----
+## Step 3 — Verify and report
 
-## Archive Check
+Run the checklist at the end of
+[references/tasks-schema.md](references/tasks-schema.md), then confirm the file
+parses:
 
-Before writing `issues/{ISSUE_NUMBER}/tasks.json`, check if one already exists from a **different feature** (different `branchName`):
-
-1. Read existing file if present
-2. Compare `branchName` fields
-3. If different AND there's content in the progress log:
-   - Archive the stale execution artifacts that still belong to the previous branch/feature: `mkdir -p issues/{ISSUE_NUMBER}/archive && cp -f issues/{ISSUE_NUMBER}/tasks.json issues/{ISSUE_NUMBER}/progress.txt issues/{ISSUE_NUMBER}/archive/ 2>/dev/null || true`
-   - Remove the stale progress log so the new execution starts clean: `rm -f issues/{ISSUE_NUMBER}/progress.txt`
-
----
-
-## Output
-
-Save to `issues/{ISSUE_NUMBER}/tasks.json`.
-
-After saving, print a summary for the user:
+```bash
+node -e "JSON.parse(require('fs').readFileSync('issues/{ISSUE_NUMBER}/tasks.json','utf8'))" \
+  && echo "valid JSON"
 ```
-✅ Task plan created: issues/{ISSUE_NUMBER}/tasks.json
+
+Use `python3 -m json.tool` instead when Node is not around, and say so if
+neither is — an unvalidated plan is worth flagging.
+
+Then report:
+
+```text
+Task plan created: issues/{ISSUE_NUMBER}/tasks.json
 
 {N} user stories:
   US-001 (priority 1): [title]
   US-002 (priority 2): [title]
-  ...
 
-Stories with browser verification: US-002, US-003
+Stories needing browser verification: US-002, US-003
 Estimated complexity: Medium
 ```
 
----
+## Success and failure
 
-## Checklist Before Saving
+**Done** when the file exists, parses, and every checklist item holds.
 
-- [ ] All stories have `"passes": false`
-- [ ] All stories have `"notes": ""`
-- [ ] `issueStatus` is `"pending"`
-- [ ] `completedAt`, `lastAttemptAt`, and `lastError` are `null`
-- [ ] `correctionCycle` is `0`
-- [ ] `maxCorrectionCycles` is `3`
-- [ ] `lastReviewFindings` is `null`
-- [ ] `pipeline` object present with `jsonCompleted` set to `true` and all other flags set to `false`
-- [ ] Stories ordered by dependency (schema → backend → UI)
-- [ ] Every story has "Typecheck passes" as a criterion
-- [ ] UI stories have browser verification criterion
-- [ ] No story depends on a later story
-- [ ] Oversized stories were split
-- [ ] branchName matches the current git branch
+**Handing off:** when an orchestrator invoked this skill, stop at the report and
+return control — the decision about whether to start implementing is the
+orchestrator's, and taking it here bypasses its confirmation gate. When invoked
+directly, present the plan and ask whether to proceed to implementation.
 
----
+**No PRD:** say which path was missing and offer to generate one, rather than
+inventing stories from the issue title.
 
-## IMPORTANT: Return Control to Calling Skill
+## Gotchas
 
-After printing the summary, your work is done. Do NOT present any decision to the user. The calling skill (resolve-issue) has a mandatory user decision gate (Step 2c) that MUST run next.
-
-Your final output line must be exactly:
-⏭️ Returning to resolve-issue for user confirmation.
+- **Never restart numbering at `US-001`** when a starting number was given or a
+  previous plan exists for this project — a duplicate ID silently merges two
+  different pieces of work in every report that follows.
+- **`lastReviewFindings` is not a story.** Non-null means execution is
+  unfinished even when every story passes.
+- **Do not invent `analyzeCompleted` or `prReviewCompleted` as `false`.** Their
+  absence means "never requested"; adding them as `false` makes a resumable
+  pipeline re-enter a phase nobody asked for.

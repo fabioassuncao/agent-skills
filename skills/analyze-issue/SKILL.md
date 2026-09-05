@@ -4,90 +4,118 @@ description: >
   Fetch and analyze a GitHub issue to extract context, scope, affected areas, and complexity
   before planning implementation. Use this skill when you need to understand a GitHub issue
   in depth before creating a PRD or task plan — e.g., when the user says "analyze issue #42",
-  "what does this issue involve", or when the resolve-issue skill delegates analysis.
-compatibility: Requires gh CLI (https://cli.github.com/) and git
+  "what does this issue involve", or when an orchestrator delegates analysis. Read-only: it
+  never writes files, never comments, and never changes the issue.
+license: MIT
+compatibility: >
+  Requires git. Reads the issue with the GitHub CLI (gh, authenticated) or an equivalent GitHub
+  tool; works from a local issue file when there is no GitHub access. Read-only — no network
+  writes.
+metadata:
+  publisher: issue-flow
+  version: "1"
+  homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
-# Analyze GitHub Issue
+# Analyze an issue
 
-> **Repository policy — read this first.** Every decision below that depends on
-> this repository's conventions (labels, Issue Templates, Issue Types, title,
-> base branch, branch and commit format, Pull Request body) follows
-> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
-> Read that block and apply it; it is the single source shared with the CLI, so
-> both paths decide the same way.
->
-> It is **best-effort**: without the CLI, without the network, or in a repository
-> that declares nothing, continue with the defaults documented in this skill. A
-> skill that needs the network to work is a regression.
+Turn an issue into a structured analysis that a PRD and a task plan can be built
+on: what it actually asks for, how big it is, what it will touch, and what is
+still unclear.
 
-## The Job
+**Use it** before planning, when the issue is more than a one-liner.
+**Do not use it** to plan (that is a PRD), to implement, or to verify that an
+issue was resolved.
 
-Fetch a GitHub issue and produce a structured analysis that will inform the PRD and task plan.
+## Requirements
 
----
+| Needs | For |
+|---|---|
+| `git` | locating the repository and its remote |
+| `gh`, authenticated — *or* an equivalent GitHub tool via MCP — *or* a local `issues/<N>/issue.md` | reading the issue |
 
-## Step 1: Fetch Issue Data
+**Writes:** nothing. The analysis is the answer.
+**Never:** comments, closes, labels, or edits anything.
+
+**Resolving the repository's conventions.** When `issue-flow` is on the PATH,
+`issue-flow policy --json --scope "$(git rev-parse --show-prefix)"` returns them
+resolved in one call. Otherwise read them yourself: `.github/ISSUE_TEMPLATE/`,
+`.github/PULL_REQUEST_TEMPLATE*`, `AGENTS.md` (following a pointer file such as
+`CLAUDE.md` rather than stopping at it), `gh label list`, and
+`git symbolic-ref --short refs/remotes/origin/HEAD` for the base branch. Two
+rules hold either way: **never assume `main`** — in a repository based on
+`develop`, `main` usually exists too, so assuming it does not fail, it silently
+uses the wrong branch — and **never create a label**. Neither step may block:
+when nothing answers, continue with this skill's documented defaults.
+
+## Step 1 — Read the issue
 
 ```bash
 gh issue view {ISSUE_NUMBER} \
-  --json title,body,labels,assignees,milestone,comments,state,url \
-  --repo {owner}/{repo}
+  --json title,body,labels,assignees,milestone,comments,state,url
 ```
 
-If the repo can be inferred from the current directory's git remote, use it. Otherwise, ask the user.
+Infer the repository from the current directory's git remote; ask only when
+that fails. Follow any linked Pull Request or referenced issue the body
+mentions.
 
-Also fetch any linked PRs or referenced issues if mentioned in the body.
+When `issues/{ISSUE_NUMBER}/issue.md` exists, that is the statement to work
+from and no GitHub access is needed at all.
 
----
+## Step 2 — Orient yourself in the codebase
 
-## Step 2: Understand the Codebase Context
-
-Before analyzing the issue, orient yourself in the codebase:
-
-1. Read the repository's declared policy — see [the shared block](../_shared/repository-policy.md). It reports the
-   **paths** of the policy documents this repository actually has (`AGENTS.md`,
-   `CLAUDE.md`, `CONTRIBUTING.md`, and whatever they point at); read the ones a
-   decision depends on, `AGENTS.md` first when it exists.
+1. Resolve the repository's conventions, as described under Requirements.
+   Read the policy documents a decision depends on, `AGENTS.md` first, and
+   follow a pointer file rather than stopping at it.
 
    When the issue was filed against an Issue Template, judge its completeness
    against **that template's** required fields, and name the field that is
    missing rather than asking for more detail in general.
-2. Identify the tech stack from `package.json`, `pyproject.toml`, `Cargo.toml`, etc.
-3. Identify the testing setup: `jest`, `vitest`, `pytest`, `cargo test`, etc.
-4. Identify the linting/typecheck commands available
+2. Identify the stack — `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`.
+3. Identify the test runner and the lint/typecheck commands that actually exist.
 
----
+## Step 3 — Produce the analysis
 
-## Step 3: Produce Analysis
-
-Generate a structured analysis with these sections:
-
+```markdown
 ### Issue Summary
-- **Title**: Issue title
-- **Goal**: What problem is being solved or what feature is being added?
-- **Reporter context**: Any important context from comments or issue body
+- **Title**: …
+- **Goal**: what problem is solved, or what is added
+- **Reporter context**: what matters from the body and comments
 - **Type**: bug / feature / refactor / docs / performance
 
 ### Scope Assessment
-- **Affected areas**: Which modules, files, or systems will likely be touched?
-- **Complexity**: Simple (1-2 stories) / Medium (3-5 stories) / Complex (6+ stories)
-- **Dependencies**: Does this depend on other issues or external services?
+- **Affected areas**: modules, files or systems likely touched
+- **Complexity**: Simple (1-2 stories) / Medium (3-5) / Complex (6+)
+- **Dependencies**: other issues, external services
 
 ### Technical Notes
 - Known constraints
-- Relevant existing code patterns that should be followed
-- Files likely to be modified (best guess based on codebase exploration)
-- Potential gotchas or non-obvious considerations
+- Existing patterns the implementation should follow
+- Files likely to be modified, named from actual exploration
+- Gotchas and non-obvious considerations
 
 ### Ambiguities
-- List anything unclear that needs clarification before writing the PRD
-- Flag if the issue scope is too broad and should be split
+- Anything unclear that must be settled before a PRD
+- Whether the scope is too broad and should be split
+```
 
----
+## Success and failure
 
-## Output
+**Done** when every section is filled from evidence in the repository — real
+files, real patterns — and the ambiguities are specific enough to answer.
 
-Print the analysis to the user.
+**Ambiguities:** when invoked by an orchestrator, list them and do not stop. When
+invoked directly, ask up to three questions.
 
-If there are critical ambiguities, list them in the Ambiguities section of the output. When invoked from a pipeline (e.g., resolve-issue), do NOT stop to ask — flag them in the output and let the orchestrator decide whether to ask the user. When invoked standalone, you may ask up to 1-3 clarifying questions.
+**No access to the issue:** say which of `gh`, authentication, or a local issue
+file was missing, and ask for the issue text. Never analyze an issue you could
+not read.
+
+## Gotchas
+
+- **A closed issue is not necessarily a resolved one**, and a referenced Pull
+  Request is not necessarily merged. Check before assuming.
+- **"Complexity" is about the number of independently verifiable units**, not
+  about difficulty. One hard change is still Simple.
+- **Name files you actually opened.** A plausible-looking path that does not
+  exist costs the next phase more than an honest "not found".

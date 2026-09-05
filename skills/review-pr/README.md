@@ -83,5 +83,5 @@ The CLI adds deterministic exit codes (`0` approve, `2` request changes, `1` fai
 
 ## Related
 
-- [`review-issue`](../review-issue/) — verifies whether a GitHub *issue* was resolved
-- [`create-pr`](../create-pr/) — creates the Pull Request this skill reviews
+- [`review-issue`](https://github.com/fabioassuncao/issue-flow/tree/main/skills/review-issue) — verifies whether a GitHub *issue* was resolved
+- [`create-pr`](https://github.com/fabioassuncao/issue-flow/tree/main/skills/create-pr) — creates the Pull Request this skill reviews

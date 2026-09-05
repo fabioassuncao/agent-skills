@@ -1,363 +1,171 @@
 ---
 name: review-issue
 description: >
-  Review whether a GitHub issue has been fully resolved by analyzing the implementation,
-  running tests, and checking for regressions. Use this skill whenever the user wants to
-  validate, verify, or review if a GitHub issue was properly resolved — e.g., "review issue #42",
-  "validate issue 15", "check if issue #7 is done", "review this issue", "is issue #20 resolved?",
-  "close issue #5 if it's done". Also trigger when the user says "code review da issue",
-  "revisar issue", "validar issue", or any variation that implies verifying an issue's resolution
-  status against the actual codebase. Do NOT use for analyzing issues before implementation
-  (use analyze-issue instead) or for general PR code reviews unrelated to a specific issue.
-compatibility: Requires gh CLI (https://cli.github.com/) and git
+  Verify whether an issue was actually resolved — trace the implementation, map every
+  acceptance criterion to real code, run the project's tests, and check for regressions before
+  giving a verdict. Use this skill whenever the user wants to validate, verify or review
+  whether an issue was properly resolved — "review issue #42", "validate issue 15", "is issue
+  #7 done?", "close issue #5 if it's done", "revisar issue", "validar issue". Standalone, it
+  closes the issue on approval and comments on rejection. Do NOT use it to analyze an issue
+  before implementation (use analyze-issue) or to review a Pull Request as a whole (use
+  review-pr).
+license: MIT
+compatibility: >
+  Requires git and the GitHub CLI (gh), authenticated — or an equivalent GitHub tool. Runs the
+  project's test suite. Outside orchestrator mode it closes or comments on the issue, so it
+  writes to GitHub.
+metadata:
+  publisher: issue-flow
+  version: "1"
+  homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
-# Review Issue Resolution
+# Review whether an issue was resolved
 
-> **Repository policy — read this first.** Every decision below that depends on
-> this repository's conventions (labels, Issue Templates, Issue Types, title,
-> base branch, branch and commit format, Pull Request body) follows
-> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
-> Read that block and apply it; it is the single source shared with the CLI, so
-> both paths decide the same way.
->
-> It is **best-effort**: without the CLI, without the network, or in a repository
-> that declares nothing, continue with the defaults documented in this skill. A
-> skill that needs the network to work is a regression.
+Closing an issue should mean the problem is solved — not that someone pushed
+code and moved on. This is the gate: fetch the requirements, trace them through
+the code, run the tests, and only then decide.
 
-Validate whether a GitHub issue has been completely resolved by examining the actual implementation, running the project's tests, and checking for regressions. If everything passes, close the issue automatically. If not, produce a detailed report of what's missing.
+**Use it** to decide whether an issue can be closed.
+**Do not use it** to plan, to implement, or to review a Pull Request as a whole
+— that is a different question, and `review-pr` answers it.
 
-## Why this skill exists
+## Requirements
 
-Closing an issue should mean the problem is actually solved — not just that someone pushed code and moved on. This skill bridges that gap by treating every issue closure as a mini quality gate: fetch the requirements, trace them through the code, run the tests, and only then decide.
+| Needs | For |
+|---|---|
+| `git` | tracing the implementation |
+| `gh`, authenticated — or an equivalent GitHub tool via MCP | reading the issue; closing or commenting |
+| the project's test runner | running the suite |
 
----
+**Writes:** nothing in the repository. Outside orchestrator mode it **closes the
+issue** on approval, or **comments** on it on rejection.
+**Never:** edits code, commits, or fixes what it finds. Reviewing is not fixing.
 
-## Step 1: Fetch Issue Context
+## Step 1 — Fetch the issue
 
 ```bash
 gh issue view {ISSUE_NUMBER} \
-  --json title,body,labels,assignees,milestone,comments,state,url \
-  --repo {owner}/{repo}
+  --json title,body,labels,assignees,milestone,comments,state,url
 ```
 
-If the repo can be inferred from the current directory's git remote, use it. Otherwise, ask the user.
+The comments matter as much as the body: a decision taken in a comment is part
+of the requirements. Note any linked Pull Request.
 
-Also fetch linked PRs:
+## Step 2 — Learn how this project works
 
-```bash
-gh pr list --search "issue:{ISSUE_NUMBER}" --json number,title,state,mergedAt,headRefName,files
-```
+Identify the stack from what is actually there — `package.json`,
+`composer.json`, `go.mod`, `Cargo.toml`, `pyproject.toml`, `Gemfile`,
+`pom.xml`/`build.gradle`, `mix.exs`, `Makefile`, `pubspec.yaml`.
 
-And check for PRs that reference the issue in their body/title:
+Then check what changes *how* commands run: `docker-compose.yml` or a
+`Dockerfile` (a container prefix), `.tool-versions`/`.nvmrc`/`.python-version`,
+and the CI config (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`) — CI
+is the most reliable statement of how this project is really tested.
 
-```bash
-gh pr list --search "{ISSUE_NUMBER}" --state all --json number,title,state,mergedAt,headRefName
-```
+Resolve the repository's conventions —
+[references/repository-conventions.md](references/repository-conventions.md) —
+and read the policy documents a finding would depend on. **Follow a pointer file
+rather than stopping at it.**
 
-From all collected data, extract:
-- The original problem and motivation
-- Explicit and implicit acceptance criteria
-- Proposed solution (if described)
-- Edge cases mentioned in comments
-- Decisions made during discussion
+Come out of this step knowing: the language and framework, how to run the tests
+(with any container prefix), how to run lint and typecheck, and where tests
+live.
 
-**Language detection**: Note the language used in the issue title, body, and comments. All output (the final report, the closing comment if applicable) must be written in that same language.
+## Step 3 — Trace the implementation
 
----
-
-## Step 2: Detect Project Stack
-
-Before making any decisions about how to run tests, lint, or validate code, understand what you're working with. Look at the project root for signals:
-
-- `package.json` → Node.js/JavaScript/TypeScript ecosystem
-- `composer.json` → PHP ecosystem
-- `go.mod` → Go
-- `Cargo.toml` → Rust
-- `pyproject.toml`, `setup.py`, `requirements.txt` → Python
-- `Gemfile` → Ruby
-- `pom.xml`, `build.gradle` → Java/Kotlin
-- `mix.exs` → Elixir
-- `Makefile`, `CMakeLists.txt` → C/C++
-- `pubspec.yaml` → Dart/Flutter
-
-Also check:
-- `docker-compose.yml` / `docker-compose.yaml` / `compose.yaml` → services run in Docker
-- `Dockerfile` → containerized environment
-- `AGENTS.md` and `CLAUDE.md` → project-specific instructions that may override default behavior
-- `.tool-versions`, `.nvmrc`, `.python-version` → version managers
-- CI config (`.github/workflows/`, `.gitlab-ci.yml`, `Jenkinsfile`) → how tests are run in CI
-
-**Read the repository's declared policy** — see [the shared block](../_shared/repository-policy.md). It lists the
-**paths** of the policy documents this repository actually has (`AGENTS.md`,
-`CLAUDE.md`, `CONTRIBUTING.md`, and whatever they forward to), plus its labels,
-Issue Types, base branch and conventions. Read the documents a finding would
-depend on.
-
-**Follow a pointer file rather than stopping at it.** A `CLAUDE.md` whose entire
-content is `Read and follow the instructions in AGENTS.md.` is not a repository
-without conventions — concluding that discards everything it forwards to.
-
-These instructions may contain critical detail about how commands are executed
-(through Docker, a specific test runner, required flags) and take precedence over
-any assumption.
-
-From these signals, determine:
-1. The primary language and framework
-2. How to run tests (and whether commands need a container prefix)
-3. How to run linting/formatting checks
-4. The test directory structure and naming conventions
-
----
-
-## Step 3: Trace the Implementation
-
-Find all code changes related to the issue. Use multiple strategies since not all projects follow the same conventions:
-
-### 3a. From linked PRs
-If linked PRs were found in Step 1, examine their diffs:
+Not every project links its work the same way, so try several:
 
 ```bash
-gh pr diff {PR_NUMBER}
-```
-
-And their commits:
-
-```bash
+gh pr diff {PR_NUMBER}                    # from a linked PR
 gh pr view {PR_NUMBER} --json commits
+git branch -a | grep -i "{ISSUE_NUMBER}"  # from branch naming
+git log --all --oneline --grep="#{ISSUE_NUMBER}" --since="6 months ago"
 ```
 
-### 3b. From branch naming conventions
-Look for branches that reference the issue number:
-
-```bash
-git branch -a | grep -i "{ISSUE_NUMBER}"
-```
-
-### 3c. From commit messages
-Search for commits that mention the issue:
-
-```bash
-git log --all --oneline --grep="#{ISSUE_NUMBER}" --grep="{ISSUE_NUMBER}" --since="6 months ago"
-```
-
-### 3d. From the current branch
-If the user is on a feature branch, compare it against the repository's base
-branch. Resolve it — never assume `main`:
-
-`$BASE` is `pullRequests.baseBranch` from [the shared block](../_shared/repository-policy.md),
-falling back to `origin/HEAD` and then to `main`:
+From the current branch, compare against the **resolved** base branch — never
+assume `main`:
 
 ```bash
 BASE=${BASE:-$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')}
 BASE=${BASE:-main}
-
 git log "$BASE"..HEAD --oneline
 git diff "$BASE"...HEAD --stat
 ```
 
-This matters more than it looks: in a repository based on `develop`, `main`
-usually **exists** as well, so hard-coding it does not fail — it silently reviews
-the wrong diff.
+In a repository based on `develop`, `main` usually exists too — hard-coding it
+does not fail, it silently reviews the wrong diff.
 
-Once you've identified the relevant commits and changed files, **read and understand every changed file**. Don't just look at the diff — understand the context around the changes.
+Then **read every changed file**, not just the diff. A change is only correct in
+context.
 
----
+## Step 4 — Map criteria to code
 
-## Step 4: Validate Against Requirements
+For each acceptance criterion: is there code that implements it? For each edge
+case the issue names: is it handled? For each decision taken in a comment: does
+the code reflect it?
 
-Map each acceptance criterion from the issue to specific code changes:
+Then: does the implementation match the project's architecture and patterns
+(check sibling files)? Is there duplicated logic that should be shared? Was
+unnecessary coupling introduced?
 
-- For each requirement: is there code that implements it?
-- For each edge case mentioned: is it handled?
-- For decisions made in comments: does the code reflect them?
+**Be fair.** If the issue did not ask for something, its absence is not a
+failure. Flag only what contradicts the requirements or violates a convention
+the repository actually states.
 
-Also check:
-- Does the implementation align with the project's architecture and conventions?
-- Is there duplicated logic that should be shared?
-- Are there coupling issues or unnecessary dependencies introduced?
-- Does the code follow the project's existing patterns (check sibling files)?
+## Step 5 — Run the tests
 
-Be thorough but fair — if the issue didn't mention something, don't flag its absence as a failure. Only flag things that contradict the issue's requirements or violate clear project conventions.
+Use the command this project really uses — found in Step 2, not assumed. Prefer
+the tests covering the changed areas; the full suite is fine when the project is
+small or the change is wide.
 
----
+Record how many passed and failed, whether any failure relates to *this* change,
+and whether the changed behaviour is covered at all.
 
-## Step 5: Run Tests
+Missing tests for changed behaviour is a finding. **Do not write them** — this
+is a review.
 
-Based on the stack detected in Step 2, run the project's test suite. Prefer running only tests related to the changed areas when possible, but if the project is small or the changes are wide-reaching, running the full suite is acceptable.
+## Step 6 — Look for regressions
 
-**Examples of test commands by ecosystem** (adapt based on what you actually find in the project):
+Beyond the suite: did the change touch shared utilities, base classes, or
+configuration? Grep for usages of every modified function, class or constant.
+Could it affect a database schema, an API contract, or a public interface?
 
-| Signal | Likely command |
-|--------|---------------|
-| `package.json` with `test` script | `npm test` or `yarn test` |
-| `composer.json` with pest/phpunit | `vendor/bin/pest` or `vendor/bin/phpunit` |
-| `go.mod` | `go test ./...` |
-| `Cargo.toml` | `cargo test` |
-| `pyproject.toml` with pytest | `pytest` |
-| `Gemfile` with rspec | `bundle exec rspec` |
-| `mix.exs` | `mix test` |
+## Step 7 — Decide, report, act
 
-**If CLAUDE.md specifies a different test command or requires Docker, use that instead.**
+Verdict criteria and report structure:
+[references/issue-review-report.md](references/issue-review-report.md).
+End with the `<review-result>` block from
+[references/review-result-block.md](references/review-result-block.md).
 
-After running, note:
-- How many tests passed/failed
-- Whether any failures are related to the changes in this issue
-- Whether test coverage exists for the new/changed behavior
+**Orchestrator mode** — when the invocation contains `--orchestrator`: produce
+the report and the block, and **stop**. Do not close the issue, do not comment.
+Those are the orchestrator's decisions.
 
-If tests are missing for the changed behavior, flag it — but don't write them yourself. This is a review, not an implementation task.
-
----
-
-## Step 6: Check for Regressions
-
-Beyond the test results, look for indirect impacts:
-
-- Did the changes modify shared utilities, base classes, or configuration?
-- Are there other parts of the codebase that depend on the changed code?
-- Could the changes affect database schemas, API contracts, or public interfaces?
-
-Use grep/search to find usages of modified functions, classes, or constants across the codebase. If a widely-used component was changed, pay extra attention to downstream consumers.
-
----
-
-## Step 7: Produce the Verdict
-
-Based on everything above, decide: **resolved or not?**
-
-The issue is considered **fully resolved** only when ALL of the following are true:
-- Every acceptance criterion from the issue is addressed in the code
-- Tests pass (no failures related to the changes)
-- No regressions detected
-- Code follows the project's conventions and patterns
-
-### Orchestrator Mode
-
-When the invocation args contain `--orchestrator` (e.g., `/review-issue #42 --orchestrator`):
-- **Do NOT close the issue automatically** — the orchestrator controls when to close.
-- **Do NOT add comments to the issue** — the orchestrator handles GitHub interactions.
-- **Only produce the structured report and the `<review-result>` block** (see below).
-
-**Detection**: Check if the string `--orchestrator` is present in the skill invocation arguments. If present, enable orchestrator mode. If absent, run in standalone mode.
-
-If invoked standalone (no `--orchestrator` flag):
-- Follow the standard behavior below (close issue if resolved, comment if not).
-
-### If RESOLVED (standalone mode only):
-
-Close the issue with a comment summarizing what was validated:
+**Standalone** — resolved:
 
 ```bash
-gh issue close {ISSUE_NUMBER} --comment "{closing_comment}"
+gh issue close {ISSUE_NUMBER} --comment "{summary of what was validated}"
 ```
 
-The closing comment should be in the same language as the issue and briefly state:
-- What was validated
-- That tests pass
-- That no regressions were found
+Confirm before closing, unless the user already said to just do it. Closing is
+visible to everyone watching the issue and is not yours to undo silently. The
+comment goes in the issue's language and states what was validated, that the
+tests pass, and that no regression was found.
 
-### If NOT RESOLVED (standalone mode only):
-
-Do NOT close the issue. Instead, add a comment detailing what needs attention:
+**Standalone** — not resolved: do **not** close. Comment with what is missing:
 
 ```bash
-gh issue comment {ISSUE_NUMBER} --body "{review_comment}"
+gh issue comment {ISSUE_NUMBER} --body "{what needs attention}"
 ```
 
----
+## Gotchas
 
-## Output Format
-
-Always produce a structured report at the end, written in the same language as the issue:
-
-```markdown
-# Code Review — Issue #{number}: {title}
-
-## Status: [APPROVED / REJECTED]
-
-## Summary
-Brief description of the overall state.
-
-## Requirements Analysis
-| Requirement | Status | Notes |
-|-------------|--------|-------|
-| ... | Met/Unmet/Partial | ... |
-
-## Implementation Review
-- Architecture alignment: ...
-- Code quality: ...
-- Patterns and conventions: ...
-
-## Tests
-- Result: {passed}/{total} passing
-- Coverage of changes: adequate / insufficient
-- Notes: ...
-
-## Regressions
-- {None found / List of concerns}
-
-## Issues Found (if any)
-- [ ] ...
-
-## Conclusion
-{Clear final decision with justification}
-```
-
----
-
-## Structured Result Block (MANDATORY)
-
-**After the human-readable report, ALWAYS emit a machine-parseable result block.** This is used by the resolve-issue orchestrator to determine whether to enter the correction loop.
-
-### If APPROVED:
-
-```
-<review-result>
-STATUS: PASS
-</review-result>
-```
-
-### If REJECTED:
-
-```
-<review-result>
-STATUS: FAIL
-FINDINGS:
-- [US-XXX] Description of what failed or is missing
-- [US-YYY] Another issue found
-</review-result>
-```
-
-**Rules for the `<review-result>` block:**
-- Always emit it as the **last thing** in your output
-- Use `STATUS: PASS` only when the verdict is APPROVED
-- Use `STATUS: FAIL` for any other verdict (REJECTED, PARTIAL, etc.)
-- In the FINDINGS section, prefix each finding with the affected user story ID (`[US-XXX]`) when applicable
-- If a finding is not tied to a specific user story, use `[GENERAL]` as prefix
-- Each finding must be a single line
-
----
-
-## Important Principles
-
-- **Never assume resolved just because the issue is closed or a PR was merged.** Validate in the code.
-- **Never trust only comments or descriptions** — always verify against the actual implementation.
-- **Prioritize practical analysis** (code behavior) over theoretical assessment.
-- **Be rigorous but fair** — flag real problems, not style preferences that aren't project conventions.
-- **Always justify your decisions** — every "unmet" or "regression" needs evidence pointing to specific code.
-- **Respect the project's own rules** — `AGENTS.md`, `CLAUDE.md`, CI config, and existing conventions always take precedence over generic best practices.
-- **Report policy conformance as its own axis**, alongside correctness, scope and
-  tests, whenever the repository declares a policy. Check the branch and commits
-  against its conventions, the changes against any rule its documents state as
-  **mandatory**, and record the owners of paths covered by `CODEOWNERS` — without
-  ever failing on that last one, since GitHub enforces the approval.
-
-  **Cite the document and section behind every rule you invoke.** A violation with
-  no citation is an opinion the author cannot check.
-
-  Only a rule the repository states as mandatory, a missing required template
-  field, or a wrong base branch is blocking. A formatting or naming divergence is
-  an observation — a review that fails on style is a review that gets ignored.
-
-  Never restate a repository rule as if it were your own standard, and never
-  invent one it does not declare.
+- **A closed issue, or a merged PR, proves nothing.** Verify it in the code.
+- **A finding you cannot point at is speculation.** Cite `file:line`, or leave
+  it out, or mark it as a question.
+- **The project's own rules win** over generic best practice — `AGENTS.md`, CI
+  config, existing conventions.
+- **Style is not a failure.** A naming or formatting divergence belongs in the
+  body of the report, never in the verdict: a review that fails on style is a
+  review that gets ignored.

@@ -6,3 +6,6 @@
 /issues
 
 /node_modules
+
+# Assembled skills tree, published to the `skills` branch by CI
+/dist/

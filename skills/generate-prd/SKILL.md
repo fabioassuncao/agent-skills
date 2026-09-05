@@ -1,171 +1,121 @@
 ---
 name: generate-prd
 description: >
-  Generate a structured Product Requirements Document (PRD) from a GitHub issue analysis.
-  Produces issues/{ISSUE_NUMBER}/prd.md with user stories, acceptance criteria, and
-  functional requirements. Use this skill when you need to create a PRD from an analyzed
-  GitHub issue, plan implementation of a feature or fix, or when the resolve-issue skill
-  delegates PRD generation. Triggers on: "generate prd", "create a plan for this issue",
-  "write requirements", or any request to produce a structured implementation plan from an issue.
+  Generate a structured Product Requirements Document (PRD) from an issue, producing
+  issues/{ISSUE_NUMBER}/prd.md with ordered user stories, verifiable acceptance criteria and
+  functional requirements. Use this skill to plan the implementation of an issue before any
+  code is written, or when an orchestrator delegates PRD generation. Triggers on: "generate
+  prd", "create a plan for this issue", "write requirements", or any request to produce a
+  structured implementation plan from an issue. Do NOT use it to implement (use execute-tasks)
+  or to convert an existing PRD into a task plan (use convert-prd-to-json).
+license: MIT
+compatibility: >
+  Requires a writable working directory. Works with a GitHub issue (gh) or a local issue file,
+  and needs neither network nor GitHub access once the issue text is available.
+metadata:
+  publisher: issue-flow
+  version: "1"
+  homepage: https://github.com/fabioassuncao/issue-flow
 ---
 
-# PRD Generator (GitHub Issue)
+# Generate a PRD
 
-> **Repository policy — read this first.** Every decision below that depends on
-> this repository's conventions (labels, Issue Templates, Issue Types, title,
-> base branch, branch and commit format, Pull Request body) follows
-> [`skills/_shared/repository-policy.md`](../_shared/repository-policy.md).
-> Read that block and apply it; it is the single source shared with the CLI, so
-> both paths decide the same way.
->
-> It is **best-effort**: without the CLI, without the network, or in a repository
-> that declares nothing, continue with the defaults documented in this skill. A
-> skill that needs the network to work is a regression.
+Turn an issue into a plan whose every unit of work is small, ordered and
+verifiable. The PRD is what the task plan is derived from, so a vague criterion
+here becomes an unverifiable story later.
 
-## The Job
+**Use it** to plan an issue before writing code.
+**Do not use it** to implement, to convert a PRD into JSON, or to review.
 
-1. Take the analysis output from `analyze-issue`
-2. Ask clarifying questions if the issue is ambiguous
-3. Generate a structured PRD
-4. Save to `issues/{ISSUE_NUMBER}/prd.md`
+## Requirements
 
-**Important:** Do NOT start implementing. Just create the PRD.
+| Needs | For |
+|---|---|
+| a writable working directory | `issues/{ISSUE_NUMBER}/prd.md` |
+| the issue text — from `gh issue view`, `issues/{N}/issue.md`, or the user | the source of the requirements |
 
----
+**Writes:** `issues/{ISSUE_NUMBER}/prd.md` only.
+**Never:** touches source code, commits, or the issue itself.
 
-## Step 1: Clarifying Questions (If Needed)
+**Resolving the repository's conventions.** When `issue-flow` is on the PATH,
+`issue-flow policy --json --scope "$(git rev-parse --show-prefix)"` returns them
+resolved in one call. Otherwise read them yourself: `.github/ISSUE_TEMPLATE/`,
+`.github/PULL_REQUEST_TEMPLATE*`, `AGENTS.md` (following a pointer file such as
+`CLAUDE.md` rather than stopping at it), `gh label list`, and
+`git symbolic-ref --short refs/remotes/origin/HEAD` for the base branch. Two
+rules hold either way: **never assume `main`** — in a repository based on
+`develop`, `main` usually exists too, so assuming it does not fail, it silently
+uses the wrong branch — and **never create a label**. Neither step may block:
+when nothing answers, continue with this skill's documented defaults.
 
-Only ask if the issue analysis revealed ambiguities. Focus on:
+## Step 1 — Ask, only when the issue is ambiguous
 
-- **Problem/Goal**: What problem does this solve?
-- **Core Functionality**: What are the key actions/behaviors?
-- **Scope/Boundaries**: What should it NOT do?
-- **Success Criteria**: How do we know it's done?
+Ask only about ambiguities the issue actually has. Guessing a goal is more
+expensive than one question; asking about something the issue already answers is
+friction for nothing.
 
-### Format Questions Like This:
+Worth asking about: the problem being solved, the key behaviours, what is
+explicitly out of scope, how anyone will know it is done.
 
-```
+Make answering cheap:
+
+```text
 Before I write the plan, I need to clarify a few things:
 
 1. What is the primary goal of this change?
-   A. [Option based on issue context]
-   B. [Option based on issue context]
+   A. [option drawn from the issue]
+   B. [option drawn from the issue]
    C. Other: [please specify]
 
 2. What should the scope be?
    A. Minimal viable implementation
-   B. Full-featured as described in the issue
-   C. Just backend/API changes
-   D. Just UI changes
+   B. Full-featured, as described in the issue
+   C. Backend only
+   D. UI only
 ```
 
-Users can respond with short codes like "1A, 2B". Keep it fast and friction-free.
+Short codes like "1A, 2B" are a valid answer.
 
----
+When an orchestrator invoked this skill, do not stop: record the ambiguity in
+**Open Questions** and continue.
 
-## Step 2: PRD Structure
+## Step 2 — Write the PRD
 
-Generate the PRD with these sections:
+Follow [references/prd-structure.md](references/prd-structure.md) for the
+sections, the story format, the sizing rules and the ordering rules. Read it now
+— it is the substance of this skill.
 
-### 1. Introduction/Overview
-Brief description derived from the issue: what feature/fix is being built and what problem it solves.
+Two rules are worth repeating here, because they are the ones most often broken:
 
-### 2. Goals
-Specific, measurable objectives (bullet list). Derived from the issue's stated goals and acceptance criteria if any.
+- **A story must fit in one focused session** and be independently verifiable.
+  If you cannot describe it in 2-3 sentences, split it.
+- **Acceptance criteria must be verifiable.** "Works correctly" is not a
+  criterion; "returns 404 when the resource does not exist" is.
 
-### 3. User Stories
+## Step 3 — Save
 
-Each story must be:
-- **Small enough to implement in one focused session** (one context window)
-- **Independently verifiable**
-- **Ordered by dependency** (database → backend → UI)
-
-**Format:**
-```markdown
-### US-001: [Title]
-**Description:** As a [user], I want [feature] so that [benefit].
-
-**Acceptance Criteria:**
-- [ ] Specific, verifiable criterion
-- [ ] Another criterion
-- [ ] Typecheck passes
-- [ ] **[UI stories only]** Verify in browser using `playwright-cli` if available; otherwise use the `playwright` MCP/skill
+```bash
+mkdir -p issues/{ISSUE_NUMBER}
 ```
 
-**Rules for acceptance criteria:**
-- Must be verifiable, not vague
-- ❌ Bad: "Works correctly", "Good UX", "Handles edge cases"
-- ✅ Good: "Clicking delete shows confirmation dialog", "Button is disabled while loading", "Returns 404 when resource not found"
-- Always include "Typecheck passes" as the last item
-- Always include "Verify in browser using `playwright-cli` if available; otherwise use the `playwright` MCP/skill" for stories with UI changes
+Write to `issues/{ISSUE_NUMBER}/prd.md`.
 
-### 4. Functional Requirements
-Numbered list:
-- `FR-1: The system must...`
-- `FR-2: When a user does X, the system must...`
+## Success and failure
 
-Be explicit and unambiguous. A junior developer or AI agent will read this.
+**Done** when the checklist at the end of
+[references/prd-structure.md](references/prd-structure.md) passes and the file
+is on disk.
 
-### 5. Non-Goals (Out of Scope)
-What this issue will NOT include. Critical for preventing scope creep.
+**Do not start implementing.** Producing the plan is the whole job.
 
-### 6. Design Considerations (Optional)
-UI/UX requirements, existing components to reuse, mockup links if available.
+**Cannot write the file:** say where and why, and print the PRD so nothing is
+lost.
 
-### 7. Technical Considerations (Optional)
-Constraints, integration points, performance requirements, breaking changes.
+## Gotchas
 
-### 8. Success Metrics
-How will we know this issue is fully resolved?
-
-### 9. Open Questions
-Remaining uncertainties to be resolved during implementation.
-
----
-
-## Story Sizing Rules
-
-**Right-sized (one iteration each):**
-- Add a database column and migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
-- Write a new API endpoint
-
-**Too big (must split):**
-- "Build the entire dashboard" → Split into: schema, queries, UI components, filters
-- "Add authentication" → Split into: schema, middleware, login UI, session handling
-- "Refactor the API" → Split into one story per endpoint or pattern
-
-**Rule of thumb:** If you cannot describe the change in 2-3 sentences, it is too big.
-
----
-
-## Story Ordering
-
-Stories must be ordered so earlier stories never depend on later ones:
-
-1. Schema/database changes (migrations first)
-2. Server actions / backend logic / API endpoints
-3. UI components that consume the backend
-4. Dashboard/summary views that aggregate data
-
----
-
-## Output
-
-Save the PRD to `issues/{ISSUE_NUMBER}/prd.md`.
-
-Create the directory if it doesn't exist: `mkdir -p issues/{ISSUE_NUMBER}`
-
----
-
-## Checklist Before Saving
-
-- [ ] Asked clarifying questions if the issue was ambiguous
-- [ ] User stories are small and independently completable
-- [ ] Stories are ordered by dependency (no story depends on a later one)
-- [ ] All acceptance criteria are verifiable (not vague)
-- [ ] UI stories include browser verification criterion
-- [ ] Non-goals section is present
-- [ ] Saved to `issues/{ISSUE_NUMBER}/prd.md`
+- **Out of Scope is not optional.** It is the section that keeps the
+  implementation from growing, and it is the one most often left empty.
+- **Do not renumber someone else's stories.** When a plan already exists for
+  this issue, continue its numbering rather than restarting at `US-001`.
+- **The issue's own acceptance criteria come first.** Add to them; never quietly
+  replace them with your own.
