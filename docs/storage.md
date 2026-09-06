@@ -119,6 +119,28 @@ the directory does not make it a different one. `runtime.env` stays a file under
 the worktree's own git directory, because `bash` and the lifecycle hooks read it
 and neither can query a database.
 
+### `agent_sessions`
+
+The durable link between a model conversation and what it is being used for:
+`run_id`, `phase`, `story_id`, `branch`, `worktree_id`, `provider`,
+`conversation_id`, `status`, `pane_target` and `label`.
+
+**`run_id`, `phase` and `story_id` are nullable, and that is the whole design.**
+A session opened by a person — no issue, no plan, no workflow — is the *same*
+row with those three columns empty. There is no second table and no second
+execution model; a consumer that assumed they were present would break the one
+mode that has nothing to put in them.
+
+`label` is a caption, never an identity: nothing is looked up by it. It exists
+because a free session has only a uuid and a generated branch to show a person,
+while a workflow session is already named by its issue.
+
+The conversation itself is never copied here and never parsed. The provider owns
+it, on disk under `~/.claude` or `~/.codex`; this table holds its id so
+`--resume` has something to point at. `status` is *reported* — by the agent's
+hooks, or demoted to `orphaned` by reconciliation when tmux no longer has the
+window. Nothing here deletes a row because a pane is gone.
+
 ### `projects` — the project registry
 
 The row that anchors every foreign key is also the **project registry**: the one

@@ -32,6 +32,16 @@ import {
 import { matchProjectResource, resolveProjectRoute } from './router.js';
 import type { SessionDirectoryChange, SessionDirectoryHandle } from './session-directory.js';
 import {
+  createSessionRoute,
+  interruptSessionRoute,
+  linkSessionRoute,
+  listSessionsRoute,
+  matchSessionResource,
+  type SessionsApiDeps,
+  sendSessionInputRoute,
+  stopSessionRoute,
+} from './sessions-api.js';
+import {
   startTerminalWebSocket,
   type TerminalWebSocketHandle,
   type TerminalWebSocketOptions,
@@ -134,6 +144,14 @@ export interface WebServerOptions {
    * loopback (ADR-10) — the same gate the configuration write routes use.
    */
   terminal?: Pick<TerminalWebSocketOptions, 'resolveTarget' | 'token' | 'onHumanInput'>;
+  /**
+   * The agent-session surface (§49): opening an agent with no issue behind it.
+   *
+   * Absent leaves it off — `GET /api/agent-sessions` then answers an empty list
+   * rather than 404, so one dashboard build serves a monitor that has it and
+   * one that does not, and every mutating route answers 501.
+   */
+  agentSessions?: SessionsApiDeps;
 }
 
 export interface WebServerHandle {
@@ -418,6 +436,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const source = resolveSessionSource(options);
   let terminal: TerminalWebSocketHandle | null = null;
   const projects = options.projects ?? null;
+  const agentSessions = options.agentSessions ?? null;
 
   // JSON serialization memoized per session id: an unchanged poll answers 304
   // with an empty body. Content-hashed rather than counter-based, unlike the
@@ -554,6 +573,71 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     if (req.method === 'DELETE' && projectResource !== null) {
       respondApi(res, await removeProject(projects ?? null, projectResource));
       return;
+    }
+
+    // §49.3's surface. `GET /api/sessions` is deliberately *not* part of it:
+    // that path has answered the pipeline-execution list since the
+    // multi-session dashboard, and ADR-20 keeps an execution and a session
+    // distinct. The listing therefore lives at `/api/agent-sessions`; the
+    // verbs, which collide with nothing, answer on both spellings.
+    if (req.method === 'GET' && path === '/api/agent-sessions') {
+      respondApi(
+        res,
+        await listSessionsRoute(agentSessions, routedProjectId, {
+          freeOnly: requestUrl.searchParams.get('free') === '1',
+        }),
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && (path === '/api/sessions' || path === '/api/agent-sessions')) {
+      respondApi(
+        res,
+        await createSessionRoute(agentSessions, routedProjectId, await readJsonBody(req)),
+      );
+      return;
+    }
+
+    const sessionResource = matchSessionResource(path);
+    if (sessionResource !== null) {
+      const { sessionId, action } = sessionResource;
+      if (req.method === 'DELETE' && action === null) {
+        respondApi(
+          res,
+          await stopSessionRoute(agentSessions, routedProjectId, sessionId, {
+            removeWorktree: requestUrl.searchParams.get('removeWorktree') === '1',
+          }),
+        );
+        return;
+      }
+      if (req.method === 'POST' && action === 'input') {
+        respondApi(
+          res,
+          await sendSessionInputRoute(
+            agentSessions,
+            routedProjectId,
+            sessionId,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
+      if (req.method === 'POST' && action === 'interrupt') {
+        respondApi(res, await interruptSessionRoute(agentSessions, routedProjectId, sessionId));
+        return;
+      }
+      if (req.method === 'POST' && action === 'link') {
+        respondApi(
+          res,
+          await linkSessionRoute(
+            agentSessions,
+            routedProjectId,
+            sessionId,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
     }
 
     if (req.method === 'POST' && path === '/api/config/agent') {
@@ -800,6 +884,10 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
           // Advertised only when the transport actually started, so a client
           // never offers a terminal that would refuse its handshake.
           ...(terminal === null ? [] : ['terminal:attach']),
+          // Advertised only where a session could actually be opened, so the
+          // dashboard never offers a "New session" button that would answer
+          // 501 (no project surface) or 403 (not loopback, ADR-10).
+          ...(agentSessions?.writable ? ['session:open'] : []),
         ],
       });
       return;

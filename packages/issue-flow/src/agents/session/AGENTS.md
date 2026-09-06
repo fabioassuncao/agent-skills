@@ -44,3 +44,46 @@ Only one of them is persisted here:
 - Never let a phase that must stay independent continue an existing session,
   however the caller asks.
 - Never assume `runId`/`phase`/`storyId` are set.
+
+## Two modes, one model — opening a session (`open.ts`, `context.ts`)
+
+`openAgentSession` is the only way an agent is put in a pane, and it serves
+both modes. A caller that passes `runId`/`phase`/`storyId` gets a workflow
+session; a caller that passes none gets a free one (§49). There is no second
+launcher, and adding one would be the duplication §25 forbids.
+
+- **`context.ts` is the wiring, not a second model.** The CLI and the HTTP
+  surface both call `resolveAgentSessionDeps` so they cannot disagree about
+  which profile a session used or which tmux socket its window is on.
+- **The branch is generated when nobody names one** — `session/<slug>-<8 hex>`.
+  Requiring a branch would reinstate the ceremony a free session exists to skip.
+  No model is consulted; the upstream's optional auto-namer is not ported.
+- **`decideAdoption` answers two different questions.** *Resumable* is
+  `selectReusableSession`, where ADR-07 lives and is never restated. *Adoptable*
+  is wider: a live session with no conversation id yet still owns the window,
+  and a `reattach` does not re-run the agent argv — so a second row created for
+  that pane would send prompts to an agent it never started.
+- **A caller that may not adopt the live session is refused, not seated beside
+  it.** Reattaching into somebody else's pane would hand a `review` the
+  conversation ADR-07 forbids, through the window rather than through
+  `--resume`. It is the same violation in different clothing, and it answers
+  409.
+- **A free session never adopts the pipeline's conversation either.** The
+  mirror image of the rule above, and the one that is easy to lose: the
+  pipeline is forbidden from taking a person's session, so a person must not
+  silently inherit a run's.
+- **Nothing here writes a `runs` row.** A free session that could bring an
+  execution into being would be a free session starting the pipeline.
+  Promotion is `linkSessionToRun`, it is explicit, and it refuses when the run
+  does not already exist.
+- **`label` is a caption, never an identity.** Nothing is looked up by it; it
+  exists because a session with no issue has only a uuid and a generated branch
+  to show a person (migration 17).
+
+## Never
+
+- Never open a session by assembling a worktree, a tmux plan and a row by hand;
+  call `openAgentSession`.
+- Never mint a `runs` row to make a link succeed.
+- Never let a phase that must stay independent land in a window somebody else's
+  agent is already running in.

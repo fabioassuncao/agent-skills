@@ -48,6 +48,14 @@ export interface AgentSession {
   status: AgentSessionStatus;
   /** `session:window.pane`. `null` when the session is not in a pane. */
   paneTarget: string | null;
+  /**
+   * What to call this session in a list.
+   *
+   * A workflow session is named by its issue; a free session has no issue, so
+   * without this the only things left to show are a uuid and a generated
+   * branch. It is a caption and nothing else — nothing is ever looked up by it.
+   */
+  label: string | null;
   createdAt: string;
   updatedAt: string;
   endedAt: string | null;
@@ -56,6 +64,17 @@ export interface AgentSession {
 /** A session with no run, phase or story: opened directly by a person. */
 export function isFreeSession(session: AgentSession): boolean {
   return session.runId === null && session.phase === null && session.storyId === null;
+}
+
+/**
+ * How to describe a session in one line.
+ *
+ * The label when there is one, the branch otherwise — never the id, which says
+ * nothing to the person reading it.
+ */
+export function describeSession(session: AgentSession): string {
+  const label = session.label?.trim();
+  return label === undefined || label === '' ? session.branch : label;
 }
 
 /** Whether the session is one a caller could still talk to. */

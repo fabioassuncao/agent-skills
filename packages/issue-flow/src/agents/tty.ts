@@ -166,6 +166,29 @@ export function buildRuntimeBootstrap(runtimeEnvPath: string): string {
   return `set -a; . ${quoteShellArgument(runtimeEnvPath)}; set +a`;
 }
 
+/**
+ * The command a *shell* pane runs.
+ *
+ * PORT of `buildManagedShellCommand` (`backend/src/services/agent-service.ts`
+ * @ d8c9d5f). Three details are the upstream's and each one matters:
+ *
+ * - it sources the same runtime env the agent pane does, so the shell beside
+ *   the agent sees the worktree's ports and startup values rather than a bare
+ *   login environment;
+ * - `exec` replaces the bootstrap shell, so closing the pane's shell closes the
+ *   pane instead of dropping the user into the wrapper;
+ * - `-i` because a non-interactive shell reads no rc file, and a pane whose
+ *   prompt, aliases and history are missing is not the shell the user has.
+ */
+export function buildManagedShellCommand(
+  runtimeEnvPath: string,
+  shellPath: string = process.env.SHELL || '/bin/bash',
+): string {
+  return `bash -lc ${quoteShellArgument(
+    `${buildRuntimeBootstrap(runtimeEnvPath)}; exec ${quoteShellArgument(shellPath)} -i`,
+  )}`;
+}
+
 export interface PaneCommandInput {
   argv: readonly string[];
   /** Absent when the worktree has no runtime env — then nothing is sourced. */

@@ -34,6 +34,8 @@ export interface CreateAgentSessionInput {
   worktreeId?: string | null;
   conversationId?: string | null;
   paneTarget?: string | null;
+  /** Caption for a session no issue names. Free sessions are why it exists. */
+  label?: string | null;
   status?: AgentSessionStatus;
   now?: () => Date;
 }
@@ -51,6 +53,7 @@ export function createAgentSession(input: CreateAgentSessionInput): AgentSession
     conversationId: input.conversationId ?? null,
     status: input.status ?? 'starting',
     paneTarget: input.paneTarget ?? null,
+    label: input.label ?? null,
     createdAt: at,
     updatedAt: at,
     endedAt: null,
@@ -120,6 +123,55 @@ export async function recordConversationId(
     ...session,
     conversationId,
     updatedAt: now().toISOString(),
+  };
+  await saveAgentSession(context, next);
+  return next;
+}
+
+/**
+ * Record where the session's agent is running.
+ *
+ * Written after the pane exists, never before: `pane_target` is a claim about
+ * tmux, and tmux is the authority on it (ADR-08). A row pointing at a pane that
+ * was never created would send the next prompt into whatever occupies that
+ * target instead.
+ */
+export async function recordPaneTarget(
+  context: PlanRepositoryContext,
+  session: AgentSession,
+  paneTarget: string | null,
+  now: () => Date = () => new Date(),
+): Promise<AgentSession> {
+  const next: AgentSession = { ...session, paneTarget, updatedAt: now().toISOString() };
+  await saveAgentSession(context, next);
+  return next;
+}
+
+/**
+ * Promote a free session to a workflow one by binding it to a run.
+ *
+ * The whole of "mode 2 becomes mode 1" (§49.2). Everything that carries the
+ * session's history — its id, its conversation id, its branch, its pane and its
+ * `createdAt` — is left exactly as it was, because the point of promoting a
+ * session instead of opening a new one is that the conversation continues.
+ *
+ * The run has to exist already. Minting one here would be this module deciding
+ * that work is underway, and whether work is underway is not something a
+ * binding table gets to assert (ADR-08); it would also be a session starting
+ * the pipeline on its own, which §49.2 forbids outright.
+ */
+export async function linkSessionToRun(
+  context: PlanRepositoryContext,
+  session: AgentSession,
+  runId: string,
+  options: { phase?: AgentPhase | null; storyId?: string | null; now?: () => Date } = {},
+): Promise<AgentSession> {
+  const next: AgentSession = {
+    ...session,
+    runId,
+    phase: options.phase ?? session.phase,
+    storyId: options.storyId ?? session.storyId,
+    updatedAt: (options.now ?? (() => new Date()))().toISOString(),
   };
   await saveAgentSession(context, next);
   return next;

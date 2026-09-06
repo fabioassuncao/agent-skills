@@ -85,11 +85,19 @@ export interface CommitInfo {
  * Get the base branch of the repository: the remote HEAD (origin/HEAD) when
  * available, otherwise the first of main/master that exists locally.
  * Never throws; defaults to 'main'.
+ *
+ * `cwd` selects which repository is asked. Omitting it falls back to
+ * `process.cwd()`, which is right for a CLI standing in the repository and
+ * wrong for a server holding several — the multi-project surface always passes
+ * the project root explicitly.
  */
-export async function getBaseBranch(): Promise<string> {
-  const remoteHead = await run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
-    diagnostics: false,
-  });
+export async function getBaseBranch(cwd?: string): Promise<string> {
+  const options = { diagnostics: false, ...(cwd === undefined ? {} : { cwd }) };
+  const remoteHead = await run(
+    'git',
+    ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+    options,
+  );
   if (remoteHead.exitCode === 0) {
     const name = remoteHead.stdout.trim().replace(/^origin\//, '');
     if (name) return name;
@@ -99,7 +107,7 @@ export async function getBaseBranch(): Promise<string> {
     const check = await run(
       'git',
       ['rev-parse', '--verify', '--quiet', `refs/heads/${candidate}`],
-      { diagnostics: false },
+      options,
     );
     if (check.exitCode === 0) return candidate;
   }

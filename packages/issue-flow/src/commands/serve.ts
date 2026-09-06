@@ -1,3 +1,4 @@
+import { resolveAgentSessionDeps } from '../agents/session/context.js';
 import { loadGlobalConfig } from '../config/sources.js';
 import { loadWebConfig } from '../config.js';
 import {
@@ -15,6 +16,7 @@ import { getProjectRootOf, isGitRepository } from '../utils/git.js';
 import { ensureSingleWebServer } from '../web/lock.js';
 import { type ProjectsApiDeps, repositoryNeedsSetup } from '../web/projects-api.js';
 import { watchSessionDirectory } from '../web/session-directory.js';
+import type { SessionsApiDeps, SessionsApiProject } from '../web/sessions-api.js';
 
 /**
  * `issue-flow serve` — one permanent monitor for every curated project (§47.4).
@@ -121,10 +123,45 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
     },
   };
 
+  // The agent-session surface (§49). Its wiring is per project and expensive
+  // to build — a worktree manager, a tmux gateway and a resolved profile map —
+  // so it is built on first use and kept: a dashboard opening a session is not
+  // a reason to re-read `.issue-flow.json` for every request.
+  const sessionDepsCache = new Map<string, Promise<SessionsApiProject>>();
+  const agentSessions: SessionsApiDeps = {
+    // Opening a session starts a process on this machine and typing into one is
+    // a remote shell, so it follows the rule the configuration and project
+    // writes already follow: loopback bindings only (ADR-10).
+    writable: isLoopbackHost(webConfig.host),
+    resolveProject: async (projectId) => {
+      // An unprefixed request names no project. With exactly one served, that
+      // is not ambiguous and answering it is what keeps a single-project user
+      // from having to learn that prefixes exist — the same fallback
+      // `GET /api/status` already makes. With several, it genuinely is
+      // ambiguous, and guessing would open a session in the wrong repository.
+      const served =
+        projectId === null
+          ? manager.list().length === 1
+            ? manager.list()[0]
+            : null
+          : manager.getById(projectId);
+      if (served === undefined || served === null) return null;
+      const cached = sessionDepsCache.get(served.entry.id);
+      if (cached !== undefined) return cached;
+      const built = resolveAgentSessionDeps({ projectRoot: served.entry.root }).then((context) => ({
+        projectId: context.projectId,
+        deps: context.deps,
+      }));
+      sessionDepsCache.set(served.entry.id, built);
+      return built;
+    },
+  };
+
   const noop = (): void => {};
   const handle = await ensureSingleWebServer({
     sessions,
     projects,
+    agentSessions,
     port: webConfig.port,
     host: webConfig.host,
     refreshSeconds: webConfig.refreshSeconds,

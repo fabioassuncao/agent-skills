@@ -320,6 +320,12 @@ someone acts. It is never inferred from output.
 | `GET /api/diagnostics?session=<id>` | Correlated records from the global diagnostic log |
 | `POST /api/config/agent` | Save a global provider/model preference for future runs; loopback only |
 | `POST /api/config/routing` | Save global routing mode/profile/policy for future runs; loopback only |
+| `GET /api/agent-sessions[?free=1]` | Agent sessions — the ones a run owns and the ones nobody does |
+| `POST /api/sessions` | Open an agent session; `issueRef` present binds it to that issue's run, absent makes it free; loopback only |
+| `DELETE /api/sessions/:id[?removeWorktree=1]` | Stop a session; loopback only |
+| `POST /api/sessions/:id/input` | Deliver a subsequent turn, `{ "text": "…" }`; loopback only |
+| `POST /api/sessions/:id/interrupt` | Ctrl-C into the agent's pane; loopback only |
+| `POST /api/sessions/:id/link` | Promote a free session into a run, `{ "issueRef": "42" }`; loopback only |
 
 `GET /api/sessions` exists so the client does not need N× `/api/status` fetches
 just to paint the list. `issueDescription` is a short whitespace-collapsed
@@ -370,6 +376,64 @@ Tailscale binding the route is absent from `/api/health.capabilities` and return
 ETags are content-hashed (`sha1` of the serialized snapshot) rather than
 counter-based, so they work uniformly for both the directory-backed and the
 in-memory session sources.
+
+## Sessions without an issue
+
+An **execution** is a run of the workflow over a Task. A **session** is an agent
+alive in a worktree — with or without an execution behind it. They are different
+things, and the API says so with two different routes.
+
+`GET /api/sessions` is, and stays, the execution list the dashboard cards are
+built from. The agent sessions live at `GET /api/agent-sessions`, where each row
+carries `free: true` when `runId`, `phase` and `storyId` are all empty:
+
+```json
+[
+  {
+    "id": "9f3c…",
+    "free": true,
+    "runId": null,
+    "phase": null,
+    "storyId": null,
+    "branch": "session/poking-at-the-parser-1a2b3c4d",
+    "label": "poking at the parser",
+    "provider": "codex",
+    "status": "running",
+    "paneTarget": "if-app-9f2c1d4e5b6a:if-session-poking-at-the-parser-1a2b3c4d.0"
+  }
+]
+```
+
+`POST /api/sessions` opens one. The body is
+`{ agent?, branch?, label?, prompt?, model?, permission?, issueRef? }`, and
+`issueRef` is the whole of the difference between the two modes: present, the
+session belongs to that issue's run; absent, it belongs to nobody. An `issueRef`
+whose issue has no run yet is refused with `409` rather than quietly downgraded —
+opening a session must never be what starts a pipeline.
+
+The response carries what a client needs to attach without a second round trip:
+
+```json
+{
+  "session": { "id": "9f3c…", "free": true, "…": "…" },
+  "branch": "session/poking-at-the-parser-1a2b3c4d",
+  "worktreePath": "/Users/me/code/worktrees/session/poking-at-the-parser-1a2b3c4d",
+  "paneTarget": "if-app-…:if-session-….0",
+  "launchMode": "fresh",
+  "layout": { "mode": "fresh", "…": "…" },
+  "terminal": { "path": "/ws/terminal", "branch": "session/poking-at-the-parser-1a2b3c4d" }
+}
+```
+
+Every one of these routes is a write that reaches the machine — opening a
+session starts a process, and typing into one is a remote shell — so they follow
+the rule the configuration and project writes already follow: **loopback
+bindings only**. On a LAN or Tailscale binding they answer `403`, and
+`session:open` is absent from `/api/health.capabilities`, so the dashboard never
+offers a button that would be refused.
+
+A session with no run has no verification, and the API invents none: there is no
+verdict field to default, and the absence of `runId` is the whole signal.
 
 ## Several projects on one dashboard
 
