@@ -1,9 +1,9 @@
-# Prompt — completar a paridade do WebMux: as rotas de mutação que ficaram de fora
+# Prompt — completar a paridade do WebMux: o backend de mutação e a CLI
 
 > **Leia primeiro, nesta ordem:**
 > 1. `docs/research/2026-09-06-webmux-absorption-prompt.md` — o enunciado da absorção. **Todas** as restrições, invariantes, ADRs e portões dele continuam valendo aqui, sem exceção.
 > 2. `docs/research/2026-09-06-webmux-absorption.md` — o plano. §14, §16, §19, §22, §45.1, §45.3, §48, §49, §50.
-> 3. `docs/absorption-trace.md` — as 27 fichas do que já entrou. **Não reimplemente o que já existe.**
+> 3. `docs/absorption-trace.md` — as 27 fichas do que já entrou. **Não reimplemente o que já existe, mas corrija se algo estiver quebrado ou diferente do que foi solicitado.**
 > 4. `docs/provenance.md` — o mapa origem → destino.
 >
 > Baseline congelado: `.references/webmux-main/` @ `d8c9d5fa2fc061bff1425de2910d784a48961f1e`. **Somente leitura.**
@@ -32,6 +32,10 @@ Sete diálogos já portados estão importados, montados e **inalcançáveis**, p
 
 A ficha da Fase 8D registra isso textualmente — *"são o backend que `worktrees` promete e que ninguém escreveu"* — e mesmo assim o Roteiro A de §48.6 foi declarado verde. **Foi um erro de aferição:** os fluxos foram verificados contra a existência dos módulos, não contra o que a interface entrega a uma pessoa. Não repita isso; a seção 6 deste documento existe exatamente para impedi-lo.
 
+### 1.2 A CLI tem o mesmo problema, por outro caminho
+
+Não é só a interface web. `issue-flow` sem argumento imprime uma tabela de runs em vez de ensinar o que a ferramenta faz, e `serve` avisa que o monitor está exposto na rede sem dizer em qual endereço. O bloco E trata os dois.
+
 ### 1.1 Uma causa imediata, separada das demais
 
 O monitor sobe em `0.0.0.0` por default. Por ADR-10, **toda** capability de escrita é retida fora de loopback (`src/commands/serve.ts:140,165` → `writable: isLoopbackHost(host)`). Com isso, `session:open` não é anunciada e o botão "Nova sessão" — que **existe** em `web/src/App.svelte:1611` — não renderiza.
@@ -57,7 +61,9 @@ Atualize `docs/absorption-trace.md`, `docs/provenance.md` e o texto dos ADRs 14 
 
 ## 3. O que implementar
 
-Ordem obrigatória: **bloco A → B → C → D**. Cada bloco entrega valor sozinho e o seguinte depende do anterior. Não comece o B com o A vermelho.
+Ordem obrigatória entre **A → B → C → D**: cada um entrega valor sozinho e o seguinte depende do anterior. Não comece o B com o A vermelho.
+
+O **bloco E (CLI)** não depende de nenhum deles e pode vir primeiro — é barato, e é o que a pessoa encontra antes de abrir qualquer tela. Só as três subseções que chamam rotas de worktree (`archive`, `label`, `merge`, `remove`, `prune`, `restore` em E3) esperam o bloco A.
 
 ### Bloco A — as rotas de mutação de worktree
 
@@ -135,6 +141,93 @@ Fonte upstream do Linear: `backend/src/services/linear-*.ts` e os componentes `L
 
 ---
 
+### Bloco E — a CLI: o que ela diz quando você a chama
+
+Independente dos blocos A–D e sem dependência entre eles. Pode ser feito primeiro; é barato e é o que o usuário encontra antes de qualquer tela.
+
+#### E1 — `issue-flow` sem argumento deve ensinar, não relatar
+
+**Hoje:** `src/cli.ts:1306` faz o inverso do esperado.
+
+```ts
+program.action(async () => {
+  const runs = await listLiveRuns();
+  if (runs.length === 0) {
+    program.help();          // ajuda só quando NÃO há nada rodando
+    return;
+  }
+  process.exit(await runPs()); // senão, a tabela de runs
+});
+```
+
+Com um run vivo — ou com um **órfão** esquecido, que é o caso mais comum — o comando nu imprime uma tabela de seis colunas e nada mais. Quem digita `issue-flow` para descobrir o que a ferramenta faz recebe um relatório de estado que não pediu, e nenhuma pista de que existem 25 subcomandos.
+
+**Faça:** o comando nu imprime **sempre** a ajuda. A tabela de runs continua existindo, onde já existe — `issue-flow ps` — que é exatamente o subcomando que o dono do projeto pediu ("talvez através de algum subcomando"). Não crie um terceiro caminho: `ps` já faz isso e está testado.
+
+**A ajuda precisa ficar tão informativa quanto a do upstream** (`bin/src/webmux.ts:14`, função `usage()`). Compare lado a lado antes de considerar pronto:
+
+| Seção | Upstream | Nosso `--help` hoje |
+|---|---|---|
+| Uma linha dizendo **o que a ferramenta é** | `webmux — Dev dashboard for managing Git worktrees` | existe, mas enterrada em `Usage:` |
+| `Usage:` com **um subcomando por linha e descrição curta** | 21 linhas legíveis | 68 linhas com descrições quebradas em 3 linhas cada |
+| `Options:` | `--port`, `--app`, `--debug`, `--version`, `--help`, com o efeito de cada um | só `-V` e `-h` |
+| `Environment:` | `PORT`, e a precedência em relação à flag | **não existe** |
+
+O `--help` do Commander quebra descrição longa em três linhas e fica ilegível. Agrupe os 25 subcomandos por assunto (pipeline · sessões e worktrees · monitor · configuração e diagnóstico · skills), encurte cada descrição para caber numa linha, e acrescente a seção `Environment:` com as variáveis que o projeto realmente lê — no mínimo `ISSUE_FLOW_HOME`, `ISSUE_FLOW_PROJECT_DIR`, `ISSUE_FLOW_RUNTIME_MAX_CONCURRENT`, `ISSUE_FLOW_RUN_AUTO_CLOSE`, `ISSUE_FLOW_RUNTIME_PROFILE`, `ISSUE_FLOW_GITHUB_LINKED_REPOS`. Levante a lista real com `grep -rn "process.env\.\|env\.ISSUE_FLOW" src/ --include='*.ts'` em vez de copiar esta.
+
+#### E2 — `serve` deve dizer por onde se chega até ele
+
+**Hoje** (já corrigido do silêncio total, mas ainda pobre):
+
+```
+⚠ issue-flow: the terminal surface is disabled because the monitor is not bound to loopback.
+⚠ Web monitor bound to 0.0.0.0: anyone on your local network can view the session state.
+· Web monitor running at http://localhost:3737
+· The monitor stays in the foreground; press Ctrl+C to stop it.
+· Serving 1 project.
+```
+
+**Upstream:**
+
+```
+Starting webmux on port 5111...
+[BE] [16:32:53.876] [oneshot-watcher] monitor started
+[BE] [16:32:53.876] [session-snapshot] monitor started (interval: 30000ms)
+[BE] [16:32:53.918] [serve] registered instance port=5111 projects=1
+[BE] [16:32:53.918] Dev Dashboard API running at http://localhost:5111
+[BE] [16:32:53.919]   Network: http://192.168.15.8:5111
+[BE] [16:32:53.919]   Network: http://100.71.21.121:5111
+[BE] [16:32:53.919]   Network: http://192.168.139.3:5111
+[BE] [16:37:13.624] [worktree:open] name=main
+```
+
+Três coisas faltam, em ordem de valor:
+
+1. **Os endereços de rede.** `os.networkInterfaces()`, todo IPv4 não-interno — upstream em `backend/src/server.ts:2783-2789`. É como se abre o painel do celular na mesma LAN ou por Tailscale/VPN. **Isto é especialmente incoerente hoje:** nós avisamos que o monitor está exposto na rede e não dizemos em qual endereço. Só imprima quando o bind não for loopback; em `127.0.0.1` a lista seria mentira.
+2. **Que os loops de fundo subiram, e com que intervalo.** Reconciliação, GC de worktree, monitor de PR/CI, watch do diretório de sessão. Um monitor que não diz o que está observando não dá como saber se o gate de §20 está economizando chamada `gh` ou se o poll está desligado.
+3. **Atividade contínua.** `[worktree:open] name=main` no upstream. Nós já temos os eventos (`agent_events`, o publisher de sessão); o que falta é uma linha por evento relevante no stdout do `serve`.
+
+**Restrições que decidem se isto ficou certo:**
+
+- **Um logger, não dois.** `src/ui/logger.ts` já existe e é o que o resto da CLI usa. Se for preciso timestamp e prefixo de subsistema, **estenda-o**; um segundo formatador é a duplicação que o invariante 13 proíbe.
+- **`stdio: 'ignore'`.** O `serve` também é gerado em background pelo `--web` (`src/web/lock.ts`), onde a saída é descartada. Verifique que o volume novo não custa nada nesse caminho e que nada vaza para o terminal de um `run`.
+- **§45.3 — telemetria com redaction.** Nenhuma linha de log carrega token, segredo de Linear ou conteúdo de prompt. Caminho de repositório e nome de branch podem; valor de credencial, nunca.
+- **Não vire um firehose.** O upstream loga uma linha por abertura de worktree, não por evento de agente. Escolha o mesmo nível de granularidade: o que uma pessoa acompanharia numa janela aberta o dia todo.
+
+#### E3 — a paridade de subcomandos, avaliada e decidida
+
+O upstream expõe 21 subcomandos; nós expomos 25, mas o conjunto não é o mesmo. Estes existem lá e não aqui:
+
+`add` · `oneshot` · `list` · `open` · `close` · `refresh` · `archive` · `unarchive` · `label` · `remove` · `merge` · `send` · `tab` · `prune` · `restore` · `linear` · `service` · `update`
+
+Vários **já têm equivalente** e não devem ser duplicados: `oneshot` convergiu em `run --prompt` (§17, Fase 15) e `open`/`close`/`send` são `issue-flow session open|stop|send` (Fase 9B). Para cada um dos 18, escreva na ficha uma de três conclusões: **já existe como X** · **implementar como Y** · **deliberadamente fora, porque Z**. Nenhum fica sem veredito.
+
+Os que dependem do bloco A (`archive`, `label`, `merge`, `remove`, `prune`, `restore`) só saem depois dele — a CLI chama a mesma camada que a rota, nunca uma segunda implementação.
+
+`service` (instalar o monitor como serviço de sistema) e `update` são independentes: decida e registre.
+
+---
+
 ## 4. O que NÃO fazer
 
 | Nunca | Por quê |
@@ -196,19 +289,37 @@ add project → create worktree → start agent → open terminal → interact
 
 Um fluxo só é verde quando **a pessoa consegue completá-lo clicando**. "O módulo existe" e "a rota responde 200" não são o critério — foi exatamente esse o erro que produziu este documento. Registre, por fluxo: o que clicou, o que apareceu, e o que mudou no disco ou no tmux.
 
-### 6.3 Paridade visual contra o WebMux
+### 6.3 A CLI, verificada rodando
+
+Nenhum dos portões de 6.1 executa o binário empacotado. `src/completion.test.ts` é a única coisa perto disso. Para o bloco E, teste o artefato de verdade:
+
+```bash
+npm run build
+node dist/cli.js                 # deve imprimir a ajuda, COM um run vivo e sem nenhum
+node dist/cli.js --help          # uma linha por subcomando, com Options e Environment
+node dist/cli.js ps              # a tabela de runs continua aqui, inalterada
+node dist/cli.js serve --host 127.0.0.1   # loopback: sem lista de rede
+node dist/cli.js serve                    # 0.0.0.0: a lista de rede aparece
+```
+
+O caso que pega a regressão de E1 é **`issue-flow` com um run vivo**: é exatamente a condição em que ele hoje troca a ajuda pela tabela, e é a condição que um teste ingênuo (repositório limpo, nada rodando) não reproduz. Deixe um lock de run vivo — ou um órfão — e confirme que a ajuda aparece do mesmo jeito.
+
+Cubra também em `vitest`: a montagem da ajuda e a lista de endereços de rede são funções puras se você as extrair como tais. `os.networkInterfaces()` entra por parâmetro, não por leitura direta — é a mesma razão que fez `hostTotalMemoryBytes` ser parâmetro em `buildDockerRunArgs` (Fase 13): no instante em que a função lê estado do processo, o teste deixa de ser comparação literal.
+
+### 6.4 Paridade visual contra o WebMux
 
 Rode os dois lado a lado. Para cada tela, liste o que o WebMux oferece e o Issue Flow não. Toda diferença vira uma de duas coisas: **uma linha de trabalho**, ou **uma linha de "deliberadamente não portado" com motivo verificável**. Nenhuma diferença fica sem classificação.
 
 Cobertura mínima: barra lateral (lista, busca, arquivados, atalhos) · cabeçalho do worktree (nome editável, badge de agente, Archive/Merge/Remove) · estado vazio ("Open Session") · diálogo de novo worktree (prompt, branch, base, agente, múltipla seleção, salvar default) · rodapé (branch, Cursor, Pull, Linear) · **diálogo de configurações inteiro**.
 
-### 6.4 Critério de conclusão
+### 6.5 Critério de conclusão
 
 1. Os três blocos de §50.7 verdes, aferidos como manda 6.2.
-2. Todo item de 6.3 classificado — implementado, ou justificado por escrito.
+2. Todo item de 6.4 classificado — implementado, ou justificado por escrito.
 3. Todos os portões de 6.1 verdes, com as três armadilhas evitadas.
 4. Nenhum diálogo portado inalcançável: se o componente existe, ou a rota existe, ou a ficha diz por que não.
-5. Orçamentos de §35 medidos de novo e sem regressão — os valores atuais estão no quadro consolidado de `docs/absorption-trace.md`.
+5. `issue-flow` sem argumento ensina, `serve` diz por onde se chega até ele, e os 18 subcomandos de E3 têm veredito escrito.
+6. Orçamentos de §35 medidos de novo e sem regressão — os valores atuais estão no quadro consolidado de `docs/absorption-trace.md`.
 
 ---
 
