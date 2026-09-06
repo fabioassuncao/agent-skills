@@ -67,6 +67,8 @@ issue-flow run 42 --pr-review         # add a whole-PR review after `pr`
 issue-flow run 42 --continuous        # unattended profile
 issue-flow run 42,43,50               # several issues (also: `run 42 43 50`)
 issue-flow run 42 --background        # detach and return the terminal
+issue-flow run --prompt "Fix the flaky cache test"   # no Issue behind it
+issue-flow run 42 --auto-close        # close the sessions the run leaves open
 ```
 
 `run` first executes the `init` prerequisite gate, then **prd → plan → execute
@@ -81,6 +83,8 @@ review results stop the phase without launching a correction agent.
 | Flag | Description |
 |------|-------------|
 | `--mode <auto\|manual>` | Recorded in the run header and blocks `--background`. It does **not** stop the CLI pipeline after the artifacts — that behaviour belongs to the portable [`resolve-issue` Skill](../skills/README.md#other-ways-to-work) |
+| `--prompt <text>` | Describe the work directly, with no Issue behind it. The demand becomes an Issue of the `inline` origin and the pipeline runs unchanged — see [a demand with no Issue](#a-demand-with-no-issue). Cannot be combined with an issue number |
+| `--auto-close` / `--keep-open` | Whether the run closes the agent sessions it left open once it is over. Off by default; `run.autoClose` in `.issue-flow.json` sets the project default and `--keep-open` revokes it. A run a person took over is never closed automatically |
 | `--close-issue` / `--no-close-issue` | Persist or revoke explicit closure for this execution; see [closure contract](#explicit-issue-closure) |
 | `--from <phase>` | Start at a specific phase instead of the first incomplete one |
 | `--no-branch` | Run on the current branch: no branch is created and no PR is opened. Persisted in `tasks.json`; the persisted value wins on resume |
@@ -762,6 +766,56 @@ because `api` is a reserved hub route.
 `discovered`: it stops being reloaded on the next `serve` and keeps every run,
 artifact and telemetry row it ever produced.
 
+## Free sessions — an agent with no issue behind it
+
+Everything above starts from an Issue. This does not.
+
+```bash
+issue-flow session new [--agent codex] [--branch <b>] [--profile <p>] \
+                       [--prompt <text>] [--label <text>] [--permission <level>] [--json]
+issue-flow session ls [--all] [--json]      # free sessions; --all includes the ones a run owns
+issue-flow session attach <id>              # hand this terminal to the session's tmux window
+issue-flow session send <id> <text>         # a subsequent turn, pasted as one block
+issue-flow session stop <id> [--remove-worktree]
+issue-flow session link <id> --issue 42     # promote it into the workflow
+```
+
+`session new` creates the worktree, opens the tmux window and starts the agent
+in it. With no `--branch` it invents one — `session/<slug>-<8 hex>`, from the
+label or the prompt — because needing a branch name is exactly the ceremony
+this command exists to skip. `--permission` defaults to `workspace`; the three
+levels are the ones documented in [agents](agents.md).
+
+The session it creates is the **same** `AgentSession` a phase of the pipeline
+creates, with `run_id`, `phase` and `story_id` left empty. There is no second
+kind of execution, which is why `session ls --all` can list both in one table:
+
+```text
+$ issue-flow session ls --all
+ID                                     AGENT      STATUS     MODE               BRANCH / LABEL
+9f3c…                                  codex      running    free               poking at the parser
+1a77…                                  claude     idle       run 4c2f…          feat/42-thing
+```
+
+**A free session never starts the pipeline**, and the pipeline never takes one
+over: a `review` or `verify` phase always opens its own session, because that
+independence is what makes the word "verified" mean something.
+
+`session link` is the promotion in the other direction. The scratch session
+turns out to be the work on issue 42, and pointing it at that issue's run keeps
+the conversation, the branch and the pane exactly as they are. The run has to
+exist already — `link` never creates one:
+
+```text
+$ issue-flow session link 9f3c… --issue 42
+Issue 42 has no run to link to yet. Start one with `issue-flow run 42`, then link the session.
+```
+
+Opening a session needs `tmux`; `issue-flow run` does not, and nothing about
+headless runs changes. These commands read and write the database directly, so
+like `project` they work with no server running — only `attach` needs the tmux
+server itself.
+
 ## Web monitor
 
 ```bash
@@ -841,3 +895,53 @@ telemetry. It does not overwrite or replace the source plan.
 resolution error exits 1 with an `error` object. Status still uses CLI storage
 resolution, which can perform existing compatibility imports; use `artifacts`
 for strictly read-only inspection of a file.
+
+## A demand with no Issue
+
+`issue-flow run --prompt "<text>"` runs the pipeline on work that has no Issue
+behind it. This is the entry `webmux oneshot` had and `run` did not, absorbed as
+described in §17 of the absorption plan.
+
+```bash
+issue-flow run --prompt "Fix the flaky cache test; it only fails on CI"
+```
+
+What happens is deliberately unremarkable. The text is recorded as an Issue of
+a fourth origin, **`inline`**, alongside `github` and `local`; its identifier is
+`inline-<12 hex>`, derived from the text itself; and from there the run is the
+run you already know — `prd → plan → execute → review → pr`, the acceptance
+contract, and the independent reviewer. There is no shorter path with fewer
+guarantees, which is the whole point: one implementation, two ways in.
+
+Consequences worth knowing:
+
+- **The identifier is the demand.** Running the same prompt twice addresses the
+  same Issue and resumes it, rather than starting a parallel history. Change a
+  word and it is a different demand.
+- **The title is the first line** of the prompt, shortened; the body is the
+  prompt in full.
+- **It resumes like anything else**: `issue-flow resume inline-a1b2c3d4e5f6`,
+  `issue-flow status`, `issue-flow history inline-…`.
+- **It is per project**, stored beside the run in the SQLite store — the same
+  demand typed in two repositories is two Issues, exactly as it would be on
+  GitHub.
+- `--prompt` and an issue number are mutually exclusive: passing both is a
+  usage error rather than a guess about which one you meant.
+
+### Closing what a run left open
+
+`--auto-close` closes the agent sessions the run left open once it is over —
+the option `webmux oneshot` had as `autoCloseOnDone`. It is **off by default**,
+because `run` has always left its sessions in place; `run.autoClose` in
+`.issue-flow.json` sets the project default, and `--keep-open` revokes it for
+one invocation.
+
+Two rules bound it:
+
+- Nothing is deleted. Sessions are marked `stopped`; no branch, worktree or
+  file is touched. A headless run opens no session, so it closes nothing.
+- **A person who took the run over disarms it.** While the run is under
+  `human_hold` — which is what typing into the agent's terminal produces — the
+  auto-close does not fire, and the state is re-read immediately before closing
+  so a takeover during the run's own finalization still aborts it. Hand control
+  back with `issue-flow resume`.

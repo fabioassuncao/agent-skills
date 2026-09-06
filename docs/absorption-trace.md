@@ -1465,3 +1465,186 @@ ainda instalados.
 |---|---|---|
 | `buildDockerRunArgs` | — (função pura) | **0,00287 ms** (mediana de 5 × 1000: 0,00261 / 0,00270 / 0,00287 / 0,00329 / 0,00392) — 5 flags a mais que a Fase 12, mesma ordem de grandeza |
 | `launchContainer` com imagem quente (`alpine:latest`), hardening completo | — (§35 não orça o sandbox; T0→T4 ≤ 600 ms é o teto vizinho) | **204 ms** (mediana de 3: 145 / 204 / 282), Docker 29.4.0 |
+
+### Convergência do oneshot (Fase 15)
+
+**WebMux original**
+`.references/webmux-main/bin/src/oneshot.ts` @ d8c9d5f — 1.077 linhas ·
+`.references/webmux-main/backend/src/services/oneshot-watcher-service.ts` @ d8c9d5f — 159 linhas
+(1.236 no total, conforme §22)
+
+**Comportamento existente**
+
+- `webmux oneshot [branch] --prompt <txt>` cria um worktree, arma o watcher via
+  `meta.oneshot` e transmite a conversa. **Uma** fase: o agente faz tudo.
+- O "armado" **é** a presença de `meta.oneshot`. Não há máquina de estados.
+- Qualquer input no WS do terminal chama `disarmOneshotIfArmed(branch,
+  "terminal-ws-input")` (`server.ts:2231`) — o humano tocar no teclado é o sinal.
+- O watcher do servidor decide o fim: `stopped`/`error` disparam na hora;
+  `idle` e `closed` esperam a janela de graça de 15 s.
+- `closed` é tratado como `idle` **de propósito**: é também o ciclo de vida de
+  um worktree recém-criado, antes do primeiro evento do hook. Sem essa guarda o
+  watcher fecharia uma sessão que ainda não tinha começado (*cold-start guard*).
+- Antes de fechar, relê a meta: o post ao Linear demora segundos e uma interação
+  humana nessa janela precisa abortar o fechamento.
+- Desarma **mesmo quando o fechamento falha**, senão o próximo ciclo tentaria o
+  mesmo fechamento quebrado para sempre.
+- Guarda `inFlight` por branch: um fechamento lento não pode ser iniciado duas
+  vezes.
+- `closeWorktree` fecha a **janela tmux**, nunca o worktree — o trabalho fica.
+- Casos especiais que NÃO podem se perder: a janela de graça; a guarda de
+  cold-start; a releitura antes do fechamento; o desarme apesar da falha; a
+  guarda `inFlight`; e o fato de que fechar a sessão não apaga nada.
+
+**Implementação no Issue Flow**
+`src/core/run-completion.ts` (**PORT**) · `src/commands/run/auto-close.ts`
+(**ADAPT**) · `src/commands/run/demand.ts` (**MERGE**) ·
+`src/issues/providers/inline.ts` + `src/storage/db/inline-issues.ts` (**ADAPT**) ·
+`src/config/run.ts` (**ADAPT**) · `src/issues/provider.ts` + `src/issues/resolver.ts`
+(`claims`, aditivo) · `src/commands/run.ts`, `src/commands/run/session.ts`,
+`src/commands/run/types.ts`, `src/cli.ts`, `src/issues/bootstrap.ts` (integração) ·
+migration **18**.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `meta.oneshot` (arquivo) → **ausência de `human_hold`** como estado "armado" | Invariante 13. O desarme por takeover já existe desde a Fase 9 e é exatamente o mecanismo de §32; um segundo flag armado/desarmado seria uma segunda implementação da mesma pergunta. "Armado" passa a ser **derivado**, nunca armazenado duas vezes |
+| `agentLifecycle: "closed"` → `lifecycle: null` | O Issue Flow não tem esse ciclo de vida; "nenhum hook reportou ainda" é a mesma condição e preserva a guarda de cold-start intacta |
+| Novo sinal terminal: o **veredito da própria pipeline** | É a metade Issue Flow da convergência (§17). Ele é imediato e soberano; `agent_stopped`/`pr_opened` entram como evidência **adicional** e nunca encurtam fases (§45.3) |
+| `closeWorktree(branch)` → marcar `stopped` as `AgentSession` vivas do run | O equivalente estrutural: o upstream fecha a *sessão*, não o worktree. Nada é deletado, nenhum branch ou worktree é tocado, e um run headless (que não abre sessão) fecha nada — ADR-03 |
+| Janela da releitura: post ao Linear → **finalização do próprio run** | O gatilho original não existe (ADR-14), mas a corrida sim: a pessoa pode assumir enquanto o run fecha a issue e imprime o resumo |
+| Prompt livre → **Issue de origem `inline`**, não um caminho paralelo | §17 é explícito: "manter a entrada do Issue Flow, aceitar prompt livre como `source: inline`". Depois de `resolveRequestedIssues()` nada a jusante distingue uma demanda inline de uma do GitHub, e é isso que mantém contrato de aceitação e revisor independente idênticos |
+| Identificador **endereçado por conteúdo** (`inline-<hash12>`) | O prompt é a única identidade que a demanda tem. Torna a segunda invocação do mesmo prompt um **resume**, não uma história paralela — e é o que faz `--background` funcionar, já que o filho re-executa o mesmo argv |
+| Demanda inline em **SQLite** (`inline_issues`), não em arquivo | Uma demanda de uma linha não pode deixar um diretório no repositório; e guardá-la sob `issues/` faria o provider `local` responder pelo mesmo identificador, criando divergência entre origens onde não há nenhuma |
+| `autoCloseOnDone` default `true` → `run.autoClose` default **`false`** | No upstream o oneshot **é** a sessão que fecharia. Aqui a opção foi acrescentada a um comando existente, e uma opção nova não pode mudar o que o comando já fazia |
+| Watcher periódico (`startOneshotWatcher`) → **passe único** chamado pelo run | Ver "NÃO portado" abaixo |
+| `IssueProvider.claims(id)` acrescentado ao contrato (opcional) | Sem isso, um `resume inline-…` perguntaria ao GitHub por um identificador que ele nunca poderia ter, gastando um round-trip e avisando sobre uma falha que não era falha. É aditivo e exclusivo: só uma origem cujo namespace nenhuma outra poderia produzir o declara, senão a detecção de divergência seria silenciada |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| `startOneshotWatcher` — o `setInterval` de 3 s | No upstream o servidor é um processo separado da CLI e precisa descobrir o fim por polling. Aqui a pipeline é dona do próprio fim e o conhece de forma síncrona; um poller seria uma **segunda autoridade sobre o mesmo fato** (ADR-08). O corpo do ciclo (`runOneshotWatch` → `runCompletionPass`) foi portado inteiro e é chamado pelo run, então nenhuma decisão se perdeu — só o relógio |
+| `postToLinearOnDone` e todo o `--linear` | ADR-14 — Linear é `DISCARD` explícito |
+| `--resume <branch>` do oneshot | `issue-flow resume` já é essa responsabilidade (invariante 13). Um segundo caminho de retomada dentro de `run` seria a duplicação que a fase existe para evitar |
+| `--agent`, `--base`, `--profile`, `--env` do oneshot | São opções de **criação de worktree**, não de demanda; pertencem a `runtime`/`profiles` (Fases 5, 6 e 10), que já as têm |
+| `--branch <name>` | O branch de um `run` vem do plano e da convenção (`conventions/git/branch.ts`), nunca de um flag — seria uma segunda convenção de branch |
+| Streaming da conversa para stdout (WS `agents/:name/conversation`, `summarizeToolInput`, `formatConversationLine`) | O Issue Flow já transmite a execução por dois canais mais maduros: o renderer de fases no terminal e o monitor push (Fase 1). Um terceiro formatador seria a duplicação de §25 |
+| `config.oneshot.systemPrompt` (as 5 frases default) | As fases do Issue Flow têm seus próprios prompts, versionados e sobrescrevíveis por repositório. Um system prompt global do oneshot não tem onde encaixar sem competir com eles |
+| Códigos de saída próprios do oneshot (0 no takeover, 1 no idle sem PR, 130 no Ctrl-C) | Os códigos de `run` já são contratuais e testados; o takeover não é sucesso nem falha do trabalho, e o Ctrl-C já grava checkpoint e retorna pelo caminho de shutdown existente |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/core/run-completion.test.ts` | `backend/src/__tests__/oneshot-watcher-service.test.ts` (12) | 18 (10 portados + 8 acrescentados) | ✅ |
+| `src/commands/run/demand.test.ts` | `bin/src/oneshot.test.ts` (17) | 8 (3 portados + 5 acrescentados) | ✅ |
+| `src/issues/providers/inline.test.ts` | novo — a origem `inline` de §17 | 10 | ✅ |
+| `src/commands/run/auto-close.test.ts` | novo — o encontro das duas metades, contra banco real | 8 | ✅ |
+| `src/config/run.test.ts` | novo — precedência de `run.autoClose` | 6 | ✅ |
+| `src/issues/resolver.test.ts` (`claims`) | novo — exclusividade de namespace e degradação segura | 3 | ✅ |
+| `src/storage/db/migrations.test.ts` (migration 18) | novo — banco novo, banco migrado e reabertura | 1 | ✅ |
+| `src/commands/run.test.ts` (`§17`) | novo — `--prompt` de ponta a ponta pela pipeline real | 4 | ✅ |
+| `scripts/smoke-issue-providers.sh` cenário **[D]** | novo — `run --prompt` pela CLI empacotada | 9 asserções | ✅ |
+
+Dos 12 casos do watcher upstream, **10** portam. Os 2 restantes
+(`posts to Linear before closing`, `still closes + disarms when postToLinear
+fails`) são exclusivamente do Linear. Dos 17 de `parseOneshotArgs`, **3** portam;
+os outros 14 são `--linear`/`--branch` (8), `--resume` (4), opções de worktree (1)
+e `--help` (1) — todos listados acima como não portados.
+
+**Orçamentos**
+Nenhum de §35 se aplica. O custo acrescentado ao fim de um run é uma leitura de
+`agent_events` e uma de `runs.human_hold_at`, ambas fora de qualquer caminho
+quente. `--prompt` acrescenta uma escrita em `inline_issues` por invocação, antes
+da primeira fase. Boot da CLI inalterado: `demand.ts` é puro e
+`issues/providers/inline.ts` só é carregado quando a origem é consultada.
+
+### Sessões livres — `agents/session/open.ts`, `commands/session.ts`, `web/sessions-api.ts` (Fase 9B)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/lifecycle-service.ts` @ d8c9d5f —
+1.523 linhas, das quais `createWorktree` (11), `openWorktree` (75),
+`resolveBranch` (17) e `materializeRuntimeSession` são o caminho de "abrir um
+agente numa branch com um clique".
+`.references/webmux-main/backend/src/lib/branch-name.ts` @ d8c9d5f — 5 linhas.
+`.references/webmux-main/backend/src/services/agent-service.ts:198` @ d8c9d5f —
+`buildManagedShellCommand`, 6 linhas.
+`.references/webmux-main/bin/src/worktree-commands.ts` @ d8c9d5f — 1.218 linhas,
+subcomandos `add` / `open` / `list` / `send` / `close`.
+
+**Comportamento existente**
+- **Abrir um agente nunca exige uma issue.** No upstream a unidade é a
+  *worktree*; a issue (Linear) é opcional e sai por ADR-14. É essa postura que a
+  fase preserva, traduzida para o modelo do Issue Flow: a unidade aqui é a
+  `AgentSession`, e `run_id`/`phase`/`story_id` vazios são o modo livre (ADR-16).
+- **O branch é gerado quando ninguém o nomeia** (`resolveBranch` →
+  `generateFallbackBranchName`). Exigir um nome seria exigir exatamente a
+  cerimônia que a sessão livre existe para pular.
+- **Reabrir retoma em vez de recomeçar**: `launchMode` sai da conversa gravada, e
+  `--resume <id>` é o que devolve o contexto sem repagá-lo.
+- **O pane de shell carrega o mesmo `runtime.env` do agente**
+  (`buildManagedShellCommand`), com `exec … -i`: sem isso o shell ao lado do
+  agente não enxerga nenhuma das portas que o agente está usando, e fechar o
+  shell deixaria o usuário dentro do wrapper.
+- Casos especiais que NÃO podem se perder: o prompt viajando no argv em vez de
+  ser digitado (a corrida de paste/Enter de §2.4); o `-i` do shell gerenciado; o
+  branch gerado sempre com sufixo aleatório, mesmo com rótulo.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/agents/session/open.ts` — estratégia: ADAPT
+`packages/issue-flow/src/agents/session/context.ts` — estratégia: ADAPT
+`packages/issue-flow/src/agents/session/store.ts` (`recordPaneTarget`, `linkSessionToRun`) — NEW
+`packages/issue-flow/src/agents/tty.ts` (`buildManagedShellCommand`) — PORT
+`packages/issue-flow/src/commands/session.ts` — ADAPT
+`packages/issue-flow/src/web/sessions-api.ts` — ADAPT
+`packages/issue-flow/src/storage/db/migrations.ts` (migration 17) — NEW
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `Bun.spawnSync` do tmux/git → `run()` via os gateways já portados | Runtime, e o chokepoint único de §45.3 |
+| A unidade persistida é a `AgentSession`, não a worktree | ADR-16: um modelo, dois modos. A worktree continua sendo do `runtime/worktree/`, e este módulo a consome |
+| `meta.json` na git dir → linha em `agent_sessions` | O vínculo é *intenção*, e o SQLite é a autoridade sobre intenção (ADR-08). A worktree continua sendo do git |
+| `yolo: boolean` → `permission` semântica de três níveis, default `workspace` | §45.2-L; um `--yolo` implícito numa sessão aberta por uma pessoa seria a forma degradada de §45.3 |
+| Comando do agente como string de shell → **argv**, serializado uma única vez na fronteira do tmux | ADR-04 |
+| `ensureSessionLayout` distingue `reattach` de `resume` | §27 — o upstream mata a janela incondicionalmente e com ela o agente que estava trabalhando |
+| CLI fala com o SQLite, não com um servidor HTTP | §47.5: `webmux worktree list` imprime erro de conexão sem servidor; `issue-flow session ls` funciona offline |
+| A listagem HTTP é `GET /api/agent-sessions`, não `GET /api/sessions` | `GET /api/sessions` já responde a lista de **execuções** desde o painel multi-sessão e está documentada em `src/web/AGENTS.md`; ADR-20 separa "execução" de "sessão". Os demais verbos de §49.3 (`POST /api/sessions`, `DELETE /api/sessions/:id`, `/input`, `/interrupt`) não colidem e atendem nas duas grafias |
+| `POST /api/sessions` com `issueRef` de issue sem run é **recusado** (409) | Criar o run aqui seria a sessão acionando a pipeline por conta própria, o que §49.2 proíbe literalmente |
+| Abrir uma sessão que não pode adotar a que já está viva na janela é **recusado** (409) | Um `reattach` não re-executa o argv: sentar um `review` naquela janela lhe entregaria a conversa que ADR-07 proíbe, pelo pane em vez de pelo `--resume` |
+| `label` acrescentado a `agent_sessions` (migration 17) | Uma sessão sem issue não tem nada que a nomeie além do uuid e de um branch gerado |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| `autoName` — gerar o nome do branch com um modelo | Nomear um branch de rascunho não pode custar um round-trip a um LLM. O slug do rótulo mais o sufixo aleatório do próprio upstream (`generateFallbackBranchName`) resolve o mesmo problema de forma determinística e offline |
+| `worktree archive` / `unarchive` / `restore` / `prune` / `label` / `profile` / `tab` | São operações sobre **worktrees**, não sobre sessões: pertencem a `runtime/worktree/` (Fase 5) e a `runtime/profiles.ts` (Fase 10). Trazê-las para `session` seria a segunda implementação que §25 proíbe |
+| `buildSeedFromLinear` / `--linear` em `worktree add` | ADR-14 — Linear é `DISCARD` explícito |
+| `createWorktreeTab` e os panes estacionados (`*-parked`) | Multi-aba por worktree é um modelo de layout próprio; ele depende de `runtime/profiles.ts`, que é da Fase 10, e nada em §49 o exige |
+| `refreshAgentTerminal` (matar e recriar o pane do agente) | O `reattach`/`resume` de §27 já cobre reabrir sem destruir; um segundo caminho que destrói seria exatamente a regressão que §27 corrige |
+| `switchToTmuxWindow` escrevendo `control.env` | Depende do `control.env` do upstream, que o Issue Flow não tem: `session attach` entrega o terminal ao tmux diretamente, no socket `-L issue-flow` (ADR-09) |
+| `resolveBaseUrl` / `withServerConnection` — a CLI como cliente HTTP | §47.5: o registro é a autoridade e o servidor é consumidor dele. A CLI precisa funcionar sem nada escutando |
+| `session link` no upstream | Não existe lá: promover a sessão a um run é o conceito de §49.2, que só faz sentido num sistema que tem workflow |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/agents/session/free-session.characterization.test.ts` | §49.5 (S1–S7) | 16 | ✅ |
+| `src/agents/session/open.integration.test.ts` | §49.5 (S1–S3) contra git e tmux reais | 7 (1 condicional a "sem tmux") | ✅ |
+| `src/commands/session.test.ts` | `bin/src/__tests__/worktree-commands.test.ts` (superfície de argumentos) | 14 | ✅ |
+| `src/web/sessions-api.test.ts` | rotas de worktree de `backend/src/server.ts` | 16 | ✅ |
+| `src/storage/db/migrations.test.ts` (migration 17) | novo — banco novo, banco migrado e reabertura | 2 | ✅ |
+| `src/agents/session/reuse.test.ts` | preexistente, **não alterado** — a regra ADR-07 continua defendida onde mora | 15 | ✅ |
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| T0→T4 (worktree pronta + agente iniciado) | ≤ 600 ms | **181 ms** (mediana de 3, `open.integration.test.ts`) |
+| `git worktree add` | ≤ 150 ms | coberto pelo T0→T4 acima; nenhuma chamada nova foi acrescentada ao caminho |
+| Boot da CLI | ≤ 250 ms | inalterado — `commands/session.ts` entra por `await import()` no `cli.ts`, como todo comando |

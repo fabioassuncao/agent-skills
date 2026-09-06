@@ -620,3 +620,85 @@ describe('an origin that needs a human (US-014)', () => {
     expect(resolution.action).toBeUndefined();
   });
 });
+
+/**
+ * An origin may own an identifier namespace no other one could produce — the
+ * `inline-<hash>` of §17 is minted by Issue Flow itself. `claims()` lets it say
+ * so, and the resolver then leaves every other origin alone.
+ */
+describe('an origin that claims its own identifiers', () => {
+  const info = vi.fn();
+  const warn = vi.fn();
+
+  beforeEach(() => {
+    clearProviders();
+    info.mockClear();
+    warn.mockClear();
+  });
+
+  it('queries only the claimant, sparing the other origins a round-trip', async () => {
+    const asked: IssueSource[] = [];
+    const watched = (name: IssueSource): IssueProvider => ({
+      ...fakeProvider(name, { issue: null }),
+      get: async () => {
+        asked.push(name);
+        return null;
+      },
+    });
+    registerProvider(watched('github'));
+    registerProvider(watched('local'));
+    const mine = makeIssue('inline', 'Typed demand', 'Body');
+    registerProvider({
+      ...fakeProvider('inline', { issue: { ...mine, id: 'inline-abcdef012345' } }),
+      claims: (id) => id.startsWith('inline-'),
+      get: async () => {
+        asked.push('inline');
+        return { ...mine, id: 'inline-abcdef012345', source: 'inline' };
+      },
+    });
+
+    const resolved = await resolveIssue('inline-abcdef012345', {
+      config: makeConfig(),
+      info,
+      warn,
+    });
+
+    expect(resolved.source).toBe('inline');
+    expect(asked).toEqual(['inline']);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('changes nothing for an identifier nobody claims', async () => {
+    const asked: IssueSource[] = [];
+    const watched = (name: IssueSource): IssueProvider => ({
+      ...fakeProvider(name, { issue: null }),
+      get: async () => {
+        asked.push(name);
+        return null;
+      },
+    });
+    registerProvider(watched('github'));
+    registerProvider({
+      ...watched('inline'),
+      claims: (id) => id.startsWith('inline-'),
+    });
+
+    await resolveIssue('23', { config: makeConfig(), info, warn }).catch(() => null);
+
+    expect(asked.sort()).toEqual(['github', 'inline']);
+  });
+
+  it('treats a claims() that throws as no claim rather than as a missing Issue', async () => {
+    const issue = makeIssue('github', 'GitHub title', 'Body');
+    registerProvider(fakeProvider('github', { issue }));
+    registerProvider({
+      ...fakeProvider('inline', { issue: null }),
+      claims: () => {
+        throw new Error('boom');
+      },
+    });
+
+    const resolved = await resolveIssue('23', { config: makeConfig(), info, warn });
+    expect(resolved.source).toBe('github');
+  });
+});

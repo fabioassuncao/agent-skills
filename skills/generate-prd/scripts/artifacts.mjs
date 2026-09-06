@@ -15188,6 +15188,9 @@ var verifyConfigSchema = external_exports.object({
   contract: external_exports.array(verifyCheckSchema).optional(),
   crossVerify: external_exports.boolean().default(true)
 });
+var runConfigSchema = external_exports.object({
+  autoClose: external_exports.boolean().default(false)
+});
 var routingModeSchema = external_exports.enum(["off", "shadow", "recommend", "active"]);
 var routingProfileSchema = external_exports.enum(["economy", "balanced", "quality", "speed"]);
 var routingPolicySchema = external_exports.literal("recommended");

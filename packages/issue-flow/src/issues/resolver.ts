@@ -99,6 +99,29 @@ function errorMessage(err: unknown): string {
 }
 
 /**
+ * Narrow the origins to the ones that claim the identifier, when any does.
+ *
+ * An origin may own a namespace no other one could produce — `inline-<hash>`
+ * is minted by Issue Flow itself. Asking every other origin about such an
+ * identifier costs a network round-trip and a warning about a failure that was
+ * never a failure. When nobody claims it, nothing changes: every origin is
+ * queried and the divergence machinery settles what they answer.
+ *
+ * A provider whose `claims` throws is treated as not claiming: the predicate is
+ * an optimization, and it must never be the reason an Issue cannot be found.
+ */
+function narrowToClaimants(sources: IssueSource[], id: string): IssueSource[] {
+  const claimants = sources.filter((source) => {
+    try {
+      return getProvider(source).claims?.(id) === true;
+    } catch {
+      return false;
+    }
+  });
+  return claimants.length > 0 ? claimants : sources;
+}
+
+/**
  * Read one origin without letting it break the others.
  *
  * An unavailable provider or a failed read degrades to "no candidate" plus a
@@ -261,7 +284,7 @@ export async function resolveIssue(
   const config = opts.config ?? (await loadIssuesConfig({ warn }));
 
   ensureProvidersRegistered();
-  const sources = opts.sources ?? getRegisteredSources();
+  const sources = narrowToClaimants(opts.sources ?? getRegisteredSources(), id);
 
   // Each origin is an independent I/O call (network for GitHub, disk for
   // local); querying them concurrently instead of one-by-one keeps the total

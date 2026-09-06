@@ -20,6 +20,7 @@ import type { RunLock } from '../../storage/schemas.js';
 import { printError, printWarning } from '../../ui/logger.js';
 import { describePreflight, getProjectRoot, preflightRepository } from '../../utils/git.js';
 import { ensureWebMonitor } from '../../web/lock.js';
+import { settleFinishedRun } from './auto-close.js';
 import { reportIfOversized } from './oversized.js';
 import type { IssueRunResult, IssueSessionInput, RunPipelinePhases } from './types.js';
 
@@ -293,6 +294,39 @@ async function applySessionSideEffects(input: {
   }
 }
 
+/**
+ * Close out the run: the completion signals, and the optional auto-close.
+ *
+ * Never throws and never changes the exit code — everything here is an
+ * epilogue to a verdict the pipeline already reached. A run that stopped to
+ * hand control over to a queue is skipped: it is not over, the queue is about
+ * to run it.
+ */
+async function settleIssueRun(input: {
+  paths: Awaited<ReturnType<typeof resolveIssuePaths>>;
+  issueNumber: string;
+  publisher: SessionPublisher;
+  input: IssueSessionInput;
+  result: IssueRunResult;
+}): Promise<void> {
+  if (input.result.queue !== undefined) return;
+  const context = getPlanRepository(input.paths.tasksFile);
+  const runId = input.publisher.snapshot().sessionId;
+  if (context === undefined || runId === null) return;
+  try {
+    await settleFinishedRun({
+      context,
+      runId,
+      issueId: input.issueNumber,
+      outcome: input.result.code === 0 ? 'completed' : 'failed',
+      autoClose: input.input.runOptions?.autoClose === true,
+      publisher: input.publisher,
+    });
+  } catch {
+    // An epilogue that fails is not a failed run.
+  }
+}
+
 export async function runIssueSession(
   issueNumber: string,
   mode: string,
@@ -381,6 +415,13 @@ export async function runIssueSession(
     if (result.code !== 0) {
       await reportIfOversized(issueNumber, paths, result);
     }
+    // The end of the run, in the sense §17 absorbs from the oneshot watcher:
+    // the agent's own `agent_stopped`/`pr_opened` corroborate what the
+    // pipeline already decided, and — only when asked for — the sessions the
+    // run left open are closed. A run a person took over settles nothing.
+    // Deliberately after the phases and before the session is closed, so the
+    // hold is re-read once the finalization has actually taken time.
+    await settleIssueRun({ paths, issueNumber, publisher, input, result });
     return result;
   } finally {
     await closeIssueSession({ releaseCheckpoint, releaseClose, result, publisher });

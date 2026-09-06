@@ -769,8 +769,23 @@ export const verifyConfigSchema = z.object({
   crossVerify: z.boolean().default(true),
 });
 
+/**
+ * The `run` key of .issue-flow.json.
+ *
+ * `autoClose` is the option §17 absorbs from `webmux oneshot`
+ * (`meta.oneshot.autoCloseOnDone`): once the run is over, close what it left
+ * open. It defaults to `false` — upstream defaults it on because a oneshot
+ * *is* the session it would close, while `run` has always left its sessions in
+ * place, and an option added to an existing command must not change what the
+ * command already did.
+ */
+export const runConfigSchema = z.object({
+  autoClose: z.boolean().default(false),
+});
+
 export type WebConfig = z.infer<typeof webConfigSchema>;
 export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
+export type RunConfig = z.infer<typeof runConfigSchema>;
 export type LinkedRepoConfig = z.infer<typeof linkedRepoSchema>;
 export type GitHubConfig = z.infer<typeof githubConfigSchema>;
 const routingModeSchema = z.enum(['off', 'shadow', 'recommend', 'active']);

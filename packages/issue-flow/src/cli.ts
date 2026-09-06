@@ -3,6 +3,7 @@ import { parseAgentPhaseFlag } from './agents/resolve.js';
 import {
   AGENT_PHASES,
   AGENT_PROVIDER_IDS,
+  AGENT_PROVIDER_LIST,
   type AgentCliOverrides,
   isAgentProviderId,
 } from './agents/types.js';
@@ -14,6 +15,7 @@ import {
   resolveUserStoryNumberingFlags,
   resolveWebOverrides,
 } from './cli-options.js';
+import { RunDemandError, resolveAutoCloseFlag } from './commands/run/demand.js';
 import {
   QUEUE_FAILURE_MODES,
   type QueueFailureMode,
@@ -384,7 +386,14 @@ withUserStoryNumberingOptions(
             .description(
               'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
             )
-            .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
+            .argument('[issues...]', 'Issue number(s): 42, "42,43" or 42 43')
+            // The demand itself, with no Issue behind it (§17). It is minted
+            // into an Issue of the `inline` origin before anything starts, so
+            // the pipeline, the acceptance contract and the independent
+            // reviewer are the same ones an issue number gets.
+            .option('--prompt <text>', 'Describe the work directly, without an Issue')
+            .option('--auto-close', 'Close the agent sessions this run leaves open once it is done')
+            .option('--keep-open', 'Leave them open, revoking a configured run.autoClose')
             .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
             .addOption(
               new Option('--from <phase>', 'Resume from a specific phase').choices(
@@ -435,6 +444,9 @@ withUserStoryNumberingOptions(
       branch?: boolean;
       prReview?: boolean;
       closeIssue?: boolean;
+      prompt?: string;
+      autoClose?: boolean;
+      keepOpen?: boolean;
       yes?: boolean;
       only?: boolean;
       continue?: boolean;
@@ -450,12 +462,14 @@ withUserStoryNumberingOptions(
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
     let scope: ReturnType<typeof resolveQueueScopeFlags>;
     let numbering: ReturnType<typeof resolveUserStoryNumberingFlags>;
+    let autoClose: boolean | undefined;
     try {
       phases = resolveRunPhaseFlags(options);
       scope = resolveQueueScopeFlags(options);
       numbering = resolveUserStoryNumberingFlags(options);
+      autoClose = resolveAutoCloseFlag(options);
     } catch (error) {
-      if (error instanceof CliFlagError) {
+      if (error instanceof CliFlagError || error instanceof RunDemandError) {
         printError(error.message);
         process.exit(1);
       }
@@ -471,6 +485,8 @@ withUserStoryNumberingOptions(
       phases.prReview,
       {
         closeIssue: options.closeIssue,
+        prompt: options.prompt,
+        autoClose,
         yes: scope.yes,
         only: scope.only,
         cascade: scope.cascade,
@@ -922,6 +938,100 @@ projectCommand
   .action(async (target: string) => {
     const { runProjectUse } = await import('./commands/project.js');
     process.exit(await runProjectUse(target));
+  });
+
+// ── session ─────────────────────────────────────────────────────────────────
+// The one entry point that does not start from an Issue (§49, ADR-16): an
+// agent, on a branch, in a worktree, with no plan and no workflow behind it.
+// Like `project`, it reads and writes SQLite directly, so it works with no
+// server running.
+const sessionCommand = program
+  .command('session')
+  .description('Open and manage agent sessions, with or without an issue');
+
+sessionCommand
+  .command('new')
+  .description('Open an agent session on a branch — no issue required')
+  .option('--agent <id>', `Agent to open (${AGENT_PROVIDER_LIST})`)
+  .option('--branch <name>', 'Branch to work on (generated when omitted)')
+  .option('--profile <name>', 'Runtime profile to open with')
+  .option('--prompt <text>', 'First turn, delivered in the agent argv')
+  .option('--label <text>', 'Caption for the session, since no issue names it')
+  .option('--permission <level>', 'read-only | workspace | autonomous (default: workspace)')
+  .option('--model <name>', 'Model override for this session')
+  .option('--project <path>', 'Repository to open the session in (default: the current one)')
+  .option('--json', 'Emit the created session as JSON')
+  .action(
+    async (options: {
+      agent?: string;
+      branch?: string;
+      profile?: string;
+      prompt?: string;
+      label?: string;
+      permission?: string;
+      model?: string;
+      project?: string;
+      json?: boolean;
+    }) => {
+      const { runSessionNew } = await import('./commands/session.js');
+      process.exit(await runSessionNew(options));
+    },
+  );
+
+sessionCommand
+  .command('ls')
+  .alias('list')
+  .description('List free sessions; --all includes the ones a run owns')
+  .option('--all', 'Include sessions bound to a run')
+  .option('--project <path>', 'Repository to list (default: the current one)')
+  .option('--json', 'Emit the list as JSON')
+  .action(async (options: { all?: boolean; project?: string; json?: boolean }) => {
+    const { runSessionLs } = await import('./commands/session.js');
+    process.exit(await runSessionLs(options));
+  });
+
+sessionCommand
+  .command('attach')
+  .description("Attach this terminal to a session's tmux window")
+  .argument('<id>', 'Session id')
+  .option('--project <path>', 'Repository the session belongs to')
+  .action(async (id: string, options: { project?: string }) => {
+    const { runSessionAttach } = await import('./commands/session.js');
+    process.exit(await runSessionAttach(id, options));
+  });
+
+sessionCommand
+  .command('send')
+  .description('Send a subsequent turn to a live session')
+  .argument('<id>', 'Session id')
+  .argument('<text>', 'Text to deliver')
+  .option('--project <path>', 'Repository the session belongs to')
+  .action(async (id: string, text: string, options: { project?: string }) => {
+    const { runSessionSend } = await import('./commands/session.js');
+    process.exit(await runSessionSend(id, text, options));
+  });
+
+sessionCommand
+  .command('stop')
+  .description('Stop a session; its worktree and branch survive by default')
+  .argument('<id>', 'Session id')
+  .option('--remove-worktree', 'Also remove the worktree and its branch')
+  .option('--project <path>', 'Repository the session belongs to')
+  .action(async (id: string, options: { removeWorktree?: boolean; project?: string }) => {
+    const { runSessionStop } = await import('./commands/session.js');
+    process.exit(await runSessionStop(id, options));
+  });
+
+sessionCommand
+  .command('link')
+  .description('Bind a free session to an existing run, promoting it to the workflow')
+  .argument('<id>', 'Session id')
+  .option('--issue <number>', 'Issue whose most recent run to link to')
+  .option('--run <id>', 'Link to this run specifically')
+  .option('--project <path>', 'Repository the session belongs to')
+  .action(async (id: string, options: { issue?: string; run?: string; project?: string }) => {
+    const { runSessionLink } = await import('./commands/session.js');
+    process.exit(await runSessionLink(id, options));
   });
 
 // ── web ─────────────────────────────────────────────────────────────────────

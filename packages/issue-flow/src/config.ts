@@ -57,6 +57,7 @@ export {
   setResilienceCliOverrides,
 } from './config/resilience.js';
 export { loadRoutingConfig, setRoutingCliOverrides } from './config/routing.js';
+export { type LoadRunConfigOptions, loadRunConfig } from './config/run.js';
 export {
   type LoadRuntimeConfigOptions,
   loadRuntimeConfig,

@@ -51,6 +51,22 @@ Pure Markdown parsing, hashing and schema distribution to standalone Skills:
 - **Local provider:** never mutate the filesystem in `isAvailable`;
   never write under `<projectRoot>/issues/`; paths go through
   `resolveIssuePaths`; create uses `wx`.
+- **`claims(id)` is exclusive, and therefore rare.** An origin that
+  declares it makes the resolver query *only* the claimants of that
+  identifier. It is for a namespace no other origin could ever produce
+  (`inline-<12 hex>`, minted here); an origin whose ids could collide
+  with another's must not implement it, or the divergence machinery
+  never runs. Pure, synchronous, never throws — a `claims` that throws
+  is read as "no claim", because a predicate that is an optimization
+  must never be why an Issue cannot be found.
+- **Inline provider (§17):** the origin of `issue-flow run --prompt`.
+  The identifier is the sha-256 of the prompt, so the same demand is the
+  same Issue and a second invocation resumes rather than forks. It
+  answers `null` for any identifier that is not its own **before**
+  touching storage, and reports itself unavailable (never throws)
+  outside a repository or on the legacy JSON store. Rows live in
+  `inline_issues` (migration 18), keyed by `(project_id, id)` — the same
+  prompt in two repositories is two Issues.
 
 ## Never
 

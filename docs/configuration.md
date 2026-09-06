@@ -109,6 +109,24 @@ See [Web monitoring](web-monitor.md).
 
 See [Issue sources](issues.md).
 
+A third origin, **`inline`**, is registered automatically and needs no
+configuration: it holds the demands typed straight into
+[`issue-flow run --prompt`](commands.md#a-demand-with-no-issue). It answers only
+for its own `inline-<12 hex>` identifiers, so it never competes with `github` or
+`local` for one, and it is therefore never a party to `conflictPolicy`.
+
+### `run`
+
+| Key | Values | Default | Meaning |
+|-----|--------|---------|---------|
+| `autoClose` | boolean | `false` | Whether a finished run closes the agent sessions it left open |
+
+Off by default, because `run` has always left its sessions in place. `--auto-close`
+turns it on for one invocation and `--keep-open` revokes a configured default.
+Sessions are marked `stopped`; nothing is deleted, and no branch or worktree is
+touched. A run a person took over (`human_hold`) is never closed automatically —
+see [closing what a run left open](commands.md#closing-what-a-run-left-open).
+
 ### `prReview`
 
 | Key | Values | Default |
@@ -223,12 +241,21 @@ runs on a branch in the repository — keeps the project lock whatever this says
 | `envPassthrough` | List of host variable names forwarded into the runtime | `[]` |
 | `systemPrompt` | Text; `${VAR}` is expanded against the worktree's runtime environment | — |
 | `mounts` | List of `{ hostPath, guestPath?, writable? }`, `runtime: docker` only | — |
+| `security` | Sandbox hardening — see [`sandbox-security.md`](sandbox-security.md) | every default, which is the hardened set |
 | `panes` | List of pane templates | agent pane, plus a shell on 25% to its right |
 
 A profile that declares no `permission` **does not** widen what the agent may
 do: the phase's permission stands. `yolo: true` is accepted as a synonym for
 `permission: "autonomous"` — it is the spelling the absorbed upstream uses — and
 `yolo: false` overrides nothing.
+
+A profile that declares no `security` gets the hardened defaults all the same:
+`--cap-drop=ALL`, `no-new-privileges`, a process limit, a memory limit and an
+explicit network. The object exists for the launches those would otherwise
+break — one that genuinely needs the host's SSH agent, or a capability — and
+[`sandbox-security.md`](sandbox-security.md) is where each knob and its cost is
+described. A `mounts` entry pointing at a container runtime socket
+(`docker.sock` and friends) is refused whatever else the profile says.
 
 **Pane keys**
 
@@ -494,6 +521,7 @@ upwards only.
 | `ISSUE_FLOW_ANTIGRAVITY_SANDBOX`, `ISSUE_FLOW_ANTIGRAVITY_EFFORT`, `ISSUE_FLOW_ANTIGRAVITY_EXECUTE_TIMEOUT` | Antigravity runner settings |
 | `ISSUE_FLOW_OPENCODE_VARIANT`, `ISSUE_FLOW_OPENCODE_MIN_VERSION` | OpenCode runner settings |
 | `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` |
+| `ISSUE_FLOW_RUN_AUTO_CLOSE` | `run.autoClose` |
 | `ISSUE_FLOW_GITHUB_LINKED_REPOS`, `ISSUE_FLOW_GITHUB_SYNC_INTERVAL_MS` | The `github` key. Linked repositories are a comma-separated list of `owner/repo=alias` pairs; the alias may be omitted, and then the repository name stands in for it |
 | `ISSUE_FLOW_RUNTIME_PROFILE`, `ISSUE_FLOW_RUNTIME_MAX_CONCURRENT` | `runtime.profile` — the profile a run opens with — and `runtime.maxConcurrent`. Profiles and services themselves have no variable: they are too shaped for one, and they belong to the repository rather than to a shell |
 | `ISSUE_FLOW_POLICY`, `ISSUE_FLOW_POLICY_CONTEXT_BUDGET`, `ISSUE_FLOW_POLICY_BASE_BRANCH`, `ISSUE_FLOW_POLICY_BRANCH_CONVENTION`, `ISSUE_FLOW_POLICY_COMMIT_CONVENTION`, `ISSUE_FLOW_POLICY_PR_TITLE_CONVENTION`, `ISSUE_FLOW_POLICY_ISSUE_TITLE_CONVENTION` | The `policy` key |

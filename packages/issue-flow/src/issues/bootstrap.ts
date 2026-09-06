@@ -1,4 +1,5 @@
 import { githubIssueProvider } from './providers/github.js';
+import { inlineIssueProvider } from './providers/inline.js';
 import { localFileIssueProvider } from './providers/local.js';
 import { getRegisteredSources, registerProvider } from './registry.js';
 
@@ -17,5 +18,11 @@ export function ensureProvidersRegistered(): void {
   }
   if (!registered.has('local')) {
     registerProvider(localFileIssueProvider);
+  }
+  // The origin of `issue-flow run --prompt` (§17). It answers only for its own
+  // `inline-<hash>` identifiers, so registering it costs every other
+  // resolution a shape test and no I/O at all.
+  if (!registered.has('inline')) {
+    registerProvider(inlineIssueProvider);
   }
 }
