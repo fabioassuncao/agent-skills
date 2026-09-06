@@ -16,7 +16,7 @@ and move-vs-change rules.
 | `sources.ts` | Project / global file readers (`PROJECT_CONFIG_FILENAME`, `loadGlobalConfig`, …) |
 | `engine.ts` | `DEFAULTS`, `createConfig`, `resolvePaths` |
 | `dependencies.ts` | `getInstallHint`, `validateDependencies` |
-| `web.ts`, `issues.ts`, `pr-review.ts`, `policy.ts`, `telemetry.ts`, `resilience.ts`, `agent.ts`, `verify.ts`, `routing.ts` | One domain each: `load*`, `read*`, `set*CliOverrides`, mutable module state |
+| `web.ts`, `issues.ts`, `pr-review.ts`, `github.ts`, `policy.ts`, `telemetry.ts`, `resilience.ts`, `agent.ts`, `verify.ts`, `routing.ts` | One domain each: `load*`, `read*`, `set*CliOverrides`, mutable module state |
 
 ## Dependency direction
 
@@ -34,7 +34,7 @@ domain.ts  ↛  config.ts
   as a precedent for domain cross-imports.
 
 A forced `loadLayered()` abstraction was evaluated after the split and
-**discarded**: the nine loaders share the precedence idea but differ enough in
+**discarded**: the loaders share the precedence idea but differ enough in
 nested merges (policy, telemetry, resilience, agent, routing) that a common
 helper would contort more than it would remove. Prefer `mergeConfigLayers` plus
 domain-local readers.
@@ -46,7 +46,7 @@ file. `cachedAgentConfig` invalidation stays next to `setAgentCliOverrides` in
 `agent.ts`. `get/setActiveResilienceConfig` and `initResilienceConfig` stay in
 `resilience.ts`.
 
-## Adding a tenth domain
+## Adding a domain
 
 1. Create `src/config/<name>.ts` with the section key, env mapping, schema parse,
    `load*Config`, and (if needed) `set*CliOverrides` + module state.

@@ -33,12 +33,12 @@ export {
   loadAgentConfig,
   setAgentCliOverrides,
 } from './config/agent.js';
+export { type LoadGitHubConfigOptions, loadGitHubConfig } from './config/github.js';
 export {
   type LoadIssuesConfigOptions,
   loadIssuesConfig,
   setIssuesCliOverrides,
 } from './config/issues.js';
-
 export {
   type LoadPolicyConfigOptions,
   loadPolicyConfig,
@@ -48,7 +48,6 @@ export {
   type LoadPrReviewConfigOptions,
   loadPrReviewConfig,
 } from './config/pr-review.js';
-
 export {
   getActiveResilienceConfig,
   initResilienceConfig,
@@ -58,6 +57,12 @@ export {
   setResilienceCliOverrides,
 } from './config/resilience.js';
 export { loadRoutingConfig, setRoutingCliOverrides } from './config/routing.js';
+export {
+  type LoadRuntimeConfigOptions,
+  loadRuntimeConfig,
+  type RuntimeConfig,
+  setRuntimeCliOverrides,
+} from './config/runtime.js';
 export {
   type LoadTelemetryConfigOptions,
   loadTelemetryConfig,
