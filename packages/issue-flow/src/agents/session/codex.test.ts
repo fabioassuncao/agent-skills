@@ -128,7 +128,7 @@ describe('readCodexAppServerStdoutLines', () => {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
     const bytes = encoder.encode('{"text":"hello €"}\n{"text":"done"}\n');
-    const splitIndex = bytes.findIndex((byte) => byte === 0x82);
+    const splitIndex = bytes.indexOf(0x82);
 
     const first = readCodexAppServerStdoutLines({
       decoder,
