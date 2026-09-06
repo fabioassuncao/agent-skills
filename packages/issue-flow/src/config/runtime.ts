@@ -44,6 +44,16 @@ export interface RuntimeConfig {
   services: ServiceSpec[];
   /** Variables exported into every pane, hook and agent of a worktree. */
   startupEnv: Record<string, string>;
+  /**
+   * How many execution units may run at once in a project.
+   *
+   * **Default 1**, which is exactly today's behaviour: a serial queue behind a
+   * project-wide `run.lock`. Above 1 the lock moves to the execution *unit*
+   * and a slot ceiling replaces the exclusion — parallelism is a consequence of
+   * worktree isolation, not a feature of its own (§31.3), so it only means
+   * anything in the modes that create one.
+   */
+  maxConcurrent: number;
 }
 
 /**
@@ -72,6 +82,39 @@ interface RuntimeConfigLayer {
   profiles?: Record<string, RuntimeProfile>;
   services?: ServiceSpec[];
   startupEnv?: Record<string, string>;
+  maxConcurrent?: number;
+}
+
+/** Ceiling on a ceiling: past this, the bound is a mistake rather than a choice. */
+export const MAX_CONCURRENT_LIMIT = 20;
+
+/**
+ * Read a concurrency ceiling, or `undefined` when the value is unusable.
+ *
+ * Anything below 1 would mean "run nothing"; anything above the limit is past
+ * where §31.2 measured tmux staying flat, and a number nobody measured is not a
+ * number this project will act on.
+ */
+export function parseMaxConcurrent(
+  raw: unknown,
+  warn: (message: string) => void,
+): number | undefined {
+  const value = typeof raw === 'string' ? Number.parseInt(raw, 10) : raw;
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    warn('Ignoring runtime.maxConcurrent: expected an integer.');
+    return undefined;
+  }
+  if (value < 1) {
+    warn('Ignoring runtime.maxConcurrent: it must be at least 1.');
+    return undefined;
+  }
+  if (value > MAX_CONCURRENT_LIMIT) {
+    warn(
+      `Capping runtime.maxConcurrent at ${MAX_CONCURRENT_LIMIT}: past that nothing has been measured.`,
+    );
+    return MAX_CONCURRENT_LIMIT;
+  }
+  return value;
 }
 
 /**
@@ -111,6 +154,11 @@ function readRuntimeConfigEnv(env: NodeJS.ProcessEnv): RuntimeConfigLayer {
   const layer: RuntimeConfigLayer = {};
   const profile = env.ISSUE_FLOW_RUNTIME_PROFILE?.trim();
   if (profile !== undefined && profile !== '') layer.profile = profile;
+  const maxConcurrent = env.ISSUE_FLOW_RUNTIME_MAX_CONCURRENT?.trim();
+  if (maxConcurrent !== undefined && maxConcurrent !== '') {
+    const parsed = parseMaxConcurrent(maxConcurrent, () => {});
+    if (parsed !== undefined) layer.maxConcurrent = parsed;
+  }
   return layer;
 }
 
@@ -140,6 +188,12 @@ async function readRuntimeConfigFile(
     ...(section.startupEnv === undefined
       ? {}
       : { startupEnv: parseStartupEnv(section.startupEnv, warn) }),
+    ...(section.maxConcurrent === undefined
+      ? {}
+      : (() => {
+          const parsed = parseMaxConcurrent(section.maxConcurrent, warn);
+          return parsed === undefined ? {} : { maxConcurrent: parsed };
+        })()),
   };
 }
 
@@ -182,6 +236,9 @@ export async function loadRuntimeConfig(
     profiles,
     services: cli.services ?? fileLayer.services ?? [],
     startupEnv: { ...(fileLayer.startupEnv ?? {}), ...(cli.startupEnv ?? {}) },
+    // 1 is not a placeholder: it is the serial queue this project has always
+    // had, and it stays the default so nothing becomes parallel by upgrading.
+    maxConcurrent: cli.maxConcurrent ?? envLayer.maxConcurrent ?? fileLayer.maxConcurrent ?? 1,
   };
 }
 

@@ -183,7 +183,8 @@ depends on tmux, docker or a worktree.
       { "name": "frontend", "portEnv": "FRONTEND_PORT", "portStart": 3000, "portStep": 10,
         "urlTemplate": "http://localhost:${FRONTEND_PORT}" }
     ],
-    "startupEnv": { "FEATURE_FLAG": true }
+    "startupEnv": { "FEATURE_FLAG": true },
+    "maxConcurrent": 1
   }
 }
 ```
@@ -194,6 +195,23 @@ depends on tmux, docker or a worktree.
 | `profiles` | Map of name → profile | one `default` profile |
 | `services` | List of service declarations | `[]` |
 | `startupEnv` | Map of name → string, number or boolean | `{}` |
+| `maxConcurrent` | Integer 1–20 | `1` |
+
+**`maxConcurrent`** is how many execution units may run at once in a project.
+The default of `1` is not a placeholder: it is the serial queue behind a
+project-wide `run.lock` that this project has always had, and it stays the
+default so that nothing becomes parallel by upgrading.
+
+Above `1`, the lock moves from the project to the execution **unit** — an issue,
+or a story — and a ceiling replaces the exclusion. Two runs of the *same* unit
+still can never both start; that guarantee is exact. The ceiling itself is a
+throttle: two processes starting in the same instant can both see room and
+transiently make it one over, because making it exact would require serialising
+the very thing it exists to parallelise.
+
+It only means anything where a run has a worktree of its own. Parallelism is a
+consequence of that isolation, not a feature beside it, so `headless` — which
+runs on a branch in the repository — keeps the project lock whatever this says.
 
 **Profile keys**
 
@@ -477,7 +495,7 @@ upwards only.
 | `ISSUE_FLOW_OPENCODE_VARIANT`, `ISSUE_FLOW_OPENCODE_MIN_VERSION` | OpenCode runner settings |
 | `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` |
 | `ISSUE_FLOW_GITHUB_LINKED_REPOS`, `ISSUE_FLOW_GITHUB_SYNC_INTERVAL_MS` | The `github` key. Linked repositories are a comma-separated list of `owner/repo=alias` pairs; the alias may be omitted, and then the repository name stands in for it |
-| `ISSUE_FLOW_RUNTIME_PROFILE` | `runtime.profile` — the profile a run opens with. Profiles and services themselves have no variable: they are too shaped for one, and they belong to the repository rather than to a shell |
+| `ISSUE_FLOW_RUNTIME_PROFILE`, `ISSUE_FLOW_RUNTIME_MAX_CONCURRENT` | `runtime.profile` — the profile a run opens with — and `runtime.maxConcurrent`. Profiles and services themselves have no variable: they are too shaped for one, and they belong to the repository rather than to a shell |
 | `ISSUE_FLOW_POLICY`, `ISSUE_FLOW_POLICY_CONTEXT_BUDGET`, `ISSUE_FLOW_POLICY_BASE_BRANCH`, `ISSUE_FLOW_POLICY_BRANCH_CONVENTION`, `ISSUE_FLOW_POLICY_COMMIT_CONVENTION`, `ISSUE_FLOW_POLICY_PR_TITLE_CONVENTION`, `ISSUE_FLOW_POLICY_ISSUE_TITLE_CONVENTION` | The `policy` key |
 | `ISSUE_FLOW_TELEMETRY`, `ISSUE_FLOW_TELEMETRY_MAX_EXECUTIONS`, `ISSUE_FLOW_TELEMETRY_ESTIMATE` | The `telemetry` key |
 | `ISSUE_FLOW_RESILIENCE_PROFILE`, `ISSUE_FLOW_RESILIENCE_FAILOVER`, `ISSUE_FLOW_RESILIENCE_FAILOVER_ON_AUTH`, `ISSUE_FLOW_RESILIENCE_PROVIDER_CHAIN`, `ISSUE_FLOW_RESILIENCE_PROVIDER_COOLDOWN_MS`, `ISSUE_FLOW_RESILIENCE_PROVIDER_MAX_COOLDOWN_MS`, `ISSUE_FLOW_RESILIENCE_PROVIDER_FAILURE_WINDOW_MS`, `ISSUE_FLOW_RESILIENCE_PROVIDER_FAILURES_TO_TRIP`, `ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`, `ISSUE_FLOW_RESILIENCE_MAX_ISSUE_ATTEMPTS`, `ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`, `ISSUE_FLOW_RESILIENCE_JOURNAL_MAX_BYTES`, `ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE` | Scalar knobs of the `resilience` key |
