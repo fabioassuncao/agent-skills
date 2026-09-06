@@ -22,7 +22,7 @@ import { buildProjectSessionName, buildWorktreeWindowName } from '../runtime/tmu
 import type { WebConfig } from '../schemas.js';
 import { createProjectRegistry } from '../storage/projects/registry.js';
 import { resolveProjectPaths } from '../storage/resolve.js';
-import { printWarning } from '../ui/logger.js';
+import { printError, printInfo, printWarning } from '../ui/logger.js';
 import { getProjectRootOf, isGitRepository } from '../utils/git.js';
 import { ensureSingleWebServer } from '../web/lock.js';
 import { type ProjectsApiDeps, repositoryNeedsSetup } from '../web/projects-api.js';
@@ -323,25 +323,43 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
     host: webConfig.host,
     refreshSeconds: webConfig.refreshSeconds,
     unref: false,
-    info: noop,
-    warn: noop,
+    // Not silenced. `web serve` could afford to say nothing because it is spawned
+    // detached with `stdio: 'ignore'` and nobody is watching; `serve` is a command
+    // a person types, and a foreground server that prints nothing is
+    // indistinguishable from one that hung.
+    info: printInfo,
+    warn: printWarning,
   });
 
   if (handle === null) {
+    printError(
+      `Could not start the monitor on ${webConfig.host}:${webConfig.port}. The port may be held by an unrelated process, or the host may not be bindable.`,
+    );
     sessions.close();
     return 1;
   }
 
   if (handle.server === undefined) {
     // Another instance already owns the lock: nothing to serve here, so this
-    // process exits instead of idling as a redundant detached server.
+    // process exits instead of idling as a redundant detached server. The URL
+    // was already reported by `ensureSingleWebServer`; what is worth adding is
+    // that *this* invocation is over, so the shell prompt coming back is the
+    // expected outcome and not a crash.
+    printInfo('This invocation has nothing to serve and is exiting; the monitor above stays up.');
     sessions.close();
     return 0;
   }
 
+  // The URL itself was already reported by the bind, so this only adds what a
+  // foreground command still has to say: that it is not going to return.
+  printInfo('The monitor stays in the foreground; press Ctrl+C to stop it.');
+
   // Only now, with the socket bound: a slow project must not delay the moment
   // the dashboard starts answering.
   await loadProjects(manager, { cwd, env, projectDirs: options.project ?? [] });
+
+  const served = manager.list().length;
+  printInfo(served === 1 ? 'Serving 1 project.' : `Serving ${served} projects.`);
 
   const originalClose = handle.close;
   handle.close = async () => {
