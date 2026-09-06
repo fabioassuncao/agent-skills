@@ -24,6 +24,7 @@ Use this Skill only for its requested responsibility. Work in the consumer proje
 
 - Only when an installed CLI can enrich policy/scaffold decisions: [cli-integration](references/cli-integration.md).
 - When naming branches, commits or PRs: [git-conventions](references/git-conventions.md).
+- When creating a PR or explicitly updating its metadata: [pr-metadata](references/pr-metadata.md).
 - Before a remote mutation: [publication](references/publication.md).
 
 ## Bundled helpers

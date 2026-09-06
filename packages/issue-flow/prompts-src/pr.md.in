@@ -23,8 +23,8 @@ Steps:
    formality.
 2. Read the task plan from __TASKS_PATH__ if it exists
 3. Review the git log for this branch: git log __BASE_BRANCH__..HEAD --oneline
-4. Review the diff: git diff __BASE_BRANCH__...HEAD --stat
-5. Create a well-structured PR using gh pr create
+4. Review the change summary and relevant full diff: git diff __BASE_BRANCH__...HEAD
+5. Resolve metadata with the shared contract below, then create the PR and verify its applied fields
 
 The PR should:
 - Use this title verbatim: `__PR_TITLE_CONVENTION__`
@@ -43,9 +43,10 @@ __ISSUE_REFERENCE__
 __MULTI_ISSUE_CONTEXT__
 
 Use this command format:
-gh pr create --title "..." --body "..." --base __BASE_BRANCH__
+gh pr create --repo <owner/repo> --title <title> --body-file <file> --base __BASE_BRANCH__ --head __BRANCH_NAME__
+Add only the selected metadata options described below; keep unset fields omitted.
 
-IMPORTANT: Output the PR URL after creation so it can be parsed.
+IMPORTANT: Output the confirmed PR URL after creation so it can be parsed. Also report applied metadata and pending/unverified fields. A metadata failure after creation must keep this URL; it must not cause a duplicate PR.
 
 <!-- if:__REPO_POLICY__ -->
 ## Repository policy
@@ -84,3 +85,5 @@ picked. If none clearly fits, ask rather than guess.
 <!-- /if -->
 
 <!-- contract:publication -->
+
+<!-- contract:pr-metadata -->

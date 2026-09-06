@@ -90,7 +90,10 @@ ordinary contribution.
 Explain the problem and resulting behavior, list the checks you ran and what
 they established, and link the related issues. Follow the existing PR template
 and [Git conventions](docs/git-conventions.md#pull-requests). Include material
-limitations or checks you could not run. Human review of the diff and evidence
+limitations or checks you could not run. Apply the existing labels supported by
+the diff using the [PR metadata convention](docs/git-conventions.md#pr-description-and-metadata).
+The body template does not set sidebar fields: verify labels after creation, and
+set reviewers, assignees or scheduling only from explicit choices or project rules. Human review of the diff and evidence
 remains necessary before merging.
 
 ## Documentation ownership

@@ -90,6 +90,56 @@ A repository `PULL_REQUEST_TEMPLATE` still governs the body.
 issue-flow conventions pr-title --issue 63
 ```
 
+### PR description and metadata
+
+The single [PR template](../.github/PULL_REQUEST_TEMPLATE.md) governs the body:
+what changed, how it was tested, related issues and notes for reviewers. Keep all
+four sections and explain non-applicable sections briefly. Include concrete
+before/after behavior and compatibility or migration risks when useful. The
+Conventional Commit-style title is this project's convention, not a requirement
+of the GitHub platform.
+
+A template does not populate the PR sidebar. For PRs **in this repository**, apply
+existing labels automatically when the actual diff supports them:
+
+| Dimension | Existing labels | Selection |
+|---|---|---|
+| Nature | `bug`, `enhancement`, `refactor` | Behavior corrected, capability added, or code reorganized |
+| Area | `architecture`, `backend`, `frontend`, `infra`, `monitoring` | Material architectural, server/CLI, UI, infrastructure, or observability impact |
+| Documentation | `documentation` | Documentation is a relevant part of the delivered change |
+
+Labels can coexist. A backend correction can use `bug` and `backend`; a document
+that mentions an API does not automatically need `backend`. Architectural work
+changes boundaries or responsibilities, not merely many files. Do not classify
+by changed-file count or blindly copy issue labels. Use `documentation`, not a
+new synonymous `docs` label. Query the live registry before applying labels;
+this table does not authorize recreating a deleted label.
+
+Do not infer `high`, `medium`, `low`, `blocked`, size or triage labels from a diff.
+Such decisions need an explicit user selection or an applicable PR rule. The
+repository's issue-type guidance is about issues; it does not make issue types
+into PR fields or forbid useful PR labels such as `bug` and `enhancement`.
+
+Assignees, reviewers, milestone and project membership require explicit values
+or a concrete applicable rule. Do not assume the issue author owns the PR, assign
+the current account automatically, or invent a reviewer/release. CODEOWNERS may
+let GitHub request review; avoid duplicate manual requests. Unspecified fields
+may remain empty.
+
+Skills and the CLI share the publication procedure in the
+[PR metadata contract](../skills-src/_shared/pr-metadata.md). They read the
+consumer project's conventions and vocabulary; the label table above is not a
+universal default. Metadata is applied separately from the body and verified on
+the created PR. If a field fails, preserve the PR URL and report what is pending;
+retry only the missing authorized operation, never create another PR. Plain
+adoption of an existing PR does not reclassify it. Explicit updates preserve
+manual metadata unless removal/replacement was requested. No bulk migration of
+older PRs is part of this workflow.
+
+GitHub documents [PR templates](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository),
+[repository labels](https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/managing-labels)
+and [separate metadata options in gh pr create](https://cli.github.com/manual/gh_pr_create).
+
 ## Discovery
 
 `commitlint`, `release-please`, `semantic-release`, Changesets,

@@ -70,3 +70,26 @@ cases therefore also inspect recorded actions and use manual rubrics for checkou
 before edits, no transient switch, grouping approval and source-to-story mapping.
 `--check` only validates the corpus; deterministic tests validate fixtures and the
 verifier. Neither substitutes for an opt-in live-model behavior run.
+
+## PR metadata fixtures
+
+The `pr-metadata-*` scenarios use a synthetic GitHub capability from
+[`evals/skills/fixtures/github-pr.mjs`](../evals/skills/fixtures/github-pr.mjs).
+It exposes a label registry, a published diff, eligibility, PR creation, additive
+updates and remote-state verification without network access. It can retain a
+created PR while failing a metadata operation, once or persistently. The fixture
+does not classify changes for the agent.
+
+Optional `fixtureFiles` maps scenario destination paths to files under
+`evals/skills/fixtures/`. The runner validates containment, expands them before
+hashing the corpus, and copies them into each isolated fixture. Inline and shared
+fixtures cannot overwrite each other. The published diff supplied by this mock
+is authoritative: local fixture branches are snapshots, not simulated remotes.
+
+Cases cover backend corrections, documentation mentioning an API, grouped
+architecture/documentation work, consumer vocabularies, stale issue labels,
+explicit fields, unavailable labels, adoption, preservation of manual metadata,
+and recovery after partial publication. Assertions inspect the persisted PR and
+operation counts; a claimed label in an answer or request is insufficient. Manual
+rubrics still check discovery order, body quality and duplicate notifications.
+Deterministic tests validate this capability and its verifier, not model behavior.
