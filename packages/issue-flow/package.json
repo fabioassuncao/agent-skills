@@ -29,7 +29,8 @@
     "skills:install-test": "node scripts/skills-install-test.mjs",
     "skills:eval": "node scripts/skills-eval.mjs",
     "skills:cli-test": "node scripts/skills-cli-test.mjs",
-    "build:cli": "tsup"
+    "build:cli": "tsup",
+    "context:measure": "node scripts/architecture-benchmark.mjs"
   },
   "engines": {
     "node": ">=22.13.0"

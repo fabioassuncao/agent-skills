@@ -58,7 +58,7 @@ See [Skill limits](../skills/README.md#artifacts-resumption-and-limits) and
 ## Canonical contracts
 
 - `src/schemas.ts`: task-plan and issue-metadata shape.
-- `src/core/task-plan.ts`: dependency graph validation, eligible-story selection and compact inspection.
+- `src/core/task-plan.ts`: dependency graph validation, eligible-story selection, compact inspection and execution context projection.
 - `src/core/artifact-files.ts`: explicit-file reads, parsing and hash/schema checks; no project resolution or storage initialization.
 - `src/core/workflow-contract.ts`: phase order, phase-to-state mapping and completion evidence. The builder renders its table into the portable plan reference; the CLI imports its constants directly.
 - `src/verify/review-result.ts`: strict issue-review result parsing. The authored protocol remains in `skills-src/_shared/issue-review-result.md` and is composed into both consumers.

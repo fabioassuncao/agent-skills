@@ -6,6 +6,16 @@ import { applyPlaceholders, loadPrompt, resolvePackageDir } from './prompt-resol
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('applyPlaceholders', () => {
+  it('preserves replacement syntax and placeholder-like user data literally', () => {
+    const value = "$& $$ $` $' __OTHER__ <!-- if:__OTHER__ -->";
+    expect(
+      applyPlaceholders('__BODY__\n__OTHER__', {
+        __BODY__: value,
+        __OTHER__: 'resolved',
+      }),
+    ).toBe(`${value}\nresolved`);
+  });
+
   it('should replace __PRD_FILE__ placeholder', () => {
     const template = 'Read the PRD at __PRD_FILE__';
     const result = applyPlaceholders(template, {

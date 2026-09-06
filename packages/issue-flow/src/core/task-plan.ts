@@ -1,5 +1,38 @@
 import { taskPlanSchema } from '../schemas.js';
-import type { UserStory } from '../types.js';
+import type { TaskPlan, UserStory } from '../types.js';
+
+/** Facts needed by the current iteration; never a replacement for the mutable plan. */
+export function executionContext(plan: TaskPlan) {
+  const ready = eligibleStories(plan.userStories);
+  const active = plan.lastReviewFindings ? undefined : ready[0];
+  return {
+    objective: plan.description,
+    branchName: plan.branchName,
+    noBranch: plan.noBranch ?? false,
+    counts: {
+      total: plan.userStories.length,
+      passed: plan.userStories.filter((s) => s.passes).length,
+    },
+    remainingStoryIds: plan.userStories.filter((s) => !s.passes).map((s) => s.id),
+    activeStory: active
+      ? {
+          id: active.id,
+          title: active.title,
+          description: active.description,
+          acceptanceCriteria: active.acceptanceCriteria,
+          notes: active.notes,
+          dependencies: (active.dependencies ?? []).map((id) => ({
+            id,
+            passes: plan.userStories.find((story) => story.id === id)?.passes ?? false,
+          })),
+        }
+      : null,
+    lastReviewFindings: plan.lastReviewFindings ?? null,
+    lastError: plan.lastError,
+    correctionCycle: plan.correctionCycle,
+    maxCorrectionCycles: plan.maxCorrectionCycles,
+  };
+}
 
 export interface ArtifactError {
   code: string;

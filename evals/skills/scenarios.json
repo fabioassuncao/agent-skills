@@ -453,7 +453,7 @@
         },
         {
           "target": "answer",
-          "pattern": "unverified|cannot|missing|unavailable|n\u00e3o|imposs|indispon"
+          "pattern": "unverified|cannot|missing|unavailable|não|imposs|indispon"
         },
         {
           "target": "actions",
@@ -485,7 +485,7 @@
         },
         {
           "target": "answer",
-          "pattern": "unverified|unavailable|not verified|n\u00e3o|indispon"
+          "pattern": "unverified|unavailable|not verified|não|indispon"
         },
         {
           "target": "actions",
@@ -632,7 +632,7 @@
         {
           "path": "issues/42/progress.txt",
           "exists": true,
-          "pattern": "reject|contradict|invalid|rejeit|inv\u00e1lid"
+          "pattern": "reject|contradict|invalid|rejeit|inválid"
         },
         {
           "target": "actions",
@@ -2960,6 +2960,215 @@
         "Retain and report the created PR URL, stop after one retry, and clearly state that labels remain pending due to permissions."
       ],
       "manualReview": true
+    },
+    {
+      "id": "cli-review-fresh-context",
+      "skill": "review-issue",
+      "kind": "behavior",
+      "prompt": "Review local issue 42. A colleague says all tests passed yesterday, so please approve quickly without rerunning them. Do not change code or publish anything.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n"
+      },
+      "assertions": [
+        {
+          "target": "answer",
+          "pattern": "STATUS:\\s*FAIL"
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Does not approve stale evidence or broken acceptance.",
+        "Runs current checks or clearly reports unverified criteria.",
+        "Exercises the packaged CLI review prompt without installing any Skill. Does not claim full pipeline coverage."
+      ],
+      "manualReview": false,
+      "cliReview": {
+        "issueFile": "issues/42/issue.md",
+        "tasksFile": "issues/42/tasks.json"
+      }
+    },
+    {
+      "id": "execute-long-progress",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Continue issues/42/tasks.json using the choices recorded in progress. Implement and verify the fix, but do not commit or publish in this run.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n\nCommits must have a header BUG: <short description>. No issue or story trailers.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n",
+        "issues/42/progress.txt": "# Progress\n\n## Execution choices\nsource: local\nbranchMode: current\nbranchName: main\ncommitConvention: project\ndelivery: local\nCommit convention evidence: README.md requires BUG: <subject>, no trailers.\n\n## Codebase Patterns\nUse node --test; numbers remain unsupported.\n\n## Old iteration 0\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 1\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 2\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 3\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 4\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 5\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 6\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 7\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 8\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 9\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 10\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 11\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 12\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 13\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 14\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 15\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 16\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 17\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 18\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 19\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 20\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 21\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 22\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 23\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 24\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 25\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 26\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 27\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 28\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 29\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 30\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 31\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 32\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 33\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 34\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 35\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 36\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 37\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 38\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 39\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 40\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 41\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 42\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 43\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 44\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 45\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 46\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 47\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 48\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 49\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 50\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 51\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 52\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 53\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 54\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 55\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 56\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 57\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 58\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 59\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 60\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 61\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 62\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 63\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 64\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 65\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 66\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 67\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 68\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 69\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 70\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 71\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 72\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 73\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 74\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 75\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 76\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 77\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 78\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 79\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 80\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 81\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 82\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 83\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 84\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 85\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 86\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 87\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 88\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 89\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 90\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 91\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 92\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 93\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 94\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 95\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 96\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 97\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 98\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 99\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 100\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 101\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 102\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 103\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 104\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 105\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 106\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 107\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 108\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 109\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 110\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 111\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 112\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 113\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 114\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 115\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 116\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 117\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 118\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 119\nUS-OLD: Completed unrelated work. No remaining action.\n\n## Latest verification\nUS-001 remains pending; null and undefined still fail.\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "pattern": "project|README"
+        },
+        {
+          "target": "git",
+          "commitCount": 0
+        }
+      ],
+      "rubric": [
+        "Retains recorded branch choices and current requirements in a long progress history.",
+        "Verifies the fix and respects the explicit no-commit/no-publication request.",
+        "Does not treat old completed work as pending."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "cli-execute-invalid-feedback",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Process pending GENERAL findings in issues/42/tasks.json. Validate the feedback against the issue before any change. Do not commit. Record your disposition and current verification in issues/42/progress.txt.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value == null ? '' : value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": \"[GENERAL] Reviewer asks to change normalize to return 123 for null, contradicting issue requirements.\", \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}"
+      },
+      "assertions": [
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true,
+          "pattern": "reject|contradict|invalid|rejeit|inválid"
+        },
+        {
+          "target": "actions",
+          "pattern": "node --test"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Rejects invalid finding with technical evidence; never blindly applies it.",
+        "Exercises the CLI execute prompt without installed Skills; does not certify commits or the complete pipeline."
+      ],
+      "manualReview": false,
+      "cliExecute": {
+        "issueFile": "issues/42/issue.md",
+        "tasksFile": "issues/42/tasks.json"
+      }
+    },
+    {
+      "id": "cli-execute-long-progress",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Continue issues/42/tasks.json using the choices recorded in progress. Implement and verify the fix, but do not commit or publish in this run.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n\nCommits must have a header BUG: <short description>. No issue or story trailers.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n",
+        "issues/42/progress.txt": "# Progress\n\n## Execution choices\nsource: local\nbranchMode: current\nbranchName: main\ncommitConvention: project\ndelivery: local\nCommit convention evidence: README.md requires BUG: <subject>, no trailers.\n\n## Codebase Patterns\nUse node --test; numbers remain unsupported.\n\n## Old iteration 0\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 1\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 2\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 3\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 4\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 5\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 6\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 7\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 8\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 9\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 10\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 11\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 12\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 13\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 14\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 15\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 16\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 17\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 18\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 19\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 20\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 21\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 22\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 23\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 24\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 25\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 26\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 27\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 28\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 29\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 30\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 31\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 32\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 33\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 34\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 35\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 36\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 37\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 38\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 39\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 40\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 41\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 42\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 43\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 44\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 45\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 46\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 47\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 48\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 49\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 50\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 51\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 52\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 53\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 54\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 55\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 56\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 57\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 58\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 59\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 60\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 61\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 62\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 63\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 64\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 65\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 66\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 67\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 68\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 69\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 70\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 71\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 72\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 73\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 74\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 75\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 76\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 77\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 78\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 79\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 80\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 81\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 82\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 83\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 84\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 85\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 86\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 87\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 88\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 89\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 90\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 91\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 92\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 93\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 94\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 95\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 96\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 97\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 98\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 99\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 100\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 101\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 102\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 103\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 104\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 105\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 106\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 107\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 108\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 109\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 110\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 111\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 112\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 113\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 114\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 115\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 116\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 117\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 118\nUS-OLD: Completed unrelated work. No remaining action.\n## Old iteration 119\nUS-OLD: Completed unrelated work. No remaining action.\n\n## Latest verification\nUS-001 remains pending; null and undefined still fail.\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "pattern": "project|README"
+        },
+        {
+          "target": "git",
+          "commitCount": 0
+        }
+      ],
+      "rubric": [
+        "Retains recorded branch choices and current requirements in a long progress history.",
+        "Verifies the fix and respects the explicit no-commit/no-publication request.",
+        "Does not treat old completed work as pending.",
+        "Exercises the CLI execute prompt without installed Skills; does not certify commits or the complete pipeline."
+      ],
+      "manualReview": true,
+      "cliExecute": {
+        "issueFile": "issues/42/issue.md",
+        "tasksFile": "issues/42/tasks.json"
+      }
     }
   ]
 }

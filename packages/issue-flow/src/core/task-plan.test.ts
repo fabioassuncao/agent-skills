@@ -2,8 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { taskPlanSchema } from '../schemas.js';
 import { inspectArtifact } from './artifact-files.js';
-import { inspectTaskPlan } from './task-plan.js';
+import { executionContext, inspectTaskPlan } from './task-plan.js';
 
 const story = (id: string, priority = 1, dependencies?: string[]) => ({
   id,
@@ -37,6 +38,29 @@ const plan = (userStories = [story('A')]) => ({
 });
 
 describe('shared task plan contract', () => {
+  it('keeps current requirements and corrections without completed-story history', () => {
+    const input = taskPlanSchema.parse({
+      ...plan([
+        { ...story('US-001'), passes: true, description: 'OLD DETAILS', notes: 'OLD TRACE' },
+        { ...story('US-002', 2, ['US-001']), notes: 'Current decision' },
+      ]),
+      lastReviewFindings: null,
+    });
+    const current = executionContext(input);
+    expect(current.activeStory).toMatchObject({
+      id: 'US-002',
+      notes: 'Current decision',
+      acceptanceCriteria: ['Verified'],
+      dependencies: [{ id: 'US-001', passes: true }],
+    });
+    expect(JSON.stringify(current)).not.toContain('OLD');
+    expect(
+      executionContext({ ...input, lastReviewFindings: 'GENERAL: verify browser' }),
+    ).toMatchObject({
+      activeStory: null,
+      lastReviewFindings: 'GENERAL: verify browser',
+    });
+  });
   it('accepts legacy optional fields, never changes the input, and selects by dependencies before priority', () => {
     const input = {
       ...plan([story('B', 1, ['A']), story('A', 2), story('C', 2)]),

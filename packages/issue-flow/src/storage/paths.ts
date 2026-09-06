@@ -36,6 +36,8 @@ export const ROTATED_EVENTS_FILENAME = 'events.1.jsonl';
  * `verify/run-issue.ts` also writes it in standalone mode, where there is no
  * `IssuePaths` to ask: one constant, two callers, no second spelling.
  */
+export const PRD_FILENAME = 'prd.md';
+export const TASKS_FILENAME = 'tasks.json';
 export const VERIFY_FILENAME = 'verify.json';
 
 export const RUN_LOG_FILENAME = 'run.log';
@@ -285,8 +287,8 @@ export function getIssuePaths(
     issueDir,
     issueFile: join(issueDir, 'issue.md'),
     metadataFile: join(issueDir, 'metadata.json'),
-    prdFile: join(issueDir, 'prd.md'),
-    tasksFile: join(issueDir, 'tasks.json'),
+    prdFile: join(issueDir, PRD_FILENAME),
+    tasksFile: join(issueDir, TASKS_FILENAME),
     progressFile: join(issueDir, 'progress.txt'),
     analysisFile: join(issueDir, 'analysis.md'),
     sessionFile: join(issueDir, SESSION_FILENAME),

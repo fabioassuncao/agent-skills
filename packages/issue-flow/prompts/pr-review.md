@@ -18,6 +18,16 @@ Context available (may be absent — treat every one as optional):
 - Task plan: __TASKS_PATH__
 - PRD: __PRD_PATH__
 
+Pinned revision: head `__PR_HEAD__`, base `__PR_BASE__`. Review these exact SHAs;
+do not substitute a different local checkout. If unavailable, disclose incomplete
+verification rather than claiming approval.
+
+<!-- if:__PREVIOUS_REVIEW__ -->
+Previous report reference: __PREVIOUS_REVIEW__
+Consult its findings to check resolution, then independently examine the current
+revision. An older verdict is not current evidence.
+<!-- /if -->
+
 ## Step 1 — Collect context
 
 Run these, in this order:
@@ -74,7 +84,7 @@ of "no problem here", not an axis skipped.
 - **Complexity**: is any part harder than the problem requires?
 - **Readability**: would a maintainer who did not write this understand it in six months?
 - **Duplication**: does this restate logic that already exists in the repository?
-  Search for it (`Grep`) instead of assuming
+  Search for it instead of assuming
 - **Project conventions**: does the code look like the code around it — imports,
   error handling, logging, file layout, test style?
 - **Regressions**: what existing behaviour could this break? Which callers of the
@@ -184,18 +194,11 @@ Use one of the three recommendations, exactly. REQUEST_CHANGES lists at least on
 <!-- if:__REPO_POLICY__ -->
 ## Repository policy
 
-The repository this runs in declares the conventions below. They were discovered
-from its own files (Issue Templates, labels, `AGENTS.md`, `CONTRIBUTING.md`,
-`CODEOWNERS`) and from its configuration.
-
 __REPO_POLICY__
 
-**This section takes precedence over any convention stated earlier in this
-prompt.** Where the two disagree, follow the repository. Where the repository is
-silent, the defaults above still apply.
-
-Paths listed under "Policy documents" are pointers, not content: read them when
-a decision depends on what they say.
+For repository conventions, these resolved values take precedence over prompt
+defaults. Defaults apply only to undeclared choices. Paths are references: read the
+applicable documents when a decision depends on them, following instruction indexes.
 
 Use the repository's applicable issue template instead of layering another body template over it. Fill required fields; ask when two templates fit equally. Keep the PR template's sections, explaining non-applicable ones briefly.
 

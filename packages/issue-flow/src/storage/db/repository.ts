@@ -718,20 +718,51 @@ export async function loadStoredQueue(
  * deliberate merge, not a file import: telemetry and pipeline updates made
  * while the agent ran remain authoritative in the database.
  */
-export async function ingestAgentPlan(context: PlanRepositoryContext): Promise<TaskPlan> {
+export async function ingestAgentPlan(
+  context: PlanRepositoryContext,
+  baseline?: Pick<TaskPlan, 'lastReviewFindings' | 'lastError'>,
+): Promise<TaskPlan> {
   const submitted = parsePlan(await readFile(context.tasksPath, 'utf-8'), context.tasksPath);
-  const current = await loadStoredPlan(context);
-  const submittedStories = new Map(submitted.userStories.map((story) => [story.id, story]));
-  const merged: TaskPlan = {
-    ...current,
-    userStories: current.userStories.map((story) => {
-      const change = submittedStories.get(story.id);
-      return change === undefined
-        ? story
-        : { ...story, passes: change.passes, notes: change.notes };
-    }),
-  };
-  await saveStoredPlan(context, merged);
+  await withDatabase(
+    (database) =>
+      database.transaction(() => {
+        for (const story of submitted.userStories) {
+          database
+            .prepare(
+              'UPDATE stories SET passes = ?, notes = ? WHERE project_id = ? AND issue_id = ? AND id = ?',
+            )
+            .run(story.passes ? 1 : 0, story.notes, context.projectId, context.issueId, story.id);
+        }
+        if (baseline !== undefined) {
+          // A correction can acknowledge its own findings, never erase a newer review.
+          if (submitted.lastReviewFindings === null) {
+            database
+              .prepare(
+                'UPDATE pipelines SET last_review_findings = NULL WHERE project_id = ? AND issue_id = ? AND last_review_findings IS ?',
+              )
+              .run(context.projectId, context.issueId, baseline.lastReviewFindings);
+          }
+          database
+            .prepare(
+              `UPDATE pipelines SET last_error_category = ?, last_error_message = ?, last_error_at = ?
+         WHERE project_id = ? AND issue_id = ? AND last_error_category IS ? AND last_error_message IS ? AND last_error_at IS ?`,
+            )
+            .run(
+              submitted.lastError?.category ?? null,
+              submitted.lastError?.message ?? null,
+              submitted.lastError?.at ?? null,
+              context.projectId,
+              context.issueId,
+              baseline.lastError?.category ?? null,
+              baseline.lastError?.message ?? null,
+              baseline.lastError?.at ?? null,
+            );
+        }
+      }),
+    context.databaseOptions,
+  );
+  const merged = await loadStoredPlan(context);
+  await materializePlan(context, merged);
   return merged;
 }
 

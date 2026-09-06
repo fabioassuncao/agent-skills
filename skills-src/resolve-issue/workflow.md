@@ -30,7 +30,7 @@ Load execute-tasks with the plan and pending findings; keep issueStatus=in_progr
 
 On FAIL, persist findings in review-findings.md and lastReviewFindings, including GENERAL findings. Before any correction, validate each finding against requirements/code. Record evidence for rejected findings and pass it to the next review. For valid findings, reset affected stories, invalidate execution/review flags and clear completedAt. General findings must be resolved even when no story ID is present.
 
-If correctionCycle has reached maxCorrectionCycles (default 3), stop with preserved work and actionable blockers. Otherwise increment once per attempted correction round, run execution, then re-review. Clear lastReviewFindings only when addressed/rejected with evidence and the fresh review passes. A completion signal alone never bypasses unresolved findings.
+If correctionCycle has reached maxCorrectionCycles (default 3), stop with preserved work and actionable blockers. Otherwise increment once per attempted correction round, run execution, then re-review. Execution may clear lastReviewFindings after addressing/rejecting every finding with recorded evidence. Keep review-findings.md and pass the correction evidence to the next review; only its fresh PASS completes review. A completion signal alone never bypasses unresolved findings.
 
 ## Deliver
 

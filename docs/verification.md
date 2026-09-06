@@ -115,6 +115,21 @@ a label and never claims a vendor split it did not have.
 A reviewer verdict of `failed` makes the whole verdict `failed`; a reviewer
 `unverified` downgrades a `passed` to `unverified`. It never upgrades anything.
 
+L2 receives repository and HEAD identity, task/PRD/evidence paths and a compact
+acceptance-check summary. It reads requirements and inspects the current worktree
+as needed; old logs are not copied into its prompt. Its response must be one JSON
+object with `status` and typed `findings` (severity, category, claim and optional
+file/positive line). Malformed output, `passed` with error findings, `failed`
+without findings, and a failed harness all yield `unverified`. Full validated
+findings are redacted and retained in evidence; failures reach the correction
+plan with their locations and claims intact. Check execution remains fresh at
+both phase boundaries.
+
+PR review pins both head and base before invocation and checks them again after
+the response. Missing or changed revisions invalidate the recommendation, retain
+the report for inspection and exit 1. A previous report is supplied as a path and
+revision for comparison, never as inherited approval.
+
 ## Shadow routing
 
 The router classifies a task, expands eligible candidates across harness and

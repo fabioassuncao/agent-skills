@@ -143,6 +143,24 @@ describe('runEngine — pending-correction guard', () => {
     await writeFile(paths.prdFile, JSON.stringify(plan, null, 2), 'utf-8');
   }
 
+  it('stops on a newly recorded blocker even when the agent emits COMPLETE', async () => {
+    await writePlan(makePlan({ lastReviewFindings: 'Check required browser behavior' }));
+    mockExecuteClaude.mockImplementationOnce(async () => {
+      await writePlan(
+        makePlan({
+          lastError: {
+            category: 'verification',
+            message: 'Required browser unavailable',
+            at: new Date().toISOString(),
+          },
+        }),
+      );
+      return { exitCode: 0, output: '<promise>COMPLETE</promise>', cost: null };
+    });
+    expect(await runEngine(baseConfig, paths)).toBe(1);
+    expect((await readPlan()).lastError?.message).toBe('Required browser unavailable');
+  });
+
   async function readPlan(): Promise<TaskPlan> {
     return JSON.parse(await readFile(paths.prdFile, 'utf-8'));
   }

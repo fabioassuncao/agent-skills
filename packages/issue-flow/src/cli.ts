@@ -510,13 +510,16 @@ if (process.argv.includes('--json')) {
 for (const operation of ['plan', 'issue']) {
   const command = artifactsCommand.command(operation).argument('[file]', 'Artifact path');
   if (operation === 'issue') command.argument('[metadata]', 'Optional metadata.json');
+  else command.option('--context', 'Select current execution facts without history');
   command.option('--json', 'Emit a versioned JSON inspection').allowExcessArguments(false);
   command.action(async (...args: unknown[]) => {
     const file = args[0] as string | undefined;
     const metadata = operation === 'issue' ? (args[1] as string | undefined) : undefined;
-    const options = args[operation === 'issue' ? 2 : 1] as { json?: boolean };
+    const options = args[operation === 'issue' ? 2 : 1] as { json?: boolean; context?: boolean };
     const { runArtifacts } = await import('./commands/artifacts.js');
-    process.exit(await runArtifacts(operation, file, metadata, options.json));
+    process.exit(
+      await runArtifacts(options.context ? 'context' : operation, file, metadata, options.json),
+    );
   });
 }
 

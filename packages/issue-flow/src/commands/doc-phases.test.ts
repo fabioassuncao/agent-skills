@@ -341,6 +341,24 @@ describe('runPlan', () => {
     expect(prompt).toContain(paths.tasksFile);
   });
 
+  it('returns concrete validation feedback to the next planning attempt', async () => {
+    const paths = await expectedPaths(42);
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(paths.prdFile, '# PRD', 'utf8');
+    let attempts = 0;
+    headlessStub.run = async () => {
+      const plan = makePlan();
+      if (++attempts === 1) plan.userStories.push({ ...plan.userStories[0]! });
+      await writeFile(paths.tasksFile, JSON.stringify(plan));
+    };
+    expect(await runPlan('42', makeResolved())).toBe(0);
+    expect(attempts).toBe(2);
+    const prompts = mockRunHeadless.mock.calls.map(([options]) => options.prompt);
+    expect(prompts[0]).not.toContain('Duplicate story ID');
+    expect(prompts[1]).toContain('Duplicate story ID');
+    expect(prompts[1]).toContain(paths.tasksFile);
+  });
+
   it('names the global path when the PRD is missing', async () => {
     const paths = await expectedPaths(42);
 

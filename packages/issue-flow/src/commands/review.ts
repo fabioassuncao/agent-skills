@@ -41,28 +41,15 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
   } else {
     printSuccess(formatVerificationLine(acceptance.verdict, acceptance.level));
   }
-  if (acceptance.review?.status === 'failed') {
-    printError('Independent review failed');
-    try {
-      const plan = await loadTaskPlan(tasksPath);
-      plan.pipeline.reviewCompleted = false;
-      plan.lastReviewFindings = acceptance.review.findings
-        .map((finding) => finding.claim)
-        .join('\n');
-      await saveTaskPlan(tasksPath, plan);
-    } catch {
-      // tasks.json may not exist
-    }
-    return 1;
-  }
-
   const template = await loadPrompt('review');
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
     // what keeps the rendered prompt identical to the pre-policy one.
-    ...(await resolvePolicyPlaceholders()),
+    ...(await resolvePolicyPlaceholders({ phase: 'review' })),
     __ISSUE_NUMBER__: issueNumber,
     __TASKS_PATH__: tasksPath,
+    __PROGRESS_FILE__: paths.progressFile,
+    __VERIFY_PATH__: paths.verifyFile,
     ...issuePlaceholders(resolution.resolved),
   });
 

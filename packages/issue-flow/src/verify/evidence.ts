@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { getVerificationRepository, saveStoredVerification } from '../storage/db/repository.js';
 import { redactSecrets } from '../telemetry/redact.js';
+import type { StructuredReview } from './reviewer.js';
 import type { ContractRun } from './types.js';
 
 export interface EvidenceBundle {
@@ -10,10 +11,28 @@ export interface EvidenceBundle {
   verdict: ContractRun['verdict'];
   level: ContractRun['level'];
   results: ContractRun['results'];
+  review?: StructuredReview;
 }
 
-export function buildEvidence(run: ContractRun, executionId: string | null): EvidenceBundle {
+export function buildEvidence(
+  run: ContractRun,
+  executionId: string | null,
+  review?: StructuredReview,
+): EvidenceBundle {
   return {
+    ...(review
+      ? {
+          review: {
+            ...review,
+            findings: review.findings.map((finding) => ({
+              ...finding,
+              ...(finding.file === undefined ? {} : { file: redactSecrets(finding.file) }),
+              category: redactSecrets(finding.category),
+              claim: redactSecrets(finding.claim),
+            })),
+          },
+        }
+      : {}),
     executionId,
     at: new Date().toISOString(),
     verdict: run.verdict,

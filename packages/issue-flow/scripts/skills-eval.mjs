@@ -70,6 +70,15 @@ export function validateCorpus(corpus, names) {
     assert.ok(names.includes(scenario.skill));
     assert.ok(['positive', 'negative', 'behavior'].includes(scenario.kind));
     assert.ok(scenario.prompt?.trim());
+    const cliFixture = scenario.cliReview ?? scenario.cliExecute;
+    assert.ok(!(scenario.cliReview && scenario.cliExecute));
+    if (cliFixture) {
+      assert.equal(scenario.kind, 'behavior');
+      for (const path of [cliFixture.issueFile, cliFixture.tasksFile]) {
+        validateFixturePath(path);
+        assert.ok(Object.hasOwn(scenario.fixture ?? {}, path));
+      }
+    }
     assert.ok(scenario.rubric?.length);
     for (const path of Object.keys(scenario.fixture ?? {})) validateFixturePath(path);
     for (const [destination, source] of Object.entries(scenario.fixtureFiles ?? {})) {
@@ -242,7 +251,7 @@ async function main() {
   const adapterPath = join(cache, `runner-${provider}.mjs`);
   await build({
     stdin: {
-      contents: `export { ${provider === 'claude' ? 'ClaudeCodeRunner' : 'CodexRunner'} as Runner } from './src/agents/${provider}.ts';`,
+      contents: `export { ${provider === 'claude' ? 'ClaudeCodeRunner' : 'CodexRunner'} as Runner } from './src/agents/${provider}.ts'; export { applyPlaceholders } from './src/core/prompt-resolver.ts'; export { executionContext } from './src/core/task-plan.ts'; export { taskPlanSchema } from './src/schemas.ts';`,
       resolveDir: packageRoot,
       loader: 'ts',
     },
@@ -253,7 +262,9 @@ async function main() {
     outfile: adapterPath,
     logLevel: 'silent',
   });
-  const { Runner } = await import(pathToFileURL(adapterPath));
+  const { Runner, applyPlaceholders, executionContext, taskPlanSchema } = await import(
+    pathToFileURL(adapterPath)
+  );
   const runner = new Runner();
   const versionCommand = runner.versionCommand();
   let version;
@@ -285,7 +296,8 @@ async function main() {
     try {
       const installed = join(root, provider === 'claude' ? '.claude/skills' : '.agents/skills');
       await mkdir(installed, { recursive: true });
-      const wanted = scenario.kind === 'behavior' ? [scenario.skill] : names;
+      const cliFixture = scenario.cliReview ?? scenario.cliExecute;
+      const wanted = cliFixture ? [] : scenario.kind === 'behavior' ? [scenario.skill] : names;
       const catalogue = [];
       const hashes = {};
       for (const name of wanted) {
@@ -306,17 +318,59 @@ async function main() {
         hashes[name] = digest.digest('hex');
       }
       const gitBefore = await prepareGitFixture(root, scenario);
-      const prompt =
+      let prompt =
         scenario.kind === 'behavior'
           ? `Read ${join(installed, scenario.skill, 'SKILL.md')} and perform the following task in this disposable fixture repository. Use only this installed Skill, not personal copies or sibling skills. The Issue Flow CLI is unavailable for this scenario. Do not contact external services or mutate anything outside this repository.\n\n${scenario.prompt}`
           : `Select the best Skill for the request from this catalogue of names/descriptions, or null if none fits. This is a selection evaluation: do not execute the request or use tools. Return only JSON {"skill": "name"} or {"skill": null}.\n${JSON.stringify(catalogue.map(({ name, description }) => ({ name, description })))}\nRequest: ${scenario.prompt}`;
+      if (cliFixture) {
+        const path = `packages/issue-flow/prompts/${scenario.cliExecute ? 'execute' : 'review'}.md`;
+        const template = baseline
+          ? execFileSync('git', ['show', `${baseline}:${path}`], {
+              cwd: repoRoot,
+              encoding: 'utf8',
+            })
+          : await readFile(join(repoRoot, path), 'utf8');
+        hashes.cliPrompt = createHash('sha256').update(template).digest('hex');
+        const vars = Object.fromEntries(
+          [...template.matchAll(/__[A-Z0-9_]+__/g)].map(([key]) => [key, '']),
+        );
+        prompt =
+          applyPlaceholders(template, {
+            ...vars,
+            __ISSUE_NUMBER__: '42',
+            __ISSUE_SOURCE__: 'local',
+            __ISSUE_URL__: join(root, cliFixture.issueFile),
+            __ISSUE_TITLE__: 'Handle empty input',
+            __ISSUE_BODY__: scenario.fixture[cliFixture.issueFile],
+            __TASKS_PATH__: join(root, cliFixture.tasksFile),
+            ...(scenario.cliExecute
+              ? {
+                  __PRD_FILE__: join(root, cliFixture.tasksFile),
+                  __EXECUTION_CONTEXT__: JSON.stringify(
+                    executionContext(
+                      taskPlanSchema.parse(JSON.parse(scenario.fixture[cliFixture.tasksFile])),
+                    ),
+                  ),
+                  __BASE_BRANCH__: 'main',
+                  __STORIES_PER_ITERATION__: '1',
+                  __COMMIT_MESSAGE__: 'BUG: <subject>',
+                  __FIX_COMMIT_MESSAGE__: 'BUG: <subject>',
+                  __EXECUTION_SCOPE__: 'Keep pipeline flags unchanged; the CLI owns phase status.',
+                }
+              : {}),
+            __PROGRESS_FILE__: join(root, dirname(cliFixture.tasksFile), 'progress.txt'),
+            __VERIFY_PATH__: join(root, dirname(cliFixture.tasksFile), 'verify.json'),
+          }) +
+          `\n\nUser request: ${scenario.prompt}\nThis is a disposable local-only fixture. Do not contact external services.`;
+      }
       stage = 'harness';
       const run = await runner.run(
         {
           prompt,
           phase: 'review',
           workingDirectory: root,
-          permission: scenario.kind === 'behavior' ? 'workspace' : 'read-only',
+          permission:
+            scenario.kind === 'behavior' && !scenario.cliReview ? 'workspace' : 'read-only',
           allowedTools:
             scenario.kind === 'behavior' ? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'] : [],
           maxTurns: 24,
@@ -348,6 +402,7 @@ async function main() {
       report.results.push({
         id: scenario.id,
         skill: scenario.skill,
+        surface: cliFixture ? 'cli-prompt' : 'skill',
         kind: scenario.kind,
         status: !run.success ? 'HARNESS_ERROR' : failures.length ? 'FAIL' : 'PASS',
         durationMs: Date.now() - started,

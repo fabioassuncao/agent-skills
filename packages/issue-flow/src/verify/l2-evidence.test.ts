@@ -41,10 +41,22 @@ vi.mock('./runner.js', () => ({
   }),
 }));
 
-vi.mock('./reviewer.js', () => ({
+vi.mock('./reviewer.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./reviewer.js')>()),
   runIndependentReview: async () => ({
     status: reviewStatus.value,
-    findings: [],
+    findings:
+      reviewStatus.value === 'failed'
+        ? [
+            {
+              file: 'src/input.ts',
+              line: 4,
+              category: 'bug',
+              severity: 'error',
+              claim: 'Null input crashes',
+            },
+          ]
+        : [],
     independence: 'vendor',
   }),
 }));
@@ -53,7 +65,10 @@ vi.mock('../telemetry/recorder.js', () => ({ attachVerdict: async () => undefine
 vi.mock('../agents/resolve.js', () => ({
   resolveAgentFor: async () => ({ provider: 'claude', model: null }),
 }));
-vi.mock('../utils/git.js', () => ({ getProjectRoot: async () => process.cwd() }));
+vi.mock('../utils/git.js', () => ({
+  getProjectRoot: async () => process.cwd(),
+  getHeadCommit: async () => 'abc123',
+}));
 
 import { VERIFY_FILENAME } from '../storage/paths.js';
 import { runAcceptance } from './run-issue.js';
@@ -82,6 +97,11 @@ describe('L2 evidence', () => {
     expect(evidence.verdict).toBe('failed');
     expect(evidence.level).toBe('L2');
     expect(evidence.executionId).toBe('exec-1');
+    expect(evidence.review.findings[0]).toMatchObject({
+      file: 'src/input.ts',
+      line: 4,
+      claim: 'Null input crashes',
+    });
   });
 
   it('records L2 even when the reviewer agrees with the contract', async () => {
