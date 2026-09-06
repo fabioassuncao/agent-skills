@@ -86,6 +86,11 @@ decisions — never a source of truth for behaviour.
   — its executable companion is
   [`docs/research/2026-09-06-webmux-absorption-prompt.md`](docs/research/2026-09-06-webmux-absorption-prompt.md),
   the master prompt that drives the port one phase at a time
+  — and its follow-up,
+  [`docs/research/2026-09-06-webmux-parity-completion-prompt.md`](docs/research/2026-09-06-webmux-parity-completion-prompt.md):
+  the mutation routes the absorption never wrote, which is why several ported
+  dialogs are unreachable, plus how to close them and how to measure parity
+  against the screen rather than against the modules
 
 - [`docs/research/2026-09-06-graph-repos-deep-dive.md`](docs/research/2026-09-06-graph-repos-deep-dive.md)
   — deep dive into four "graph" repositories (Awesome-Graph-Engineering, RepoGraph,
