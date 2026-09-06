@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -178,6 +178,29 @@ describe('execution slots', () => {
     expect(await acquire({ unitId: '999', target: 'issue 999', maxConcurrent: 5 })).toMatchObject({
       ok: false,
       reason: 'at-capacity',
+    });
+  });
+
+  // `--background` is recorded in the lock, and it is what lets a later run tell
+  // a detached owner from an interactive one. A slot that dropped it would make
+  // every parallel run look interactive.
+  describe('a detached run stays marked as one', () => {
+    it('records it on the project lock', async () => {
+      await acquire({ detached: true });
+      const lock = JSON.parse(await readFile(join(projectDir, 'run.lock'), 'utf-8'));
+      expect(lock.detached).toBe(true);
+    });
+
+    it('records it on the unit lock too', async () => {
+      await acquire({ detached: true, maxConcurrent: 3 });
+      const lock = JSON.parse(await readFile(getUnitRunLockPath(projectDir, '42'), 'utf-8'));
+      expect(lock.detached).toBe(true);
+    });
+
+    it('leaves an interactive run unmarked rather than writing false', async () => {
+      await acquire({ maxConcurrent: 3 });
+      const lock = JSON.parse(await readFile(getUnitRunLockPath(projectDir, '42'), 'utf-8'));
+      expect(lock.detached).toBeUndefined();
     });
   });
 

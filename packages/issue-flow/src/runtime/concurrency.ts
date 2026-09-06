@@ -52,6 +52,13 @@ export interface AcquireExecutionSlotInput {
   target: string;
   /** From `runtime.maxConcurrent`. Default 1. */
   maxConcurrent?: number;
+  /**
+   * `--background`. Recorded in the lock so a later run can tell a detached
+   * owner from an interactive one, which is what decides whether reclaiming it
+   * is a recovery or a collision. Dropping it here would make every parallel
+   * run look interactive.
+   */
+  detached?: boolean;
 }
 
 export type AcquireExecutionSlotResult =
@@ -97,6 +104,7 @@ export async function acquireExecutionSlot(
   if (ceiling <= 1) {
     const result: AcquireRunLockResult = await acquireRunLock(input.projectRunLockFile, {
       target: input.target,
+      ...(input.detached === undefined ? {} : { detached: input.detached }),
     });
     return result.ok
       ? { ok: true, handle: result.handle, lockFile: input.projectRunLockFile, scope: 'project' }
@@ -108,7 +116,10 @@ export async function acquireExecutionSlot(
 
   const lockFile = getUnitRunLockPath(input.projectDir, input.unitId);
   await mkdir(dirname(lockFile), { recursive: true });
-  const result = await acquireRunLock(lockFile, { target: input.target });
+  const result = await acquireRunLock(lockFile, {
+    target: input.target,
+    ...(input.detached === undefined ? {} : { detached: input.detached }),
+  });
   return result.ok
     ? { ok: true, handle: result.handle, lockFile, scope: 'unit' }
     : { ok: false, reason: 'owned', owner: result.owner, lockFile };
