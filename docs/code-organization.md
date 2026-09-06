@@ -42,18 +42,29 @@ The CLI loads its own prompts and invokes configured agent processes. It owns
 the persistent execution lifecycle: sessions, locks, queues, independent reviewer
 routing, recovery and telemetry. It has no runtime dependency on installed Skills.
 See [source and distribution](skills.md#source-and-distribution) for generation
-ownership and checks; `build` compiles the CLI and does not perform `skills:sync`.
+ownership and checks; `build` runs `skills:sync` and then `build:cli` (tsup). CI checks committed artifacts before either step.
 
 | Interface | Execution and state |
 |---|---|
 | [Agent Skills](../skills/README.md) | Current host's tools and permissions; artifacts default to the consumer project's `issues/<id>/`; resumption verifies artifacts and Git evidence |
 | [CLI](cli.md) | Agent process orchestration; global storage under `~/.issue-flow`, canonical SQLite data and session/telemetry projections |
 
-These are separate lifecycles. Shared task formats do not make sessions
+These are separate runtime state machines implementing shared methodology. Shared task formats do not make sessions
 transferable; a run cannot be resumed across interfaces. Skills can optionally
 consult an installed CLI for policy discovery, with direct discovery as fallback.
 See [Skill limits](../skills/README.md#artifacts-resumption-and-limits) and
 [CLI storage](storage.md).
+
+## Canonical contracts
+
+- `src/schemas.ts`: task-plan and issue-metadata shape.
+- `src/core/task-plan.ts`: dependency graph validation, eligible-story selection and compact inspection.
+- `src/core/artifact-files.ts`: explicit-file reads, parsing and hash/schema checks; no project resolution or storage initialization.
+- `src/core/workflow-contract.ts`: phase order, phase-to-state mapping and completion evidence. The builder renders its table into the portable plan reference; the CLI imports its constants directly.
+- `src/verify/review-result.ts`: strict issue-review result parsing. The authored protocol remains in `skills-src/_shared/issue-review-result.md` and is composed into both consumers.
+- `src/commands/run/closure.ts`: CLI-owned authorization, provider confirmation and resumable closure. This is not portable Skill session state.
+
+The existing `core`, `issues`, `conventions`, `scaffold` and `schemas.ts` locations are the shared layer. No new package, generic workflow engine or CLI-generated TypeScript directory is needed. The build packages pure code for independent consumers; it does not translate prose into executable decisions. Context inspection supplies facts; an agent still decides architecture, scope and whether evidence meets a requirement.
 
 ## Directories under `src/`
 

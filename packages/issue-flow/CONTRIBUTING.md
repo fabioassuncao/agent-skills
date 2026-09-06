@@ -89,7 +89,7 @@ runtime dependencies and does not modify your global installation.
 # Reject stale generated resources before packing
 npm run skills:check
 
-# Generate the tarball without publishing (runs prepack -> npm run build)
+# Generate the tarball without publishing (prepack checks drift, then builds)
 npm pack
 
 # Check the contents: dist/, prompts/, web/public/, package.json, README, LICENSE
@@ -128,14 +128,15 @@ machine by a maintainer with publish rights on the `issue-flow` npm package.
   for the new version is the body of the GitHub Release.
 - The quality gate lives in the manifest, not in CI: `npm publish` runs
   `prepublishOnly` (Skill drift + isolation tests + lint + typecheck + unit tests) and then `prepack`
-  (`npm run build`). A failing check aborts the publish, and `dist/` is always
+  (`skills:check`, then `npm run build`). A failing check aborts the publish, and `dist/` is always
   rebuilt from the current sources — a stale build cannot be published.
-- **`npm run build` and `npm pack` do not sync Skill or prompt sources.** Run
-  `skills:sync` and commit the derived artifacts before the release. `npm pack`
-  runs `prepack`, but not `prepublishOnly`; run `skills:check` explicitly when
-  testing a tarball. Publishing the npm CLI does not install or release Skills
+- **`npm run build` regenerates Skills and prompts, then compiles the CLI.**
+  `npm pack` runs `prepack`, which checks drift before building; stale committed
+  artifacts therefore fail packaging rather than being silently repaired.
+  Regenerate and commit sources and artifacts together before release. Packing
+  does not run `prepublishOnly`. Publishing the npm CLI does not install Skills
   into a user's agent; Git-based Skill distribution follows the selected
-  repository revision.
+  repository revision. See the [generation contract](../../docs/skills.md#sync-check-and-test).
 
 ### Versioning (SemVer)
 

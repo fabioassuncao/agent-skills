@@ -15,7 +15,7 @@ capabilities; start with Agent Skills for work in your current coding agent.
 
 ## Requirements and installation
 
-Run inside a Git repository with:
+For pipeline execution, run inside a Git repository with:
 
 - **Node.js ≥22.13.0**, npm and Git available in `PATH`.
 - **An installed, authenticated coding agent.** Claude Code is the default;
@@ -33,6 +33,9 @@ npm install -g issue-flow
 
 Examples below use `issue-flow` after global installation. Prefix it with `npx`
 when using the package directly. Neither installation method installs Skills.
+Deterministic artifact inspection needs Node.js and the CLI package, with no
+coding agent, Git repository or GitHub authentication; see
+[Inspect artifacts](#inspect-artifacts-without-an-agent).
 
 ## First run
 
@@ -48,7 +51,9 @@ issue-flow run 42     # plan, implement, review and create the PR
 missing conventions; it preserves existing files. See
 [repository initialization](conventions.md#initializing-a-repository).
 
-The CLI creates a branch by default. When the run finishes, inspect its verdict,
+The CLI creates a branch by default and leaves the issue open unless closure was
+explicitly selected for this execution. See [issue closure](commands.md#explicit-issue-closure)
+for `--close-issue`, revocation and retry behavior. When the run finishes, inspect its verdict,
 commits, checks and PR. A failed or blocked phase needs attention before the
 whole task can be considered complete. For offline input, start with
 [local issue creation and selection](issues.md#local-issue-format) and use
@@ -64,14 +69,17 @@ flowchart TB
     D --> V{"acceptance<br/>contract"}
     V -- "a fatal check failed" --> X["stop"]
     V -- "passed / unverified" --> R["review<br/>contract + LLM verdict"]
-    R --> F{"PASS?"}
+    R -- "malformed result" --> X
+    R -- "valid result" --> F{"PASS?"}
     F -- "no, cycles left" --> D
     F -- "no, exhausted" --> X
     F -- "yes" --> G["pr"]
     G --> J{"--pr-review?"}
     J -- "yes" --> K["pr-review"]
     J -- "no" --> L["done"]
-    K --> L
+    K --> M{"Approved?"}
+    M -- "yes" --> L
+    M -- "changes requested" --> N["report blockers; leave work pending"]
 ```
 
 | Phase | What it produces |
@@ -84,8 +92,11 @@ flowchart TB
 | `pr` | The Pull Request, with a summary and a test plan |
 | `pr-review` | Optional. A whole-PR review — diff, architecture, risks, coverage |
 
-A failing `review` triggers correction cycles (re-execute + re-review) up to
-`maxCorrectionCycles` (3 by default). `analyze` exists as a standalone
+A valid failing `review` triggers correction cycles (re-execute + re-review) up to
+`maxCorrectionCycles` (3 by default). Missing or malformed results stop the phase;
+no approval or technical findings are inferred. Planning and execution validate
+[story prerequisites](storage.md#tasksjson) before invoking implementation.
+`analyze` exists as a standalone
 deep-analysis command and is deliberately **not** part of `run`.
 
 Each phase can be run on its own — `issue-flow prd 42`, `issue-flow plan 42` — and
@@ -106,6 +117,19 @@ Pipeline artifacts are machine-local under
 task plan and session projections. The repository's code changes and commits
 remain in the working tree. For SQLite storage, project identity, schemas,
 telemetry and legacy migration, see [Storage and artifacts](storage.md).
+
+## Inspect artifacts without an agent
+
+```bash
+issue-flow artifacts plan /path/to/tasks.json --json
+issue-flow artifacts issue /path/to/issue.md /path/to/metadata.json --json
+```
+
+These commands inspect explicit files without creating or reconciling CLI state.
+The plan response includes the next eligible story and blocking dependencies.
+See the [artifact command contract](commands.md#artifacts--deterministic-explicit-file-inspection)
+for schemas, errors and exit codes. `status --json` instead reports CLI-owned run
+state and retains the CLI's storage-resolution behavior.
 
 ## Monitor and resume a run
 

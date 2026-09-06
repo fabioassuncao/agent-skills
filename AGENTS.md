@@ -58,6 +58,9 @@ decisions — never a source of truth for behaviour.
 - [`docs/research/2026-09-05-skills-portability.md`](docs/research/2026-09-05-skills-portability.md)
   — complete Skill audit, architecture and measured validation
 
+- [`docs/research/2026-09-05-shared-workflow-contracts.md`](docs/research/2026-09-05-shared-workflow-contracts.md)
+  — Skills/CLI audit, external comparisons, shared contracts and benchmark
+
 ## Developing
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment, issue-to-PR contribution

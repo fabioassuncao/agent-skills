@@ -12,6 +12,15 @@ Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
 the fact, so they list what changed rather than explaining why. Everything from
 0.9.0 onwards was written at release time.
 
+## Unreleased
+
+- Share dependency validation and next-story inspection between standalone Skill helpers and the CLI; add `artifacts plan|issue --json`.
+- Enforce story prerequisites before agent execution and reject malformed review results without inferring approval.
+- Keep execution and pipeline delivery completion distinct; preserve current-branch execution.
+- Require explicit `--close-issue` for issue closure, persist/revoke authorization and retry confirmed closure safely. Legacy runs leave issues open.
+- Keep local generation free of GitHub discovery; fix `status --json` output.
+- Make `build` generate Skills/prompts and compile the CLI; retain the pre-generation drift gate and add generated workflow provenance.
+
 ## [Unreleased]
 
 ### Added

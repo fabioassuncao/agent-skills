@@ -276,6 +276,13 @@ or branches. Artifact history alone does not authorize publication. A new manual
 planning. Corrections are bounded to three rounds by default; invalid findings
 must be rejected with evidence.
 
+Task prerequisites and the compact plan-inspection helper are documented in the
+bundled [plan format](execute-tasks/references/plan-format.md). The helper validates
+structure and reports eligible work; the agent still evaluates requirements and
+test evidence. It runs independently of the CLI. Use documented helper operations
+and load their help only when needed; reuse already established policy until
+relevant scope, instructions, configuration or checkout changes.
+
 This runs in the current agent. It does not provide transactional locks or an
 independently isolated reviewer. Those runtime capabilities belong to the
 [experimental CLI](../docs/cli.md).
