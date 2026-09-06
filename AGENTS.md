@@ -119,6 +119,7 @@ the code, and was learned the hard way.
 | Runtime modes (headless / interactive / sandbox) | [`packages/issue-flow/src/runtime/AGENTS.md`](packages/issue-flow/src/runtime/AGENTS.md) |
 | Worktree isolation, its binding and its rollback | [`packages/issue-flow/src/runtime/worktree/AGENTS.md`](packages/issue-flow/src/runtime/worktree/AGENTS.md) |
 | The tmux multiplexer: sessions, windows, panes and the two defences | [`packages/issue-flow/src/runtime/tmux/AGENTS.md`](packages/issue-flow/src/runtime/tmux/AGENTS.md) |
+| The Docker sandbox: the container per branch and its exact `docker run` args | [`packages/issue-flow/src/runtime/sandbox/AGENTS.md`](packages/issue-flow/src/runtime/sandbox/AGENTS.md) |
 | Getting text into an agent running as a TUI | [`packages/issue-flow/src/runtime/terminal/AGENTS.md`](packages/issue-flow/src/runtime/terminal/AGENTS.md) |
 | The link between a conversation and what it is for | [`packages/issue-flow/src/agents/session/AGENTS.md`](packages/issue-flow/src/agents/session/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |

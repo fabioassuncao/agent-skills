@@ -1740,6 +1740,77 @@ export async function deleteAgentSession(
   }, context.databaseOptions);
 }
 
+/**
+ * Record — or clear — that a person took over a run.
+ *
+ * `null` clears it. Nothing else writes these columns, so a hold is only ever
+ * set by a takeover and only ever released explicitly.
+ */
+export async function saveRunHumanHold(
+  context: PlanRepositoryContext,
+  runId: string,
+  hold: { since: string; reason: string } | null,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare(
+        'UPDATE runs SET human_hold_at = ?, human_hold_reason = ? WHERE id = ? AND project_id = ?',
+      )
+      .run(hold?.since ?? null, hold?.reason ?? null, runId, context.projectId);
+  }, context.databaseOptions);
+}
+
+export async function loadRunHumanHold(
+  context: PlanRepositoryContext,
+  runId: string,
+): Promise<{ runId: string; since: string; reason: 'takeover' | 'requested' } | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare('SELECT human_hold_at, human_hold_reason FROM runs WHERE id = ? AND project_id = ?')
+      .get<{ human_hold_at: string | null; human_hold_reason: string | null }>(
+        runId,
+        context.projectId,
+      );
+    if (row === undefined || row.human_hold_at === null) return null;
+    return {
+      runId,
+      since: row.human_hold_at,
+      // A reason written by a newer release is narrowed to the one that is
+      // always true of a hold: somebody took over.
+      reason: row.human_hold_reason === 'requested' ? 'requested' : 'takeover',
+    };
+  }, context.databaseOptions);
+}
+
+/** Runs a person currently holds, newest first. */
+export async function listHeldRuns(input: {
+  projectId: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+}): Promise<Array<{ runId: string; issueId: string | null; since: string; reason: string }>> {
+  return withDatabase(
+    (database) =>
+      database
+        .prepare(
+          `SELECT id, issue_id, human_hold_at, human_hold_reason FROM runs
+            WHERE project_id = ? AND human_hold_at IS NOT NULL
+            ORDER BY human_hold_at DESC`,
+        )
+        .all<{
+          id: string;
+          issue_id: string | null;
+          human_hold_at: string;
+          human_hold_reason: string | null;
+        }>(input.projectId)
+        .map((row) => ({
+          runId: row.id,
+          issueId: row.issue_id,
+          since: row.human_hold_at,
+          reason: row.human_hold_reason ?? 'takeover',
+        })),
+    input.databaseOptions,
+  );
+}
+
 export async function loadExecution(
   context: PlanRepositoryContext,
   id: string,
@@ -1842,4 +1913,66 @@ export async function exportStoredState(
       tables.map((table) => [table, database.prepare(`SELECT * FROM ${table}`).all()]),
     );
   }, options);
+}
+
+/* ── audit log ──────────────────────────────────────────────────────────── */
+
+export interface StoredAuditEntry {
+  action: string;
+  payload: unknown;
+  occurredAt: string;
+}
+
+/**
+ * Record a fact worth being able to explain later.
+ *
+ * `audit_log` already backed the branch history; reconciliation needs the same
+ * append for a different reason (§30): when the outside world contradicts a row
+ * and a session is closed as `orphaned`, the closure must leave a trace. A
+ * status that changed with no record of why is indistinguishable from a bug,
+ * and the row itself only carries the new value, never the reason.
+ */
+export async function appendAuditEntry(
+  context: PlanRepositoryContext,
+  action: string,
+  payload: unknown,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      const occurredAt = new Date().toISOString();
+      ensureStoredProject(database, context, occurredAt);
+      database
+        .prepare(
+          `INSERT INTO audit_log (id, project_id, occurred_at, action, payload_json)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(randomUUID(), context.projectId, occurredAt, action, JSON.stringify(payload));
+    });
+  }, context.databaseOptions);
+}
+
+/** Audit entries of one project, oldest first. `action` filters by exact match. */
+export async function listAuditEntries(
+  context: PlanRepositoryContext,
+  filter: { action?: string } = {},
+): Promise<StoredAuditEntry[]> {
+  return withDatabase((database) => {
+    const clauses = ['project_id = ?'];
+    const values: string[] = [context.projectId];
+    if (filter.action !== undefined) {
+      clauses.push('action = ?');
+      values.push(filter.action);
+    }
+    return database
+      .prepare(
+        `SELECT action, payload_json, occurred_at FROM audit_log
+          WHERE ${clauses.join(' AND ')} ORDER BY occurred_at, rowid`,
+      )
+      .all<{ action: string; payload_json: string; occurred_at: string }>(...values)
+      .map((row) => ({
+        action: row.action,
+        payload: JSON.parse(row.payload_json) as unknown,
+        occurredAt: row.occurred_at,
+      }));
+  }, context.databaseOptions);
 }

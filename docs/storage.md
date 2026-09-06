@@ -119,6 +119,46 @@ the directory does not make it a different one. `runtime.env` stays a file under
 the worktree's own git directory, because `bash` and the lifecycle hooks read it
 and neither can query a database.
 
+### `projects` — the project registry
+
+The row that anchors every foreign key is also the **project registry**: the one
+list the CLI, the server, the dashboard and the runtime read.
+
+| Column | Meaning |
+|---|---|
+| `id` | The [project id](#project-id). The identity, stable across moving the checkout and identical in two clones |
+| `root` | Where the repository currently is. A **locator**, updated when it moves — never the identity |
+| `name` | Dashboard label. Cosmetic |
+| `added_at` | When the project first entered the registry. Set once, never rewritten |
+| `last_seen_at` | Last time it was opened or executed. Orders every list |
+| `source` | `registered` · `discovered` · `ephemeral` |
+
+`source` is what keeps direct mode intact:
+
+| Situation | `source` | In the dashboard | Persisted |
+|---|---|---|---|
+| `issue-flow run` in a repository nobody registered | `discovered` | yes, ordered by recency | yes — the row already existed |
+| `issue-flow project add` or the dashboard button | `registered` | yes, in the curated list | yes |
+| `issue-flow serve` standing inside an unregistered repository | `ephemeral` | yes, for this server only | **no** |
+| `issue-flow project rm` | back to `discovered` | recent | history preserved |
+
+Promotion and demotion **never destroy history**: they change one column. Runs,
+artifacts and telemetry hang off `id`, so `project rm` removes the project from
+the curated list and nothing else. Deleting for real belongs to a separate,
+explicitly destructive command.
+
+`ephemeral` is never written. With a registry shared by every server on the
+machine, persisting the directory a server happens to sit in would make *other*
+servers start serving that repository after their next restart.
+
+There is no `projects.json`. A second state file next to the database would need
+its own consistency story for the same facts.
+
+The URL prefix a project is served under (`/web`, `/web-2`) is **derived**, never
+stored: it comes from the directory basename, with `-2`, `-3`… on collision and a
+reserved list (`api`, `ws`, `assets`, `health`) so a project can never shadow a
+hub route. Storing it would create a second identity competing with `id`.
+
 ## One issue directory
 
 Everything a single issue accumulates. Nothing here is created before something

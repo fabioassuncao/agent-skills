@@ -160,7 +160,54 @@ alive: `true` (default) for a server bound inline in a pipeline process,
 `false` for the standalone `web serve` process, which has nothing else to do
 — staying alive for as long as the server is bound *is* the job.
 
+## Several projects on one server (`projects-api.ts`, `router.ts`)
+
+The server is a **consumer** of the project registry
+(`storage/projects/registry.ts`), never its owner: the CLI writes the same table
+with no server running, and this process reads it. `ProjectManager`
+(`runtime/project-manager.ts`) owns the in-memory set — one `ProjectRuntime` per
+project, addressed by a prefix derived from the directory name and never stored.
+
+**The prefix is resolved per request** (`resolveProjectRoute`), not by
+republishing a route map. `Bun.serve().reload()` — what the upstream used —
+does not exist in `node:http`, and resolving at request time removes the whole
+class of reload races. Three properties fall out of it and must stay:
+
+- an **unprefixed** path behaves exactly as it always did, so a single-project
+  user never has to know a prefix exists;
+- an **unknown** first segment falls through to the hub route table, so a typo
+  answers the hub's own 404 rather than a confusing "project not found";
+- a **reserved** segment (`api`, `ws`, `assets`, `health`) is never treated as a
+  project, so no project can shadow a hub route however it was registered.
+
+`SessionSource` gained `projectOf(sessionId)` for this — sessions were always
+keyed by project in SQLite, the HTTP surface simply had no way to ask.
+
+`projects-api.ts` returns `{ status, body }` instead of writing to a
+`ServerResponse`, so the whole surface is testable without a socket. Its four
+`POST /api/projects` paths are the upstream's, **in the upstream's order**, and
+each exists for a case the others get wrong: already served → answer now; setup
+in flight → tell the client to poll, never start a second one; already
+configured → serve it directly; nothing configured → start the scaffold
+asynchronously and report the phases on `GET /api/project-inits`. A server with
+no project surface (the monitor the pipeline binds inline) answers an empty list
+rather than 404, so one dashboard build serves both.
+
+Both mutating routes require a loopback binding, exactly like the configuration
+writes: adding a project reaches the filesystem (ADR-10).
+
+When per-project sockets exist (the terminal transport, phase 8), `removeProject`
+must close them **before** the project leaves the map — a note in the code marks
+the spot.
+
 ## `commands/web.ts`: `web serve` / `web stop`
+
+`issue-flow serve` (`commands/serve.ts`) is the canonical name; `web serve` is
+an alias delegating to the same body, because a third way to bind is exactly
+what this module exists to prevent. Its boot order matters: **bind first**, so
+the dashboard answers while the projects load; then the curated projects,
+skipping (never aborting on) any that fail to materialize; then the current
+repository, ephemerally.
 
 `runWebServe()` is the body of `issue-flow web serve` — the detached entry
 point `ensureWebMonitor()` spawns. It is silent by design (`info`/`warn`

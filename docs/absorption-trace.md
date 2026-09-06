@@ -905,3 +905,340 @@ Total: **49 casos** (upstream: 10 de `terminal-adapter.test.ts`).
 `node-pty` em **`optionalDependencies`**, com o fallback `script`/`python3` como caminho
 garantido; nesta máquina o `node-pty` instala e falha em `pty.fork`, que é precisamente o
 cenário que o fallback cobre.
+
+---
+
+### Reconciliação de estado (Fase 11)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/reconciliation-service.ts` @ d8c9d5f — 263
+linhas · `.references/webmux-main/backend/src/services/session-restore-service.ts` @ d8c9d5f
+— 117 linhas.
+
+**Comportamento existente**
+- `ReconciliationService.reconcile()` reconstrói o `ProjectRuntime` **sob demanda**, com
+  janela de frescor de 500 ms e uma promise `inFlight`: uma chamada que chega durante um
+  passo entra nesse passo em vez de abrir um segundo.
+- Uma única leitura agregada de `tmux list-windows -a` por passo; a janela de cada worktree
+  é encontrada por busca em memória sobre essa lista (ADR-13).
+- `mapWithConcurrency(…, 4)` limita o único trabalho que é genuinamente por worktree
+  (`readWorktreeStatus`), para que uma árvore com dezenas de worktrees não abra dezenas de
+  processos de git de uma vez.
+- **Remove da projeção tudo que não foi visto** — a projeção nunca acumula lixo.
+- `saveOpenSessionsSnapshot()` nunca sobrescreve o snapshot com um conjunto vazio: depois
+  de um reboot o servidor sobe antes de qualquer sessão ser reaberta, e escrever a lista
+  vazia apagaria exatamente o dado de que o `restore` precisa.
+- `computeOpenBranches()` ignora janelas de **outras** sessões tmux: o servidor divide o
+  socket com as sessões do próprio usuário, e uma janela homônima em outra sessão não é
+  nossa.
+- Casos especiais que NÃO podiam se perder: o `try/catch` em volta de `listWindows()` (sem
+  tmux = nenhuma janela, não uma falha do passo); a recusa de chamar git contra um caminho
+  que o próprio git já não lista (o crash `ENOENT` que o teste upstream
+  *"ignores stale worktree registrations whose directory no longer exists"* documenta); a
+  janela de frescor **e** a promise `inFlight` como mecanismos distintos — a primeira evita
+  repetição, a segunda evita concorrência.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/runtime/reconcile.ts` — estratégia: **ADAPT**.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `ProjectRuntime` (projeção com `meta.json` como fonte) → projeção em memória alimentada por `createWorktreeManager().list()` | O vínculo durável já vive em SQLite (§45.2-G). O join git ⋈ banco — incluindo o estado `orphaned` — já está resolvido no worktree manager; refazê-lo aqui seria a segunda implementação que o invariante 13 proíbe |
+| `readWorktreeMeta(gitDir)` por worktree → `StoredWorktree` lido em **uma** consulta | Um `readFile` por entidade é o mesmo erro de forma que o ADR-13 combate no tmux |
+| `PortProbe` e `buildServiceStates` | Ficaram fora: `src/runtime/services.ts` é da Fase 10 e é quem responde por saúde de serviço. A reconciliação reporta as **portas alocadas** direto do vínculo, porque §30 dá a autoridade sobre alocação ao SQLite; sondar um socket diz que algo escuta, não a qual alocação pertence |
+| `DockerGateway.findContainer(branch)` → porta `ContainerSource.listRunningContainerNames()` | `findContainer` é um `docker ps` por branch. A reconciliação pede a lista inteira uma vez e filtra em memória, reusando `containerNamePrefix`/`selectBranchContainers` do módulo de sandbox (ADR-13) |
+| Docker indisponível → `container: null` em vez de "nenhum container" | Um daemon que não responde não é prova de que os containers morreram. `null` diz *desconhecido*; a alternativa reportaria tudo morto a cada restart do Docker |
+| `readOpenSessionsState`/`writeOpenSessionsState` (`Bun.write` direto) → `writeFileAtomic` | §45.3: escrita atômica é garantia do Issue Flow. Um crash no meio da escrita não pode deixar um arquivo truncado onde o restore espera uma lista |
+| `open-sessions.json` em `<gitdir>/webmux/` → `<gitdir>/issue-flow/open-sessions.json` | Mesmo lugar dos demais artefatos de runtime, o que torna impossível commitar estado de execução (invariante 17) |
+| `buildProjectSessionName(repoRoot)` (hash do path) → `buildProjectSessionName(projectId)` | Decisão já tomada em `src/runtime/tmux/names.ts` (§13, mudança 3): a identidade sobrevive a mover o diretório |
+| Sessão de agente ganha `status` e ação de recuperação | O upstream não tem `AgentSession` persistida. Aqui a divergência entre a linha viva e a janela morta é o que produz `orphaned` (ADR-08), com registro em `audit_log` |
+| `reconcile()` retorna `ReconcileResult` em vez de `void` | O upstream muta um objeto compartilhado; aqui o passo é uma função sobre a projeção, e quem chama precisa saber se o passo rodou, o que foi orfanado e o que saiu da projeção |
+| `appendAuditEntry`/`listAuditEntries` acrescentados a `src/storage/db/repository.ts` | §30 exige que a sessão órfã seja "encerrada e registrada em `audit_log`". A tabela já existia (usada pelo histórico de branch); faltava o append genérico. Aditivo — nenhuma função existente mudou |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| `buildServiceStates()` + `PortProbe` | Responsabilidade de `src/runtime/services.ts` (Fase 10). Portar aqui produziria uma segunda sonda de porta (invariante 13) |
+| `readWorktreePrs()` / `prs` na projeção | A camada de PR já existe em `src/issues/github/` com cache ETag (Fase 14). A reconciliação não é o lugar de uma terceira leitura de `gh` |
+| `tabs`, `activeTabId`, `oneshot`, `label`, `agentTerminalStale` do `WorktreeMeta` | São campos da UI do upstream. Os que sobrevivem já vivem em `StoredWorktree`; a projeção expõe o vínculo inteiro em vez de recopiar campo a campo |
+| `makeUnmanagedWorktreeId(path)` (`unmanaged:<path>`) | Um id sintético chaveado por path é exatamente o que §47.2 rejeita. Um worktree que o banco nunca vinculou aparece com `worktreeId: null` e `state: 'unmanaged'` — a ausência do vínculo é a informação, e inventar um id a esconderia |
+| `startSessionSnapshotMonitor()` (o loop de 30 s) | `startSerializedInterval` já é a primitiva única de loop periódico (`src/utils/async.ts`, §45.2-J) e `saveOpenSessionsSnapshot` é a função que o loop chamaria. Quem liga o monitor é a fase que possui o servidor; um segundo loop aqui não teria dono |
+| `resolveBranch()` com fallback para `basename(entry.path)` | O manager de worktree já filtra entradas sem branch antes de listar; o fallback do upstream existe porque lá a lista bruta chega até a reconciliação |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/reconcile.test.ts` | `__tests__/reconciliation-service.test.ts` (4 casos) + `__tests__/session-restore-service.test.ts` (6 casos), `bun:test` → `vitest`, mais a matriz de §30 | 40 | ✅ |
+| `src/runtime/reconcile.integration.test.ts` | novo — servidor tmux real, `it.runIf` com a sonda síncrona no topo do módulo | 2 | ✅ |
+
+Os quatro casos de `reconciliation-service.test.ts` reaparecem como
+*"takes the set of worktrees from git…"* + *"takes window liveness and pane count from tmux"*
+(o caso de reconciliação completa, dividido por autoridade), *"never probes git against a
+path git no longer lists"* (o `ENOENT`), *"takes the set of worktrees from git, including
+the ones nothing bound"* (o id sintético, agora `worktreeId: null`) e os três casos de
+*"freshness window and coalescing"* (que o upstream escreve como um só). Os seis de
+`session-restore-service.test.ts` reaparecem inteiros em *"open sessions snapshot"* — menos
+o caso *"excludes the project root worktree and bare entries"*, cuja exclusão já é feita
+por `createWorktreeManager().list()` e é testada lá.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| `reconcile()` com N=21 worktrees/janelas | ≤ 50 ms **e O(1) em N** (§35) | **13 ms** (melhor de 9, máquina ociosa; 23 ms mediana) · N=1: **5 ms**. Sob a suíte de integração inteira em paralelo: 12 ms → 14 ms |
+| Chamadas a `tmux list-windows -a` por passo | 1, independentemente de N (ADR-13) | **1** com N=1 e **1** com N=40 |
+| Chamadas a `docker ps` por passo | 1, independentemente de N (ADR-13) | **1** com N=25 |
+
+---
+
+### Profiles e panes (Fase 10)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/config.ts` @ d8c9d5f — 682 linhas, das quais
+a fatia de profiles/panes: `DEFAULT_PANES` (`:41`), `parsePane`/`parsePanes` (`:127–:170`),
+`parseMounts` (`:172`), `parseProfile`/`parseProfiles` (`:187–:222`), a família
+`clonePanes`/`cloneMounts`/`cloneProfile`/`cloneProfiles` (`:84–:110`),
+`getDefaultProfileName` (`:334`), `isDockerProfile` (`:330`) e `expandTemplate` (`:680`).
+Os tipos vêm de `domain/config.ts` (`ProfileConfig`, `PaneTemplate`, `MountSpec`).
+
+**Comportamento existente**
+- Um profile responde a três perguntas: qual runtime (`host`/`docker`), como é a janela
+  (`panes`) e o que o agente pode fazer (`yolo`). Nada mais.
+- **Nenhum parser lança.** Pane inutilizável é descartado, profile inutilizável cai no
+  default, seção que não é objeto é lida como ausente. Um erro de digitação custa um aviso,
+  nunca a execução.
+- **Toda leitura devolve cópia nova.** O upstream tem um teste exatamente para isso: dar
+  `push` no `envPassthrough` devolvido por uma carga não pode aparecer na carga seguinte.
+  Entregar o objeto default compartilhado transforma a mutação de um chamador na
+  configuração de todos.
+- **Um profile chamado `sandbox` assume `runtime: docker`** mesmo sem declarar. É o único
+  nome com tratamento especial no upstream.
+- `planSessionLayout()` é pura e recebe os templates; `ensureSessionLayout()` é a única
+  parte com I/O. A separação é do upstream e foi preservada na Fase 6.
+- Casos especiais que NÃO podem se perder: o pane `kind: command` sem `command` é
+  **descartado** (um pane que abriria um shell onde se esperava um serviço é pior que um
+  pane visivelmente ausente); `yolo: false` não deixa rastro nenhum no profile; a lista de
+  panes vazia volta para o default em vez de produzir uma janela sem panes.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/runtime/profiles.ts` (domínio e parsers) e
+`packages/issue-flow/src/config/runtime.ts` (a escada de precedência) — estratégia: ADAPT
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `yolo: boolean` → `permission?: AgentPermission`, traduzido na leitura | §16 é explícita: o `yolo` do WebMux mapeia para `autonomous` e **não** se introduz um segundo eixo de permissão. §45.3 lista o booleano como a forma degradada que este porte não pode reintroduzir. `permission` explícito vence; `yolo: true` é aceito como sinônimo; `yolo: false` não sobrescreve nada, e um profile sem permissão **preserva a da fase** — um profile descreve uma janela, não amplia o que o agente pode fazer pelas costas da fase |
+| `.webmux.yaml` + overlay `.webmux.local.yaml` → seção `runtime` de `.issue-flow.json` | O repositório já tem uma escada de configuração documentada (`docs/configuration.md`) e um único arquivo de projeto. O que foi portado é o *parsing*; a escada é a do Issue Flow. A semântica de overlay do upstream (profile substituído **inteiro** por nome, nunca campo a campo) sobrevive em `mergeProfileLayers` |
+| `readFileSync` + `yaml.parse` → `readProjectConfigFile()` | Chokepoint único de leitura de configuração do projeto, com o mesmo tratamento de JSON inválido e raiz não-objeto que todas as outras seções |
+| `Bun.spawnSync(["git","rev-parse", …])` de `gitRoot`/`projectRoot` não é portado | `findProjectRootFromCwd()` já resolve a raiz sem spawn, e `src/config/AGENTS.md` proíbe um segundo caminho. Também é a diferença que evita que ler configuração custe um processo |
+| `PaneTemplate`/`PaneKind` continuam em `runtime/tmux/layout.ts` e são reexportados daqui | O tipo já existia (Fase 6) e é o consumidor que o define. Criar um segundo tipo seria a duplicação que o invariante 13 proíbe; mover teria custado uma edição em `layout.ts` sem ganho |
+| `profiles.ts` importa `layout.ts` **apenas como tipo** — nenhum wrapper `planProfileLayout` | O carregador de configuração importa este módulo, e um import de valor arrastaria o gateway tmux e o `execa` para todo boot de CLI. A costura profile → tmux é uma linha no chamador: `planSessionLayout({ templates: profile.panes, … })` |
+| `startupEnvs: Record<string, string \| boolean>` → `startupEnv: Record<string, string>`, convertido na leitura | O upstream guarda o booleano e converte no ponto de uso (`stringifyStartupEnvValue`). O arquivo é um env map consumido por `bash`: tudo vira string de qualquer forma, e carregar as duas representações só cria um segundo lugar onde a conversão pode divergir |
+| Aviso explícito quando o profile pedido não existe | Uma execução que usou `default` em silêncio porque alguém escreveu `sandox` é uma execução cujo isolamento ninguém teve |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| `agents` (agentes custom por template), `integrations.linear`, `integrations.github`, `workspace.*`, `lifecycleHooks`, `autoName`, `oneshot` de `ProjectConfig` | Não são profiles. `linear` é `DISCARD` explícito (§22); `github` já tem sua seção (`src/config/github.ts`); `lifecycleHooks`, `autoName` e `oneshot` pertencem às Fases 5, 4 e 15; o agente custom por template é §45.2-L e entra por `src/agents/custom.ts`. Portar aqui criaria a segunda implementação que o invariante 13 proíbe |
+| `persistLocalLinearConfig`, `persistLocalGitHubConfig`, `persistLocalCustomAgent`, `removeLocalCustomAgent` | Escrita de configuração pelo servidor, com `Bun.write` (não atômico) num arquivo YAML que este projeto não tem. Nenhuma das quatro pertence a profiles; se a escrita de configuração voltar, volta por `writeFileAtomic` e na fase que a precisar |
+| Rung de configuração global (`~/.issue-flow/config.json`) para `runtime` | Um profile nomeia comandos de pane e imagens de container que só significam algo dentro de um repositório. Mesma decisão já tomada para `web` e `github` |
+| Variável de ambiente para `profiles` e `services` | São estruturas demais para uma variável (o precedente do repositório é `ISSUE_FLOW_RESILIENCE_RETRY`, que é JSON, e é a exceção). Só `ISSUE_FLOW_RUNTIME_PROFILE` existe |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/profiles.test.ts` | `__tests__/setup.test.ts` (fatia de profiles/panes + os 4 casos de `expandTemplate`, `bun:test` → `vitest`) mais os ramos que o upstream não cobria | 39 | ✅ |
+| `src/config/runtime.test.ts` | `__tests__/setup.test.ts` (fatia de `loadConfig`) | 14 | ✅ |
+| characterization **C8** | §34 | — | ✅ |
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| `loadRuntimeConfig` (2 profiles, 1 serviço) | — | **0,86 ms** (mediana de 5) |
+| Boot do CLI (`node dist/cli.js --version`) | ≤ 250 ms | **100 ms** (mediana de 5) — o carregador entra na fachada sem import de valor do tmux |
+
+---
+
+### Troca de profile — C8 (Fase 10)
+
+**WebMux original**
+`.references/webmux-main/backend/src/server.ts` @ d8c9d5f — `PUT /api/worktrees/:name/profile`,
+apoiado em `services/session-service.ts` (`ensureSessionLayout`) e no `meta.json` do worktree.
+
+**Comportamento existente**
+- Gravar o novo profile no `meta.json`, **destruir a janela**, recriá-la com o novo layout e
+  relançar o agente com `launchMode: "resume"` + o `conversationId` do meta.
+- A conversa sobrevive à troca de layout. É a afirmação inteira: o que morre é a janela, não
+  o histórico.
+- Casos especiais que NÃO podem se perder: o nome da janela não muda (é derivado do branch),
+  então todo target construído a partir dele — o attach do terminal inclusive — sobrevive à
+  troca; e o `--resume` usa **o mesmo id**, não "o mais recente".
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/runtime/profiles.characterization.test.ts` e
+`packages/issue-flow/src/runtime/profiles.integration.test.ts`, sobre o
+`ensureSessionLayout(..., { force: true })` que a Fase 6 já deixou pronto e o
+`buildTtyAgentArgv({ launchMode: 'resume', resumeConversationId })` da Fase 7 —
+estratégia: PORT (do comportamento; o código que o realiza já existia)
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| A destruição incondicional da janela vira a opção `force` | §27: o upstream mata a janela em **todo** reattach, o que faz reabrir um worktree matar o agente que trabalhava nele. A Fase 6 separou os três casos (`reattach`/`resume`/`fresh`); a troca de profile é exatamente o caso em que reattachar mostraria o layout antigo, e por isso é o único que pede `force` |
+| `meta.json` → `WorktreeMeta` em SQLite (`profile`, `conversationId`) | §45.2-G: o modelo é do WebMux, o veículo é do Issue Flow. Os dois campos já existiam desde a Fase 5, reservados para esta fase |
+| Comando do agente montado como argv e serializado uma vez na fronteira do tmux | ADR-04. O `--resume '<id>'` aparece com cada elemento citado individualmente, e é isso que o teste afirma |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| O endpoint HTTP `PUT /api/worktrees/:name/profile` | A superfície web é das Fases 8B/8C. O que esta fase entrega é o comportamento por baixo dele, verificável sem servidor |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/profiles.characterization.test.ts` | §34 **C8** | 6 | ✅ |
+| `src/runtime/profiles.integration.test.ts` | §34 **C8** contra tmux real + budget de §35 | 3 | ✅ |
+
+Duas afirmações do par merecem destaque, porque são as que impedem a regressão silenciosa:
+**(a)** um caso prova que a troca *sem* `force` reattacha e mostra o layout anterior — a
+flag não pode ser removida como redundante; **(b)** um caso prova que reabrir o mesmo
+profile devolve **o mesmo `pane_id`**, isto é, o agente lá dentro nunca soube que alguém
+reconectou.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| Troca de profile (`ensureSessionLayout` com `force`, 2 → 3 panes, tmux real) | ≤ 400 ms (§35, upstream 254 ms) | **82 ms** (mediana de 5) |
+
+---
+
+### Serviços e health (Fase 10)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/port-probe.ts` @ d8c9d5f — 57 linhas
+(`BunPortProbe`), e `backend/src/domain/policies.ts:96` — `allocateServicePorts`, função
+pura. O consumo está em `services/reconciliation-service.ts` (`buildServiceStates`, `:20`) e
+a leitura da configuração em `adapters/config.ts` (`parseServices`, `:253`).
+
+**Comportamento existente**
+- `allocateServicePorts` usa **o primeiro serviço com `portStart` como referência**, deduz os
+  slots ocupados a partir dos `meta.allocatedPorts` existentes, acha o menor slot livre e
+  aplica `portStart + slot*portStep` a **todos** os serviços — é o que mantém as portas de um
+  worktree alinhadas entre serviços.
+- Uma porta que não cai na grade da referência (`diff % step !== 0`) é **ignorada**: foi
+  alocada sob outra configuração e não diz nada sobre qual slot desta está livre.
+- O slot começa em **1**, nunca 0: o slot 0 é do próprio repositório.
+- `BunPortProbe.isListening` tenta `127.0.0.1` **e** `::1` **em paralelo**, com timeout de
+  300 ms, e resolve `true` no primeiro sucesso; o `false` exige que as duas famílias tenham
+  respondido.
+- `urlTemplate` é expandido com `expandTemplate()` sobre o env de runtime.
+- Casos especiais que NÃO podem se perder: as **duas** famílias de loopback (um servidor
+  ligado só a `::1` é invisível para uma sonda que só tenta IPv4, e o falso negativo daí é
+  indistinguível de um serviço parado); o teto de 300 ms; e o slot 1 como primeiro.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/runtime/services.ts` — estratégia: PORT
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `Bun.connect` → `net.connect` | Runtime. A estrutura do `settle`/`pending`/`timer` é a mesma, linha a linha |
+| Todo socket é destruído antes de resolver, inclusive no caminho do timeout | O upstream deixa os sockets para o Bun. Em Node uma tentativa de conexão aberta mantém um handle referenciado, e uma sonda que respondesse `false` deixando dois para trás seguraria o processo — uma sonda que responde mas impede a CLI de sair não é uma resposta. Um caso de integração conta os handles antes e depois de 4 sondas |
+| `classe BunPortProbe` → `createPortProbe()` | É a forma que o resto de `src/runtime/` usa (`createTmuxGateway`, `createDockerGateway`, `createGitWorktreeGateway`) |
+| `{ running: boolean }` → `status: 'ready' \| 'stopped'` de `ServiceRuntimeState` | O contrato de runtime deste projeto (`src/runtime/types.ts`, ADR-02) já publica quatro estados. O mapeamento é deliberadamente estreito: uma sonda só distingue `ready` de `stopped`. `starting` e `failed` são fatos de ciclo de vida — inventá-los a partir de uma conexão recusada faria o painel afirmar algo que ninguém observou |
+| `ServiceHealth` estende `ServiceRuntimeState` com `url` | O `url` do upstream é o que torna a porta clicável no painel; `ServiceRuntimeState` não podia ser alterado (ADR-02), então a extensão é aditiva |
+| Lista de hostnames vazia responde `false` imediatamente | No upstream esperaria os 300 ms para dizer o mesmo. Entrada degenerada, mesmo resultado, sem o atraso |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| Nenhum |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/services.test.ts` | `__tests__/domain-policies.test.ts` (o caso de `allocateServicePorts`, `bun:test` → `vitest`) mais os ramos que o upstream tem e não cobria: a grade, a referência ausente, o serviço sem faixa | 21 | ✅ |
+| `src/runtime/services.integration.test.ts` | novo — sockets reais; o caso `::1` é o que uma sonda com socket falso não pode mostrar | 5 | ✅ |
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| `allocateServicePorts` com 100 worktrees existentes | — (função pura) | **0,0039 ms** (mediana de 5 × 1000) |
+| Sonda numa porta fechada (as duas famílias) | ≤ 300 ms (teto do upstream) | **1,22 ms** (mediana de 5) |
+
+---
+
+### Human-in-the-loop (Fase 9)
+
+**WebMux original**
+`.references/webmux-main/backend/src/server.ts` @ d8c9d5f — `disarmOneshotIfArmed`
+(`:2231`, `:2243`), mais o campo `meta.oneshot` como "armado". §32 chama o mecanismo de
+elegante e minúsculo, e é: **não há máquina de estados — o humano tocar no teclado é o
+sinal.**
+
+**Comportamento existente**
+- Presença de `meta.oneshot` = modo autônomo armado.
+- Qualquer input vindo do WS do terminal desarma.
+- Nenhuma confirmação, nenhum modo a alternar.
+
+**Comportamento existente do Issue Flow que não podia se perder**
+- O watchdog mata um agente silencioso depois de `inactivityTimeoutMs` — e é isso que
+  precisa ser **pausado**, senão ele mata a sessão exatamente enquanto a pessoa pensa.
+- Os cinco runners (`claude`, `codex`, `cursor`, `antigravity`, `opencode`) criam watchdog
+  cada um; nenhum deles podia ser reescrito para isso.
+
+**Implementação no Issue Flow**
+`src/core/human-hold.ts` (**ADAPT**) · `src/core/hold-gate.ts` (novo) ·
+`src/core/watchdog.ts` (uma opção nova) · `src/core/session/{events,snapshot,reducer-agent}.ts`
+· `src/web/terminal-ws.ts` (`onHumanInput`) · `src/commands/resume.ts` · migration 15.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `meta.oneshot` (arquivo) → colunas `human_hold_at`/`human_hold_reason` em `runs` | Um hold é **intenção**, e intenção é o que o SQLite arbitra (ADR-08). E ele precisa **cruzar processos**: a pessoa digita no monitor, o watchdog roda na pipeline |
+| Gate de processo (`core/hold-gate.ts`) em vez de parâmetro nos cinco runners | O watchdog é consultado num timer de até 250 ms e `core/watchdog.ts` é deliberadamente sem dependências; um módulo sem imports mantém a leitura de banco fora do timer. Nenhum dos cinco runners precisou mudar |
+| O hold **reseta o relógio** do watchdog, não apenas suspende a checagem | Soltar o hold precisa devolver o orçamento de silêncio **inteiro**, senão o agente morre pelos minutos que a pessoa passou lendo |
+| `holdForHuman` é **idempotente** | Uma pessoa digitando gera um evento por rajada; mover o `since` apagaria há quanto tempo ela está no controle, que é exatamente o número que a escalada de §32 lê |
+| Liberação **só explícita**, via `issue-flow resume` | Nada infere que a pessoa terminou. Um run que se auto-retomasse porque o terminal ficou quieto seria o bug que o hold existe para evitar |
+| `issue-flow resume` reaproveitado, sem comando novo | Invariante 13. A checagem do hold vem **antes** da aquisição do run lock: um run mantido está vivo e segurando o lock de propósito, e a ordem inversa responderia "outro run é dono deste projeto", que é precisamente a resposta errada |
+| A transição é publicada pelo **watch da pipeline**, não por quem virou a flag | O takeover acontece no monitor e a liberação na CLI; nenhum dos dois é dono do snapshot daquele run |
+| Falha de storage lê como **não-mantido** | Congelar um run por um erro de leitura seria pior do que a ausência da funcionalidade |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| Auto-close da sessão ao desarmar | `oneshot-watcher-service.ts` | É da convergência do oneshot (Fase 15), que é quem decide o que acontece com a sessão depois |
+| Escalada por `awaiting_input` sem resposta por N minutos | §32, última linha da tabela | O dado existe (`heldForMs` e `agent.awaitingInputCount` da Fase 2) e está exposto; **a política de notificação** ainda não tem consumidor — entra com a interface (§50) ou com a Fase 15. Registrado como pendência explícita |
+| `postToLinearOnDone` | `meta.oneshot` | ADR-14 — Linear não é absorvido |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/core/human-hold.test.ts` | novo — **C10** de §34 e a regra de §32 | 11 | ✅ |
+
+Inclui os dois lados do gate: o watchdog **não** mata sob hold nem depois de dez vezes o
+orçamento de silêncio, e **continua** matando um agente genuinamente travado quando
+ninguém está segurando o run.
+
+**Orçamentos**
+Nenhum de §35 se aplica. O custo acrescentado ao caminho quente é uma leitura de booleano
+em memória por tick do watchdog, com o refresh de banco atrás de um intervalo de 1 s.

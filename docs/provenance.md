@@ -65,6 +65,7 @@ from the documented behaviour, not from the upstream source).
 | `packages/issue-flow/src/runtime/terminal/pty.ts` | `backend/src/adapters/terminal.ts` (`detectPtyWrapper`, `buildPtyArgs`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/runtime/terminal/scrollback.ts` | `backend/src/adapters/terminal.ts` (scrollback ring) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/web/terminal-ws.ts` | `backend/src/server.ts` (WS handlers, `sendWs`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/core/human-hold.ts` | `backend/src/server.ts` (`disarmOneshotIfArmed`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/auto-name.ts` | `backend/src/services/auto-name-service.ts` (prompt, `normalizeGeneratedBranchName`, timeout fallback) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/auto-name.ts` (`generateFallbackBranchName`) | `backend/src/lib/branch-name.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/slug.ts` (`sanitizeBranchName`, `isValidBranchName`) | `backend/src/domain/policies.ts:8–24` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
@@ -90,3 +91,8 @@ from the documented behaviour, not from the upstream source).
 | `packages/issue-flow/src/runtime/sandbox/docker.ts` | `backend/src/adapters/docker.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/sandbox/Dockerfile.sandbox` | `sandbox-image/Dockerfile.sandbox` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/sandbox/entrypoint.sh` | `sandbox-image/entrypoint.sh` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/reconcile.ts` | `backend/src/services/reconciliation-service.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/reconcile.ts` (open-session snapshot) | `backend/src/services/session-restore-service.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/profiles.ts` | `backend/src/adapters/config.ts` (profiles/panes/mounts parsers, `expandTemplate`, `getDefaultProfileName`, `isDockerProfile`) + `domain/config.ts` (`ProfileConfig`, `PaneTemplate`, `MountSpec`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/config/runtime.ts` | `backend/src/adapters/config.ts` (`loadConfig`, local overlay merge, `parseStartupEnvs`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/services.ts` | `backend/src/adapters/port-probe.ts` (`BunPortProbe`) + `domain/policies.ts:96` (`allocateServicePorts`) + `adapters/config.ts` (`parseServices`) + `services/reconciliation-service.ts` (`buildServiceStates`) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |

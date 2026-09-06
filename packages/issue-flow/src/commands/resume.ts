@@ -10,6 +10,7 @@ import {
   listStoredIssueIds,
   listStoredQueues,
 } from '../storage/db/queries.js';
+import { listHeldRuns, saveRunHumanHold } from '../storage/db/repository.js';
 import { acquireRunLock, describeRunLockOwner, type RunLockHandle } from '../storage/lock.js';
 import { getIssuePaths, QUEUES_DIR_NAME } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
@@ -72,6 +73,14 @@ export async function runResume(issue?: string, options: ResumeOptions = {}): Pr
     printError(`Cannot resume: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
   }
+
+  // 0. A run a person took over is **alive** and holding the lock on purpose:
+  // the pipeline is waiting for them, the watchdog is paused, and no phase has
+  // advanced. Resuming it means handing control back, not starting anything —
+  // and it has to happen before the ownership check, which would otherwise
+  // refuse with "another run owns this project" and be exactly wrong (§32).
+  const released = await releaseHeldRuns(project, issue);
+  if (released > 0) return 0;
 
   // 1. Ownership, before reading anything else: a resume that runs beside a
   // live owner is the collision this whole layer exists to prevent.
@@ -335,4 +344,57 @@ async function loadTarget(
   } catch {
     return null;
   }
+}
+
+/**
+ * Hand control back to the pipeline for every run this resume covers.
+ *
+ * Returns how many holds were released. Zero means nothing was held and the
+ * ordinary resume should proceed.
+ *
+ * Releasing is always explicit — nothing here infers that a person is finished,
+ * because a run that resumed itself when the terminal went quiet would be the
+ * failure the hold exists to prevent.
+ */
+async function releaseHeldRuns(
+  project: Awaited<ReturnType<typeof resolveProjectPaths>>,
+  issue: string | undefined,
+): Promise<number> {
+  if (project.storageDriver !== 'sqlite') return 0;
+
+  let held: Awaited<ReturnType<typeof listHeldRuns>>;
+  try {
+    held = await listHeldRuns({
+      projectId: project.projectId,
+      databaseOptions: project.databaseOptions,
+    });
+  } catch {
+    // No hold is readable, so there is nothing to release and the ordinary
+    // resume path is the right one.
+    return 0;
+  }
+  const targets = issue === undefined ? held : held.filter((run) => run.issueId === issue);
+  if (targets.length === 0) return 0;
+
+  for (const run of targets) {
+    await saveRunHumanHold(
+      {
+        tasksPath: '',
+        projectId: project.projectId,
+        // The write is keyed by run and project; the remaining context fields
+        // are not read by it, and the run's own row already knows its issue.
+        projectRoot: project.projectDir,
+        issueId: run.issueId ?? '',
+        databaseOptions: project.databaseOptions,
+      },
+      run.runId,
+      null,
+    );
+    printInfo(
+      `Handed control back to the pipeline for ${
+        run.issueId === null ? `run ${run.runId}` : `issue #${run.issueId}`
+      }, held since ${run.since}.`,
+    );
+  }
+  return targets.length;
 }

@@ -114,6 +114,12 @@ issue-flow resume 42       # a specific issue, or its owning queue
 issue-flow resume --all    # every unfinished issue of this project, in order
 ```
 
+`resume` is also how you hand control **back** to a run a person took over: a
+held run is checked first, before ownership, because it is alive and holding
+`run.lock` on purpose — asking about ownership first would answer "another run
+owns this project", which is exactly the wrong answer. See
+[human takeover](web-monitor.md#human-takeover).
+
 Resumption always worked implicitly by re-running `run`. `resume` makes every
 step explicit. It first acquires ownership and checks pending queues; a queue
 or member target resumes through the queue pipeline, including pending delivery
@@ -498,7 +504,7 @@ at most one `gh` invocation, cached once per process. See
 
 ```bash
 issue-flow conventions branch --issue 42
-issue-flow conventions commit --type feat --scope api --subject "add endpoint" --story US-010
+issue-flow conventions commit --type feat --scope api --subject "add endpoint"
 issue-flow conventions pr-title --issue 42
 ```
 
@@ -716,16 +722,64 @@ Commander command tree; hidden commands and options are omitted. This protocol
 path, like script generation, writes only to stdout and does not initialize
 Issue Flow storage, inspect Git, or contact an agent or GitHub.
 
+## Projects
+
+One machine, one server, several repositories — and a repository does not need
+to have run once before it can be listed.
+
+```bash
+issue-flow project ls [--json]      # every known project, curated and discovered
+issue-flow project add [path]       # curate a project (defaults to the current repository)
+issue-flow project rm <project>     # stop curating it; runs and history are preserved
+issue-flow project use <project>    # mark it as the most recently used one
+```
+
+`<project>` accepts the project id, the prefix it is served under, or a path
+inside it.
+
+**These commands never require a running server.** The registry lives in
+`issue-flow.db` (see [the `projects` table](storage.md#projects--the-project-registry)),
+so `project ls` works on a laptop with nothing listening. When a monitor *is*
+running it is told about the change afterwards, best effort, so it starts serving
+a new project without being restarted — a monitor that cannot be reached is not
+an error.
+
+`project add` on a repository that has no convention files runs the repository
+scaffold first and prints the phases as they happen:
+
+```text
+$ issue-flow project add ~/code/api
+  Creating the missing convention files…
+  Analyzing the repository…
+Added api (api-2) — /Users/me/code/api
+```
+
+The prefix (`api-2` above) is the URL segment the dashboard serves that project
+under. It is derived from the directory name and never stored: `-2` appears here
+because `api` is a reserved hub route.
+
+`project rm` is **demotion, not deletion**. The project goes back to
+`discovered`: it stops being reloaded on the next `serve` and keeps every run,
+artifact and telemetry row it ever produced.
+
 ## Web monitor
 
 ```bash
+issue-flow serve --port 3737 --host 127.0.0.1 --refresh 5 [--project <path>]…
 issue-flow web stop     # stop the single monitoring server, if one is running
-issue-flow web serve --port 3737 --host 127.0.0.1 --refresh 5
+issue-flow web serve …  # alias of `serve`
 ```
 
-`web serve` is what `--web` spawns detached behind the scenes; running it by hand
-only matters for debugging the monitor itself. See
-[Web monitoring](web-monitor.md).
+`serve` is the machine-wide monitor: it reloads every curated project, serves the
+repository it was started in for that process only (never writing it down), and
+shows a consolidated view of the active work across all of them. `--project` adds
+a repository for this process only and can be repeated; a service unit with no
+useful working directory names its projects through
+[`ISSUE_FLOW_PROJECT_DIR`](configuration.md#environment-variables) instead.
+
+`web serve` is the same command under its previous name — it is what `--web`
+spawns detached behind the scenes, and running it by hand only matters for
+debugging the monitor itself. See [Web monitoring](web-monitor.md).
 
 ## Exit codes
 

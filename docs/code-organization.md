@@ -19,6 +19,7 @@ the [Contributing guide](../CONTRIBUTING.md).
 | `packages/issue-flow/prompts/` | Generated, committed CLI runtime prompts |
 | `packages/issue-flow/scripts/` | Generation, validation, packaging, smoke and release tooling |
 | `packages/issue-flow/web/public/` | Packaged monitoring dashboard |
+| `packages/issue-flow/sandbox/` | The container image the `sandbox` runtime mode runs agents in |
 | `evals/skills/` | Versioned behavioral scenarios |
 | `.github/` | Issue and PR templates and CI checks |
 | `docs/` | Human-facing guides, references and dated research |

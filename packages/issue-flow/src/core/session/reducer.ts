@@ -94,6 +94,8 @@ function applyEvent(
     case 'agent:busy':
     case 'agent:awaiting-input':
     case 'pr:opened':
+    case 'human:hold':
+    case 'human:resume':
       return applyAgentLifecycleEvent(snapshot, event);
 
     default: {

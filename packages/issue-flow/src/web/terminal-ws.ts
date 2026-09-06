@@ -68,6 +68,15 @@ export interface TerminalWebSocketOptions {
   }) => Promise<{ ownerSessionName: string; windowName: string; cwd?: string } | null>;
   /** Credential required in the handshake. Default: a fresh one per server. */
   token?: string;
+  /**
+   * Called the first time a person types into a run's terminal.
+   *
+   * This is the whole of the human-takeover mechanism (§32): there is no
+   * confirmation, no mode switch and no state machine — somebody touching the
+   * keyboard *is* the signal. Absent leaves the behaviour of a monitor that
+   * does not know about runs.
+   */
+  onHumanInput?: (input: { sessionId: string | null; branch: string | null }) => void;
   onWarn?: (message: string) => void;
 }
 
@@ -209,6 +218,9 @@ export async function startTerminalWebSocket(
     connections.add(ws);
     let attachment: TerminalAttachment | null = null;
     let droppedBytes = 0;
+    // Reported once per connection: the hold is idempotent anyway, and calling
+    // out on every keystroke would put a database write on the input path.
+    let reportedHumanInput = false;
 
     const send = (payload: string): void => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -286,6 +298,13 @@ export async function startTerminalWebSocket(
 
           switch (message.type) {
             case 'input':
+              if (!reportedHumanInput) {
+                reportedHumanInput = true;
+                options.onHumanInput?.({
+                  sessionId: url.searchParams.get('session'),
+                  branch: url.searchParams.get('branch'),
+                });
+              }
               attachment.write(message.data);
               return;
             case 'resize':

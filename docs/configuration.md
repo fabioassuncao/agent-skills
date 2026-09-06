@@ -67,13 +67,15 @@ reconfigured retroactively.
 
 ## `.issue-flow.json`
 
-Optional, at the project root. Nine keys, all independent:
+Optional, at the project root. Every key is independent:
 
 ```json
 {
   "web":        { "enabled": true, "port": 3737, "host": "127.0.0.1" },
   "issues":     { "preferredProvider": "github", "conflictPolicy": "ask" },
   "prReview":   { "publisher": "local" },
+  "github":     { "linkedRepos": [{ "repo": "acme/api", "alias": "api" }] },
+  "runtime":    { "profile": "default", "profiles": { "default": { "runtime": "host" } } },
   "agent":      { "provider": "claude", "phases": { "plan": { "provider": "codex" } } },
   "verify":     { "level": "L1", "contract": [{ "id": "test", "run": "npm test", "fatal": true }] },
   "routing":    { "mode": "shadow", "profile": "balanced" },
@@ -120,6 +122,133 @@ invisible marker (`<!-- issue-flow:review:<round> -->`), so republishing a round
 (a retried phase, a re-run after a correction, a resume) **updates** that comment
 instead of stacking another copy. A later round is a different statement and gets
 its own comment. An unknown value degrades to `local` with a warning.
+
+### `github`
+
+```json
+{
+  "github": {
+    "linkedRepos": [{ "repo": "acme/api", "alias": "api", "dir": "../api" }],
+    "syncIntervalMs": 10000
+  }
+}
+```
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `linkedRepos` | List of `{ repo, alias, dir? }` | `[]` |
+| `syncIntervalMs` | Integer ≥ 1000 | `10000` |
+
+`linkedRepos` declares sibling repositories whose Pull Requests belong to the
+same unit of work: `repo` is the `owner/name` slug, `alias` is the short label
+shown next to a Pull Request coming from it, and `dir` is an optional local
+checkout. Declaring none — the default — queries only the repository the command
+runs in.
+
+`syncIntervalMs` is how often the Pull Request / CI view refreshes. The refresh
+is **activity-gated**: with nothing watching it makes no `gh` call at all, and
+the calls it does make are conditional requests, so an unchanged Pull Request
+costs no GitHub rate limit.
+
+### `runtime`
+
+Profiles, panes and services — how an *interactive* or *sandbox* run opens a
+worktree. It changes nothing for `headless`, which is the default and never
+depends on tmux, docker or a worktree.
+
+```json
+{
+  "runtime": {
+    "profile": "default",
+    "profiles": {
+      "default": {
+        "runtime": "host",
+        "panes": [
+          { "id": "agent", "kind": "agent", "focus": true },
+          { "id": "shell", "kind": "shell", "split": "right", "sizePct": 25 }
+        ]
+      },
+      "sandbox": {
+        "image": "issue-flow-sandbox",
+        "permission": "autonomous",
+        "envPassthrough": ["GITHUB_TOKEN"],
+        "mounts": [{ "hostPath": "/data", "guestPath": "/mnt/data", "writable": true }],
+        "panes": [
+          { "id": "agent", "kind": "agent", "focus": true },
+          { "id": "app", "kind": "command", "cwd": "worktree", "workingDir": "web", "command": "npm run dev" }
+        ]
+      }
+    },
+    "services": [
+      { "name": "frontend", "portEnv": "FRONTEND_PORT", "portStart": 3000, "portStep": 10,
+        "urlTemplate": "http://localhost:${FRONTEND_PORT}" }
+    ],
+    "startupEnv": { "FEATURE_FLAG": true }
+  }
+}
+```
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `profile` | Name of a declared profile | `default` |
+| `profiles` | Map of name → profile | one `default` profile |
+| `services` | List of service declarations | `[]` |
+| `startupEnv` | Map of name → string, number or boolean | `{}` |
+
+**Profile keys**
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `runtime` | `host` \| `docker` | `host`, except for a profile *named* `sandbox`, which defaults to `docker` |
+| `image` | Container image | — (required by `runtime: docker`) |
+| `permission` | `read-only` \| `workspace` \| `autonomous` | absent — the phase's own permission is kept |
+| `envPassthrough` | List of host variable names forwarded into the runtime | `[]` |
+| `systemPrompt` | Text; `${VAR}` is expanded against the worktree's runtime environment | — |
+| `mounts` | List of `{ hostPath, guestPath?, writable? }`, `runtime: docker` only | — |
+| `panes` | List of pane templates | agent pane, plus a shell on 25% to its right |
+
+A profile that declares no `permission` **does not** widen what the agent may
+do: the phase's permission stands. `yolo: true` is accepted as a synonym for
+`permission: "autonomous"` — it is the spelling the absorbed upstream uses — and
+`yolo: false` overrides nothing.
+
+**Pane keys**
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `id` | Label for the pane | `pane-<n>` |
+| `kind` | `agent` \| `shell` \| `command` | — (required; an unknown kind drops the pane) |
+| `split` | `right` \| `bottom` | `right` for every pane after the first |
+| `sizePct` | Number | tmux's own split |
+| `focus` | boolean | first pane |
+| `cwd` | `repo` \| `worktree` | `worktree` |
+| `command` | Shell command | — (required by `kind: command`) |
+| `workingDir` | Directory relative to `cwd` | the pane's `cwd` |
+
+**Service keys**
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `name` | Display name | — (required) |
+| `portEnv` | Variable carrying the allocated port | — (required) |
+| `portStart` | First port of the range | — (a service without one is never allocated a port) |
+| `portStep` | Distance between consecutive worktrees | `1` |
+| `urlTemplate` | Template with `${VAR}` placeholders | — |
+
+Ports are allocated per worktree from the **first** service that declares a
+`portStart`: its lowest free slot is found and `portStart + slot × portStep` is
+applied to every service, so one worktree's ports stay aligned across services.
+Slot 0 is reserved for the repository itself — the server a person already runs
+in the main checkout — so the first worktree gets slot 1.
+
+Health is a TCP probe with a hard 300 ms ceiling, attempted on `127.0.0.1` **and**
+`::1` in parallel. Both matter: a server bound to only one of them is invisible
+on the other.
+
+Like `web` and `github`, `runtime` does **not** read the global file: a profile
+names pane commands and container images that only mean something inside one
+repository. A parse is tolerant key by key — an unusable pane, profile or service
+is dropped with a warning and the rest of the section still applies.
 
 ### `agent`
 
@@ -339,6 +468,7 @@ upwards only.
 |----------|-----------|
 | `ISSUE_FLOW_HOME` | The default global storage root; an existing workspace `.issue-flow/issues/` selects local storage — see [Storage](storage.md#issue_flow_home) |
 | `ISSUE_FLOW_WEB`, `ISSUE_FLOW_WEB_PORT`, `ISSUE_FLOW_WEB_HOST`, `ISSUE_FLOW_WEB_REFRESH`, `ISSUE_FLOW_WEB_LOG_LIMIT` | The `web` key |
+| `ISSUE_FLOW_PROJECT_DIR` | Extra repositories [`issue-flow serve`](commands.md#web-monitor) should serve, for that process only. Several are accepted, separated by `:` (or `;`) — a `systemd` unit starts in `/` and has no working directory to infer them from |
 | `ISSUE_FLOW_AGENT`, `ISSUE_FLOW_AGENT_MODEL` | The `agent` key. There are **no** per-phase variables |
 | `ISSUE_FLOW_AGENT_HOOKS` | `agent.hooks.enabled` |
 | `ISSUE_FLOW_CODEX_SANDBOX`, `ISSUE_FLOW_CODEX_REASONING_EFFORT`, `ISSUE_FLOW_CODEX_IGNORE_USER_CONFIG` | Codex runner settings |
@@ -346,6 +476,8 @@ upwards only.
 | `ISSUE_FLOW_ANTIGRAVITY_SANDBOX`, `ISSUE_FLOW_ANTIGRAVITY_EFFORT`, `ISSUE_FLOW_ANTIGRAVITY_EXECUTE_TIMEOUT` | Antigravity runner settings |
 | `ISSUE_FLOW_OPENCODE_VARIANT`, `ISSUE_FLOW_OPENCODE_MIN_VERSION` | OpenCode runner settings |
 | `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` |
+| `ISSUE_FLOW_GITHUB_LINKED_REPOS`, `ISSUE_FLOW_GITHUB_SYNC_INTERVAL_MS` | The `github` key. Linked repositories are a comma-separated list of `owner/repo=alias` pairs; the alias may be omitted, and then the repository name stands in for it |
+| `ISSUE_FLOW_RUNTIME_PROFILE` | `runtime.profile` — the profile a run opens with. Profiles and services themselves have no variable: they are too shaped for one, and they belong to the repository rather than to a shell |
 | `ISSUE_FLOW_POLICY`, `ISSUE_FLOW_POLICY_CONTEXT_BUDGET`, `ISSUE_FLOW_POLICY_BASE_BRANCH`, `ISSUE_FLOW_POLICY_BRANCH_CONVENTION`, `ISSUE_FLOW_POLICY_COMMIT_CONVENTION`, `ISSUE_FLOW_POLICY_PR_TITLE_CONVENTION`, `ISSUE_FLOW_POLICY_ISSUE_TITLE_CONVENTION` | The `policy` key |
 | `ISSUE_FLOW_TELEMETRY`, `ISSUE_FLOW_TELEMETRY_MAX_EXECUTIONS`, `ISSUE_FLOW_TELEMETRY_ESTIMATE` | The `telemetry` key |
 | `ISSUE_FLOW_RESILIENCE_PROFILE`, `ISSUE_FLOW_RESILIENCE_FAILOVER`, `ISSUE_FLOW_RESILIENCE_FAILOVER_ON_AUTH`, `ISSUE_FLOW_RESILIENCE_PROVIDER_CHAIN`, `ISSUE_FLOW_RESILIENCE_PROVIDER_COOLDOWN_MS`, `ISSUE_FLOW_RESILIENCE_PROVIDER_MAX_COOLDOWN_MS`, `ISSUE_FLOW_RESILIENCE_PROVIDER_FAILURE_WINDOW_MS`, `ISSUE_FLOW_RESILIENCE_PROVIDER_FAILURES_TO_TRIP`, `ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`, `ISSUE_FLOW_RESILIENCE_MAX_ISSUE_ATTEMPTS`, `ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`, `ISSUE_FLOW_RESILIENCE_JOURNAL_MAX_BYTES`, `ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE` | Scalar knobs of the `resilience` key |

@@ -268,6 +268,32 @@ path: a frame triggers the same refresh routine the interval would have, so
 there is one implementation of "apply the current state to the screen" rather
 than two that drift.
 
+## Human takeover
+
+A run is taken over the moment somebody **types into its terminal**. There is no
+confirmation, no mode to switch and no state machine: the keystroke is the
+signal. It is the mechanism absorbed from WebMux, and its whole appeal is that
+it has no ceremony.
+
+While a run is held:
+
+- the [inactivity watchdog](resilience.md#while-a-person-is-in-control) does not
+  kill the agent — the silence is a person reading, not a stall;
+- the pipeline does not advance to the next phase;
+- the snapshot carries `agent.humanHold` with when it started and why, and the
+  dashboard cards carry the same field.
+
+Control comes back only when it is asked for, with
+[`issue-flow resume`](commands.md#resume--continue-an-interrupted-pipeline).
+Nothing infers that a person is finished — a run that resumed itself because the
+terminal went quiet would be the failure the hold exists to prevent, with extra
+steps.
+
+The hold lives in the database rather than in memory for two reasons: it is
+*intent*, which is what SQLite is the authority over, and it has to cross a
+process boundary, because the person types in the monitor while the watchdog
+runs in the pipeline.
+
 ## HTTP API
 
 | Route | Returns |
@@ -280,6 +306,10 @@ than two that drift.
 | `GET /api/config?session=<id>` | Captured effective configuration, resolved routing settings and the harness catalog with readiness (`installed`, `authentication`, `state`, models) |
 | `GET /api/agent-events?session=<id>` | Lifecycle history the agent's own [hooks](agents.md#lifecycle-hooks) reported for that run |
 | `GET /api/stream[?session=<id>]` | [Server-Sent Events](#push-updates): state changes pushed as they happen |
+| `GET /api/projects` | Every known project: the ones this server is serving first, then the ones the registry knows and nothing is running for |
+| `POST /api/projects` | Add a project by `{ "path": "…" }`; loopback only |
+| `DELETE /api/projects/:prefix` | Stop serving a project and demote it to `discovered`; loopback only |
+| `GET /api/project-inits` | Phases of the setups currently in flight |
 
 The snapshot's `agent` section carries what the agent's own
 [lifecycle hooks](agents.md#lifecycle-hooks) reported — `lifecycle`
@@ -299,6 +329,7 @@ preview, not the full body:
 [
   {
     "sessionId": "3f9e2b7a-…",
+    "projectId": "app-9f2c1d4e5b6a",
     "issueNumber": 42,
     "issueTitle": "Add multi-project dashboard",
     "issueDescription": "Short preview of the issue body…",
@@ -339,6 +370,53 @@ Tailscale binding the route is absent from `/api/health.capabilities` and return
 ETags are content-hashed (`sha1` of the serialized snapshot) rather than
 counter-based, so they work uniformly for both the directory-backed and the
 in-memory session sources.
+
+## Several projects on one dashboard
+
+`issue-flow serve` reloads every [curated project](storage.md#projects--the-project-registry)
+and serves them together, on one port. A project appears whether or not anything
+is executing in it — which is the point: before the registry, a project only
+existed once it had run at least once.
+
+`GET /api/projects` answers what the selector needs:
+
+```json
+{
+  "projects": [
+    {
+      "id": "api-3f11f0a72d54",
+      "prefix": "api-2",
+      "name": "api",
+      "root": "/Users/me/code/api",
+      "source": "registered",
+      "active": false,
+      "served": true,
+      "addedAt": "2026-09-06T12:05:27.609Z",
+      "lastSeenAt": "2026-09-06T12:05:27.609Z"
+    }
+  ]
+}
+```
+
+`prefix` is the URL segment that project's routes answer under, resolved **per
+request**: `GET /api-2/api/sessions` lists only that project's sessions, and every
+unprefixed route keeps behaving exactly as before. The prefix is derived from the
+directory name, never stored, and can never be `api`, `ws`, `assets` or `health` —
+those are the hub's own routes. `served: false` means the registry knows the
+project but this process is not serving it.
+
+Adding a repository that has no convention files does not hold the request open:
+`POST /api/projects` answers `202` with `{ "initializing": true }` and the phases
+(`creating_config` → `analyzing` → `ready` | `failed`) become observable on
+`GET /api/project-inits`. Terminal entries linger for a minute so a poller that
+arrives late still sees the outcome. Like the configuration writes, both mutating
+routes are refused with `403` on any binding that is not loopback.
+
+The dashboard shows "Trabalho ativo": one block per project with its running
+executions, including the projects with none. The selector next to the refresh
+control filters to a single project and remembers the choice in that browser
+only — the registry is the authority on which projects exist, never on which one
+someone is looking at.
 
 ## Configuration
 

@@ -21,7 +21,21 @@ import { routingConfigInputSchema } from '../schemas.js';
 import { readDiagnostics } from '../storage/diagnostics.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 import { getPackageVersion } from '../version.js';
+import {
+  type ApiResponse,
+  addProject,
+  listProjectInits,
+  listProjects,
+  type ProjectsApiDeps,
+  removeProject,
+} from './projects-api.js';
+import { matchProjectResource, resolveProjectRoute } from './router.js';
 import type { SessionDirectoryChange, SessionDirectoryHandle } from './session-directory.js';
+import {
+  startTerminalWebSocket,
+  type TerminalWebSocketHandle,
+  type TerminalWebSocketOptions,
+} from './terminal-ws.js';
 
 /**
  * HTTP server for the web monitoring mode. Plain node:http — no new runtime
@@ -105,6 +119,21 @@ export interface WebServerOptions {
    * to do, so staying alive for as long as the server is bound *is* the job.
    */
   unref?: boolean;
+  /**
+   * The multi-project surface (§47). Absent for a monitor bound inline by the
+   * pipeline, which serves exactly the project it is running in: without it
+   * `/api/projects` answers an empty list and no URL prefix is ever resolved,
+   * so a single-project user sees precisely the behaviour they had before.
+   */
+  projects?: ProjectsApiDeps;
+  /**
+   * Serve the terminal transport (`/ws/terminal`).
+   *
+   * Absent leaves it off entirely. Present is still not enough on its own: the
+   * surface is a remote shell, so it only exists when the server is bound to
+   * loopback (ADR-10) — the same gate the configuration write routes use.
+   */
+  terminal?: Pick<TerminalWebSocketOptions, 'resolveTarget' | 'token' | 'onHumanInput'>;
 }
 
 export interface WebServerHandle {
@@ -142,6 +171,14 @@ interface SessionSource {
   list(): SessionSnapshot[];
   /** A specific session by id, or undefined when it is not currently active. */
   get(sessionId: string): SessionSnapshot | undefined;
+  /**
+   * Which project a session belongs to, `null` when the backend cannot say.
+   *
+   * This is what lets one server answer for several projects without a second
+   * session store: the sessions were always keyed by project in SQLite, the
+   * HTTP surface simply had no way to ask.
+   */
+  projectOf(sessionId: string): string | null;
   events(sessionId: string): Promise<JournalEntry[] | undefined>;
   /** Persisted agent lifecycle history; `[]` for a backend that keeps none. */
   agentEvents(sessionId: string): Promise<unknown[] | undefined>;
@@ -199,6 +236,9 @@ function publisherSessionSource(publisher: SessionPublisher): SessionSource {
       const snapshot = publisher.snapshot();
       return snapshot.sessionId === sessionId ? snapshot : undefined;
     },
+    // The legacy in-process publisher serves exactly the run that owns it, so
+    // there is no project to disambiguate.
+    projectOf: () => null,
     events: async (sessionId) => (publisher.snapshot().sessionId === sessionId ? [] : undefined),
     agentEvents: async (sessionId) =>
       publisher.snapshot().sessionId === sessionId ? [] : undefined,
@@ -225,6 +265,7 @@ function directorySessionSource(handle: SessionDirectoryHandle): SessionSource {
   return {
     list: () => handle.sessions().map((entry) => entry.snapshot),
     get: (sessionId) => handle.getSession(sessionId)?.snapshot,
+    projectOf: (sessionId) => handle.getSession(sessionId)?.projectId ?? null,
     events: (sessionId) => handle.events(sessionId),
     agentEvents: (sessionId) => handle.agentEvents(sessionId),
     subscribe: (listener) => handle.subscribe((change: SessionDirectoryChange) => listener(change)),
@@ -242,37 +283,52 @@ function directorySessionSource(handle: SessionDirectoryHandle): SessionSource {
  * pushed frame must be interchangeable with the fetched one so the client can
  * fall back to polling without a second code path.
  */
-function sessionListPayload(source: SessionSource): unknown[] {
-  return source.list().map((snapshot) => ({
-    sessionId: snapshot.sessionId,
-    issueNumber: snapshot.issue.number,
-    issueTitle: snapshot.issue.title,
-    issueDescription: truncateSessionDescription(snapshot.issue.description),
-    repositoryName: snapshot.repository.name,
-    currentPhase: snapshot.currentPhase,
-    progressPercent: snapshot.progress.percent,
-    elapsedSeconds: snapshot.elapsedSeconds,
-    status: snapshot.status,
-    startedAt: snapshot.startedAt,
-    updatedAt: snapshot.updatedAt,
-    // Resilience fields, for a card that has to answer "is this still moving"
-    // during a six-hour run. `updatedAt` is already the last activity; these
-    // two say how hard the run has had to work for it.
-    retries: snapshot.execution.retries,
-    correctionCycle: snapshot.execution.correctionCycle,
-    attempt: snapshot.resilience.attempt,
-    provider: snapshot.resilience.provider,
-    lastFailureKind: snapshot.resilience.lastFailureKind,
-    cooldownUntil: snapshot.resilience.cooldownUntil,
-    lastActivityAt: snapshot.resilience.lastActivityAt,
-    // Reported by the agent's own hooks, never inferred (ADR-05). A card has to
-    // be able to distinguish "still thinking" from "blocked on a human",
-    // because only one of the two is waiting for the person reading it.
-    agentLifecycle: snapshot.agent.lifecycle,
-    awaitingInputCount: snapshot.agent.awaitingInputCount,
-    statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
-    eventsUrl: `/api/events?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
-  }));
+function sessionListPayload(source: SessionSource, projectId?: string | null): unknown[] {
+  return source
+    .list()
+    .filter(
+      (snapshot) =>
+        projectId === undefined ||
+        projectId === null ||
+        source.projectOf(snapshot.sessionId ?? '') === projectId,
+    )
+    .map((snapshot) => ({
+      sessionId: snapshot.sessionId,
+      // Additive: the dashboard groups the consolidated "Active work" view by
+      // project, and a card that cannot name its project cannot be grouped.
+      projectId: source.projectOf(snapshot.sessionId ?? ''),
+      issueNumber: snapshot.issue.number,
+      issueTitle: snapshot.issue.title,
+      issueDescription: truncateSessionDescription(snapshot.issue.description),
+      repositoryName: snapshot.repository.name,
+      currentPhase: snapshot.currentPhase,
+      progressPercent: snapshot.progress.percent,
+      elapsedSeconds: snapshot.elapsedSeconds,
+      status: snapshot.status,
+      startedAt: snapshot.startedAt,
+      updatedAt: snapshot.updatedAt,
+      // Resilience fields, for a card that has to answer "is this still moving"
+      // during a six-hour run. `updatedAt` is already the last activity; these
+      // two say how hard the run has had to work for it.
+      retries: snapshot.execution.retries,
+      correctionCycle: snapshot.execution.correctionCycle,
+      attempt: snapshot.resilience.attempt,
+      provider: snapshot.resilience.provider,
+      lastFailureKind: snapshot.resilience.lastFailureKind,
+      cooldownUntil: snapshot.resilience.cooldownUntil,
+      lastActivityAt: snapshot.resilience.lastActivityAt,
+      // Reported by the agent's own hooks, never inferred (ADR-05). A card has to
+      // be able to distinguish "still thinking" from "blocked on a human",
+      // because only one of the two is waiting for the person reading it.
+      agentLifecycle: snapshot.agent.lifecycle,
+      awaitingInputCount: snapshot.agent.awaitingInputCount,
+      // A card has to be able to say "somebody is driving this one": while a
+      // run is held the watchdog is paused and no phase advances, so it looks
+      // idle and is not (§32).
+      humanHold: snapshot.agent.humanHold,
+      statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
+      eventsUrl: `/api/events?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
+    }));
 }
 
 function resolveSessionSource(options: WebServerOptions): SessionSource {
@@ -320,6 +376,11 @@ function respondJson(res: ServerResponse, status: number, payload: unknown): voi
   respond(res, status, JSON_TYPE, JSON.stringify(payload));
 }
 
+/** Write what a `projects-api` handler decided, without it knowing about sockets. */
+function respondApi(res: ServerResponse, response: ApiResponse): void {
+  respondJson(res, response.status, response.body);
+}
+
 function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost';
 }
@@ -355,6 +416,8 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   );
 
   const source = resolveSessionSource(options);
+  let terminal: TerminalWebSocketHandle | null = null;
+  const projects = options.projects ?? null;
 
   // JSON serialization memoized per session id: an unchanged poll answers 304
   // with an empty body. Content-hashed rather than counter-based, unlike the
@@ -393,6 +456,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     req: IncomingMessage,
     res: ServerResponse,
     sessionId: string | null,
+    projectId: string | null,
   ): void => {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -410,7 +474,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
 
     let lastList = '';
     const pushList = (): void => {
-      const body = JSON.stringify(sessionListPayload(source));
+      const body = JSON.stringify(sessionListPayload(source, projectId));
       if (body === lastList) return;
       lastList = body;
       if (!res.writableEnded) res.write(`event: sessions\ndata: ${body}\n\n`);
@@ -467,7 +531,30 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     baseHeaders(res, instanceId);
 
     const requestUrl = new URL(req.url ?? '/', 'http://localhost');
-    const path = requestUrl.pathname;
+    // Prefix resolution happens per request rather than by republishing a
+    // route map (`router.ts`): `node:http` has no `Bun.serve().reload()`, and
+    // resolving here removes the reload race entirely. An unprefixed path is
+    // unchanged, which is what keeps the single-project experience intact.
+    const projectRoute = resolveProjectRoute(
+      requestUrl.pathname,
+      (prefix) => projects?.manager.getByPrefix(prefix) != null,
+    );
+    const path = projectRoute.path;
+    const routedProjectId =
+      projectRoute.prefix === null
+        ? null
+        : (projects?.manager.getByPrefix(projectRoute.prefix)?.entry.id ?? null);
+
+    if (req.method === 'POST' && path === '/api/projects') {
+      respondApi(res, await addProject(projects ?? null, await readJsonBody(req)));
+      return;
+    }
+
+    const projectResource = matchProjectResource(path);
+    if (req.method === 'DELETE' && projectResource !== null) {
+      respondApi(res, await removeProject(projects ?? null, projectResource));
+      return;
+    }
 
     if (req.method === 'POST' && path === '/api/config/agent') {
       if (!isLoopbackHost(options.host)) {
@@ -534,8 +621,18 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       return;
     }
 
+    if (path === '/api/projects') {
+      respondApi(res, await listProjects(projects ?? null));
+      return;
+    }
+
+    if (path === '/api/project-inits') {
+      respondApi(res, listProjectInits(projects ?? null));
+      return;
+    }
+
     if (path === '/api/stream') {
-      openStream(req, res, requestUrl.searchParams.get('session'));
+      openStream(req, res, requestUrl.searchParams.get('session'), routedProjectId);
       return;
     }
 
@@ -583,7 +680,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     }
 
     if (path === '/api/sessions') {
-      respondJson(res, 200, sessionListPayload(source));
+      respondJson(res, 200, sessionListPayload(source, routedProjectId));
       return;
     }
 
@@ -599,6 +696,25 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         return;
       }
       respondJson(res, 200, entries);
+      return;
+    }
+
+    if (path === '/api/terminal/token') {
+      // The credential the dashboard presents on the WebSocket handshake. It is
+      // served only where the surface itself exists: on loopback, from a server
+      // that actually started the transport. Anywhere else this route does not
+      // hand out a secret at all.
+      if (terminal === null) {
+        respondJson(res, 404, { error: 'The terminal surface is not enabled on this monitor.' });
+        return;
+      }
+      if (!isLoopbackHost(options.host)) {
+        respondJson(res, 403, {
+          error: 'The terminal surface is disabled when the monitor is not bound to loopback.',
+        });
+        return;
+      }
+      respondJson(res, 200, { token: terminal.token, path: '/ws/terminal' });
       return;
     }
 
@@ -678,9 +794,13 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         // it is an older instance this process reused (web/lock.ts), and the
         // client must keep its interval — the capability list is the only
         // truthful signal, since the served assets may be newer than the server.
-        capabilities: isLoopbackHost(options.host)
-          ? ['config:agent:write', 'config:routing:write', 'stream:sessions']
-          : ['stream:sessions'],
+        capabilities: [
+          ...(isLoopbackHost(options.host) ? ['config:agent:write', 'config:routing:write'] : []),
+          'stream:sessions',
+          // Advertised only when the transport actually started, so a client
+          // never offers a terminal that would refuse its handshake.
+          ...(terminal === null ? [] : ['terminal:attach']),
+        ],
       });
       return;
     }
@@ -736,6 +856,19 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     warn(`Web monitor server error: ${err.message}`);
   });
 
+  if (options.terminal !== undefined) {
+    terminal = await startTerminalWebSocket({
+      server,
+      host: options.host,
+      resolveTarget: options.terminal.resolveTarget,
+      ...(options.terminal.token === undefined ? {} : { token: options.terminal.token }),
+      ...(options.terminal.onHumanInput === undefined
+        ? {}
+        : { onHumanInput: options.terminal.onHumanInput }),
+      onWarn: warn,
+    });
+  }
+
   const address = server.address() as AddressInfo;
   const port = address.port;
   const displayHost = options.host === '0.0.0.0' ? 'localhost' : options.host;
@@ -763,6 +896,9 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
           // Already destroyed — the 'close' handler did the cleanup.
         }
       }
+      // Detaches every viewer, which kills their grouped tmux sessions and
+      // leaves the project's windows — and the agents in them — untouched.
+      void terminal?.close();
       server.close(() => resolve());
       // Drop idle keep-alive connections so close() never hangs.
       server.closeAllConnections();

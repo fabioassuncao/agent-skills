@@ -22,6 +22,23 @@ The boundary with standalone Skill artifacts is documented in
   mutate the JSON/JSONL source tree. An import failure must quarantine the
   database and let the existing JSON path continue.
 
+- **The `projects` table is the project registry, and there is no second one.**
+  `storage/projects/registry.ts` is the domain facade; the SQL lives in
+  `db/projects.ts` like every other statement. Three rules make it work: the key
+  is the `projectId`, never the path (a path is a locator and moves); nothing
+  derivable from the repository is copied in (configuration stays in
+  `.issue-flow.json`, the URL prefix is derived per process); and no
+  `projects.json` is ever created next to the database. `source` classifies —
+  `discovered` is what a plain `run` leaves behind, `registered` is curation,
+  `ephemeral` is served in memory and **never written**, because a shared
+  registry would otherwise make other servers adopt one server's cwd.
+- **Registry reads never throw, and never create the database.** Both halves are
+  load-bearing: they are called from boot paths where an exception would take
+  down something more important than a project list, and opening the database
+  *creates* it — the `json` compatibility driver has a test asserting no database
+  file appears. Demotion (`project rm`) is a column update: runs, artifacts and
+  telemetry hang off the id and outlive curation.
+
 - **Never join `homedir()` by hand.** Every path under the global tree must derive from
   `getGlobalRoot()` in `paths.ts` — that is the single seam where `ISSUE_FLOW_HOME` takes effect,
   and it is what keeps tests, CI and sandboxes off the real `$HOME`.

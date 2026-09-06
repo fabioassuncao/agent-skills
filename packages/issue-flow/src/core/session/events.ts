@@ -123,6 +123,25 @@ export type SessionEvent =
   | { type: 'agent:activity'; at: string; provider: string }
   | {
       /**
+       * A person took over the run (§32). Reported, never inferred: the signal
+       * is somebody typing into the agent's terminal, which is the whole of the
+       * mechanism — there is no confirmation step and no mode to switch.
+       */
+      type: 'human:hold';
+      at: string;
+      reason: 'takeover' | 'requested';
+    }
+  | {
+      /**
+       * Control handed back, always explicitly. Nothing infers that a person is
+       * done: a run that resumed itself because the terminal went quiet would
+       * be the bug the hold exists to prevent, with extra steps.
+       */
+      type: 'human:resume';
+      at: string;
+    }
+  | {
+      /**
        * The agent's own hooks report that it started working (ADR-05). This is
        * the counterpart of `agent:awaiting-input`, and the only thing that can
        * clear it — an agent that is producing output is not blocked on anyone.

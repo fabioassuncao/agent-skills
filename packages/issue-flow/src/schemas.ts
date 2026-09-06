@@ -627,8 +627,18 @@ export const sessionSnapshotSchema = z.object({
       since: z.string().nullable().default(null),
       phase: z.string().nullable().default(null),
       awaitingInputCount: z.number().int().nonnegative().default(0),
+      humanHold: z
+        .object({ since: z.string(), reason: z.enum(['takeover', 'requested']) })
+        .nullable()
+        .default(null),
     })
-    .default({ lifecycle: null, since: null, phase: null, awaitingInputCount: 0 }),
+    .default({
+      lifecycle: null,
+      since: null,
+      phase: null,
+      awaitingInputCount: 0,
+      humanHold: null,
+    }),
   pullRequests: z.array(z.object({ number: z.number(), url: z.string(), title: z.string() })),
   logs: z.array(sessionLogEntrySchema),
   errors: z.array(sessionLogEntrySchema),
@@ -700,6 +710,33 @@ export const prReviewConfigSchema = z.object({
 });
 
 /**
+ * A sibling repository whose Pull Requests belong to the same unit of work.
+ *
+ * `repo` is the `owner/name` slug `gh --repo` expects; `alias` is the short
+ * label shown next to a Pull Request coming from it, and `dir` is an optional
+ * local checkout for a caller that needs the working copy.
+ */
+export const linkedRepoSchema = z.object({
+  repo: z.string().min(1),
+  alias: z.string().min(1),
+  dir: z.string().min(1).optional(),
+});
+
+/**
+ * Resolved GitHub integration configuration (the `github` key of
+ * .issue-flow.json).
+ *
+ * Both fields default to the behaviour of releases without linked
+ * repositories: no sibling repository is queried, and the display sync uses
+ * WebMux's measured ten-second interval — which only ever runs while something
+ * is actually watching, because the monitor is activity-gated.
+ */
+export const githubConfigSchema = z.object({
+  linkedRepos: z.array(linkedRepoSchema).default([]),
+  syncIntervalMs: z.number().int().min(1_000).default(10_000),
+});
+
+/**
  * The `policy` key of .issue-flow.json — the repository policy layer. Defined
  * in `policy/schemas.ts` next to the module that consumes it, and re-exported
  * here so `schemas.ts` stays the single index of the file's keys.
@@ -734,6 +771,8 @@ export const verifyConfigSchema = z.object({
 
 export type WebConfig = z.infer<typeof webConfigSchema>;
 export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
+export type LinkedRepoConfig = z.infer<typeof linkedRepoSchema>;
+export type GitHubConfig = z.infer<typeof githubConfigSchema>;
 const routingModeSchema = z.enum(['off', 'shadow', 'recommend', 'active']);
 const routingProfileSchema = z.enum(['economy', 'balanced', 'quality', 'speed']);
 const routingPolicySchema = z.literal('recommended');

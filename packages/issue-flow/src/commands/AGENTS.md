@@ -14,6 +14,22 @@ mode so the clean terminal and the dashboard share `currentActivity`;
 `FilePublisher` already throttles the write that would otherwise bust the
 `/api/status` ETag on every tool call.
 
+## `project` and `serve`
+
+`project ls|add|rm|use` reads and writes the project registry in SQLite
+**directly**. That is a hard requirement, not an optimization: the CLI may
+never need a server to be running. A live monitor is notified afterwards, best
+effort, only so it starts serving a new project without a restart — a monitor
+that cannot be reached is not an error, because the registry write already
+happened and it is the authority.
+
+`project rm` is demotion, not deletion. Say so in the output: the word "remove"
+invites the other reading, and runs, artifacts and telemetry all survive it.
+
+`serve` is the canonical name of the machine-wide monitor; `web serve` is an
+alias delegating to the same body (`web/AGENTS.md`: a third way to bind is what
+that module exists to prevent).
+
 ## Layout of `run/` (#100)
 
 `run.ts` is a thin façade: `RunPipelineOptions`, `runPipeline()`, and

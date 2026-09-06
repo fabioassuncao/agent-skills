@@ -3,7 +3,7 @@ import type { SessionSnapshot } from './snapshot.js';
 
 export type AgentLifecycleEvent = Extract<
   SessionEvent,
-  { type: 'agent:busy' | 'agent:awaiting-input' | 'pr:opened' }
+  { type: 'agent:busy' | 'agent:awaiting-input' | 'pr:opened' | 'human:hold' | 'human:resume' }
 >;
 
 /**
@@ -35,6 +35,7 @@ export function applyAgentLifecycleEvent(
       return {
         ...snapshot,
         agent: {
+          ...snapshot.agent,
           lifecycle: 'awaiting-input',
           since: event.at,
           phase: event.phase,
@@ -47,6 +48,20 @@ export function applyAgentLifecycleEvent(
               : snapshot.agent.awaitingInputCount + 1,
         },
       };
+
+    case 'human:hold':
+      return {
+        ...snapshot,
+        agent: {
+          ...snapshot.agent,
+          // Idempotent: a person typing produces one of these per burst, and
+          // moving `since` would erase how long they have been in control.
+          humanHold: snapshot.agent.humanHold ?? { since: event.at, reason: event.reason },
+        },
+      };
+
+    case 'human:resume':
+      return { ...snapshot, agent: { ...snapshot.agent, humanHold: null } };
 
     case 'pr:opened': {
       // Same list the `pr` phase writes through `git:update`: one concept, two

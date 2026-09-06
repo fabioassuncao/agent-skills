@@ -900,3 +900,61 @@ describe('startWebServer — push transport (/api/stream, absorption phase 1)', 
     expect((await stream.next('status')).data).toMatchObject({ currentPhase: 'prd' });
   });
 });
+
+describe('startWebServer — the terminal surface (absorption phase 8)', () => {
+  const handles: WebServerHandle[] = [];
+
+  afterEach(async () => {
+    for (const handle of handles.splice(0)) await handle.close();
+  });
+
+  async function start(
+    overrides: Partial<Parameters<typeof startWebServer>[0]> = {},
+  ): Promise<WebServerHandle> {
+    const handle = await startWebServer({
+      publisher: makePublisher(),
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+      ...overrides,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+    return handle;
+  }
+
+  // Off unless asked for: a monitor that never serves a terminal must not
+  // advertise one, and must not hand out a credential for it.
+  it('is absent unless the caller asked for it', async () => {
+    const handle = await start();
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('terminal:attach');
+    expect((await fetch(`${handle.url}/api/terminal/token`)).status).toBe(404);
+  });
+
+  it('advertises the capability and serves the credential on loopback', async () => {
+    const handle = await start({ terminal: { resolveTarget: async () => null } });
+
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('terminal:attach');
+
+    const token = await (await fetch(`${handle.url}/api/terminal/token`)).json();
+    expect(token.path).toBe('/ws/terminal');
+    expect(typeof token.token).toBe('string');
+    expect(token.token.length).toBeGreaterThan(0);
+  });
+
+  // ADR-10: this is a remote shell. It exists on loopback or it does not exist,
+  // and the credential is never served where the surface itself is refused.
+  it('does not exist when the monitor is not bound to loopback', async () => {
+    const handle = await start({
+      host: '0.0.0.0',
+      terminal: { resolveTarget: async () => null },
+    });
+
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('terminal:attach');
+    expect((await fetch(`${handle.url}/api/terminal/token`)).status).toBe(404);
+  });
+});

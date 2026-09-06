@@ -17,6 +17,38 @@ export async function getProjectRoot(): Promise<string> {
 }
 
 /**
+ * Resolve the repository root that contains `path`.
+ *
+ * The multi-project server is the reason this exists next to
+ * {@link getProjectRoot}: it resolves repositories it is not standing in, so
+ * "the current working directory" is exactly the wrong question. Everything
+ * else is the same — `git` through the single `run()` chokepoint, and a path
+ * outside a repository is an error rather than a silent fallback.
+ */
+export async function getProjectRootOf(path: string): Promise<string> {
+  const result = await run('git', ['rev-parse', '--show-toplevel'], {
+    cwd: path,
+    diagnostics: false,
+  });
+
+  if (result.exitCode !== 0) {
+    throw new Error(`Not a git repository: ${path}`);
+  }
+
+  return result.stdout.trim();
+}
+
+/** Whether `path` is inside a git repository. Never throws. */
+export async function isGitRepository(path: string): Promise<boolean> {
+  try {
+    await getProjectRootOf(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get the current git branch name.
  * Returns an empty string if in detached HEAD state.
  */

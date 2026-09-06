@@ -20,6 +20,7 @@ import {
   ROTATED_EVENTS_FILENAME,
   SESSION_FILENAME,
 } from '../storage/paths.js';
+import { createProjectRegistry, type ProjectRegistry } from '../storage/projects/registry.js';
 import { readSessionFile } from '../storage/session-file.js';
 
 /**
@@ -83,6 +84,16 @@ export interface SessionDirectoryOptions extends GetGlobalRootOptions {
   staleAfterMs?: number;
   onWarn?: (message: string) => void;
   storageDriver?: 'sqlite' | 'json';
+  /**
+   * The registry that says which projects exist (§47.5).
+   *
+   * Discovering projects by walking the storage tree could only ever find the
+   * ones that had already executed; the registry knows the curated ones too.
+   * The walk survives as the reconciliation fallback — a project whose row is
+   * missing, or a database that cannot be opened, must not make its sessions
+   * invisible. Injected so tests can drive it without a database.
+   */
+  registry?: ProjectRegistry;
 }
 
 export interface SessionDirectoryHandle {
@@ -124,6 +135,11 @@ export function watchSessionDirectory(
   const storageDriver = options.storageDriver ?? 'sqlite';
   const root = getGlobalRoot(options);
   const watchDebounceMs = options.watchDebounceMs ?? WATCH_DEBOUNCE_MS;
+  const registry =
+    options.registry ??
+    createProjectRegistry({
+      databaseOptions: options.env === undefined ? {} : { env: options.env },
+    });
   let sessions = new Map<string, ActiveSession>();
   let warned = false;
   let closed = false;
@@ -160,10 +176,22 @@ export function watchSessionDirectory(
     }
   }
 
+  /**
+   * Which projects the registry knows, or `null` when it knows none.
+   *
+   * `null` rather than `[]` on purpose: an empty registry is indistinguishable
+   * from an unreadable one, and treating either as "no projects" would hide
+   * every running session. The caller falls back to walking the tree.
+   */
+  async function knownProjectIds(): Promise<string[] | null> {
+    const known = await registry.list();
+    return known.length === 0 ? null : known.map((project) => project.id);
+  }
+
   async function scan(): Promise<void> {
     try {
       if (storageDriver === 'json') {
-        emit(await scanJsonSessions(root, staleAfterMs));
+        emit(await scanJsonSessions(root, staleAfterMs, await knownProjectIds()));
         return;
       }
       const since = new Date(Date.now() - staleAfterMs).toISOString();
@@ -302,12 +330,24 @@ async function directories(path: string): Promise<string[]> {
   }
 }
 
+/**
+ * Read `session.json` for the `json` compatibility driver.
+ *
+ * `projectIds` comes from the registry — that is the §47.5 change: the project
+ * list is curated, not derived from whichever directories happen to exist.
+ * When the registry has nothing to say (empty, or unreadable) the directory
+ * walk takes over, so a session can never become invisible because a row is
+ * missing. Directories the registry names but that do not exist read as empty
+ * and are skipped, which is the same tolerance `directories()` already had.
+ */
 async function scanJsonSessions(
   root: string,
   staleAfterMs: number,
+  projectIds: string[] | null,
 ): Promise<Map<string, ActiveSession>> {
   const found = new Map<string, ActiveSession>();
-  for (const projectId of await directories(join(root, PROJECTS_DIR_NAME))) {
+  const projects = projectIds ?? (await directories(join(root, PROJECTS_DIR_NAME)));
+  for (const projectId of projects) {
     const issuesDir = join(root, PROJECTS_DIR_NAME, projectId, ISSUES_DIR_NAME);
     for (const issueId of await directories(issuesDir)) {
       const result = await readSessionFile(join(issuesDir, issueId, SESSION_FILENAME));

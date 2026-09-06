@@ -237,6 +237,11 @@ export interface SessionSnapshot {
     phase: string | null;
     /** How many times this run has blocked on a human. */
     awaitingInputCount: number;
+    /**
+     * A person is in control (§32). While this is set the watchdog does not
+     * kill the agent and the pipeline does not advance a phase.
+     */
+    humanHold: { since: string; reason: 'takeover' | 'requested' } | null;
   };
   /** Acceptance-contract verdict. `null` until a contract has run. */
   verification: {
@@ -339,7 +344,7 @@ export function createInitialSnapshot(): SessionSnapshot {
       commits: [],
     },
     repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
-    agent: { lifecycle: null, since: null, phase: null, awaitingInputCount: 0 },
+    agent: { lifecycle: null, since: null, phase: null, awaitingInputCount: 0, humanHold: null },
     pullRequests: [],
     logs: [],
     errors: [],

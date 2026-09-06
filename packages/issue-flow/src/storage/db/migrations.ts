@@ -502,6 +502,19 @@ export const migrations: readonly Migration[] = [
         CREATE INDEX agent_sessions_run_idx ON agent_sessions(run_id);
       `),
   },
+  {
+    version: 15,
+    name: 'record that a human took over a run',
+    // A hold is *intent*, and intent is what SQLite is the authority over
+    // (ADR-08). It also has to cross a process boundary — the person types in
+    // the monitor, the watchdog runs in the pipeline — and outlive both, which
+    // rules out an in-memory flag.
+    up: (database) =>
+      database.exec(`
+        ALTER TABLE runs ADD COLUMN human_hold_at TEXT;
+        ALTER TABLE runs ADD COLUMN human_hold_reason TEXT;
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;
