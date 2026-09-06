@@ -24,7 +24,9 @@
     CAPABILITY,
     api,
     canCall,
+    canOpenSessions,
     createWorktreeTab,
+    fetchAgentSessions,
     deleteWorktreeTab,
     fetchEffectiveConfig,
     fetchExecutionDiagnostics,
@@ -35,6 +37,7 @@
     fetchWorktrees,
     hasCapability,
     knownHealth,
+    openSession,
     refreshWorktreeAgentTerminal,
     selectWorktreeTab,
     setWorktreeLabel,
@@ -59,6 +62,7 @@
   import { terminalThemeFromTokens, type ThemeKey } from './lib/themes';
   import { setToastController } from './lib/toast-context';
   import type {
+    AgentSessionRow,
     AppConfig,
     AvailableBranch,
     CreateWorktreeRequest,
@@ -147,7 +151,21 @@
     );
   }
 
-  const worktreesAvailable = hasCapability(CAPABILITY.worktrees);
+  /**
+   * Listing sessions and the worktrees they run in.
+   *
+   * Split from `worktrees` in phase 8D. That name gates twenty mutation routes
+   * the port brought ahead of their backends; this one is the listing, which
+   * `src/web/worktrees-api.ts` now serves from the agent sessions of §49. One
+   * promise must not smuggle in the other, and the sidebar's second group has
+   * been empty for exactly that reason.
+   */
+  const sessionsAvailable = hasCapability(CAPABILITY.sessions);
+  /** The ported mutation surface: create, merge, archive, re-profile. */
+  const worktreeMutations = hasCapability(CAPABILITY.worktrees);
+  /** Whether this monitor can open a session — the one click of I3 (§49.3). */
+  const canOpenSession = canOpenSessions();
+  const worktreesAvailable = sessionsAvailable || worktreeMutations;
   const preferencesWritable =
     hasCapability(CAPABILITY.configAgentWrite) && hasCapability(CAPABILITY.configRoutingWrite);
 
@@ -428,33 +446,12 @@
   let profileWorktree = $derived(
     profileBranch ? worktrees.find((w) => w.branch === profileBranch) : undefined,
   );
-  let canConnect = $derived(
-    !!selectedBranch && selectedWorktree?.mux === '✓' && !selectedWorktree?.creating,
-  );
-  let showWebChat = $derived(useWebChatUi && canConnect && supportsWorktreeChat(selectedWorktree));
-  // Tabs only mean something for the built-in terminal agents that have a
-  // forkable session.
-  let showTabBar = $derived(
-    canConnect &&
-      !showWebChat &&
-      (selectedWorktree?.agentName === 'claude' || selectedWorktree?.agentName === 'codex'),
-  );
   let isSelectedOpening = $derived(selectedBranch ? openingBranches.has(selectedBranch) : false);
   let isSelectedArchiving = $derived(
     selectedBranch ? archivingBranches.has(selectedBranch) : false,
   );
   let isSelectedAgentTerminalRefreshing = $derived(
     selectedBranch ? refreshingAgentTerminalBranches.has(selectedBranch) : false,
-  );
-  let selectedSessionId = $derived(
-    selectedWorktree?.tabs.find((tab) => tab.tabId === selectedWorktree?.activeTabId)?.sessionId ??
-      selectedWorktree?.tabs[0]?.sessionId ??
-      null,
-  );
-  let selectedTerminalKey = $derived(
-    selectedBranch
-      ? `${selectedBranch}:${selectedSessionId ?? ''}:${terminalSessionRevisions[selectedBranch] ?? 0}`
-      : '',
   );
   /**
    * The safety net's period.
@@ -497,6 +494,8 @@
 
   let sessions = $state<SessionSummary[]>([]);
   let projects = $state<ProjectSummary[]>([]);
+  /** Free sessions across every served project — the other half of §49.4 (I5). */
+  let agentSessions = $state<AgentSessionRow[]>([]);
   let selectedExecutionId = $state<string | null>(null);
   let selectedProjectId = $state<string>(readStored(PROJECT_STORAGE_KEY) ?? ALL_PROJECTS);
   let snapshot = $state<ExecutionSnapshot | null>(null);
@@ -534,26 +533,117 @@
     }),
   );
 
-  /**
-   * Which of the two the main area shows.
+  /* ------------------------------------------------------------------ *
+   * The unified selection (§50.5).
    *
-   * One selection drives one panel: picking an execution shows the execution,
-   * picking a worktree shows its terminal or chat. The sidebar holds both
-   * groups (§50.3) and this is what keeps them from being two screens.
+   * There is **one** panel, not an "execution area" and a "worktree area".
+   * `selectionKind` records only which of the two lists the person clicked
+   * last, because that decides which one gets to pick the other:
    *
-   * A monitor a pipeline run bound inline announces no `worktrees` capability,
-   * so it only ever has the execution surface — which is what keeps a plain
-   * `issue-flow run` unchanged (ADR-03).
-   */
-  let mainView = $state<'executions' | 'worktree'>(
-    // Deterministic, and it is the acceptance invariant of §48.6: Roteiro B must
-    // not get in Roteiro A's way. A monitor that serves worktrees lands where it
-    // always did — on the selected worktree — and the executions are one click
-    // away in the sidebar. A monitor that does not (the one a pipeline run binds
-    // inline) has only the execution surface, and lands on it.
-    worktreesAvailable ? 'worktree' : 'executions',
+   * - clicking an execution selects the Task; its sessions and worktrees are
+   *   the rows that carry its id, and the first of them is the workspace the
+   *   terminal opens on (I1);
+   * - clicking a session selects that workspace, and **whether the workflow
+   *   tabs appear is decided by the row's own `executionId`** — which is what
+   *   makes the promotion of §49.2 free: a free session linked to an issue
+   *   starts carrying one and the workflow simply appears (I4).
+   *
+   * A monitor a pipeline run bound inline announces neither `sessions` nor
+   * `worktrees`, so it only ever has the execution surface — which is what
+   * keeps a plain `issue-flow run` unchanged (ADR-03), and it is also the
+   * acceptance invariant of §48.6: Roteiro B must not get in Roteiro A's way.
+   * ------------------------------------------------------------------ */
+  let selectionKind = $state<'execution' | 'session'>(
+    worktreesAvailable ? 'session' : 'execution',
   );
-  let showExecutions = $derived(!worktreesAvailable || mainView === 'executions');
+
+  /** The workspace the terminal, the chat and the services describe. */
+  let activeWorktree = $derived.by(() => {
+    if (selectionKind === 'session') return selectedWorktree;
+    const id = selectedExecutionId;
+    if (id === null) return undefined;
+    const rows = worktrees.filter((worktree) => worktree.executionId === id);
+    return rows.find((worktree) => worktree.branch === selectedBranch) ?? rows[0];
+  });
+
+  /** The execution behind whatever is selected, from either direction. */
+  let activeExecutionId = $derived(
+    selectionKind === 'execution'
+      ? selectedExecutionId
+      : (selectedWorktree?.executionId ?? null),
+  );
+
+  /** The rows the "Sessões e worktrees" tab lists (I1). */
+  let taskWorktrees = $derived.by(() => {
+    const id = activeExecutionId;
+    if (id !== null) return worktrees.filter((worktree) => worktree.executionId === id);
+    return activeWorktree === undefined ? [] : [activeWorktree];
+  });
+
+  /**
+   * The dashboard, or the panel.
+   *
+   * The dashboard is the answer to "nothing in particular is selected" — never
+   * a second area. A session selection always has something to show, so it goes
+   * straight to the panel.
+   */
+  /**
+   * A selection whose execution has not arrived yet.
+   *
+   * Without this the panel would render the session mode for a beat and then
+   * the workflow, and the free-session tab set opens on the Terminal — so a
+   * Task would connect a shell for one frame and drop it. Saying "loading" is
+   * both honest and cheaper than a socket nobody asked for.
+   */
+  let awaitingSnapshot = $derived(activeExecutionId !== null && snapshot === null);
+
+  let showDashboard = $derived(
+    selectionKind === 'execution'
+      ? executionView.mode === 'dashboard' || activeExecutionId === null
+      : activeWorktree === undefined,
+  );
+
+  /**
+   * Whether the terminal can attach.
+   *
+   * Reads the **active** workspace, not the sidebar selection: a Task picks its
+   * own workspace out of its rows, and the terminal tab has to describe the one
+   * on screen. That single substitution is most of what makes a Task contain
+   * its terminal instead of pointing at one.
+   */
+  let canConnect = $derived(
+    activeWorktree !== undefined && activeWorktree.mux === '✓' && !activeWorktree.creating,
+  );
+  let showWebChat = $derived(useWebChatUi && canConnect && supportsWorktreeChat(activeWorktree));
+  // Tabs only mean something for the built-in terminal agents that have a
+  // forkable session, and only where the server serves tabs at all.
+  let showTabBar = $derived(
+    canConnect &&
+      !showWebChat &&
+      (activeWorktree?.tabs.length ?? 0) > 0 &&
+      (activeWorktree?.agentName === 'claude' || activeWorktree?.agentName === 'codex'),
+  );
+  let selectedSessionId = $derived(
+    activeWorktree?.tabs.find((tab) => tab.tabId === activeWorktree?.activeTabId)?.sessionId ??
+      activeWorktree?.tabs[0]?.sessionId ??
+      null,
+  );
+  let activeBranch = $derived(activeWorktree?.branch ?? null);
+  /**
+   * Whether the Terminal tab is offered at all.
+   *
+   * The transport is announced by the server (ADR-10) and there has to be a
+   * workspace to attach to. A tab that opened onto a refused handshake would be
+   * the dishonest surface the capability gate exists to prevent.
+   */
+  let terminalAvailable = $derived(
+    hasCapability(CAPABILITY.terminalAttach) && activeWorktree !== undefined && !showWebChat,
+  );
+  let selectedTerminalKey = $derived(
+    activeBranch
+      ? `${activeBranch}:${selectedSessionId ?? ''}:${terminalSessionRevisions[activeBranch] ?? 0}`
+      : '',
+  );
 
   function clearExecutionDetail(): void {
     snapshot = null;
@@ -566,7 +656,7 @@
   function selectExecution(sessionId: string | null): void {
     if (selectedExecutionId !== sessionId) clearExecutionDetail();
     selectedExecutionId = sessionId;
-    mainView = 'executions';
+    selectionKind = 'execution';
     if (isMobile) sidebarOpen = false;
     void refreshExecutions();
   }
@@ -588,6 +678,61 @@
       );
       card?.focus();
     });
+  }
+
+  let openingSession = $state(false);
+
+  /**
+   * "Nova sessão" — I3, and S1 of §49.5.
+   *
+   * One click, and deliberately no dialog: agent, branch, profile and prompt
+   * are all optional on `POST /api/sessions`, and asking for any of them would
+   * be exactly the ceremony a free session exists to skip. The branch is
+   * generated server-side, and the session lands with its terminal open.
+   */
+  async function handleNewSession(): Promise<void> {
+    if (openingSession) return;
+    openingSession = true;
+    try {
+      const opened = await openSession();
+      await refresh();
+      selectionKind = 'session';
+      selectedBranch = opened.branch;
+      activeTab = 'terminal';
+      if (isMobile) sidebarOpen = false;
+      showToast({ tone: 'success', message: `Sessão aberta em ${opened.branch}` });
+    } catch (err) {
+      showToast({ tone: 'error', message: `Falha ao abrir a sessão: ${errorMessage(err)}` });
+    } finally {
+      openingSession = false;
+    }
+  }
+
+  /**
+   * Clicking a session in the sidebar.
+   *
+   * Selecting it *and* landing on its terminal, because that is what opening a
+   * session means in Roteiro A. Selecting a row from inside a Task's
+   * "Sessões e worktrees" tab uses `handleSelectWorktree` alone — there the
+   * person is reading the list, not asking for a shell.
+   */
+  /**
+   * Picking a workspace from **inside** a Task.
+   *
+   * It does not leave the Task: a Task contains its sessions (§50.5), so the
+   * only thing that changes is which of them the terminal, the chat and the
+   * services describe. Only the sidebar's session group changes what is
+   * selected — that is `selectSessionRow`.
+   */
+  function selectWorkspace(branch: string): void {
+    revealWorktreeInFilters(branch);
+    selectedBranch = branch;
+    notifiedBranches = new Set([...notifiedBranches].filter((candidate) => candidate !== branch));
+  }
+
+  function selectSessionRow(branch: string): void {
+    handleSelectWorktree(branch);
+    if (hasCapability(CAPABILITY.terminalAttach)) activeTab = 'terminal';
   }
 
   function selectProject(projectId: string): void {
@@ -619,6 +764,7 @@
     executionsAgain = false;
     try {
       projects = await fetchProjects().catch((): ProjectSummary[] => []);
+      agentSessions = await fetchAgentSessions();
       sessions = await fetchSessions();
       disconnected = false;
 
@@ -628,16 +774,26 @@
         selectedProjectId,
         projectCount: projects.length,
       });
-      if (view.selectedSessionId !== selectedExecutionId) {
+      // The resolver owns the execution selection only while an execution is
+      // what is selected. With a session selected, the execution to show is the
+      // one that session belongs to — letting the resolver auto-pick here would
+      // put a different Task's snapshot beside somebody's terminal.
+      if (selectionKind === 'execution' && view.selectedSessionId !== selectedExecutionId) {
         selectedExecutionId = view.selectedSessionId;
       }
 
-      if (view.mode === 'dashboard' || view.session === null) {
+      const sessionId =
+        selectionKind === 'session'
+          ? (selectedWorktree?.executionId ?? null)
+          : view.mode === 'dashboard'
+            ? null
+            : (view.session?.sessionId ?? null);
+
+      if (sessionId === null) {
         clearExecutionDetail();
         return;
       }
 
-      const sessionId = view.session.sessionId;
       if (snapshotSessionId !== sessionId) {
         clearExecutionDetail();
         snapshotSessionId = sessionId;
@@ -670,7 +826,6 @@
 
   $effect(() => {
     // The document title carries the brand; the heading carries the execution.
-    if (!showExecutions) return;
     if (snapshot === null) {
       document.title = config.name ? `${config.name} · issue-flow` : 'issue-flow';
       return;
@@ -798,14 +953,16 @@
   });
 
   let paneBarPanes = $derived.by(() => {
-    const count = selectedWorktree?.paneCount ?? 0;
+    const count = activeWorktree?.paneCount ?? 0;
     if (count < 2) return [];
     return Array.from({ length: count }, (_, i) => ({
       index: i,
       label: String(i + 1),
     }));
   });
-  let showPaneBar = $derived(isMobile && canConnect && !showWebChat && paneBarPanes.length > 0);
+  let showPaneBar = $derived(
+    isMobile && canConnect && !showWebChat && activeTab === 'terminal' && paneBarPanes.length > 0,
+  );
 
   async function refresh() {
     if (!canCall('fetchWorktrees')) {
@@ -904,7 +1061,7 @@
   function handleSelectWorktree(branch: string): void {
     revealWorktreeInFilters(branch);
     selectedBranch = branch;
-    mainView = 'worktree';
+    selectionKind = 'session';
     notifiedBranches = new Set(
       [...notifiedBranches].filter((candidate) => candidate !== branch),
     );
@@ -1072,7 +1229,7 @@
   }
 
   async function openSelectedWorktree(): Promise<void> {
-    const branch = selectedBranch;
+    const branch = activeBranch;
     if (!branch) return;
     openingBranches = new Set([...openingBranches, branch]);
     try {
@@ -1144,7 +1301,7 @@
   }
 
   async function handleCreateTab(): Promise<void> {
-    const branch = selectedBranch;
+    const branch = activeBranch;
     if (!branch || tabBusy) return;
     tabBusy = true;
     try {
@@ -1158,7 +1315,7 @@
   }
 
   async function handleSelectTab(tabId: string): Promise<void> {
-    const branch = selectedBranch;
+    const branch = activeBranch;
     if (!branch || tabBusy) return;
     tabBusy = true;
     try {
@@ -1172,7 +1329,7 @@
   }
 
   async function handleDeleteTab(tabId: string): Promise<void> {
-    const branch = selectedBranch;
+    const branch = activeBranch;
     if (!branch || tabBusy) return;
     tabBusy = true;
     try {
@@ -1234,7 +1391,8 @@
       selectNeighborWorktree(1);
     } else if (e.key === 'k' || e.key === 'K') {
       e.preventDefault();
-      openCreateDialog();
+      if (canOpenSession) void handleNewSession();
+      else if (worktreeMutations) openCreateDialog();
     } else if (e.key === 'm' || e.key === 'M') {
       e.preventDefault();
       if (selectedBranch) mergeBranch = selectedBranch;
@@ -1444,7 +1602,24 @@
             <ProjectSwitcher current={activePrefix} />
           </div>
           <div class="flex items-center gap-2">
-            {#if worktreesAvailable}
+            <!--
+              I3: a free session, with no issue, no plan and no workflow, in one
+              click. No dialog on purpose — every field of `POST /api/sessions`
+              is optional and the branch is generated, so asking for any of them
+              would be the ceremony this mode exists to skip (§49.2).
+            -->
+            {#if canOpenSession}
+              <button
+                type="button"
+                class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                onclick={() => void handleNewSession()}
+                disabled={openingSession}
+                title="Nova sessão (Cmd+K)"
+                >{#if openingSession}<span class="spinner"></span>{:else}<span
+                    class="text-lg leading-none">+</span
+                  >{/if} Nova sessão</button
+              >
+            {:else if worktreeMutations}
               <button
                 type="button"
                 class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1518,7 +1693,7 @@
       -->
       <ExecutionSidebarList
         sessions={filteredSessions}
-        selected={selectedExecutionId}
+        selected={selectionKind === 'execution' ? selectedExecutionId : null}
         onselect={selectExecution}
       />
       {#if worktreesAvailable}
@@ -1526,13 +1701,13 @@
       {/if}
       <WorktreeList
         rows={visibleWorktreeRows}
-        selected={selectedBranch}
+        selected={selectionKind === 'session' ? selectedBranch : null}
         removing={removingBranches}
         initializing={openingBranches}
         archiving={archivingBranches}
         {notifiedBranches}
         emptyMessage={worktreeListEmptyMessage}
-        onselect={handleSelectWorktree}
+        onselect={selectSessionRow}
         onclose={closeWorktree}
         onarchive={toggleWorktreeArchived}
         onmerge={(branch) => {
@@ -1612,8 +1787,8 @@
       </div>
     {/if}
     <TopBar
-      name={selectedWorktree?.branch ?? null}
-      worktree={selectedWorktree}
+      name={activeWorktree?.branch ?? null}
+      worktree={activeWorktree}
       {sshHost}
       linkedRepos={config.linkedRepos ?? []}
       {isMobile}
@@ -1635,137 +1810,132 @@
       archiving={isSelectedArchiving}
     />
 
-    {#if showExecutions}
-      <!--
-        The execution surface. It is what the main area shows unless a worktree
-        is selected — and on a monitor a pipeline run bound inline, which serves
-        executions and nothing else, it is all there ever is (ADR-03).
-      -->
-      <div class="flex-1 min-w-0 overflow-y-auto">
-        {#if executionView.mode === 'dashboard'}
-          <div class="if-surface">
+    <!--
+      One panel (§50.5). The dashboard answers "nothing in particular is
+      selected"; everything else — a Task or a free session — is the same
+      `ExecutionPanel`, given a snapshot, a workspace, or both.
+    -->
+    <div class="flex-1 min-w-0 overflow-y-auto">
+      {#if awaitingSnapshot && !showDashboard}
+        <div class="if-surface"><p class="if-empty">Carregando a execução…</p></div>
+      {:else if showDashboard && snapshot === null}
+        <div class="if-surface">
+          {#if filteredSessions.length > 0 || projects.length > 1 || agentSessions.length > 0}
             <ExecutionsDashboard
               sessions={filteredSessions}
               {projects}
+              {agentSessions}
               {selectedProjectId}
               {refreshSeconds}
               {now}
               onselect={selectExecution}
+              onselectsession={worktreesAvailable ? selectSessionRow : null}
               onprojectchange={selectProject}
               onrefreshchange={setRefreshSeconds}
             />
-          </div>
-        {:else if snapshot !== null}
-          <ExecutionPanel
-            {snapshot}
-            {now}
-            events={executionEvents}
-            diagnostics={executionDiagnostics}
-            config={effectiveConfig}
-            {monitorVersion}
-            canEditPreferences={preferencesWritable}
-            {refreshSeconds}
-            {activeTab}
-            {logFilter}
-            {historyFilter}
-            {drawer}
-            canDiff={canCall('fetchWorktreeDiff') && selectedWorktree !== undefined}
-            onrefreshchange={setRefreshSeconds}
-            ontabchange={(id) => (activeTab = id)}
-            onlogfilterchange={(filter) => (logFilter = filter)}
-            onhistoryfilterchange={(filter) => (historyFilter = filter)}
-            onopendrawer={(selection) => (drawer = selection)}
-            onclosedrawer={closeDrawer}
-            onopensettings={() => (showSettingsDialog = true)}
-            onopendiff={openDiffDialog}
-            onback={sessions.length > 1 || projects.length > 1
-              ? () => selectExecution(null)
-              : null}
-          />
-        {:else}
-          <div class="if-surface">
+          {:else}
             <p class="if-empty">
               Nenhuma execução ativa.{worktreesAvailable
-                ? ''
+                ? ' Abra uma sessão na barra lateral.'
                 : ' Worktrees, sessões e terminal aparecem quando o servidor os anuncia.'}
             </p>
-          </div>
-        {/if}
-      </div>
-    {:else if showWebChat}
-      {#key selectedBranch}
-        <MobileChatSurface
-          worktree={selectedWorktree as WorktreeInfo}
-          onConversationMessageSent={() => void refresh()}
-        />
-      {/key}
-    {:else if canConnect}
-      {#if showTabBar && selectedWorktree}
-        <TabBar
-          tabs={selectedWorktree.tabs}
-          activeTabId={selectedWorktree.activeTabId}
-          busy={tabBusy}
-          oncreate={handleCreateTab}
-          onselect={handleSelectTab}
-          ondelete={handleDeleteTab}
+          {/if}
+        </div>
+      {:else}
+        <ExecutionPanel
+          {snapshot}
+          worktree={activeWorktree ?? null}
+          worktrees={taskWorktrees}
+          {now}
+          events={executionEvents}
+          diagnostics={executionDiagnostics}
+          config={effectiveConfig}
+          {monitorVersion}
+          canEditPreferences={preferencesWritable}
+          hasPullRequestSync={hasCapability(CAPABILITY.pullRequests)}
+          {refreshSeconds}
+          {activeTab}
+          {logFilter}
+          {historyFilter}
+          {drawer}
+          canDiff={canCall('fetchWorktreeDiff') && activeWorktree !== undefined}
+          terminal={terminalAvailable ? terminalPane : null}
+          chat={showWebChat ? chatPane : null}
+          onrefreshchange={setRefreshSeconds}
+          ontabchange={(id) => (activeTab = id)}
+          onlogfilterchange={(filter) => (logFilter = filter)}
+          onhistoryfilterchange={(filter) => (historyFilter = filter)}
+          onopendrawer={(selection) => (drawer = selection)}
+          onclosedrawer={closeDrawer}
+          onopensettings={() => (showSettingsDialog = true)}
+          onopendiff={openDiffDialog}
+          onselectworktree={selectWorkspace}
+          onopencomments={(pr) => (commentReviewPr = pr)}
+          onback={selectionKind === 'execution' &&
+          (sessions.length > 1 || projects.length > 1)
+            ? () => selectExecution(null)
+            : null}
         />
       {/if}
-      {#key selectedTerminalKey}
-        <Terminal
-          sessionId={selectedSessionId}
-          branch={selectedBranch}
-          {isMobile}
-          initialPane={isMobile ? activePane : undefined}
-          {terminalTheme}
-          agentTerminalStale={selectedWorktree?.agentTerminalStale ?? false}
-          refreshingAgentTerminal={isSelectedAgentTerminalRefreshing}
-          onrefreshagentterminal={() => {
-            if (selectedBranch) void handleRefreshAgentTerminal(selectedBranch);
-          }}
-          bind:this={terminalRef}
-        />
-      {/key}
-    {:else if selectedWorktree?.creating}
-      <div class="flex-1 flex items-center justify-center px-6">
-        <div class="flex flex-col items-center gap-3 text-center">
-          <span class="spinner" style="width: 24px; height: 24px; border-width: 2px;"></span>
-          <div>
-            <p class="text-sm text-primary font-medium">
-              {selectedWorktree.label ?? selectedWorktree.branch}
-            </p>
-            {#if selectedWorktree.label}
-              <p class="text-[10px] text-muted">{selectedWorktree.branch}</p>
-            {/if}
-          </div>
-          <p class="text-xs text-muted">
-            {worktreeCreationPhaseLabel(selectedWorktree.creationPhase)}
+    </div>
+
+    {#if showPaneBar}
+      <PaneBar {activePane} panes={paneBarPanes} onselect={handlePaneSelect} />
+    {/if}
+  </main>
+</div>
+
+{#snippet terminalPane()}
+  {#if canConnect}
+    {#if showTabBar && activeWorktree}
+      <TabBar
+        tabs={activeWorktree.tabs}
+        activeTabId={activeWorktree.activeTabId}
+        busy={tabBusy}
+        oncreate={handleCreateTab}
+        onselect={handleSelectTab}
+        ondelete={handleDeleteTab}
+      />
+    {/if}
+    {#key selectedTerminalKey}
+      <Terminal
+        sessionId={selectedSessionId}
+        branch={activeBranch}
+        {isMobile}
+        initialPane={isMobile ? activePane : undefined}
+        {terminalTheme}
+        agentTerminalStale={activeWorktree?.agentTerminalStale ?? false}
+        refreshingAgentTerminal={isSelectedAgentTerminalRefreshing}
+        onrefreshagentterminal={() => {
+          if (activeBranch) void handleRefreshAgentTerminal(activeBranch);
+        }}
+        bind:this={terminalRef}
+      />
+    {/key}
+  {:else if activeWorktree?.creating}
+    <div class="flex-1 flex items-center justify-center px-6">
+      <div class="flex flex-col items-center gap-3 text-center">
+        <span class="spinner" style="width: 24px; height: 24px; border-width: 2px;"></span>
+        <div>
+          <p class="text-sm text-primary font-medium">
+            {activeWorktree.label ?? activeWorktree.branch}
           </p>
         </div>
+        <p class="text-xs text-muted">
+          {worktreeCreationPhaseLabel(activeWorktree.creationPhase)}
+        </p>
       </div>
-    {:else if selectedWorktree}
-      <div class="flex-1 flex items-center justify-center px-6">
-        <div class="flex flex-col items-center gap-4 text-center">
-          <div>
-            <p class="text-sm text-primary font-medium">
-              {selectedWorktree.label ?? selectedWorktree.branch}
-            </p>
-            {#if selectedWorktree.label}
-              <p class="text-[10px] text-muted">{selectedWorktree.branch}</p>
-            {/if}
-          </div>
-          <div class="flex flex-col items-center gap-1">
-            {#if selectedWorktree.profile}
-              <span class="text-xs text-muted">Profile: {selectedWorktree.profile}</span>
-            {/if}
-            {#if selectedWorktree.agentLabel ?? selectedWorktree.agentName}
-              <span class="text-xs text-muted"
-                >Agente: {selectedWorktree.agentLabel ?? selectedWorktree.agentName}</span
-              >
-            {/if}
-            {#if selectedWorktree.agentName && !supportsWorktreeChat(selectedWorktree)}
-              <span class="text-xs text-muted">Este agente roda apenas no terminal.</span>
-            {/if}
-          </div>
+    </div>
+  {:else if activeWorktree}
+    <div class="flex-1 flex items-center justify-center px-6">
+      <div class="flex flex-col items-center gap-4 text-center">
+        <div>
+          <p class="text-sm text-primary font-medium">
+            {activeWorktree.label ?? activeWorktree.branch}
+          </p>
+          <p class="text-[10px] text-muted">{activeWorktree.branch}</p>
+        </div>
+        {#if canCall('openWorktree')}
           <button
             type="button"
             class="mt-2 px-5 py-2 rounded-md bg-accent text-accent-text text-sm font-medium cursor-pointer border-none hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -1779,23 +1949,26 @@
               Abrir sessão
             {/if}
           </button>
-        </div>
+        {:else}
+          <p class="text-xs text-muted">
+            Esta sessão não tem um terminal ativo para acompanhar.
+          </p>
+        {/if}
       </div>
-    {:else}
-      <div class="flex-1 flex items-center justify-center text-muted text-sm px-6 text-center">
-        <p>
-          {worktreesAvailable
-            ? 'Selecione um worktree na barra lateral para conectar.'
-            : 'Este monitor está acompanhando execuções. Worktrees, sessões e terminal aparecem quando o servidor os anuncia.'}
-        </p>
-      </div>
-    {/if}
+    </div>
+  {:else}
+    <p class="if-empty">Nenhuma sessão selecionada.</p>
+  {/if}
+{/snippet}
 
-    {#if showPaneBar}
-      <PaneBar {activePane} panes={paneBarPanes} onselect={handlePaneSelect} />
-    {/if}
-  </main>
-</div>
+{#snippet chatPane()}
+  {#key activeBranch}
+    <MobileChatSurface
+      worktree={activeWorktree as WorktreeInfo}
+      onConversationMessageSent={() => void refresh()}
+    />
+  {/key}
+{/snippet}
 
 {#if showCreateDialog}
   <CreateWorktreeDialog

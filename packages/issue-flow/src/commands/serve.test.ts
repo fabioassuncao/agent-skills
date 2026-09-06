@@ -2,9 +2,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { AgentSession } from '../agents/session/types.js';
 import { ProjectManager } from '../runtime/project-manager.js';
 import { createProjectRegistry } from '../storage/projects/registry.js';
-import { autoAddCwd, loadProjects, PROJECT_DIR_ENV, projectDirsFromEnv } from './serve.js';
+import {
+  autoAddCwd,
+  loadProjects,
+  matchesTerminalRequest,
+  PROJECT_DIR_ENV,
+  projectDirsFromEnv,
+} from './serve.js';
 
 /**
  * The boot half of `issue-flow serve`: which projects a fresh server ends up
@@ -175,5 +182,60 @@ describe('serve boot', () => {
       // Plus the ephemeral cwd.
       'cwd',
     ]);
+  });
+});
+
+/**
+ * Which session a terminal connection is asking for.
+ *
+ * Phase 8D turned the transport on for the first time (nothing wired
+ * `terminal` before it), so this is the decision that decides what a viewer is
+ * allowed to attach to.
+ */
+describe('matchesTerminalRequest', () => {
+  function session(overrides: Partial<AgentSession> = {}): AgentSession {
+    return {
+      id: 'sess-1',
+      runId: null,
+      phase: null,
+      storyId: null,
+      branch: 'session/a',
+      worktreeId: 'wt-1',
+      provider: 'claude',
+      conversationId: null,
+      status: 'running',
+      paneTarget: 'if-proj:if-session-a.0',
+      label: null,
+      createdAt: '2026-09-06T10:00:00.000Z',
+      updatedAt: '2026-09-06T10:00:00.000Z',
+      endedAt: null,
+      ...overrides,
+    };
+  }
+
+  it('answers the session the id names, and ignores the branch beside it', () => {
+    expect(matchesTerminalRequest(session(), { sessionId: 'sess-1', branch: 'other' })).toBe(true);
+    expect(matchesTerminalRequest(session(), { sessionId: 'sess-2', branch: 'session/a' })).toBe(
+      false,
+    );
+  });
+
+  it('falls back to the branch when no id was given', () => {
+    expect(matchesTerminalRequest(session(), { sessionId: null, branch: 'session/a' })).toBe(true);
+    expect(matchesTerminalRequest(session(), { sessionId: null, branch: 'session/b' })).toBe(false);
+  });
+
+  // A stopped session has no window: answering with it would hand the viewer an
+  // attach that fails instead of a refusal it can explain.
+  it('never matches a session that is not live', () => {
+    for (const status of ['stopped', 'orphaned'] as const) {
+      expect(
+        matchesTerminalRequest(session({ status }), { sessionId: 'sess-1', branch: null }),
+      ).toBe(false);
+    }
+  });
+
+  it('matches nothing when the request names neither', () => {
+    expect(matchesTerminalRequest(session(), { sessionId: null, branch: null })).toBe(false);
   });
 });

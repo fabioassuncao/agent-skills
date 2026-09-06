@@ -3,6 +3,7 @@
   import RefreshSelect from './RefreshSelect.svelte';
   import { formatAgo, formatDuration, parseIso } from './format';
   import type { ExecutionSnapshot } from './snapshot';
+  import type { WorktreeInfo } from './types';
   import { AGENT_LIFECYCLE_LABELS } from './vocabulary';
 
   /**
@@ -21,17 +22,25 @@
    * - **The side must be able to shrink.** The timers are wide, and pinned at
    *   `flex: 0 0 auto` they blow past 360px. The heading itself is inline flow,
    *   not flex, or a long title pushes `#N` onto a line of its own.
+   *
+   * §50.5 adds one state rather than a second header: `snapshot` may be `null`,
+   * which is a **free session** — a live agent in a worktree with no run behind
+   * it (§49.2, ADR-16). The same header then names the session and its branch
+   * and drops the timers, because there is no execution to time. A separate
+   * "session header" would have been the second interface growing back.
    */
 
   let {
-    snapshot,
+    snapshot = null,
+    worktree = null,
     monitorVersion = null,
     now,
     refreshSeconds,
     onrefreshchange,
     onback = null,
   }: {
-    snapshot: ExecutionSnapshot;
+    snapshot?: ExecutionSnapshot | null;
+    worktree?: WorktreeInfo | null;
     monitorVersion?: string | null;
     now: number;
     refreshSeconds: number;
@@ -39,13 +48,20 @@
     onback?: (() => void) | null;
   } = $props();
 
-  let hasIssue = $derived(snapshot.issue.number !== null);
+  let hasIssue = $derived(snapshot !== null && snapshot.issue.number !== null);
 
   let headline = $derived(
-    snapshot.issue.title ?? (hasIssue ? 'Sem título' : 'Execução sem issue vinculada'),
+    snapshot === null
+      ? (worktree?.label ?? worktree?.branch ?? 'Sessão')
+      : (snapshot.issue.title ?? (hasIssue ? 'Sem título' : 'Execução sem issue vinculada')),
   );
 
   let branchLine = $derived.by(() => {
+    if (snapshot === null) {
+      const branch = worktree?.branch ?? '';
+      const agent = worktree?.agentLabel ?? worktree?.agentName ?? null;
+      return agent === null ? branch : `${branch} · ${agent}`;
+    }
     const branch = snapshot.git.branch;
     if (branch === null) return '';
     const base = snapshot.git.baseBranch;
@@ -62,6 +78,7 @@
   // the next refresh to move the elapsed time is what made the old panel feel
   // frozen during a long phase.
   let elapsed = $derived.by(() => {
+    if (snapshot === null) return worktree?.elapsed ?? '—';
     const startMs = parseIso(snapshot.startedAt);
     if (startMs === null) return '—';
     const endMs = parseIso(snapshot.endedAt);
@@ -70,14 +87,31 @@
   });
 
   let estimate = $derived(
-    snapshot.status === 'running' && snapshot.estimatedRemainingSeconds !== null
+    snapshot !== null &&
+      snapshot.status === 'running' &&
+      snapshot.estimatedRemainingSeconds !== null
       ? `~${formatDuration(snapshot.estimatedRemainingSeconds)} restantes (estimativa)`
       : null,
   );
 
-  let awaitingInput = $derived(snapshot.agent.lifecycle === 'awaiting-input');
-  let escalated = $derived(snapshot.agent.awaitingInputEscalatedAt !== null);
-  let heldBy = $derived(snapshot.agent.humanHold);
+  let awaitingInput = $derived(snapshot?.agent.lifecycle === 'awaiting-input');
+  let escalated = $derived(snapshot !== null && snapshot.agent.awaitingInputEscalatedAt !== null);
+  let heldBy = $derived(snapshot?.agent.humanHold ?? null);
+
+  /**
+   * The status the pill shows.
+   *
+   * A free session has no execution status, so it borrows the one the sidebar
+   * already computes for its row — one status vocabulary, applied to whichever
+   * of the two the header is naming (ADR-20).
+   */
+  let pillStatus = $derived(
+    snapshot === null
+      ? worktree?.agent === undefined
+        ? 'idle'
+        : worktree.agent
+      : executionStatusToAgentStatus(snapshot.status),
+  );
 </script>
 
 <header class="if-card if-header">
@@ -86,7 +120,7 @@
       <button type="button" class="if-back" onclick={onback}>← Todas as execuções</button>
     {/if}
     <h1>
-      {#if hasIssue}
+      {#if hasIssue && snapshot}
         {#if snapshot.issue.url}
           <a class="if-issue-link" href={snapshot.issue.url} target="_blank" rel="noopener"
             >#{snapshot.issue.number}</a
@@ -113,13 +147,13 @@
         >em controle humano</span
       >
     {/if}
-    {#if escalated}
+    {#if escalated && snapshot}
       <span
         class="if-badge if-badge-error"
         title={`Sem resposta ${formatAgo(snapshot.agent.awaitingInputEscalatedAt, now)}`}
         >ninguém respondeu</span
       >
-    {:else if awaitingInput}
+    {:else if awaitingInput && snapshot}
       <span
         class="if-badge if-badge-warn"
         title={snapshot.agent.phase === null
@@ -128,7 +162,7 @@
         >{AGENT_LIFECYCLE_LABELS['awaiting-input']}</span
       >
     {/if}
-    <AgentStatusIcon pill status={executionStatusToAgentStatus(snapshot.status)} />
+    <AgentStatusIcon pill status={pillStatus} />
     <div class="if-timers">
       <span title="Tempo decorrido">{elapsed}</span>
       {#if estimate}<span class="if-muted">{estimate}</span>{/if}

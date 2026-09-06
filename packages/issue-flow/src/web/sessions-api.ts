@@ -9,6 +9,7 @@ import {
 import { linkSessionToRun, loadSession } from '../agents/session/store.js';
 import { type AgentSession, isFreeSession } from '../agents/session/types.js';
 import { type AgentPermission, type AgentProviderId, isAgentProviderId } from '../agents/types.js';
+import type { ServiceSpec } from '../runtime/services.js';
 import { findLatestRunIdForIssue } from '../storage/db/repository.js';
 import type { ApiResponse } from './projects-api.js';
 
@@ -40,6 +41,11 @@ export interface SessionsApiProject {
   projectId: string;
   /** Everything `openAgentSession` needs. Built per project by the server. */
   deps: Parameters<typeof openAgentSession>[0];
+  /**
+   * Services declared by the project (§19), for the health probe `web/worktrees-api.ts`
+   * runs per session. Resolved once with the rest of the project wiring.
+   */
+  services: readonly ServiceSpec[];
 }
 
 export interface SessionsApiDeps {
@@ -50,6 +56,15 @@ export interface SessionsApiDeps {
    * empty list rather than 404 — one dashboard build has to serve both.
    */
   resolveProject(projectId: string | null): Promise<SessionsApiProject | null>;
+  /**
+   * Every project this monitor serves, for the consolidated view of §49.4.
+   *
+   * "Trabalho ativo" answers "what is running anywhere", and a per-project
+   * listing cannot: the dashboard would have to ask N times and would not know
+   * what N was. Absent leaves the consolidated listing empty rather than
+   * guessing, which is the honest answer for a monitor with one project.
+   */
+  listProjects?(): Promise<readonly SessionsApiProject[]>;
   /** Whether mutating routes are enabled. Loopback only (ADR-10). */
   writable: boolean;
 }
@@ -65,9 +80,12 @@ const NOT_WRITABLE: ApiResponse = {
 };
 
 /** The wire shape of a session. Additive over the row: nothing is hidden. */
-export function sessionPayload(session: AgentSession): Record<string, unknown> {
+export function sessionPayload(session: AgentSession, projectId?: string): Record<string, unknown> {
   return {
     ...session,
+    // Present only on the consolidated listing, where a row has to say which
+    // repository it belongs to before it can be grouped by one (§49.4).
+    ...(projectId === undefined ? {} : { projectId }),
     // Said explicitly rather than left to the client to infer from three nulls:
     // a dashboard grouping "Active work" needs to know which of the two modes
     // a row is (§49.4), and re-deriving it in every client is how the two
@@ -101,15 +119,22 @@ function toApiResponse(error: unknown): ApiResponse {
 export async function listSessionsRoute(
   deps: SessionsApiDeps | null,
   projectId: string | null,
-  options: { freeOnly?: boolean } = {},
+  options: { freeOnly?: boolean; allProjects?: boolean } = {},
 ): Promise<ApiResponse> {
   if (deps === null) return { status: 200, body: [] };
-  const project = await deps.resolveProject(projectId);
-  if (project === null) return { status: 200, body: [] };
 
-  const sessions = await listAgentSessions(project.deps.storage);
-  const filtered = options.freeOnly === true ? sessions.filter(isFreeSession) : sessions;
-  return { status: 200, body: filtered.map(sessionPayload) };
+  const projects =
+    options.allProjects === true
+      ? ((await deps.listProjects?.()) ?? [])
+      : await deps.resolveProject(projectId).then((one) => (one === null ? [] : [one]));
+
+  const rows: Record<string, unknown>[] = [];
+  for (const project of projects) {
+    const sessions = await listAgentSessions(project.deps.storage).catch(() => []);
+    const filtered = options.freeOnly === true ? sessions.filter(isFreeSession) : sessions;
+    for (const session of filtered) rows.push(sessionPayload(session, project.projectId));
+  }
+  return { status: 200, body: rows };
 }
 
 /**

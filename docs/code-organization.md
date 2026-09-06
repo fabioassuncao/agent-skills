@@ -19,7 +19,6 @@ the [Contributing guide](../CONTRIBUTING.md).
 | `packages/issue-flow/prompts/` | Generated, committed CLI runtime prompts |
 | `packages/issue-flow/scripts/` | Generation, validation, packaging, smoke and release tooling |
 | `packages/issue-flow/web/src/` | The monitoring dashboard: Svelte 5 + Tailwind 4, built by Vite into `web/dist/` |
-| `packages/issue-flow/web/public/` | The previous dashboard, three static files, kept until §50.7 is green (ADR-18) |
 | `packages/issue-flow-contract/` | The typed HTTP contract (`@ts-rest/core` + zod) the dashboard is generated from |
 | `packages/issue-flow/sandbox/` | The container image the `sandbox` runtime mode runs agents in |
 | `evals/skills/` | Versioned behavioral scenarios |
@@ -102,7 +101,7 @@ tests must exercise these protocols rather than writing artifacts from a stub.
 | `ui/` | Terminal output (clean view, icon grammar, pipeline renderer) |
 | `utils/` | Shared process / git / fs primitives with no domain rules |
 | `verify/` | Acceptance contract and independent reviewer |
-| `web/` | Monitoring HTTP server (the dashboard assets live in `web/dist/` and `web/public/`) |
+| `web/` | Monitoring HTTP server (the dashboard's built assets live in `web/dist/`) |
 
 Root files next to those directories (`cli.ts`, `config.ts`, `types.ts`,
 `schemas.ts`, …) are package entry points or cross-cutting contracts.
@@ -165,8 +164,7 @@ orchestration runtime or part of the distributed Skills.
 ## Tooling
 
 Biome covers `src/**/*.ts`, `web/src/**/*.ts`, `web/*.config.ts`,
-`web/public/**/*.js`, `../issue-flow-contract/src/**/*.ts`, `scripts/**/*.mjs`
-and `*.config.ts`. It does not read `.svelte` files; `svelte-check` does.
+`../issue-flow-contract/src/**/*.ts`, `scripts/**/*.mjs` and `*.config.ts`. It does not read `.svelte` files; `svelte-check` does.
 `npm run check` is read-only and matches the CI gate (Biome, `tsc` over
 `src/**`, then `svelte-check` over `web/`); `npm run fix` applies Biome writes
 and then typechecks.

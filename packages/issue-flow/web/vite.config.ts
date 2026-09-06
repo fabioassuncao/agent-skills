@@ -54,10 +54,11 @@ export default defineConfig({
       ),
     },
   },
-  // `public/` here is the **old panel**, not this app's static assets. Vite's
-  // default would copy it into `dist/`, which would ship two copies of the
-  // legacy files and let `public/index.html` collide with the built one. The
-  // old panel is served from where it already lives (ADR-18).
+  // This app has no static assets of its own: the bundle embeds its fonts and
+  // images as data URIs. Left at Vite's default, a `public/` someone dropped
+  // here later would be copied into `dist/` and a `public/index.html` would
+  // collide with the built one — which is exactly how the previous panel used
+  // to end up shipped twice, before §50.8 removed it.
   publicDir: false,
   build: {
     outDir: 'dist',

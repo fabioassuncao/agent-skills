@@ -18,9 +18,14 @@
  * never collide with one, or `/<prefix>/…` would shadow the hub route.
  *
  * Wider than the upstream set (`api`, `ws`, `assets`) because this server also
- * answers `/api/health` at the root, serves the dashboard bundle from
- * `/assets/`, and keeps the previous panel at `/legacy/` until the three blocks
- * of §50.7 are green (ADR-18).
+ * answers `/api/health` at the root and serves the dashboard bundle from
+ * `/assets/`.
+ *
+ * `legacy` stays reserved after §50.8 removed the panel that lived there. The
+ * route is gone, so `/legacy/` is a 404 — and a 404 is the honest answer for a
+ * bookmark of a panel that no longer exists. Freeing the word would let a
+ * project called `legacy` claim that address and quietly answer *something*
+ * else at it, which is worse than nothing.
  */
 export const RESERVED_PROJECT_PREFIXES: ReadonlySet<string> = new Set([
   'api',

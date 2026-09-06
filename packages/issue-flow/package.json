@@ -49,7 +49,6 @@
     "dist",
     "prompts",
     "sandbox",
-    "web/public",
     "web/dist"
   ],
   "keywords": [
@@ -68,7 +67,7 @@
     "github"
   ],
   "license": "MIT",
-  "author": "Fábio Assunção",
+  "author": "F\u00e1bio Assun\u00e7\u00e3o",
   "homepage": "https://github.com/fabioassuncao/issue-flow#readme",
   "bugs": {
     "url": "https://github.com/fabioassuncao/issue-flow/issues"

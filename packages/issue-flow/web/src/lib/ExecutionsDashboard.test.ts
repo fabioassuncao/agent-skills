@@ -179,3 +179,105 @@ describe('the executions dashboard (U1)', () => {
     expect(screen.getByText('em controle humano')).toBeInTheDocument();
   });
 });
+
+/**
+ * I5 — "Trabalho ativo" shows Tasks **and** sessions, from several projects.
+ *
+ * §49.4 draws exactly this: a block per project, each with its executions and
+ * its free sessions. The executions half already existed; the sessions half is
+ * what phase 8D added, and both live in the same block because "what is running
+ * anywhere" is one question, not two screens.
+ */
+describe('the consolidated view (I5, §49.4)', () => {
+  function freeSession(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 's-1',
+      projectId: 'proj-a',
+      branch: 'session/scratch',
+      provider: 'codex',
+      label: null,
+      status: 'running',
+      runId: null,
+      free: true,
+      ...overrides,
+    };
+  }
+
+  it('lists a project’s free sessions beside its executions', () => {
+    renderDashboard({
+      projects: [project('proj-a', 'Alpha'), project('proj-b', 'Beta')],
+      sessions: [session({ projectId: 'proj-a' })],
+      agentSessions: [
+        freeSession(),
+        freeSession({ id: 's-2', projectId: 'proj-b', label: 'rascunho', provider: 'claude' }),
+      ],
+    });
+
+    const alpha = screen.getByRole('heading', { name: 'Alpha' }).closest('section') as HTMLElement;
+    expect(within(alpha).getByText('#42')).toBeInTheDocument();
+    expect(within(alpha).getByText('session/scratch')).toBeInTheDocument();
+    expect(within(alpha).getByText('sessão · codex')).toBeInTheDocument();
+
+    const beta = screen.getByRole('heading', { name: 'Beta' }).closest('section') as HTMLElement;
+    // A project with no execution still shows its session — the case that could
+    // not be represented before the registry existed.
+    expect(within(beta).getByText('Nenhuma execução ativa.')).toBeInTheDocument();
+    expect(within(beta).getByText('rascunho')).toBeInTheDocument();
+  });
+
+  it('never lists a session that already appears as its execution', () => {
+    renderDashboard({
+      projects: [project('proj-a', 'Alpha'), project('proj-b', 'Beta')],
+      sessions: [session({ projectId: 'proj-a' })],
+      agentSessions: [freeSession({ id: 's-3', runId: 'run-1', free: false })],
+    });
+    expect(screen.queryByText('session/scratch')).not.toBeInTheDocument();
+  });
+
+  it('shows the sessions on a single-project monitor too', () => {
+    renderDashboard({
+      projects: [project('proj-a', 'Alpha')],
+      sessions: [],
+      agentSessions: [freeSession()],
+    });
+    expect(screen.getByText('Nenhuma execução ativa.')).toBeInTheDocument();
+    expect(screen.getByText('session/scratch')).toBeInTheDocument();
+  });
+
+  it('opens a session from its row, and offers nothing to click without the surface', async () => {
+    const onselectsession = vi.fn();
+    renderDashboard({
+      projects: [project('proj-a', 'Alpha')],
+      sessions: [],
+      agentSessions: [freeSession()],
+      onselectsession,
+    });
+
+    await fireEvent.click(screen.getByText('session/scratch'));
+    expect(onselectsession).toHaveBeenCalledWith('session/scratch');
+
+    cleanup();
+    renderDashboard({
+      projects: [project('proj-a', 'Alpha')],
+      sessions: [],
+      agentSessions: [freeSession()],
+      onselectsession: null,
+    });
+    expect(screen.getByText('session/scratch').closest('button')).toBeDisabled();
+  });
+
+  // Every card on this screen is a `<button>` with only phrasing content: a
+  // `<div>` inside a button is invalid HTML the browser "fixes" by breaking the
+  // click target.
+  it('makes each session row a real button with phrasing content only', () => {
+    renderDashboard({
+      projects: [project('proj-a', 'Alpha')],
+      sessions: [],
+      agentSessions: [freeSession()],
+      onselectsession: vi.fn(),
+    });
+    const row = screen.getByText('session/scratch').closest('button') as HTMLElement;
+    expect(row.tagName).toBe('BUTTON');
+    expect(row.querySelector('p, div')).toBeNull();
+  });
+});

@@ -82,10 +82,128 @@ describe('capability gate', () => {
 
   it('allows it once the capability is announced', async () => {
     const api = await loadApiAt('/myproject/');
-    api.setCapabilities(['worktrees']);
+    api.setCapabilities(['sessions']);
 
     expect(api.canCall('fetchWorktrees')).toBe(true);
     expect(api.canCall('terminalToken')).toBe(false);
+  });
+
+  /**
+   * Phase 8D split the listing out of `worktrees`.
+   *
+   * The two are different promises: `sessions` says "I can list the sessions
+   * and the worktrees they run in", which `src/web/worktrees-api.ts` serves;
+   * `worktrees` still says "I can create, merge, archive and re-profile them",
+   * which nothing serves yet. A monitor that had to claim the second to offer
+   * the first is why the sidebar's session group was empty.
+   */
+  it('does not let the listing capability offer the mutation surface', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities(['sessions']);
+
+    expect(api.canCall('fetchWorktrees')).toBe(true);
+    expect(api.canCall('createWorktree')).toBe(false);
+    expect(api.canCall('mergeWorktree')).toBe(false);
+    expect(api.canCall('setWorktreeProfile')).toBe(false);
+  });
+});
+
+describe('agent sessions (§49.3)', () => {
+  it('opens one under the active prefix, with nothing the caller did not ask for', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities(['session:open']);
+
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ branch: 'session/scratch-a1b2', session: { id: 'sess-1' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await api.openSession()).toEqual({
+      branch: 'session/scratch-a1b2',
+      sessionId: 'sess-1',
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/myproject/api/sessions');
+    expect(init.method).toBe('POST');
+    // Every field is optional: an empty body is what makes it *free* (§49.2).
+    expect(init.body).toBe('{}');
+  });
+
+  it('refuses without the capability, and never reaches the network', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities(['sessions']);
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(api.canOpenSessions()).toBe(false);
+    await expect(api.openSession()).rejects.toThrow(/não está disponível/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the server’s reason rather than a bare status', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities(['session:open']);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: 'Issue 42 has no run to attach a session to yet.' }),
+            {
+              status: 409,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+      ),
+    );
+
+    await expect(api.linkSession('sess-1', '42')).rejects.toThrow(/no run to attach/);
+  });
+
+  /**
+   * The consolidated listing of §49.4 answers "what is running anywhere", so a
+   * monitor that cannot answer it says nothing rather than failing: the caller
+   * renders a view with no sessions instead of an error nobody can act on.
+   */
+  it('answers an empty list where there is no session surface at all', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities([]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await api.fetchAgentSessions()).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('asks for every project, and keeps only rows it can read', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities(['sessions']);
+    const fetchMock = vi.fn(async () =>
+      jsonResponse([
+        { id: 's-1', branch: 'session/a', provider: 'codex', status: 'running', free: true },
+        { nonsense: true },
+      ]),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const rows = await api.fetchAgentSessions();
+    expect(fetchMock).toHaveBeenCalledWith('/myproject/api/agent-sessions?all=1', {
+      cache: 'no-store',
+    });
+    expect(rows).toEqual([
+      {
+        id: 's-1',
+        projectId: null,
+        branch: 'session/a',
+        provider: 'codex',
+        label: null,
+        status: 'running',
+        runId: null,
+        free: true,
+      },
+    ]);
   });
 });
 

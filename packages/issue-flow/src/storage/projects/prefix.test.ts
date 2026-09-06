@@ -56,6 +56,10 @@ describe('deriveProjectPrefix', () => {
       'api',
       'assets',
       'health',
+      // Still reserved after §50.8 removed the panel that lived at `/legacy/`:
+      // the route is gone, so the address answers 404, and a 404 is the honest
+      // answer for a bookmark of a panel that no longer exists. Freeing the
+      // word would let a project claim it and answer something else there.
       'legacy',
       'ws',
     ]);

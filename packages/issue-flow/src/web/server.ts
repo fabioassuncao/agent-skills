@@ -46,6 +46,14 @@ import {
   type TerminalWebSocketHandle,
   type TerminalWebSocketOptions,
 } from './terminal-ws.js';
+import {
+  ciLogsRoute,
+  listWorktreesRoute,
+  matchCiLogs,
+  matchSyncPullRequests,
+  syncWorktreePullRequestsRoute,
+  type WorktreesApiDeps,
+} from './worktrees-api.js';
 
 /**
  * HTTP server for the web monitoring mode. Plain node:http — no new runtime
@@ -114,15 +122,9 @@ export interface WebServerOptions {
   /** Stable identity for this server process. Default: a fresh UUID at startup. */
   instanceId?: string;
   /**
-   * Directory holding the previous panel (index.html/app.css/app.js), served
-   * at `/legacy/`. Default: auto-resolved.
-   */
-  publicDir?: string;
-  /**
    * Directory holding the built dashboard (index.html + assets/), served at
-   * `/`. Default: auto-resolved. Absent or unbuilt falls back to the previous
-   * panel at `/`, so a source checkout that never ran `npm run build:web`
-   * still has a monitor.
+   * `/`. Default: auto-resolved. Absent or unbuilt answers a page that says so
+   * and links `status.json`, which is the no-JavaScript fallback §50.8 keeps.
    */
   dashboardDir?: string;
   /** Info logger. Default: printInfo. */
@@ -162,6 +164,15 @@ export interface WebServerOptions {
    * one that does not, and every mutating route answers 501.
    */
   agentSessions?: SessionsApiDeps;
+  /**
+   * The session/worktree listing (`GET /api/worktrees`).
+   *
+   * Absent leaves the sidebar's second group off entirely — the `sessions`
+   * capability is not announced and the ported worktree surface is never
+   * offered, which is exactly what a monitor a pipeline run bound inline should
+   * do: it has one execution and no session registry behind it.
+   */
+  worktrees?: WorktreesApiDeps;
 }
 
 export interface WebServerHandle {
@@ -373,27 +384,24 @@ const CSS_TYPE = 'text/css; charset=utf-8';
 const JS_TYPE = 'text/javascript; charset=utf-8';
 
 /**
- * The previous panel: three files, no build step.
+ * What to serve when there is no build.
  *
- * It is mounted twice on purpose. `/legacy/` is where it lives from now on
- * (ADR-18 keeps it until the three blocks of §50.7 are green, and it is also
- * the rollback path); `/`, `/app.css` and `/app.js` stay as a fallback for a
- * package whose dashboard was never built — a source checkout that has not run
- * `npm run build:web` still gets a working monitor rather than a 404.
- *
- * Its `index.html` references `app.css`, `app.js` and `status.json` by
- * *relative* path, which is what lets the same bytes work under both mounts
- * with no rewriting: at `/legacy/` the browser resolves them to
- * `/legacy/app.css` and `/legacy/app.js`.
+ * The previous panel used to be this answer (ADR-18 kept it at `/legacy/` and
+ * as the unbuilt fallback). It was removed in phase 8D with §50.7 green, so a
+ * checkout that never ran `npm run build:web` gets a page that says exactly
+ * that — and the `status.json` link, which §50.8 requires to survive as the
+ * one fallback that needs no JavaScript at all.
  */
-const LEGACY_ROUTES: Record<string, { file: string; contentType: string }> = {
-  '/legacy/': { file: 'index.html', contentType: HTML_TYPE },
-  '/legacy/app.css': { file: 'app.css', contentType: CSS_TYPE },
-  '/legacy/app.js': { file: 'app.js', contentType: JS_TYPE },
-  '/': { file: 'index.html', contentType: HTML_TYPE },
-  '/app.css': { file: 'app.css', contentType: CSS_TYPE },
-  '/app.js': { file: 'app.js', contentType: JS_TYPE },
-};
+const UNBUILT_DASHBOARD = `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>issue-flow</title></head>
+<body style="font: 14px system-ui; margin: 2rem; max-width: 40rem">
+<h1>Painel não compilado</h1>
+<p>Este checkout ainda não gerou o painel. Rode <code>npm run build:web</code> e recarregue.</p>
+<p>O estado bruto da execução continua disponível em <a href="status.json">status.json</a>.</p>
+</body></html>
+`;
 
 function contentTypeForAsset(file: string): string | null {
   if (file.endsWith('.js')) return JS_TYPE;
@@ -402,32 +410,16 @@ function contentTypeForAsset(file: string): string | null {
   return null;
 }
 
-/** Assets are read once at startup; missing files simply 404. */
-async function loadLegacyAssets(publicDir: string | null): Promise<Map<string, StaticAsset>> {
-  const assets = new Map<string, StaticAsset>();
-  if (publicDir === null) return assets;
-  for (const [route, { file, contentType }] of Object.entries(LEGACY_ROUTES)) {
-    try {
-      const body = await readFile(join(publicDir, file), 'utf-8');
-      assets.set(route, { body, contentType });
-    } catch {
-      // Asset not present (e.g. UI not built yet) — route answers 404.
-    }
-  }
-  return assets;
-}
-
 /**
  * The built dashboard: `index.html` plus hash-named files under `assets/`.
  *
- * The names carry a content hash, so they cannot be listed ahead of time the
- * way the legacy trio can — the directory is read instead. Anything that is not
- * JS, CSS or HTML is skipped rather than guessed at: the bundle embeds its own
- * fonts and images as data URIs, so a binary here would mean the build changed
- * shape, and answering it with the wrong `Content-Type` is worse than 404.
+ * The names carry a content hash, so they cannot be listed ahead of time — the
+ * directory is read instead. Anything that is not JS, CSS or HTML is skipped
+ * rather than guessed at: the bundle embeds its own fonts and images as data
+ * URIs, so a binary here would mean the build changed shape, and answering it
+ * with the wrong `Content-Type` is worse than 404.
  *
- * Returns an empty map when there is no build, which is what makes the legacy
- * fallback above kick in.
+ * With no build, `/` answers {@link UNBUILT_DASHBOARD} instead.
  */
 async function loadDashboardAssets(dashboardDir: string | null): Promise<Map<string, StaticAsset>> {
   const assets = new Map<string, StaticAsset>();
@@ -437,6 +429,7 @@ async function loadDashboardAssets(dashboardDir: string | null): Promise<Map<str
   try {
     index = await readFile(join(dashboardDir, 'index.html'), 'utf-8');
   } catch {
+    assets.set('/', { body: UNBUILT_DASHBOARD, contentType: HTML_TYPE });
     return assets;
   }
   assets.set('/', { body: index, contentType: HTML_TYPE });
@@ -507,22 +500,19 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const instanceId = options.instanceId ?? randomUUID();
   const startedAtMs = Date.now();
 
-  // Both panels ship at the package root under web/ (sibling of prompts/),
-  // resolved the same way from src/ and from the published dist/ layout. The
-  // dashboard entries are applied over the legacy ones, so `/` is the new panel
-  // wherever a build exists and the old one wherever it does not (ADR-18).
-  const legacyAssets = await loadLegacyAssets(
-    options.publicDir ?? resolvePackageDir(join('web', 'public')),
-  );
-  const dashboardAssets = await loadDashboardAssets(
+  // The dashboard ships at the package root under web/dist (sibling of
+  // prompts/), resolved the same way from src/ and from the published dist/
+  // layout. There is one panel now: the previous one was removed in phase 8D,
+  // with the three blocks of §50.7 green (§50.8).
+  const assets = await loadDashboardAssets(
     options.dashboardDir ?? resolvePackageDir(join('web', 'dist')),
   );
-  const assets = new Map([...legacyAssets, ...dashboardAssets]);
 
   const source = resolveSessionSource(options);
   let terminal: TerminalWebSocketHandle | null = null;
   const projects = options.projects ?? null;
   const agentSessions = options.agentSessions ?? null;
+  const worktrees = options.worktrees ?? null;
 
   // JSON serialization memoized per session id: an unchanged poll answers 304
   // with an empty body. Content-hashed rather than counter-based, unlike the
@@ -671,6 +661,9 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         res,
         await listSessionsRoute(agentSessions, routedProjectId, {
           freeOnly: requestUrl.searchParams.get('free') === '1',
+          // `?all=1` is the consolidated view of §49.4: what is running
+          // *anywhere*, which a per-project listing cannot answer.
+          allProjects: requestUrl.searchParams.get('all') === '1',
         }),
       );
       return;
@@ -681,6 +674,30 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         res,
         await createSessionRoute(agentSessions, routedProjectId, await readJsonBody(req)),
       );
+      return;
+    }
+
+    // The sidebar's second group, and the "Sessões e worktrees" tab of a Task.
+    // A projection of `agent_sessions`, never a second worktree registry (§25).
+    if (req.method === 'GET' && path === '/api/worktrees') {
+      respondApi(res, await listWorktreesRoute(worktrees, routedProjectId));
+      return;
+    }
+
+    // §20's two read surfaces, both gated by `pr:ci`: the manual refresh and
+    // the failed-run log the CI dialog opens.
+    const syncPrsBranch = req.method === 'POST' ? matchSyncPullRequests(path) : null;
+    if (syncPrsBranch !== null) {
+      respondApi(
+        res,
+        await syncWorktreePullRequestsRoute(worktrees, routedProjectId, syncPrsBranch),
+      );
+      return;
+    }
+
+    const ciLogRunId = req.method === 'GET' ? matchCiLogs(path) : null;
+    if (ciLogRunId !== null) {
+      respondApi(res, await ciLogsRoute(worktrees, routedProjectId, ciLogRunId));
       return;
     }
 
@@ -974,20 +991,17 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
           // dashboard never offers a "New session" button that would answer
           // 501 (no project surface) or 403 (not loopback, ADR-10).
           ...(agentSessions?.writable ? ['session:open'] : []),
+          // Listing sessions and the worktrees they run in. Split from
+          // `worktrees` in phase 8D: that name gates twenty mutation routes
+          // whose backends are not ported, and one promise must not smuggle
+          // in the other.
+          ...(worktrees === null ? [] : ['sessions']),
+          // §20's display sync. Announced only where a pass can actually run,
+          // so the PR badge and the CI dialog are offered exactly where they
+          // have something to show.
+          ...(worktrees?.ciLog === undefined ? [] : ['pr:ci']),
         ],
       });
-      return;
-    }
-
-    // `/legacy` without the trailing slash would make the browser resolve the
-    // panel's relative `app.css` against `/`, which is the *other* panel.
-    if (path === '/legacy') {
-      res.statusCode = 301;
-      res.setHeader(
-        'Location',
-        `${projectRoute.prefix === null ? '' : `/${projectRoute.prefix}`}/legacy/`,
-      );
-      res.end();
       return;
     }
 

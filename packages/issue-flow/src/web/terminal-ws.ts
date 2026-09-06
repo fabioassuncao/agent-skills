@@ -79,6 +79,15 @@ export interface TerminalWebSocketOptions {
    * it should do — it has no window to act on.
    */
   tmux?: Pick<TmuxGateway, 'sendHexKeys' | 'selectPane'>;
+  /**
+   * tmux socket the viewer attaches on. Defaults to the product's own.
+   *
+   * A seam, not a setting: the integration suite runs its owner session on a
+   * throwaway socket, and without this the viewer attached to the *default*
+   * one — where the window does not exist — so the suite was measuring the
+   * shell's echo of its own input instead of the pane's output.
+   */
+  socketName?: string;
   /** Credential required in the handshake. Default: a fresh one per server. */
   token?: string;
   /**
@@ -323,6 +332,7 @@ export async function startTerminalWebSocket(
               target: { ownerSessionName: target.ownerSessionName, windowName: target.windowName },
               cols: message.cols,
               rows: message.rows,
+              ...(options.socketName === undefined ? {} : { socketName: options.socketName }),
               ...(message.initialPane === undefined ? {} : { initialPane: message.initialPane }),
               ...(target.cwd === undefined ? {} : { cwd: target.cwd }),
             });

@@ -7,6 +7,8 @@ vi.mock('./api', () => ({
     configRoutingWrite: 'config:routing:write',
     streamSessions: 'stream:sessions',
     terminalAttach: 'terminal:attach',
+    sessions: 'sessions',
+    sessionOpen: 'session:open',
     worktrees: 'worktrees',
     conversation: 'agent:conversation',
     services: 'services',
@@ -14,19 +16,30 @@ vi.mock('./api', () => ({
   },
   api: {},
   canCall: vi.fn(() => false),
+  canOpenSessions: vi.fn(() => false),
+  openSession: vi.fn(async () => ({ branch: '', sessionId: '' })),
   hasCapability: vi.fn(() => false),
 }));
 
 import ExecutionPanel from './ExecutionPanel.svelte';
 import { createExecutionSnapshot } from './execution-fixtures';
+import { createWorktree } from './test-fixtures';
 
 /**
- * The execution surface, end to end in a DOM.
+ * The main panel, end to end in a DOM.
  *
  * Defends **U2** (the header), **U4** (alerts), **U5** (the ARIA tablist),
  * **U6** (the "Estado agora" block), **U7** (context), **U9** (progress),
  * **U10** (Kanban), **U11** (history), **U12** (drawer), **U13** (metrics on
- * screen), **U14** (output) and **U21** (verification).
+ * screen), **U14** (output) and **U21** (verification) — and, since phase 8D,
+ * **I1** (a Task listing its own sessions and worktrees), **I2** (a session row
+ * leading to the terminal), **I4** (a session with a run showing the workflow)
+ * and **I6** (reviewer findings and PR comments on one screen).
+ *
+ * The tab set is §50.5's, so the assertions that named the old three tabs were
+ * **rewritten, never dropped**: `kanban` became `stories`, verification moved
+ * out of "Saída" into its own tab, and the panel now also answers the free
+ * session — which is the same component with no snapshot.
  */
 
 const NOW = Date.parse('2026-09-06T10:05:00.000Z');
@@ -166,12 +179,22 @@ describe('the tablist (U5)', () => {
   it('gives only the active tab a tabindex of 0', () => {
     renderPanel();
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((tab) => tab.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
-    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual([
-      'true',
-      'false',
-      'false',
+    // §50.5's tab set for a Task: overview, stories, sessions, verification,
+    // review, output, history. The terminal and the chat only appear when the
+    // shell hands the panel a snippet for them.
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      'Visão geral',
+      'Stories',
+      'Sessões e worktrees',
+      'Verificação',
+      'Review',
+      'Saída',
+      'Histórico',
     ]);
+    expect(tabs[0]).toHaveAttribute('tabindex', '0');
+    expect(tabs.slice(1).every((tab) => tab.getAttribute('tabindex') === '-1')).toBe(true);
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    expect(tabs.slice(1).every((tab) => tab.getAttribute('aria-selected') === 'false')).toBe(true);
   });
 
   it('moves with the arrows and jumps with Home/End', async () => {
@@ -179,7 +202,7 @@ describe('the tablist (U5)', () => {
     const tablist = screen.getByRole('tablist');
 
     await fireEvent.keyDown(screen.getAllByRole('tab')[0], { key: 'ArrowRight' });
-    expect(on.ontabchange).toHaveBeenLastCalledWith('kanban');
+    expect(on.ontabchange).toHaveBeenLastCalledWith('stories');
 
     await fireEvent.keyDown(tablist, { key: 'End' });
     expect(on.ontabchange).toHaveBeenLastCalledWith('history');
@@ -199,10 +222,10 @@ describe('the tablist (U5)', () => {
   });
 
   it('keeps every panel rendered, so an inactive tab is never stale', () => {
-    renderPanel({ activeTab: 'kanban' });
+    renderPanel({ activeTab: 'stories' });
     // The Kanban is visible…
     expect(screen.getByText('Backlog')).toBeVisible();
-    // …and the execution panel is still in the document, only hidden.
+    // …and the overview panel is still in the document, only hidden.
     const executionPanel = document.getElementById('panel-execution');
     expect(executionPanel).not.toBeNull();
     expect(executionPanel).toHaveAttribute('hidden');
@@ -282,28 +305,44 @@ describe('"Contexto" (U7)', () => {
 });
 
 describe('"Andamento" (U9)', () => {
-  it('lists phases and stories with their metrics, and opens the drawer', async () => {
+  /**
+   * §50.5 splits the block in two: phases under "Visão geral", stories under
+   * "Stories" beside the Kanban. Both halves are the same `ProgressBlock` with
+   * a different `part`, so this asserts both, in their new panels.
+   */
+  it('lists phases with their metrics, and opens the drawer', async () => {
     const on = renderPanel();
     const block = screen.getByText('Andamento').closest('section') as HTMLElement;
 
     expect(within(block).getByText('analyze')).toBeInTheDocument();
     expect(within(block).getByText('1min 00s · 1.0k in / 200 out · ~$0.05')).toBeInTheDocument();
 
-    expect(within(block).getByText('Primeira story')).toBeInTheDocument();
-    expect(within(block).getByText('depende de: US-1')).toBeInTheDocument();
-
     await fireEvent.click(within(block).getByText('analyze'));
     expect(on.onopendrawer).toHaveBeenCalledWith({ kind: 'phase', id: 'analyze' });
+  });
 
-    await fireEvent.click(within(block).getByText('Segunda story'));
+  it('lists stories with their metrics under Stories, and opens the drawer', async () => {
+    const on = renderPanel({ activeTab: 'stories' });
+    const panel = document.getElementById('panel-stories') as HTMLElement;
+
+    // The list and the board share the panel, so the story shows twice.
+    expect(within(panel).getAllByText('Primeira story').length).toBeGreaterThan(0);
+    expect(within(panel).getByText('depende de: US-1')).toBeInTheDocument();
+
+    const list = within(panel).getByText('User stories').closest('section') as HTMLElement;
+    await fireEvent.click(within(list).getAllByText('Segunda story')[0]);
     expect(on.onopendrawer).toHaveBeenCalledWith({ kind: 'story', id: 'US-2' });
   });
 });
 
 describe('the Kanban (U10)', () => {
   it('groups the stories by status and makes every card a real button', async () => {
-    const on = renderPanel({ activeTab: 'kanban' });
-    const board = document.getElementById('panel-kanban') as HTMLElement;
+    const on = renderPanel({ activeTab: 'stories' });
+    // The board shares the "Stories" panel with the list, so the assertions
+    // scope to the board itself rather than to the panel.
+    const board = (document.getElementById('panel-stories') as HTMLElement)
+      .querySelector('.if-kanban')
+      ?.closest('section') as HTMLElement;
 
     const cards = within(board).getAllByRole('button');
     expect(cards).toHaveLength(3);
@@ -406,10 +445,11 @@ describe('the drawer (U12)', () => {
   });
 });
 
-describe('"Saída" (U14, U21)', () => {
+describe('"Saída" (U14)', () => {
   it('lists commits, pull requests and logs, and filters the logs by level', async () => {
     const on = renderPanel();
-    const block = screen.getByText('Saída').closest('section') as HTMLElement;
+    // "Saída" now names a tab as well as the block, so this scopes to the panel.
+    const block = document.getElementById('panel-output') as HTMLElement;
 
     expect(within(block).getByText('abc1234')).toBeInTheDocument();
     expect(within(block).getByText('feat: primeiro commit')).toBeInTheDocument();
@@ -426,7 +466,7 @@ describe('"Saída" (U14, U21)', () => {
 
   it('shows only the requested level once the filter is applied', () => {
     renderPanel({ logFilter: 'error' });
-    const block = screen.getByText('Saída').closest('section') as HTMLElement;
+    const block = document.getElementById('panel-output') as HTMLElement;
     expect(within(block).getByText('algo quebrou')).toBeInTheDocument();
     expect(within(block).queryByText('tudo bem')).not.toBeInTheDocument();
   });
@@ -437,8 +477,10 @@ describe('"Saída" (U14, U21)', () => {
   });
 
   it('renders unverified as an honest verdict, never as a success (U21)', () => {
-    renderPanel();
-    const block = screen.getByText('Saída').closest('section') as HTMLElement;
+    // §50.5 gives verification a tab of its own; U21 is about what the verdict
+    // says, not about which tab shows it, and the card is unchanged.
+    renderPanel({ activeTab: 'verification' });
+    const block = document.getElementById('panel-verification') as HTMLElement;
     const verdict = within(block).getByText('não verificado');
     expect(verdict).toBeInTheDocument();
     expect(
@@ -485,5 +527,96 @@ describe('the footer', () => {
     expect(
       screen.getByText(/execução run-1 · atualizado .* · somente leitura/),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * §50.5's unified navigation, from the panel's side.
+ *
+ * The rule under test is the one that keeps this from being two interfaces: the
+ * panel branches on **whether there is a snapshot**, not on which list the
+ * selection came from. So a free session is the same component with `snapshot:
+ * null`, and a session that belongs to a run is the same component with one.
+ */
+describe('the unified panel (§50.5)', () => {
+  it('shows a free session without any workflow tab', () => {
+    renderPanel({
+      snapshot: null,
+      worktree: createWorktree('session/scratch', { agentName: 'codex', mux: '✓' }),
+      activeTab: 'execution',
+    });
+
+    const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    expect(tabs).toEqual(['Worktree e serviços']);
+    // No workflow: no phases, no stories, no verdict, no journal.
+    expect(screen.queryByText('Estado agora')).not.toBeInTheDocument();
+    expect(screen.queryByText('Verificação')).not.toBeInTheDocument();
+    // The header names the session and its branch instead of an issue.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('session/scratch');
+  });
+
+  /**
+   * I4. Nothing "promotes" the panel: the row starts carrying an `executionId`,
+   * the shell fetches that execution's snapshot, and the workflow tabs appear
+   * in place — with no new component and no event.
+   */
+  it('shows the workflow for the same session once it belongs to a run (I4)', () => {
+    renderPanel({
+      snapshot: createExecutionSnapshot(),
+      worktree: createWorktree('session/scratch', { executionId: 'run-1', mux: '✓' }),
+      activeTab: 'execution',
+    });
+
+    const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    expect(tabs).toContain('Visão geral');
+    expect(tabs).toContain('Stories');
+    expect(tabs).toContain('Verificação');
+    expect(screen.getByText('Estado agora')).toBeInTheDocument();
+  });
+
+  it('lists the Task’s own sessions and worktrees inside the Task (I1)', () => {
+    renderPanel({
+      activeTab: 'sessions',
+      worktree: createWorktree('feat/42-a', { executionId: 'run-1', mux: '✓' }),
+      worktrees: [
+        createWorktree('feat/42-a', { executionId: 'run-1', mux: '✓' }),
+        createWorktree('feat/42-b', { executionId: 'run-1' }),
+      ],
+      onselectworktree: vi.fn(),
+    });
+
+    const panel = document.getElementById('panel-sessions') as HTMLElement;
+    expect(within(panel).getByText('feat/42-a')).toBeInTheDocument();
+    expect(within(panel).getByText('feat/42-b')).toBeInTheDocument();
+  });
+
+  /**
+   * I2's last hop, at the panel level: the Terminal button selects the
+   * workspace and moves to the terminal tab — one gesture, two reports.
+   */
+  it('goes from a session row to the terminal tab (I2)', async () => {
+    const onselectworktree = vi.fn();
+    const on = renderPanel({
+      activeTab: 'sessions',
+      worktrees: [createWorktree('feat/42-a', { executionId: 'run-1', mux: '✓' })],
+      onselectworktree,
+      terminal: undefined,
+    });
+
+    const panel = document.getElementById('panel-sessions') as HTMLElement;
+    await fireEvent.click(within(panel).getByText('Terminal'));
+    expect(onselectworktree).toHaveBeenCalledWith('feat/42-a');
+    expect(on.ontabchange).toHaveBeenLastCalledWith('terminal');
+  });
+
+  it('falls back to a tab that exists rather than showing no panel at all', () => {
+    // "Histórico" belongs to the workflow set only; a free session has to land
+    // somewhere, and the first tab is the only answer that always exists.
+    renderPanel({
+      snapshot: null,
+      worktree: createWorktree('session/scratch'),
+      activeTab: 'history',
+    });
+    expect(screen.getByRole('tab', { selected: true })).toHaveTextContent('Worktree e serviços');
   });
 });

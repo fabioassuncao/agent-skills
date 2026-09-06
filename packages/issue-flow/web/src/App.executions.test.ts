@@ -51,6 +51,8 @@ vi.mock('./lib/api', () => ({
     configRoutingWrite: 'config:routing:write',
     streamSessions: 'stream:sessions',
     terminalAttach: 'terminal:attach',
+    sessions: 'sessions',
+    sessionOpen: 'session:open',
     worktrees: 'worktrees',
     conversation: 'agent:conversation',
     services: 'services',
@@ -75,6 +77,9 @@ vi.mock('./lib/api', () => ({
   // No worktree capability: this is the monitor a pipeline run binds inline,
   // which serves executions and nothing else (ADR-03).
   canCall: vi.fn(() => false),
+  canOpenSessions: vi.fn(() => false),
+  openSession: vi.fn(async () => ({ branch: '', sessionId: '' })),
+  fetchAgentSessions: vi.fn(async () => []),
   hasCapability: vi.fn((name: string) => name.startsWith('config:')),
   attachWorktreeConversation: vi.fn(),
   connectWorktreeConversationStream: vi.fn(),
@@ -108,7 +113,7 @@ vi.mock('./lib/api', () => ({
   watchInstanceIdentity: vi.fn(),
   observeInstance: vi.fn(() => false),
   resetInstanceIdentity: vi.fn(),
-  terminalSocketUrl: vi.fn(),
+  terminalSocketUrl: vi.fn(async () => 'ws://localhost/ws/terminal?token=t0ken'),
   uploadFiles: vi.fn(),
   activePrefix: '',
   apiBase: '',
@@ -119,10 +124,16 @@ vi.mock('./lib/api', () => ({
 
 import App from './App.svelte';
 import {
+  canCall,
+  canOpenSessions,
+  fetchAgentSessions,
   fetchExecutionStatus,
   fetchProjects,
   fetchSessions,
+  fetchWorktrees,
+  hasCapability,
   knownHealth,
+  openSession,
   subscribeSessions,
   watchInstanceIdentity,
 } from './lib/api';
@@ -228,6 +239,11 @@ beforeEach(() => {
   });
   vi.mocked(subscribeSessions).mockReturnValue(() => {});
   vi.mocked(knownHealth).mockReturnValue(null);
+  vi.mocked(canOpenSessions).mockReturnValue(false);
+  vi.mocked(fetchAgentSessions).mockResolvedValue([]);
+  vi.mocked(fetchWorktrees).mockResolvedValue([]);
+  vi.mocked(canCall).mockReturnValue(false);
+  vi.mocked(hasCapability).mockImplementation((name: string) => name.startsWith('config:'));
 });
 
 afterEach(() => {
@@ -375,5 +391,102 @@ describe('instance identity (U17)', () => {
     render(App);
     await screen.findByRole('heading', { level: 1, name: /#42/ });
     expect(watchInstanceIdentity).toHaveBeenCalledWith(expect.any(Function));
+  });
+});
+
+/**
+ * I3 — a free session, with no issue, no plan and no workflow, in one click.
+ *
+ * The invariant of §48.6 in its sharpest form: Roteiro B must not get in
+ * Roteiro A's way. The button is offered exactly where a session could be
+ * opened (the `session:open` capability, ADR-10) and it opens one with no
+ * dialog, because every field of the route is optional (§49.2).
+ */
+describe('opening a free session (I3)', () => {
+  it('offers nothing where the monitor cannot open one', async () => {
+    render(App);
+    await screen.findByRole('heading', { level: 1, name: /#42/ });
+    expect(screen.queryByTitle(/Nova sessão/)).not.toBeInTheDocument();
+  });
+
+  it('opens one in a single click, with no dialog in the way', async () => {
+    vi.mocked(canOpenSessions).mockReturnValue(true);
+    vi.mocked(openSession).mockResolvedValue({
+      branch: 'session/scratch-a1b2',
+      sessionId: 'sess-1',
+    });
+
+    render(App);
+    const button = await screen.findByTitle(/Nova sessão/);
+    await fireEvent.click(button);
+
+    // No dialog appeared, and the request carried nothing: the branch, the
+    // agent and the prompt are all the server's defaults.
+    expect(vi.mocked(openSession)).toHaveBeenCalledWith();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(await screen.findByText('Sessão aberta em session/scratch-a1b2')).toBeInTheDocument();
+  });
+
+  it('says what went wrong instead of failing silently', async () => {
+    vi.mocked(canOpenSessions).mockReturnValue(true);
+    vi.mocked(openSession).mockRejectedValue(new Error('tmux não está disponível'));
+
+    render(App);
+    await fireEvent.click(await screen.findByTitle(/Nova sessão/));
+    expect(
+      await screen.findByText(/Falha ao abrir a sessão: tmux não está disponível/),
+    ).toBeInTheDocument();
+  });
+});
+
+/**
+ * I4 — a session linked to an issue starts showing the workflow.
+ *
+ * There is no promotion event and no second component: the row starts carrying
+ * an `executionId`, the shell asks for that execution's snapshot, and the
+ * workflow tabs appear in place.
+ */
+describe('promoting a session (I4)', () => {
+  it('shows the workflow for a session that belongs to a run', async () => {
+    vi.mocked(hasCapability).mockImplementation((name: string) => name !== 'worktrees');
+    vi.mocked(canCall).mockImplementation((route: string) => route === 'fetchWorktrees');
+    vi.mocked(fetchWorktrees).mockResolvedValue([
+      {
+        branch: 'session/scratch',
+        label: null,
+        archived: false,
+        agent: 'working',
+        mux: '✓',
+        path: '/w/session-scratch',
+        dir: '/w/session-scratch',
+        dirty: false,
+        unpushed: false,
+        status: 'running',
+        elapsed: '5m',
+        profile: null,
+        agentName: 'codex',
+        agentLabel: 'Codex',
+        agentTerminalStale: false,
+        services: [],
+        paneCount: 1,
+        prs: [],
+        creating: false,
+        creationPhase: null,
+        source: 'ui',
+        oneshot: null,
+        tabs: [],
+        activeTabId: null,
+        // The one field that decides it.
+        executionId: 'run-1',
+        issueRef: null,
+      },
+    ]);
+
+    render(App);
+
+    // The workflow tabs are there, on a row that came from the session list.
+    expect(await screen.findByRole('tab', { name: 'Visão geral' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Verificação' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Sessões e worktrees' })).toBeInTheDocument();
   });
 });

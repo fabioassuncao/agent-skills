@@ -389,66 +389,45 @@ describe('startWebServer', () => {
     expect(forbidden.status).toBe(403);
   });
 
-  it('serves static assets from the public directory', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-web-'));
-    tmpDirs.push(dir);
-    await writeFile(join(dir, 'index.html'), '<html>monitor</html>');
-    await writeFile(join(dir, 'app.css'), 'body {}');
-    await writeFile(join(dir, 'app.js'), 'console.log(1);');
-
-    // No dashboard build: the previous panel keeps `/`, which is the fallback
-    // that leaves a source checkout without `npm run build:web` usable.
-    const handle = await start({
-      publicDir: dir,
-      dashboardDir: join(tmpdir(), 'issue-flow-no-dashboard'),
-    });
+  /**
+   * A checkout that never ran `npm run build:web`.
+   *
+   * The previous panel used to be this answer (ADR-18). Phase 8D removed it
+   * with §50.7 green, so `/` says what is missing and links `status.json` —
+   * which §50.8 keeps as the one fallback that needs no JavaScript at all.
+   */
+  it('says the dashboard is not built, and keeps status.json reachable', async () => {
+    const handle = await start({ dashboardDir: join(tmpdir(), 'issue-flow-no-dashboard') });
 
     const index = await fetch(`${handle.url}/`);
     expect(index.status).toBe(200);
     expect(index.headers.get('content-type')).toBe('text/html; charset=utf-8');
-    expect(await index.text()).toBe('<html>monitor</html>');
+    const html = await index.text();
+    expect(html).toContain('npm run build:web');
+    expect(html).toContain('status.json');
 
-    const css = await fetch(`${handle.url}/app.css`);
-    expect(css.headers.get('content-type')).toBe('text/css; charset=utf-8');
+    // The no-JavaScript fallback is a route of its own and does not depend on
+    // any panel existing.
+    expect((await fetch(`${handle.url}/status.json`)).status).toBe(200);
 
-    const js = await fetch(`${handle.url}/app.js`);
-    expect(js.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
-
-    // ADR-18: the same bytes are also mounted at /legacy/, which is where they
-    // stay once a dashboard build takes over `/`.
-    const legacyIndex = await fetch(`${handle.url}/legacy/`);
-    expect(legacyIndex.status).toBe(200);
-    expect(await legacyIndex.text()).toBe('<html>monitor</html>');
-    expect((await fetch(`${handle.url}/legacy/app.css`)).status).toBe(200);
-    expect((await fetch(`${handle.url}/legacy/app.js`)).status).toBe(200);
-
-    // Without the trailing slash the browser would resolve the panel's relative
-    // `app.css` against `/` — the other panel.
-    const redirect = await fetch(`${handle.url}/legacy`, { redirect: 'manual' });
-    expect(redirect.status).toBe(301);
-    expect(redirect.headers.get('location')).toBe('/legacy/');
+    // The previous panel is gone: nothing answers at its addresses.
+    for (const path of ['/legacy/', '/legacy', '/app.css', '/app.js']) {
+      expect((await fetch(`${handle.url}${path}`, { redirect: 'manual' })).status).toBe(404);
+    }
   });
 
-  it('lets the dashboard build take over / and keeps the previous panel at /legacy/', async () => {
-    // The heart of ADR-18: one server, two panels, and the new one is the
-    // default surface the moment a build exists.
-    const legacyDir = await mkdtemp(join(tmpdir(), 'issue-flow-legacy-'));
+  it('serves the built dashboard and only the assets the build emits', async () => {
     const dashboardDir = await mkdtemp(join(tmpdir(), 'issue-flow-dashboard-'));
-    tmpDirs.push(legacyDir, dashboardDir);
-    await writeFile(join(legacyDir, 'index.html'), '<html>old</html>');
-    await writeFile(join(legacyDir, 'app.css'), 'body {}');
-    await writeFile(join(legacyDir, 'app.js'), 'console.log(1);');
+    tmpDirs.push(dashboardDir);
     await mkdir(join(dashboardDir, 'assets'), { recursive: true });
     await writeFile(join(dashboardDir, 'index.html'), '<html>new</html>');
     await writeFile(join(dashboardDir, 'assets', 'index-abc123.js'), 'export default 1;');
     await writeFile(join(dashboardDir, 'assets', 'index-abc123.css'), '.a{}');
     await writeFile(join(dashboardDir, 'assets', 'logo.bin'), 'binary');
 
-    const handle = await start({ publicDir: legacyDir, dashboardDir });
+    const handle = await start({ dashboardDir });
 
     expect(await (await fetch(`${handle.url}/`)).text()).toBe('<html>new</html>');
-    expect(await (await fetch(`${handle.url}/legacy/`)).text()).toBe('<html>old</html>');
-    expect(await (await fetch(`${handle.url}/legacy/app.js`)).text()).toBe('console.log(1);');
 
     const asset = await fetch(`${handle.url}/assets/index-abc123.js`);
     expect(asset.status).toBe(200);
@@ -462,10 +441,10 @@ describe('startWebServer', () => {
     expect((await fetch(`${handle.url}/assets/logo.bin`)).status).toBe(404);
   });
 
-  it('serves the real UI assets when no publicDir is given (default resolution)', async () => {
+  it('serves the real UI assets from the default location', async () => {
     const handle = await start();
 
-    // ADR-18: `/` is the built dashboard. It is a module bundle, so the shell
+    // `/` is the built dashboard. It is a module bundle, so the shell
     // references hashed files under /assets/ rather than app.css/app.js.
     const index = await fetch(`${handle.url}/`);
     expect(index.status).toBe(200);
@@ -481,41 +460,17 @@ describe('startWebServer', () => {
     expect(bundleResponse.status).toBe(200);
     expect(bundleResponse.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
 
-    // ...and the previous panel is intact at /legacy/, byte for byte.
-    const legacy = await fetch(`${handle.url}/legacy/`);
-    expect(legacy.status).toBe(200);
-    const legacyHtml = await legacy.text();
-    expect(legacyHtml).toContain('issue-flow');
-    expect(legacyHtml).toContain('app.css');
-    expect(legacyHtml).toContain('app.js');
-    expect(legacyHtml).not.toMatch(/https?:\/\/(?!github)/);
-
-    const css = await fetch(`${handle.url}/legacy/app.css`);
-    expect(css.status).toBe(200);
-    expect(await css.text()).toContain('[hidden] {\n  display: none !important;\n}');
-
-    const js = await fetch(`${handle.url}/legacy/app.js`);
-    expect(js.status).toBe(200);
-    const jsText = await js.text();
-    expect(jsText).toContain('api/status');
-    expect(jsText).toContain('api/sessions');
-    expect(jsText).toContain('renderDashboard');
-    expect(jsText).toContain('pollAgain');
-    expect(jsText).toContain('state.sessions.length >= 1');
-    expect(jsText).not.toContain('Seleção explícita deixa de fazer sentido com uma única sessão');
-    expect(jsText).toContain("el('span', 'dashboard-card-head'");
-    expect(jsText).not.toContain("el('div', 'dashboard-card-head'");
+    // ...and there is no second panel behind it any more (§50.8).
+    expect((await fetch(`${handle.url}/legacy/`)).status).toBe(404);
   });
 
   it('answers 404 JSON for unknown routes, missing assets and non-GET methods', async () => {
-    const handle = await start({
-      publicDir: join(tmpdir(), 'does-not-exist'),
-      dashboardDir: join(tmpdir(), 'does-not-exist-either'),
-    });
+    const handle = await start({ dashboardDir: join(tmpdir(), 'does-not-exist-either') });
 
+    // `/` is deliberately absent from this list: with no build it answers the
+    // page that says so, which is more useful than a 404 nobody can act on.
     for (const request of [
       fetch(`${handle.url}/nope`),
-      fetch(`${handle.url}/`),
       fetch(`${handle.url}/api/control/pause`, { method: 'POST' }),
       fetch(`${handle.url}/api/status`, { method: 'POST' }),
     ]) {
@@ -1027,5 +982,68 @@ describe('startWebServer — the terminal surface (absorption phase 8)', () => {
     const health = await (await fetch(`${handle.url}/api/health`)).json();
     expect(health.capabilities).not.toContain('terminal:attach');
     expect((await fetch(`${handle.url}/api/terminal/token`)).status).toBe(404);
+  });
+});
+
+describe('startWebServer — the session listing (absorption phase 8D)', () => {
+  const handles: WebServerHandle[] = [];
+
+  afterEach(async () => {
+    for (const handle of handles.splice(0)) await handle.close();
+  });
+
+  async function start(
+    overrides: Partial<Parameters<typeof startWebServer>[0]> = {},
+  ): Promise<WebServerHandle> {
+    const handle = await startWebServer({
+      publisher: makePublisher(),
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+      ...overrides,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+    return handle;
+  }
+
+  /**
+   * Phase 8D split `sessions` out of `worktrees`.
+   *
+   * The two are different promises and conflating them cost the dashboard its
+   * whole session surface: a monitor that could list perfectly well could not
+   * say so without also claiming it could merge, archive and re-profile.
+   */
+  it('announces nothing and answers an empty list without the dependency', async () => {
+    const handle = await start();
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('sessions');
+    expect(health.capabilities).not.toContain('pr:ci');
+
+    const response = await fetch(`${handle.url}/api/worktrees`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ worktrees: [] });
+  });
+
+  it('announces the listing, and `pr:ci` only where a CI log can be read', async () => {
+    const listingOnly = await start({
+      worktrees: { resolveProject: async () => null },
+    });
+    const first = await (await fetch(`${listingOnly.url}/api/health`)).json();
+    expect(first.capabilities).toContain('sessions');
+    expect(first.capabilities).not.toContain('pr:ci');
+
+    const withCi = await start({
+      worktrees: { resolveProject: async () => null, ciLog: async () => 'log' },
+    });
+    const second = await (await fetch(`${withCi.url}/api/health`)).json();
+    expect(second.capabilities).toContain('pr:ci');
+  });
+
+  it('never announces the mutation surface it does not serve', async () => {
+    const handle = await start({ worktrees: { resolveProject: async () => null } });
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('worktrees');
   });
 });

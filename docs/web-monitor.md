@@ -23,25 +23,27 @@ single warning, a busy port (`EADDRINUSE`) just skips the server, and killing th
 server or closing the browser mid-run has no effect on the execution. With
 `--web` off, the terminal output and behaviour are byte-for-byte identical.
 
-## Two panels, one server
-
-There are two dashboards during the frontend migration, and both are served by
-the same `node:http` process — no second server (§48.2).
+## One panel, one server
 
 | Panel | Source | Built by | Served at |
 |-------|--------|----------|-----------|
-| The Svelte panel | `packages/issue-flow/web/src/` | `npm run build:web` (Vite) → `web/dist/` | `/` |
-| The current panel | `packages/issue-flow/web/public/` | nothing — three static files | `/legacy/` |
+| The dashboard | `packages/issue-flow/web/src/` | `npm run build:web` (Vite) → `web/dist/` | `/` |
 
-The old panel is **not** removed until the three checklists of §50.7 are green
-(ADR-18); until then it is also the rollback path. Both read the same colour
-tokens, and a test fails if the two copies drift.
+There used to be two during the frontend migration. ADR-18 kept the previous
+panel (`web/public/`, three static files) mounted at `/legacy/` as the rollback
+path until the three checklists of §50.7 were green; they went green in phase 8D
+and the three files were removed with the route (§50.8). Its measured decisions
+did not go with it — they live in `packages/issue-flow/web/AGENTS.md`, in the
+present tense, describing the panel that exists.
 
-**The Svelte panel now carries the whole execution surface**: the executions
-dashboard, the execution header, the alert card, the three tabs with their four
-blocks, the Kanban, the journal and the details drawer. Everything described in
-the sections below is true of both panels, and the screenshots are of the
-current one until the Svelte panel replaces it in the gallery.
+`status.json` survives that removal deliberately: it is the only fallback that
+needs no JavaScript, it is a route of its own, and the panel's `<noscript>`
+points at it.
+
+**The panel carries the whole execution surface** — the executions dashboard,
+the execution header, the alert card, the tabs with their blocks, the Kanban,
+the journal and the details drawer — plus the sessions, worktrees, terminal,
+services and PR/CI the WebMux absorption brought.
 
 The new panel asks `GET /api/health` before it renders anything and offers only
 the surfaces the answer announces. That is what lets one build serve both a
@@ -51,19 +53,41 @@ first one says so, instead of showing empty lists that read as a failure. A
 capability is never inferred from a version number, because the assets on screen
 can be newer than the process serving them.
 
-The server loads both directories at startup and overlays the dashboard on the
-legacy mount: where a build exists, `/` is the Svelte panel and `/assets/<file>`
-are its hashed bundles; where none does — a source checkout that never ran
-`npm run build:web` — `/` stays the previous panel rather than 404ing.
-`/legacy/` is always the previous panel, and `/legacy` without the trailing
-slash answers `301`, because its `app.css` is a relative reference that would
-otherwise resolve against the other panel.
+The server reads `web/dist/` at startup: `/` is the panel's `index.html` and
+`/assets/<file>` are its hashed bundles. A source checkout that never ran
+`npm run build:web` gets a page saying exactly that, with a link to
+`status.json` — not a 404, and no second panel.
+
+### Unified navigation (§50.5)
+
+One model, not a "WebMux area" and an "Issue Flow area". The sidebar has two
+groups — **Execuções** and **Sessões** — and the main panel shows whichever is
+selected:
+
+```text
+Task selected                         Free session selected
+├── Visão geral (phases + progress)   ├── Terminal
+├── Stories (list + Kanban)           ├── Chat
+├── Sessões e worktrees               └── Worktree e serviços
+├── Terminal · Chat
+├── Verificação · Review
+└── Saída · Histórico
+```
+
+A Task **contains** its sessions, worktrees, terminal, services and PR/CI; it
+does not point at another area. A free session is the same screen without the
+workflow tabs, rendered by the same components. What decides between them is one
+question — is there an execution snapshot behind this selection? — which is what
+makes promotion free: linking a free session to an issue (`issue-flow session
+link`, or `POST /api/sessions/:id/link`) gives it a run, and the workflow tabs
+appear in place.
 
 ## The dashboard
 
 With two or more active sessions, the panel opens on the executions dashboard —
-one card per run, from every project on this machine. The dashboard header is
-**Execuções ativas**, not the product name:
+one card per run, from every project on this machine, and each project's **free
+sessions** beside its runs (§49.4). The dashboard header is **Trabalho ativo**,
+not the product name:
 
 ![Executions dashboard: one card per active run](screenshots/painel-execucoes.png)
 
@@ -359,7 +383,6 @@ Two things about it are deliberate:
 | Route | Returns |
 |-------|---------|
 | `GET /` | The dashboard (Svelte panel) |
-| `GET /legacy/` | The previous dashboard, kept until §50.7 is green (ADR-18) |
 | `GET /api/health` | Liveness, PID, version and instance identity used by ownership/restart probes |
 | `GET /api/sessions` | Every active session, with the summary fields the dashboard cards need |
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
@@ -371,6 +394,13 @@ Two things about it are deliberate:
 | `POST /api/projects` | Add a project by `{ "path": "…" }`; loopback only |
 | `DELETE /api/projects/:prefix` | Stop serving a project and demote it to `discovered`; loopback only |
 | `GET /api/project-inits` | Phases of the setups currently in flight |
+| `GET /api/worktrees` | Every live agent session and the worktree it runs in, with services and pull requests; `sessions` capability |
+| `GET /api/agent-sessions[?free=1&all=1]` | Agent sessions (§49.3); `all=1` is the consolidated view across every served project |
+| `POST /api/sessions` | Open a session — `issueRef` present binds it to that issue's run, absent makes it free; loopback only |
+| `POST /api/sessions/:id/{input,interrupt,link}` | Send a turn, interrupt, or promote a free session to a run; loopback only |
+| `DELETE /api/sessions/:id` | Stop a session; the worktree survives unless `?removeWorktree=1` |
+| `POST /api/worktrees/:name/sync-prs` | Force one pull-request sync now, outside the activity gate; `pr:ci` capability |
+| `GET /api/ci-logs/:runId` | Failed steps of a GitHub Actions run; `pr:ci` capability |
 | `GET /api/terminal/token` | Credential the panel presents on the terminal WebSocket handshake; loopback only |
 | `WS /ws/terminal?token=…&session=…` | The terminal transport (`src/web/terminal-ws.ts`); refuses a missing token or a foreign `Origin` |
 

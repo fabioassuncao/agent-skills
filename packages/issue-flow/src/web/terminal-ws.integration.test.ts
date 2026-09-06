@@ -57,6 +57,11 @@ describe('terminal WebSocket', () => {
       server,
       host: '127.0.0.1',
       resolveTarget: async () => ({ ownerSessionName, windowName, cwd }),
+      // The owner session lives on this suite's throwaway socket; without this
+      // the viewer attached to the product's default one, found no window, and
+      // every "live output" assertion was satisfied by the shell echoing the
+      // input back rather than by the pane producing anything.
+      socketName,
       tmux: {
         sendHexKeys: async (target, hexBytes) => {
           tmuxCalls.push({ op: 'sendHexKeys', target, hexBytes: [...hexBytes] });
@@ -234,6 +239,11 @@ describe('terminal WebSocket', () => {
         server: bare,
         host: '127.0.0.1',
         resolveTarget: async () => ({ ownerSessionName, windowName, cwd }),
+        // The owner session lives on this suite's throwaway socket; without this
+        // the viewer attached to the product's default one, found no window, and
+        // every "live output" assertion was satisfied by the shell echoing the
+        // input back rather than by the pane producing anything.
+        socketName,
         onWarn: () => {},
       });
 
@@ -277,6 +287,62 @@ describe('terminal WebSocket', () => {
       expect(JSON.parse(frames[0] as string)).toMatchObject({ type: 'error' });
     });
   });
+
+  /**
+   * I7 of §50.7 — an agent's output reaches the screen in ≤ 250 ms p95, with no
+   * polling anywhere on the path.
+   *
+   * Phase 8D is what made this measurable: the transport existed since phase 8,
+   * but nothing wired it, so the panel's terminal had no window to attach to.
+   * The measurement is deliberately of the *whole* live path a viewer depends
+   * on — pane output, through the pty reader, out of the socket — and the only
+   * step left out is the client's own render, which waits for nobody.
+   *
+   * There is no interval in this test and none in the transport: a frame
+   * arrives because the pane produced one.
+   */
+  it.runIf(tmuxAvailable)(
+    'I7: delivers live output to a connected viewer within 250 ms p95, with no polling',
+    async () => {
+      const socket = connect();
+      const frames: Array<{ at: number; body: string }> = [];
+      socket.on('message', (raw) => frames.push({ at: Date.now(), body: raw.toString() }));
+      await open(socket);
+      socket.send(JSON.stringify({ type: 'resize', cols: 120, rows: 40 }));
+      await waitFor(() => frames.some((frame) => frame.body[0] === 's'));
+
+      // Warm-up, not measured: the first echo is what proves the pane is
+      // attached and answering. Timing the attach itself would be timing tmux's
+      // startup, which is not what a viewer waits for.
+      socket.send(JSON.stringify({ type: 'input', data: 'echo IF_WARMUP\r' }));
+      await waitFor(() =>
+        frames.some((frame) => frame.body[0] === 'o' && frame.body.includes('IF_WARMUP')),
+      );
+
+      const samples: number[] = [];
+      for (let index = 0; index < 10; index += 1) {
+        const marker = `IF_LATENCY_${index}`;
+        const before = frames.length;
+        const sentAt = Date.now();
+        socket.send(JSON.stringify({ type: 'input', data: `echo ${marker}\r` }));
+        const seen = (): { at: number } | undefined =>
+          frames
+            .slice(before)
+            .find((frame) => frame.body[0] === 'o' && frame.body.includes(marker));
+        await waitFor(() => seen() !== undefined);
+        samples.push((seen() as { at: number }).at - sentAt);
+      }
+
+      const sorted = [...samples].sort((a, b) => a - b);
+      const p95 = sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+      console.log(
+        `terminal output→screen: median ${median} ms, p95 ${p95} ms over ${samples.length} samples`,
+      );
+      expect(p95).toBeLessThanOrEqual(250);
+    },
+    30000,
+  );
 
   // C6 — first frame is the scrollback, everything after it is live output.
   it.runIf(tmuxAvailable)(

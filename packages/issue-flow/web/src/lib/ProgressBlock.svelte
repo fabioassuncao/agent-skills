@@ -10,26 +10,40 @@
    * click and by Enter/Space, and carries its metrics in the shared side slot:
    * duration and usage joined by ` · `, with empty parts dropping out — an empty
    * string is the signal not to render the slot, not to render an empty one.
+   *
+   * `part` is the §50.5 adaptation. The unified navigation puts phases under
+   * "Visão geral" and stories under "Stories", beside the Kanban — so the block
+   * renders one half or both. A `part` **parameter** rather than a second
+   * component: two near-identical files are how a phase list and a story list
+   * start disagreeing about what a row looks like.
    */
 
   let {
     snapshot,
     now,
+    part = 'both',
     onopenphase,
     onopenstory,
   }: {
     snapshot: ExecutionSnapshot;
     now: number;
+    part?: 'phases' | 'stories' | 'both';
     onopenphase: (name: string) => void;
     onopenstory: (id: string) => void;
   } = $props();
+
+  let heading = $derived(
+    part === 'phases' ? 'Andamento' : part === 'stories' ? 'User stories' : 'Andamento',
+  );
 </script>
 
 <section class="if-card">
-  <h2>Andamento</h2>
+  <h2>{heading}</h2>
 
+  {#if part !== 'stories'}
   <div class="if-part">
-    <h3>Fases</h3>
+    <!-- The sub-heading only earns its place when both halves share the card. -->
+    {#if part === 'both'}<h3>Fases</h3>{/if}
     {#if snapshot.phases.length === 0}
       <p class="if-empty">Nenhuma fase registrada ainda.</p>
     {:else}
@@ -58,9 +72,11 @@
       </ol>
     {/if}
   </div>
+  {/if}
 
+  {#if part !== 'phases'}
   <div class="if-part">
-    <h3>User stories</h3>
+    {#if part === 'both'}<h3>User stories</h3>{/if}
     {#if snapshot.stories.length === 0}
       <p class="if-empty">Nenhuma user story registrada ainda.</p>
     {:else}
@@ -110,6 +126,7 @@
       </ol>
     {/if}
   </div>
+  {/if}
 </section>
 
 <style>

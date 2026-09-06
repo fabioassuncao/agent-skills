@@ -1,15 +1,16 @@
 <script lang="ts">
   import PrBadge from './PrBadge.svelte';
-  import VerificationVerdictCard from './VerificationVerdictCard.svelte';
   import { filterLogs, type LogFilter } from './executions';
   import { formatClock, itemSideText, repoUrlFromIssueUrl } from './format';
   import type { ExecutionSnapshot } from './snapshot';
 
   /**
-   * "Saída" — the fourth of the four blocks (U14, U21).
+   * "Saída" — the fourth of the four blocks (U14).
    *
-   * PORT of `renderGit` and `renderLogs`, plus the verification verdict, which
-   * lives here because a verdict is about **what came out** of the execution.
+   * PORT of `renderGit` and `renderLogs`. The verification verdict used to sit
+   * here; §50.5 gives it a tab of its own, so `VerificationVerdictCard` moved
+   * there rather than being rendered twice. U21 is about *what* the verdict
+   * says, not about which tab shows it, and the card is unchanged.
    *
    * Two §50.3 merges land in this block:
    *
@@ -42,8 +43,6 @@
 
 <section class="if-card">
   <h2>Saída</h2>
-
-  <VerificationVerdictCard verification={snapshot.verification} />
 
   <div class="if-columns">
     <div class="if-part">

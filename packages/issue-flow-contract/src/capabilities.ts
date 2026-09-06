@@ -15,6 +15,25 @@ export const CAPABILITY = {
   configRoutingWrite: 'config:routing:write',
   streamSessions: 'stream:sessions',
   terminalAttach: 'terminal:attach',
+  /**
+   * Listing the agent sessions of a project and the worktrees they run in.
+   *
+   * Split out of `worktrees` in phase 8D. The two are different promises and
+   * conflating them cost the dashboard its whole session surface: `worktrees`
+   * gates twenty-odd *mutation* routes ported ahead of their backends, so a
+   * monitor that can list sessions perfectly well could not say so without also
+   * claiming it could merge, archive and re-profile them — and every one of
+   * those would have 404'd.
+   */
+  sessions: 'sessions',
+  /**
+   * Opening, stopping and linking an agent session (§49.3).
+   *
+   * Announced only where a session could actually be opened: a monitor with no
+   * project surface answers 501 and one that is not on loopback answers 403
+   * (ADR-10), and a button that leads to either is a button that lies.
+   */
+  sessionOpen: 'session:open',
   /** Worktrees, tmux sessions and the agent surface (phases 5–7). */
   worktrees: 'worktrees',
   /** The structured conversation channel (§45.2-A/B). */
@@ -36,7 +55,10 @@ const ROUTE_CAPABILITY: Partial<Record<ApiRouteName, CapabilityName>> = {
   streamTerminal: CAPABILITY.terminalAttach,
   fetchConfig: CAPABILITY.worktrees,
   fetchProject: CAPABILITY.worktrees,
-  fetchWorktrees: CAPABILITY.worktrees,
+  // The listing, and only the listing: phase 8D serves it from the agent
+  // sessions of §49 (`src/web/worktrees-api.ts`). Everything below still waits
+  // for the worktree mutation backend.
+  fetchWorktrees: CAPABILITY.sessions,
   createWorktree: CAPABILITY.worktrees,
   removeWorktree: CAPABILITY.worktrees,
   openWorktree: CAPABILITY.worktrees,

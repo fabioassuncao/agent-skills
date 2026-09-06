@@ -131,7 +131,7 @@ describe('agent-session routes', () => {
     };
     deps = {
       writable: true,
-      resolveProject: async () => ({ projectId: 'proj', deps: sessionDeps }),
+      resolveProject: async () => ({ projectId: 'proj', deps: sessionDeps, services: [] }),
     };
   });
 

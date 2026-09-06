@@ -7,9 +7,10 @@
   The upstream declares thirteen literal hex values inside `@theme`. ADR-19
   reverses the direction: the Issue Flow role tokens are the source of truth,
   Tailwind is the mechanism that consumes them, and no utility class ever
-  carries a literal colour. `tokens.css` is a byte-for-byte copy of the palette
-  layer of `web/public/app.css` — `tokens.test.ts` fails if the two drift, which
-  is the only way this stays true while both panels exist (ADR-18).
+  carries a literal colour. `tokens.css` holds that palette, and it is now the
+  only copy of it: §50.8 removed the previous panel it used to be checked
+  against. `lib/contrast.test.ts` recalculates the nineteen measured pairs from
+  these files rather than from the table, which is what keeps the table true.
 
   Because the tokens are CSS custom properties that change value under
   `prefers-color-scheme` and `[data-theme]`, the `@theme` entries below are
@@ -163,9 +164,9 @@ dialog textarea:focus {
 /*
   The execution surface (Fase 8C).
 
-  These are the panel's own component classes, carried over from
-  `web/public/app.css` so the four blocks, the badges and the definition grids
-  keep the density and the rhythm the current panel measured. They are declared
+  These are the panel's own component classes, ported from the previous panel's
+  `web/public/app.css` (removed in phase 8D, §50.8) so the blocks, the badges
+  and the definition grids keep the density and the rhythm it had measured. They are declared
   here rather than repeated as utility strings in twelve components for the
   reason ADR-19 gives: every value below is a **token**, and a scoped `<style>`
   in a component cannot reach `--color-*` (with `@theme inline` Tailwind does not

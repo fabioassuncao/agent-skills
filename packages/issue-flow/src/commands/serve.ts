@@ -1,6 +1,15 @@
 import { resolveAgentSessionDeps } from '../agents/session/context.js';
+import { listAgentSessions } from '../agents/session/open.js';
+import { type AgentSession, isLiveSession } from '../agents/session/types.js';
 import { loadGlobalConfig } from '../config/sources.js';
 import { loadWebConfig } from '../config.js';
+import { holdForHuman } from '../core/human-hold.js';
+import {
+  fetchFailedRunLog,
+  type PullRequestEntry,
+  startPullRequestMonitor,
+  syncPullRequests,
+} from '../issues/github/index.js';
 import {
   defaultProjectInitDeps,
   ProjectInitTracker,
@@ -8,6 +17,8 @@ import {
 } from '../runtime/project-init.js';
 import { ProjectManager } from '../runtime/project-manager.js';
 import type { ProjectRuntimeLike } from '../runtime/project-runtime.js';
+import { createTmuxGateway } from '../runtime/tmux/gateway.js';
+import { buildProjectSessionName, buildWorktreeWindowName } from '../runtime/tmux/names.js';
 import type { WebConfig } from '../schemas.js';
 import { createProjectRegistry } from '../storage/projects/registry.js';
 import { resolveProjectPaths } from '../storage/resolve.js';
@@ -17,6 +28,7 @@ import { ensureSingleWebServer } from '../web/lock.js';
 import { type ProjectsApiDeps, repositoryNeedsSetup } from '../web/projects-api.js';
 import { watchSessionDirectory } from '../web/session-directory.js';
 import type { SessionsApiDeps, SessionsApiProject } from '../web/sessions-api.js';
+import type { WorktreesApiDeps } from '../web/worktrees-api.js';
 
 /**
  * `issue-flow serve` — one permanent monitor for every curated project (§47.4).
@@ -70,6 +82,24 @@ export function projectDirsFromEnv(env: NodeJS.ProcessEnv = process.env): string
     .split(/[:;]/)
     .map((entry) => entry.trim())
     .filter((entry) => entry !== '');
+}
+
+/**
+ * Whether a live session is the one a terminal connection is asking for.
+ *
+ * Two rules, and both are decisions. **A session id wins over a branch**: the
+ * id names one session and the branch names a workspace, so a request that
+ * carries both is asking for the session. And **only a live session matches**:
+ * a stopped one has no window, so answering with it would hand the viewer an
+ * attach that fails instead of a refusal it can explain.
+ */
+export function matchesTerminalRequest(
+  session: AgentSession,
+  input: { sessionId: string | null; branch: string | null },
+): boolean {
+  if (!isLiveSession(session)) return false;
+  if (input.sessionId !== null) return session.id === input.sessionId;
+  return input.branch !== null && session.branch === input.branch;
 }
 
 export async function runServe(options: RunServeOptions = {}): Promise<number> {
@@ -151,17 +181,144 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
       const built = resolveAgentSessionDeps({ projectRoot: served.entry.root }).then((context) => ({
         projectId: context.projectId,
         deps: context.deps,
+        services: context.services,
       }));
       sessionDepsCache.set(served.entry.id, built);
       return built;
     },
+    // §49.4. Built through the same `resolveProject`, so the consolidated view
+    // and the per-project one can never disagree about a project's wiring; a
+    // project whose wiring fails is skipped rather than failing the whole view.
+    listProjects: async () => {
+      const resolved = await Promise.all(
+        manager
+          .list()
+          .map((served) => agentSessions.resolveProject(served.entry.id).catch(() => null)),
+      );
+      return resolved.filter((project): project is SessionsApiProject => project !== null);
+    },
   };
 
+  /* ------------------------------------------------------------------ *
+   * Pull Requests and CI (§20).
+   *
+   * Phase 14 delivered the pass and left `isActive` as "the point where the
+   * panel plugs in" — this is that point. The gate is the display-sync policy
+   * verbatim: nobody has asked for the session list recently, so nothing is
+   * queried and no rate limit is spent. `GET /api/worktrees` is the activity
+   * signal because it is the request the open dashboard makes and the one whose
+   * answer the Pull Requests decorate.
+   * ------------------------------------------------------------------ */
   const noop = (): void => {};
+  const DASHBOARD_ACTIVE_MS = 30_000;
+  const pullRequestsByProject = new Map<string, Map<string, PullRequestEntry[]>>();
+  const lastListedAt = new Map<string, number>();
+  const pullRequestMonitors = new Map<string, () => void>();
+  const projectRootById = new Map<string, string>();
+
+  function ensurePullRequestMonitor(projectId: string, projectRoot: string): void {
+    if (pullRequestMonitors.has(projectId)) return;
+    pullRequestMonitors.set(
+      projectId,
+      startPullRequestMonitor({
+        cwd: projectRoot,
+        isActive: () => Date.now() - (lastListedAt.get(projectId) ?? 0) < DASHBOARD_ACTIVE_MS,
+        onSync: (sync) => {
+          pullRequestsByProject.set(projectId, sync.byBranch);
+        },
+        // A repository with no `gh`, no remote or no auth is not an error the
+        // dashboard has to show: the rows simply carry no Pull Request.
+        onError: noop,
+        onFailure: noop,
+      }),
+    );
+  }
+
+  // The same resolution the session surface uses, so the sidebar's list and the
+  // terminal it opens can never disagree about which session a branch is.
+  const worktrees: WorktreesApiDeps = {
+    resolveProject: async (projectId) => {
+      const project = await agentSessions.resolveProject(projectId);
+      if (project === null) return null;
+      // Recorded here rather than in the route: this is the one call the route
+      // makes, and the gate has to see the request even when the list is empty.
+      lastListedAt.set(project.projectId, Date.now());
+      projectRootById.set(project.projectId, project.deps.projectRoot);
+      ensurePullRequestMonitor(project.projectId, project.deps.projectRoot);
+      return project;
+    },
+    pullRequestsFor: (projectId, branch) => pullRequestsByProject.get(projectId)?.get(branch) ?? [],
+    syncPullRequests: async (projectId) => {
+      const root = projectRootById.get(projectId);
+      if (root === undefined) return;
+      const sync = await syncPullRequests({ cwd: root, onError: noop }).catch(() => null);
+      if (sync !== null) pullRequestsByProject.set(projectId, sync.byBranch);
+    },
+    ciLog: async (projectId, runId) => {
+      const root = projectRootById.get(projectId);
+      const result = await fetchFailedRunLog(runId, {
+        ...(root === undefined ? {} : { cwd: root }),
+      });
+      return result.ok ? result.log : result.error;
+    },
+  };
+
+  /**
+   * Find the live session a terminal connection is asking for.
+   *
+   * Scans the served projects because a session id does not name its project —
+   * and asking the client to send one would let a page pick the repository its
+   * shell opens in, which is the one thing this lookup exists to decide.
+   */
+  async function findLiveSession(input: {
+    sessionId: string | null;
+    branch: string | null;
+  }): Promise<{ project: SessionsApiProject; session: AgentSession } | null> {
+    if (input.sessionId === null && input.branch === null) return null;
+    for (const served of manager.list()) {
+      const project = await agentSessions.resolveProject(served.entry.id).catch(() => null);
+      if (project === null) continue;
+      const found = (await listAgentSessions(project.deps.storage).catch(() => [])).find(
+        (session) => matchesTerminalRequest(session, input),
+      );
+      if (found !== undefined) return { project, session: found };
+    }
+    return null;
+  }
+
   const handle = await ensureSingleWebServer({
     sessions,
     projects,
     agentSessions,
+    worktrees,
+    // The transport of §15, refused outright off loopback by the module itself
+    // (ADR-10). Until this phase nothing turned it on, so the ported terminal
+    // had no window to attach to — which is what kept four of Roteiro A's nine
+    // flows red however complete their modules were.
+    terminal: {
+      tmux: createTmuxGateway(),
+      resolveTarget: async (input) => {
+        const found = await findLiveSession(input);
+        if (found === null) return null;
+        return {
+          ownerSessionName: buildProjectSessionName(found.project.projectId),
+          windowName: buildWorktreeWindowName(found.session.branch),
+        };
+      },
+      // §32, and the whole of the takeover mechanism: no confirmation and no
+      // mode switch — a person typing **is** the signal. Only a session that
+      // belongs to a run can be taken over; there is nothing automatic to stop
+      // in a free session (§49.2).
+      onHumanInput: (input) => {
+        void findLiveSession(input).then(async (found) => {
+          if (found === null || found.session.runId === null) return;
+          await holdForHuman(found.project.deps.storage, {
+            runId: found.session.runId,
+            reason: 'takeover',
+          }).catch(() => undefined);
+        });
+      },
+    },
     port: webConfig.port,
     host: webConfig.host,
     refreshSeconds: webConfig.refreshSeconds,
@@ -189,6 +346,8 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
   const originalClose = handle.close;
   handle.close = async () => {
     await originalClose();
+    for (const stop of pullRequestMonitors.values()) stop();
+    pullRequestMonitors.clear();
     sessions.close();
   };
 

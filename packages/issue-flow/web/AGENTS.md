@@ -1,36 +1,74 @@
-# web/ — as duas interfaces e a paleta que elas compartilham
+# web/ — o painel e a paleta medida que ele carrega
 
-Esta pasta tem **dois** painéis e **uma** paleta.
+Esta pasta tem **um** painel.
 
 | Onde | O quê | Servido em |
 | --- | --- | --- |
-| `src/` + `index.html` | O painel novo: Svelte 5, Tailwind 4, Vite 6, xterm.js, `diff2html`, contrato tipado. Portado do frontend do WebMux (ADR-15) **e do painel atual** (ADR-18) | `/` |
-| `public/` | O painel atual: `index.html` + `app.js` + `app.css`, sem build | `/legacy/` |
-| `src/tokens.css` | A camada de paleta, **cópia literal** de `public/app.css` | ambos |
+| `src/` + `index.html` | Svelte 5, Tailwind 4, Vite 6, xterm.js, `diff2html`, contrato tipado. Portado do frontend do WebMux (ADR-15) **e do painel anterior** (ADR-18) | `/` |
+| `src/tokens.css` | A camada de paleta: os 19 pares medidos, e a única cópia deles | `/` |
 
-**Os dois convivem de propósito.** ADR-18: `public/{index.html,app.js,app.css}`
-só sai quando as três listas de §50.7 estiverem verdes — o que acontece na
-Fase 8D, não antes. Até lá o painel antigo é o caminho de rollback, e nenhuma
-mudança aqui pode quebrá-lo.
+**Havia dois.** ADR-18 manteve `public/{index.html,app.js,app.css}` servido em
+`/legacy/` como caminho de rollback até as três listas de §50.7 ficarem verdes.
+Elas ficaram na Fase 8D, e os três arquivos saíram junto com a rota (§50.8). O
+que **não** saiu foi a especificação de produto deles: as decisões medidas que
+justificavam cada regra estão neste arquivo, no presente, descrevendo o painel
+que existe. Se você veio procurar "o painel antigo", ele é este.
 
-O bloco 2 de §50.7 (U1–U21) **está verde**: o painel novo carrega a superfície
-de execução inteira — dashboard, header, cartão de alertas, as três abas com os
-quatro blocos, Kanban, histórico e drawer. O que falta para remover o antigo é o
-bloco 3 (features integradas, I1–I7) e a navegação unificada de §50.5, que são
-da Fase 8D.
+O que **sobrevive** da rota antiga: `status.json` continua sendo o fallback sem
+JavaScript, servido como rota estática independente de qualquer painel, e o
+`<noscript>` do `index.html` aponta para ele. E `legacy` continua em
+`RESERVED_PROJECT_PREFIXES` — a rota não existe mais, então `/legacy/` responde
+404, e 404 é a resposta honesta para o favorito de um painel que saiu; liberar a
+palavra deixaria um projeto chamado `legacy` responder outra coisa ali.
 
-**Quem serve o quê.** `src/web/server.ts` carrega os dois diretórios no boot e
-sobrepõe o do painel novo ao do antigo: onde existe build, `/` é o painel novo e
-`/assets/<arquivo>` são os bundles com hash; onde não existe (um checkout que
-nunca rodou `npm run build:web`), `/` continua sendo o painel antigo. `/legacy/`
-é sempre o painel antigo, e `/legacy` sem barra responde 301 para `/legacy/` —
-sem isso o navegador resolveria o `app.css` relativo dele contra `/`, que é o
-outro painel. `legacy` está em `RESERVED_PROJECT_PREFIXES`, então nenhum projeto
-pode sombrear a rota.
+**Quem serve.** `src/web/server.ts` lê `web/dist/` no boot: `/` é o
+`index.html` do build e `/assets/<arquivo>` são os bundles com hash. Sem build
+(um checkout que nunca rodou `npm run build:web`), `/` responde uma página que
+diz exatamente isso e linka `status.json` — não um 404, e não mais um segundo
+painel.
+
+## Navegação unificada (§50.5)
+
+Um modelo só. A barra lateral tem **dois grupos** — "Execuções" e "Sessões" — e
+o painel principal mostra o que está selecionado. As duas palavras são os dois
+termos do glossário (ADR-20) e nenhuma é sinônimo da outra: uma **execução** é
+uma corrida do workflow sobre uma Task; uma **sessão** é um agente vivo num
+worktree, com ou sem execução associada.
+
+```text
+/<prefixo>/
+├── barra lateral: Execuções · Sessões
+└── painel principal
+
+   Task selecionada                      Sessão livre selecionada
+   ├── Visão geral (fases + progresso)   ├── Terminal
+   ├── Stories (lista + Kanban)          ├── Chat
+   ├── Sessões e worktrees               └── Worktree e serviços
+   ├── Terminal · Chat
+   ├── Verificação · Review
+   └── Saída · Histórico
+```
+
+**A regra que evita as duas interfaces, e o que ela significa no código:**
+`ExecutionPanel.svelte` **não** decide nada a partir de "de qual lista veio a
+seleção". Ele decide a partir de **uma** pergunta — existe um snapshot de
+execução por trás disto? — e é isso que torna a promoção de §49.2 gratuita: uma
+sessão livre vinculada a uma issue passa a ter snapshot, e as abas de workflow
+aparecem no lugar, sem componente novo e sem evento.
+
+Pelo mesmo motivo `WorkspaceBlock.svelte` é **um** componente, usado com N linhas
+dentro de uma Task e com uma linha numa sessão livre. Se você se pegar criando
+um segundo componente para "a versão de sessão" de algo, pare: é o sintoma de
+estar reconstruindo as duas interfaces dentro de um produto só.
+
+O terminal é a única exceção à regra "todos os painéis sempre renderizados": ele
+monta ao entrar na aba. `display: none` dá ao xterm um contêiner de tamanho zero,
+e um terminal que se mediu com zero colunas é pior do que um que reanexa — e
+reanexar é o caminho que o porte já endureceu (`lastOffset` no quadro de attach).
 
 ---
 
-## O painel novo (`src/`)
+## O painel (`src/`)
 
 ### Pipeline
 
@@ -72,14 +110,16 @@ Não vai para o pacote: o `vite build` tem `index.html` como única entrada, e o
 regressão** dos mesmos critérios — a primeira recalcula os 19 pares a partir de
 `tokens.css`/`app.css`, a segunda verifica o contrato de CSS que produz U20.
 
-`publicDir: false` no `vite.config.ts` **é obrigatório**: `public/` aqui é o
-painel antigo, não os estáticos deste app, e o default do Vite copiaria os dois
-para dentro de `dist/`.
+`publicDir: false` no `vite.config.ts` continua: este app não tem estáticos
+próprios (as fontes e imagens vão embutidas como data URI), e um `public/` que
+alguém deixasse aqui depois seria copiado para `dist/` — com um
+`public/index.html` colidindo com o do build. Era exatamente assim que o painel
+anterior acabava publicado duas vezes, antes de §50.8 removê-lo.
 
-O `files` do `package.json` lista `web/public` e `web/dist` — nunca `web`. Com
-`web`, o tarball leva `web/src/**` e o cache do Vite e **não** leva `web/dist`
-(o `.gitignore` desta pasta o exclui). O `.npmignore` daqui existe só para
-desfazer esse fallback. Confira com `npm pack --dry-run`.
+O `files` do `package.json` lista `web/dist` — nunca `web`. Com `web`, o tarball
+leva `web/src/**` e o cache do Vite e **não** leva `web/dist` (o `.gitignore`
+desta pasta o exclui). O `.npmignore` daqui existe só para desfazer esse
+fallback. Confira com `npm pack --dry-run`.
 
 ### Contrato e capabilities
 
@@ -92,15 +132,34 @@ runtime da CLI. Depois de `npm ci` na CLI, rode `npm run contract:install`.
 **Nunca infira uma capacidade de uma versão.** Os assets na tela podem ser mais
 novos que o processo que os serve — uma execução reaproveita a instância que já
 tem o lock — então `GET /api/health.capabilities` é o único sinal verdadeiro. É
-a mesma regra que os dois formulários de preferência do painel antigo já seguem,
-generalizada: `canCall(rota)` decide se a superfície aparece, e uma chamada
+a mesma regra que os dois formulários de preferência já seguiam no painel
+anterior, generalizada: `canCall(rota)` decide se a superfície aparece, e uma chamada
 barrada levanta `CapabilityUnavailableError`, que a interface renderiza como
 "não disponível neste monitor" em vez de um 404.
 
-Metade do contrato foi portada **antes** do backend dela (worktrees, sessões,
-agentes, conversa, PR/CI chegam nas fases 5–7, 10 e 14). `SERVED_TODAY`, em
+Metade do contrato foi portada **antes** do backend dela. `SERVED_TODAY`, em
 `contract.ts`, é a lista verificada contra `src/web/server.ts` do que existe
 hoje. Ao acrescentar uma rota no backend, acrescente-a lá.
+
+**As capacidades da superfície de sessão, e por que são quatro e não uma.** A
+Fase 8D partiu `worktrees` em duas porque as duas metades são promessas
+diferentes, e juntá-las custava a superfície inteira: um monitor que listava
+sessões perfeitamente bem não podia dizer isso sem também alegar que sabia
+integrar, arquivar e trocar profile — e cada uma dessas rotas responderia 404.
+
+| Capability | O que promete | Servido por |
+| --- | --- | --- |
+| `sessions` | listar as sessões e os worktrees em que elas rodam | `src/web/worktrees-api.ts` |
+| `session:open` | abrir, parar e vincular uma sessão (§49.3), só em loopback | `src/web/sessions-api.ts` |
+| `terminal:attach` | anexar ao terminal de uma sessão, só em loopback | `src/web/terminal-ws.ts` |
+| `pr:ci` | os pull requests observados e o log de uma execução de CI (§20) | `issues/github/`, via `serve.ts` |
+| `worktrees` | criar, integrar, arquivar, rotular, trocar profile, diff | **ainda ninguém** |
+
+`GET /api/worktrees` é uma **projeção** de `agent_sessions`, não um segundo
+registro de worktrees (§25): `executionId` de cada linha é o `runId` da sessão,
+e o run id **é** o `sessionId` do dashboard. É essa igualdade — e só ela — que
+faz uma Task listar seus próprios worktrees (I1) e uma sessão promovida passar a
+mostrar o workflow (I4).
 
 ### Estado e navegação
 
@@ -245,13 +304,13 @@ a causa.
 ## Paleta e tema
 
 **As cores do Issue Flow são a fonte da verdade; o Tailwind é o mecanismo**
-(ADR-19). `src/tokens.css` é cópia byte a byte da camada de paleta de
-`public/app.css`, e `src/tokens.test.ts` falha se as duas divergirem. Quando a
-paleta do painel antigo mudar, regenere:
-
-```bash
-sed -n '1,153p' web/public/app.css > web/src/tokens.css
-```
+(ADR-19). `src/tokens.css` carrega essa paleta e, desde a Fase 8D, é a **única**
+cópia dela: o guarda de deriva contra `public/app.css` saiu junto com o arquivo
+que ele vigiava (§50.8). O que ele protegia continua, e mais forte —
+`lib/contrast.test.ts` recalcula os 19 pares a partir de `tokens.css` e
+`app.css`, nunca da tabela. `src/tokens.test.ts` guarda as duas regras
+estruturais que sobram: nenhum token definido só dentro de um bloco de tema, e
+os dois blocos escuros carregando os mesmos overrides.
 
 O `@theme inline` em `src/app.css` referencia os tokens; **`inline` é
 obrigatório**. Sem ele o Tailwind copia a *declaração* para o próprio `:root`,
@@ -336,7 +395,7 @@ Os 38 valores foram **remedidos na página** na Fase 8C, com
 conferem dígito a dígito. `lib/contrast.test.ts` é o guarda de regressão.
 
 São **19 pares**: os 18 do painel atual mais `--state-merged`, o papel que o
-painel novo precisou e a paleta não tinha. Um pull request integrado não é um
+painel precisou e a paleta não tinha. Um pull request integrado não é um
 estado "ok" — pintá-lo de verde ao lado de um check verde é exatamente a
 confusão que o vocabulário fechado existe para evitar.
 
@@ -381,15 +440,16 @@ com cara de cartão, `small` para linhas, controles e caixas internas, `pill`
 para badges, trilhas de progresso e pontos — inclusive no lugar de
 `border-radius: 50%`.
 
-**Três exceções no painel antigo, e só elas**, cada uma com comentário no
-`public/app.css`: o `margin-bottom: -1px` das abas (compensa a borda, é
-alinhamento), o `gap: 1px` de `.config-phase-grid` (o fundo `--border` vazando
-pelo gap é a linha divisória) e o `calc(var(--space-12) - 3px)` de
-`.story-executing` (desconta a `box-shadow` interna para preservar o ritmo). Um
-valor solto sem um motivo dessa ordem é dívida — troque pelo degrau. Múltiplos
-são `calc()` sobre um token, não um sexto token.
+**Três exceções, e só elas**, cada uma com comentário ao lado: o
+`margin-bottom: -1px` das abas (compensa a borda, é alinhamento), o `gap: 1px`
+da grade de fases (o fundo `--border` vazando pelo gap é a linha divisória) e o
+`calc(var(--space-8) - 2px)` das linhas com `box-shadow` interna, que desconta a
+sombra para preservar o ritmo — `.if-story-executing`, e a linha selecionada de
+`WorkspaceBlock`, que é a mesma exceção aplicada ao mesmo problema. Um valor
+solto sem um motivo dessa ordem é dívida — troque pelo degrau. Múltiplos são
+`calc()` sobre um token, não um sexto token.
 
-No painel novo as escalas entram por duas vias: `<style>` com escopo usa os
+As escalas entram por duas vias: `<style>` com escopo usa os
 tokens direto (`var(--space-12)`, `var(--radius-medium)`); as classes utilitárias
 do Tailwind vieram do porte e ainda carregam degraus próprios em alguns
 componentes. Convergir as duas é trabalho da Fase 8D (§50.4), não deste porte —
@@ -427,16 +487,12 @@ frase, use ponto ou vírgula: "Desconectado do servidor. Tentando reconectar…"
 
 ---
 
-## O painel antigo (`public/`)
+## O contrato de produto, herdado do painel anterior
 
-Três arquivos estáticos servidos por `src/web/server.ts`. São assets do pacote:
-entram no `files` do package.json e **não** passam por build, typecheck, biome
-nem vitest — exceto `public/app.css`, cuja camada de paleta é verificada por
-`src/tokens.test.ts`. Toda verificação de mudança aqui é manual, no navegador.
-
-**Não remova nada daqui** (ADR-18). O que segue é o registro das decisões que o
-painel novo precisa herdar na Fase 8C, e a especificação do que ainda está no ar
-em `/legacy/`.
+`public/{index.html,app.js,app.css}` saiu na Fase 8D (§50.8), depois das três
+listas de §50.7 verdes. **As decisões dele não saíram junto** — são as regras
+abaixo, e todas descrevem o painel que existe hoje. Cada uma foi medida ou
+aprendida uma vez; nenhuma é preferência.
 
 ### Contrato de dados
 
@@ -498,10 +554,11 @@ snapshot.
 
 ### Abas, Kanban e drawer
 
-Três abas ("Execução", "Kanban" e "Histórico") e um único drawer de detalhes
-para fases e stories. As abas seguem o padrão ARIA de tablist: setas ←/→ movem o
-foco, Home/End vão às pontas, e só a aba ativa tem `tabindex="0"` (as demais
-`-1`). Três regras seguram esse conjunto:
+O conjunto de abas é o de §50.5 (acima); eram três no painel anterior
+("Execução", "Kanban", "Histórico"). O que não mudou é o **padrão ARIA de
+tablist**: setas ←/→ movem o foco, Home/End vão às pontas, e só a aba ativa tem
+`tabindex="0"` (as demais `-1`). Um único drawer serve fases e stories. Três
+regras seguram esse conjunto:
 
 - **Acesso a story sempre por `getStoryById()` / `getStories()`.** Elas
   normalizam num lugar só o que pode faltar num `session.json` antigo (`status` →
@@ -512,10 +569,10 @@ foco, Home/End vão às pontas, e só a aba ativa tem `tabindex="0"` (as demais
   da story, não o card: `render()` recria o Kanban a cada poll, então uma
   referência guardada na abertura apontaria para um nó fora do documento. Pelo
   mesmo motivo o foco volta ao card via `[data-story-id="…"]` ao fechar.
-- **`renderKanban()`, `renderHistory()` e `renderDrawer()` são chamadas
-  incondicionalmente** dentro de `render()`, não ao trocar de aba. Uma aba
-  inativa não pode ficar defasada, e é o `renderDrawer()` de cada poll que
-  mantém o drawer aberto em dia (e o fecha quando a story some do plano).
+- **Todos os painéis são renderizados**, não trocados: uma aba inativa não pode
+  ficar defasada, e é a reidratação do drawer a cada atualização que o mantém em
+  dia (e o fecha quando a story some do plano). A única exceção é o terminal,
+  pela razão de layout registrada em §50.5 acima.
 
 Cada card do Kanban é um `<button>` — Enter/Espaço e foco saem de graça. Como
 `<button>` só aceita *phrasing content*, todo o conteúdo interno é `<span>` com
@@ -531,10 +588,11 @@ grid`/`flex` da regra base vence o atributo `hidden`. E o overlay/drawer ficam e
 
 O `h1` das duas views **não** carrega o nome do produto — a marca vive só no
 `<title>` do documento, no formato `<contexto> · issue-flow`. No detalhe o `h1` é
-a execução (`#N` como link para a issue, seguido do título dela); no dashboard é
-"Execuções ativas". Não devolva "issue-flow" para dentro do `h1`: a linha mais
-visível da tela é para o que está acontecendo. **O painel novo segue a mesma
-regra** — `TopBar.test.ts` a defende.
+a execução (`#N` como link para a issue, seguido do título dela) — ou, numa
+sessão livre, o rótulo dela e sua branch, pelo **mesmo** `ExecutionHeader`; no
+dashboard é "Trabalho ativo". Não devolva "issue-flow" para dentro do `h1`: a
+linha mais visível da tela é para o que está acontecendo. `TopBar.test.ts` e
+`ExecutionPanel.test.ts` defendem a regra.
 
 O resto da identidade fica ao redor do `h1`: branch e chip de versão na
 `.header-meta`, status, tempo decorrido e estimativa no `.header-side`. O título
@@ -548,14 +606,19 @@ sozinha.
 
 ### Blocos da aba Execução
 
-A aba "Execução" tem **quatro** cartões, nesta ordem, e a ordem é a hierarquia:
+Os quatro cartões seguem existindo, e a ordem continua sendo a hierarquia. §50.5
+os distribuiu por abas em vez de empilhar os quatro numa só:
 
-| Bloco | O que carrega |
-| --- | --- |
-| Estado agora | progresso, "Executando agora", "Resiliência" e a linha "Próximos passos" |
-| Contexto | issue, repositório e "Harnesses e configuração efetiva" |
-| Andamento | fases e user stories |
-| Saída | commits, pull requests e logs recentes |
+| Bloco | O que carrega | Aba |
+| --- | --- | --- |
+| Estado agora | progresso, "Executando agora", "Resiliência" e a linha "Próximos passos" | Visão geral |
+| Contexto | issue, repositório e "Harnesses e configuração efetiva" | Visão geral |
+| Andamento | fases · user stories | Visão geral · Stories |
+| Saída | commits, pull requests e logs recentes | Saída |
+
+`ProgressBlock` recebe `part` (`'phases'`/`'stories'`/`'both'`) em vez de virar
+dois componentes: dois arquivos quase iguais é como uma lista de fases e uma de
+stories começam a discordar sobre o que é uma linha.
 
 Cada assunto dentro de um bloco é uma `.block-part` com `<h3>` — **sem borda,
 sem fundo, sem sombra própria**: quem separa é o `gap` do grid de `.block`.
@@ -603,27 +666,24 @@ vazias — string vazia é o sinal de "não renderizar".
 
 ## Como verificar uma mudança
 
-### No painel novo
+### Testes e tipos
 
 `npm run test:web` e `npm run check:web` cobrem lógica, marcação e tipos. O que
 eles não cobrem é a tela: para isso, `npm run dev:web` com o monitor no ar.
 
-### No painel antigo
+### Com dados de verdade
 
-Nada em `public/` é coberto por teste automatizado, então a verificação é um
-navegador com **dados de verdade**. `python3 -m http.server` dentro de `public/`
-basta para inspecionar o CSS, mas o painel fica no estado desconectado — não dá
-para exercitar alertas, Kanban, drawer nem métricas.
-
-Para isso, sirva o servidor real de um `ISSUE_FLOW_HOME` descartável:
+Teste e typecheck não cobrem a tela. Para isso, sirva o servidor real de um
+`ISSUE_FLOW_HOME` descartável:
 
 1. Escreva um ou mais `session.json` (o schema é `sessionSnapshotSchema` em
    `src/schemas.ts`) em `<home>/projects/<projeto>/issues/<n>/session.json`, com
    `events.jsonl` ao lado no formato `{ seq, event }` da aba Histórico. **Duas**
    sessões abrem o dashboard; uma só abre direto no detalhe.
 2. `npm run build` e `ISSUE_FLOW_HOME=<home> node dist/cli.js web serve --port
-   <p> --host 127.0.0.1`. O servidor lê os assets de `web/public/` (não uma cópia
-   em `dist/`), então basta reiniciá-lo para pegar uma edição.
+   <p> --host 127.0.0.1`. O servidor lê `web/dist/`, então uma edição em `src/`
+   exige `npm run build:web` antes do restart. Para iterar, prefira
+   `npm run dev:web` com o monitor no ar.
 3. Uma sessão some após **90s** sem heartbeat: `touch` periódico no
    `session.json` a mantém viva pelo tempo da verificação.
 
@@ -638,6 +698,6 @@ evento `change` real da media query.
 
 `baseHeaders()` em `src/web/server.ts` hoje não define
 `Content-Security-Policy`. Se um CSP for adicionado, ele precisa contemplar o
-script inline de tema dos **dois** painéis (`'unsafe-inline'` em `script-src`
-ou, melhor, um hash/nonce), senão o painel volta a piscar — e um `script-src`
+script inline de tema do `index.html` (`'unsafe-inline'` em `script-src` ou,
+melhor, um hash/nonce), senão o painel volta a piscar — e um `script-src`
 estrito sem essa provisão quebra a aplicação do tema silenciosamente.

@@ -1,4 +1,4 @@
-import type { ProjectSummary, SessionSummary } from './types';
+import type { AgentSessionRow, ProjectSummary, SessionSummary } from './types';
 import { RESILIENCE_EVENTS, SUMMARY_STATUS_LABELS, SUMMARY_STATUS_ORDER } from './vocabulary';
 
 /**
@@ -70,7 +70,10 @@ export function resolveExecutionView(input: {
 export interface ActiveWorkGroup {
   id: string | null;
   label: string;
+  /** Executions: runs of the workflow over a Task (mode 1 of §49). */
   sessions: SessionSummary[];
+  /** Free sessions: a live agent with no run behind it (mode 2 of §49). */
+  freeSessions: AgentSessionRow[];
 }
 
 export function projectLabel(project: ProjectSummary): string {
@@ -90,6 +93,8 @@ export function activeWorkGroups(input: {
   sessions: readonly SessionSummary[];
   projects: readonly ProjectSummary[];
   selectedProjectId: string;
+  /** Free sessions of §49.2, so a block can show what §49.4 says it shows. */
+  agentSessions?: readonly AgentSessionRow[];
 }): ActiveWorkGroup[] {
   const groups: ActiveWorkGroup[] = [];
   const byProject = new Map<string, ActiveWorkGroup>();
@@ -98,7 +103,12 @@ export function activeWorkGroups(input: {
     if (input.selectedProjectId !== ALL_PROJECTS && project.id !== input.selectedProjectId) {
       continue;
     }
-    const group: ActiveWorkGroup = { id: project.id, label: projectLabel(project), sessions: [] };
+    const group: ActiveWorkGroup = {
+      id: project.id,
+      label: projectLabel(project),
+      sessions: [],
+      freeSessions: [],
+    };
     byProject.set(project.id, group);
     groups.push(group);
   }
@@ -110,8 +120,24 @@ export function activeWorkGroups(input: {
     else orphans.push(session);
   }
 
-  if (orphans.length > 0) {
-    groups.push({ id: null, label: 'Outros projetos', sessions: orphans });
+  // Only the free ones: a session that belongs to a run is already on screen as
+  // that run's card, and listing it twice would be the panel disagreeing with
+  // itself about how much work is in flight.
+  const orphanFree: AgentSessionRow[] = [];
+  for (const session of input.agentSessions ?? []) {
+    if (!session.free) continue;
+    const group = session.projectId ? byProject.get(session.projectId) : undefined;
+    if (group) group.freeSessions.push(session);
+    else if (session.projectId === null) orphanFree.push(session);
+  }
+
+  if (orphans.length > 0 || orphanFree.length > 0) {
+    groups.push({
+      id: null,
+      label: 'Outros projetos',
+      sessions: orphans,
+      freeSessions: orphanFree,
+    });
   }
   return groups;
 }

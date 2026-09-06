@@ -9,6 +9,7 @@ import {
 import type {
   AgentDetails,
   AgentResponse,
+  AgentSessionRow,
   AgentsUiInterruptResponse,
   AgentsUiSendMessageRequest,
   AgentsUiSendMessageResponse,
@@ -509,6 +510,138 @@ export async function ensureProjectPrefix(): Promise<ProjectBootstrap> {
 
 export function fetchSessions(): Promise<SessionSummary[]> {
   return api.fetchSessions();
+}
+
+/* -------------------------------------------------------------------------- *
+ * Agent sessions (§49.3)
+ *
+ * Not contract routes: `POST /api/sessions`, `DELETE /api/sessions/:id` and
+ * `POST /api/sessions/:id/link` were added by phase 9B and the contract package
+ * describes the ported WebMux surface, whose worktree verbs mean something
+ * different. They go through `fetch` for the same reason the two header-driven
+ * behaviours below do — and, exactly as there, this module stays the boundary:
+ * no component calls `fetch`.
+ * -------------------------------------------------------------------------- */
+
+export interface OpenSessionRequest {
+  agent?: string;
+  branch?: string;
+  label?: string;
+  prompt?: string;
+  /** Present → the session belongs to that issue's run. Absent → free (§49.2). */
+  issueRef?: string;
+}
+
+export interface OpenedSession {
+  branch: string;
+  sessionId: string;
+}
+
+function readSessionRow(value: unknown): AgentSessionRow | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.id !== 'string' || typeof row.branch !== 'string') return null;
+  return {
+    id: row.id,
+    projectId: typeof row.projectId === 'string' ? row.projectId : null,
+    branch: row.branch,
+    provider: typeof row.provider === 'string' ? row.provider : '',
+    label: typeof row.label === 'string' && row.label !== '' ? row.label : null,
+    status: typeof row.status === 'string' ? row.status : 'idle',
+    runId: typeof row.runId === 'string' ? row.runId : null,
+    free: row.free === true,
+  };
+}
+
+/**
+ * Every agent session this monitor serves, across projects (§49.4, I5).
+ *
+ * The consolidated view answers "what is running anywhere", which a per-project
+ * listing cannot: the dashboard would have to ask N times and would not know
+ * what N was. A monitor that does not serve sessions answers an empty list, so
+ * the caller never has to branch on that.
+ */
+export async function fetchAgentSessions(): Promise<AgentSessionRow[]> {
+  if (!hasCapability(CAPABILITY.sessions) && !hasCapability(CAPABILITY.sessionOpen)) return [];
+  try {
+    const response = await fetch(`${apiBase}/api/agent-sessions?all=1`, { cache: 'no-store' });
+    if (!response.ok) return [];
+    const body: unknown = await response.json();
+    if (!Array.isArray(body)) return [];
+    return body.map(readSessionRow).filter((row): row is AgentSessionRow => row !== null);
+  } catch {
+    return [];
+  }
+}
+
+/** Whether this monitor can open, stop and link agent sessions. */
+export function canOpenSessions(): boolean {
+  return hasCapability(CAPABILITY.sessionOpen);
+}
+
+async function sessionRequest(
+  path: string,
+  init: RequestInit & { method: string },
+): Promise<unknown> {
+  if (!canOpenSessions()) throw new CapabilityUnavailableError('fetchSessions');
+  const response = await fetch(`${apiBase}${path}`, {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      typeof body === 'object' &&
+      body !== null &&
+      typeof (body as { error?: unknown }).error === 'string'
+        ? (body as { error: string }).error
+        : `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+/**
+ * Open a session — the one click of S1/I3.
+ *
+ * Every field is optional on purpose: a session with no issue, no branch and no
+ * prompt is the free session of §49.2, and asking for any of them would be the
+ * ceremony the mode exists to skip. The branch is generated server-side.
+ */
+export async function openSession(request: OpenSessionRequest = {}): Promise<OpenedSession> {
+  const body = await sessionRequest('/api/sessions', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+  const record = (body ?? {}) as { branch?: unknown; session?: { id?: unknown } };
+  return {
+    branch: typeof record.branch === 'string' ? record.branch : '',
+    sessionId: typeof record.session?.id === 'string' ? record.session.id : '',
+  };
+}
+
+/** Stop a session. The worktree survives unless `removeWorktree` says otherwise. */
+export function stopSession(
+  sessionId: string,
+  options: { removeWorktree?: boolean } = {},
+): Promise<unknown> {
+  const query = options.removeWorktree === true ? '?removeWorktree=1' : '';
+  return sessionRequest(`/api/sessions/${encodeURIComponent(sessionId)}${query}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Promote a free session to a run (S4/I4).
+ *
+ * The server refuses an issue with no run rather than creating one: a session
+ * starting the pipeline is what §49.2 forbids literally.
+ */
+export function linkSession(sessionId: string, issueRef: string): Promise<unknown> {
+  return sessionRequest(`/api/sessions/${encodeURIComponent(sessionId)}/link`, {
+    method: 'POST',
+    body: JSON.stringify({ issueRef }),
+  });
 }
 
 /* -------------------------------------------------------------------------- *

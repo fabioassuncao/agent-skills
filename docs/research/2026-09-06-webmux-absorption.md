@@ -1436,7 +1436,14 @@ garantias, não estética** — e são exatamente o que o WebMux não tem.
 | Rodapé `Story:` | `src/conventions/git/commit.ts` | Fase 4 | tabela `stories` |
 | Rebaixamento `style`/`revert` | `src/conventions/git/branch.ts` | Fase 4 | nada |
 | Tabela de labels de PR e regra das 4 seções | `docs/git-conventions.md` | Fase 4 | 3 linhas de orientação |
+| `web/public/index.html` (277 linhas) | painel anterior | Fase 8D | `web/index.html` + `web/src/**` (Svelte), servido em `/` |
+| `web/public/app.js` (2.421 linhas) | painel anterior | Fase 8D | `web/src/lib/{Execution*,format,vocabulary,snapshot,executions}` |
+| `web/public/app.css` (1.528 linhas) | painel anterior | Fase 8D | `web/src/{tokens.css,app.css}` — a paleta e a camada `.if-*` |
+| Rota `/legacy/` + `/legacy` 301 + `LEGACY_ROUTES` + `loadLegacyAssets` + opção `publicDir` | `src/web/server.ts` | Fase 8D | `loadDashboardAssets` sozinho; sem build, `/` responde uma página que diz isso e linka `status.json` |
+| Guarda de deriva da paleta (`tokens.test.ts`, 1 caso) | `web/src/tokens.test.ts` | Fase 8D | `lib/contrast.test.ts`, que recalcula os 19 pares a partir de `tokens.css`/`app.css` |
+| `web/public` no `files` do `package.json` | `packages/issue-flow/package.json` | Fase 8D | só `web/dist` |
 | *(nada)* | `src/agents/`, `src/core/`, `src/resilience/`, `src/storage/` | — | **preservados integralmente** |
+| *(nada — preservado por §50.8)* | `status.json` | Fase 8D | **mantido**: rota estática, único fallback sem JS, alvo do `<noscript>` |
 
 **Nenhum sistema duplicado é criado** (§40 do enunciado). Verificação por fase:
 
@@ -3205,10 +3212,28 @@ agent · open terminal · interact · switch session · service status · PR/CI 
 | I7 | Push | evento do agente aparece em ≤ 250 ms p95, sem polling |
 
 ```text
-WebMux features        ☐   (9 fluxos do Roteiro A)
-Issue Flow UI features ☐   (U1–U21)
-Integrated features    ☐   (I1–I7)
+WebMux features        ☑   (9 fluxos do Roteiro A)   — Fase 8D
+Issue Flow UI features ☑   (U1–U21)                  — Fase 8C, reconfirmado na 8D
+Integrated features    ☑   (I1–I7)                   — Fase 8D
 ```
+
+**Bloco 1, reavaliado na Fase 8D contra o código.** A avaliação da Fase 8B
+("frontend ✅, backend ❌" em vários fluxos) estava desatualizada — as fases 3, 5,
+6, 7, 9B, 10 e 14 entraram depois dela — mas o veredito de então não era só
+desatualizado: era **incompleto**. Os módulos existiam; o que faltava era a
+superfície HTTP e a fiação que os ligava ao painel. A Fase 8D fechou essa lacuna.
+
+| # | Fluxo | Estado | O que o defende |
+|---|---|---|---|
+| 1 | add project | ☑ | `POST /api/projects` (`web/projects-api.test.ts`), `ProjectSwitcher`/`EmptyProjects` |
+| 2 | create worktree | ☑ | no modelo unificado, criar worktree **é** abrir sessão: `POST /api/sessions` → `ensureSessionWorktree` (`web/sessions-api.test.ts`, `agents/session/open.integration.test.ts`) |
+| 3 | start agent | ☑ | a mesma rota; `openAgentSession` (T0→T4 medido em 179 ms) |
+| 4 | open terminal | ☑ | **novo na 8D**: `commands/serve.ts` passa `terminal` — até então nada ligava o transporte (`web/terminal-ws.integration.test.ts`, `commands/serve.test.ts`) |
+| 5 | interact | ☑ | `input` no socket + `POST /api/sessions/:id/input`; takeover de §32 por `onHumanInput` |
+| 6 | switch session | ☑ | **novo na 8D**: `GET /api/worktrees` (`web/worktrees-api.test.ts`) alimenta o grupo "Sessões" |
+| 7 | service status | ☑ | **novo na 8D**: `probeServices` por linha (`web/worktrees-api.test.ts`, `lib/WorkspaceBlock.test.ts`) |
+| 8 | PR/CI | ☑ | **novo na 8D**: `startPullRequestMonitor` com o gate de atividade de §20; `GET /api/ci-logs/:runId` |
+| 9 | reconnect | ☑ | `Terminal.test.ts`, C9 e o orçamento de reconexão (27 ms), banner de U3 |
 
 ### 50.8 O que se descarta, explicitamente
 

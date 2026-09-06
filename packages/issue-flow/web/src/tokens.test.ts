@@ -4,44 +4,34 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * The palette guard.
+ * The palette's two structural rules.
  *
  * ADDITION over the upstream, and the reason ADR-19 can be stated as a fact
- * rather than a hope: `src/tokens.css` is a copy of the palette layer of
- * `web/public/app.css`, and while both panels exist (ADR-18) nothing else
- * prevents the two from drifting. A drift is invisible — the new panel simply
- * renders slightly different colours, and the eighteen measured contrast pairs
- * quietly stop describing it.
+ * rather than a hope.
  *
- * This test is what makes the drift loud. When the legacy palette changes,
- * `tokens.css` has to be regenerated from it:
+ * **What changed in phase 8D.** This suite used to open with a drift guard:
+ * `tokens.css` had to be a verbatim copy of the palette layer of
+ * `web/public/app.css`, because while both panels existed (ADR-18) nothing else
+ * kept them from diverging. §50.8 removed that panel, so there is one palette
+ * and nothing left to drift from — the case went with the file it was guarding.
+ * What it was ultimately protecting is stronger and still here:
+ * `lib/contrast.test.ts` recalculates the nineteen measured pairs from
+ * `tokens.css` and `app.css` themselves, never from the table.
  *
- *     sed -n '1,153p' web/public/app.css > web/src/tokens.css
+ * The two rules below are about `tokens.css` on its own and are unchanged: a
+ * token defined only inside a theme block, and the two dark blocks disagreeing,
+ * are both failures whose symptom appears far from their cause.
  */
 
 // This suite reads files, not a DOM, so it runs under the node environment —
 // which is also what makes `import.meta.url` a `file:` URL here.
-const legacyPath = fileURLToPath(new URL('../public/app.css', import.meta.url));
 const tokensPath = fileURLToPath(new URL('./tokens.css', import.meta.url));
 
 /** Everything up to and including the forced-dark block. */
 const PALETTE_END = "\n:root[data-theme='dark'] {";
 
-function paletteLayerOf(css: string): string {
-  const start = css.indexOf(PALETTE_END);
-  expect(start, 'the forced-dark twin block must exist').toBeGreaterThan(-1);
-  const end = css.indexOf('\n}\n', start);
-  expect(end, 'the forced-dark twin block must be closed').toBeGreaterThan(start);
-  return css.slice(0, end + 3);
-}
-
 describe('colour tokens', () => {
-  const legacy = readFileSync(legacyPath, 'utf-8');
   const tokens = readFileSync(tokensPath, 'utf-8');
-
-  it('is a verbatim copy of the palette layer of the legacy panel', () => {
-    expect(tokens).toBe(paletteLayerOf(legacy));
-  });
 
   it('declares every role token in :root, never only in a theme block', () => {
     // The current panel's hard rule: a token whose only definition lives inside

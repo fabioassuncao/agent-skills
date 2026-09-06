@@ -68,9 +68,12 @@ describe('resolvePackageDir', () => {
     expect(resolvePackageDir('prompts')).toBe(join(packageRoot, 'prompts'));
   });
 
-  it('resolves web/public from the compiled dist/ layout', () => {
-    const resolved = resolvePackageDir(join('web', 'public'), join(packageRoot, 'dist'));
-    expect(resolved).toBe(join(packageRoot, 'web', 'public'));
+  // Was `web/public` — the previous panel's directory, removed by §50.8. The
+  // case keeps its subject (a nested package directory found from `dist/`) with
+  // the directory that actually ships now.
+  it('resolves web/dist from the compiled dist/ layout', () => {
+    const resolved = resolvePackageDir(join('web', 'dist'), join(packageRoot, 'dist'));
+    expect(resolved).toBe(join(packageRoot, 'web', 'dist'));
   });
 
   it('resolves prompts/ from the compiled dist/ layout', () => {

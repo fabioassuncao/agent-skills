@@ -10,7 +10,7 @@ import {
   summarizeSessions,
   visibleSessions,
 } from './executions';
-import type { ProjectSummary, SessionSummary } from './types';
+import type { AgentSessionRow, ProjectSummary, SessionSummary } from './types';
 
 /**
  * **U1** (the dashboard's rules), **U11** (the journal filter) and **U16** (the
@@ -131,6 +131,20 @@ describe('resolveExecutionView (U1)', () => {
   });
 });
 
+function freeSession(overrides: Partial<AgentSessionRow> = {}): AgentSessionRow {
+  return {
+    id: 's-1',
+    projectId: 'proj-a',
+    branch: 'session/scratch',
+    provider: 'codex',
+    label: null,
+    status: 'running',
+    runId: null,
+    free: true,
+    ...overrides,
+  };
+}
+
 describe('visibleSessions and activeWorkGroups', () => {
   it('filters by project, and shows everything with no filter', () => {
     const sessions = [session(), session({ sessionId: 'run-2', projectId: 'proj-b' })];
@@ -159,6 +173,44 @@ describe('visibleSessions and activeWorkGroups', () => {
     });
     expect(groups.at(-1)?.label).toBe('Outros projetos');
     expect(groups.at(-1)?.sessions).toHaveLength(1);
+  });
+
+  /**
+   * I5 — the view answers "what is running anywhere", and a session with no run
+   * behind it is work in flight too (§49.4).
+   */
+  it('puts a project’s free sessions in the same block as its executions', () => {
+    const groups = activeWorkGroups({
+      sessions: [session()],
+      projects: [project('proj-a', 'A'), project('proj-b', 'B')],
+      selectedProjectId: ALL_PROJECTS,
+      agentSessions: [freeSession(), freeSession({ id: 's-2', projectId: 'proj-b' })],
+    });
+    expect(groups[0].sessions).toHaveLength(1);
+    expect(groups[0].freeSessions.map((row) => row.id)).toEqual(['s-1']);
+    expect(groups[1].sessions).toEqual([]);
+    expect(groups[1].freeSessions.map((row) => row.id)).toEqual(['s-2']);
+  });
+
+  it('never repeats a session that is already on screen as its execution', () => {
+    const groups = activeWorkGroups({
+      sessions: [session()],
+      projects: [project('proj-a', 'A'), project('proj-b', 'B')],
+      selectedProjectId: ALL_PROJECTS,
+      agentSessions: [freeSession({ runId: 'run-1', free: false })],
+    });
+    expect(groups[0].freeSessions).toEqual([]);
+  });
+
+  it('honours the project filter for sessions exactly as it does for executions', () => {
+    const groups = activeWorkGroups({
+      sessions: [],
+      projects: [project('proj-a', 'A'), project('proj-b', 'B')],
+      selectedProjectId: 'proj-b',
+      agentSessions: [freeSession(), freeSession({ id: 's-2', projectId: 'proj-b' })],
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].freeSessions.map((row) => row.id)).toEqual(['s-2']);
   });
 });
 

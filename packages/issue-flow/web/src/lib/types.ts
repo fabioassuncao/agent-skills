@@ -152,6 +152,24 @@ export interface WorktreeListRow {
   depth: number;
 }
 
+/**
+ * One agent session as the consolidated "Trabalho ativo" view sees it (§49.4).
+ *
+ * A *sessão* — a live agent in a worktree — never an *execução* (ADR-20).
+ * `runId` is what tells the two modes of §49 apart, and `free` says it in one
+ * field so no client has to re-derive it from three nulls.
+ */
+export interface AgentSessionRow {
+  id: string;
+  projectId: string | null;
+  branch: string;
+  provider: string;
+  label: string | null;
+  status: string;
+  runId: string | null;
+  free: boolean;
+}
+
 export type ToastTone = 'info' | 'success' | 'error';
 
 export interface ToastInput {

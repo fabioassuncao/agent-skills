@@ -2342,3 +2342,187 @@ inalterado; a escalada de §32 passa pelo `writeDiagnostic`, que já faz redacti
 | Suíte da CLI (250 arquivos, 3.425 casos) | — | 16,5 s |
 | Latência output → tela | ≤ 250 ms p95 | **51 ms mediana, 52 ms p95** (`stream-latency.integration.test.ts`) — o transporte não mudou nesta fase |
 | Custo por tick da política de §32 | — | uma leitura do snapshot em memória a cada 30 s, num timer `unref`'d por invocação |
+
+---
+
+### Navegação unificada e remoção do painel anterior — `packages/issue-flow/{web,src/web,src/commands}` (Fase 8D)
+
+**O que existia antes desta fase**
+Duas listas numa barra lateral e **duas telas**: escolher uma execução mostrava
+a superfície de execução; escolher um worktree mostrava um terminal. O painel
+anterior (`web/public/{index.html,app.js,app.css}` — 4.226 linhas) continuava
+servido em `/legacy/` por ADR-18. E, medido contra o código e não contra a ficha
+da Fase 8B: os módulos de worktree, tmux, serviços, sessão livre e PR/CI
+existiam todos, mas **`src/web/server.ts` não tinha uma única ocorrência da
+palavra `worktree`** e **nada em todo o produto passava `terminal` para
+`startWebServer`**. O frontend portado chamava rotas que ninguém servia, atrás
+de uma capability que ninguém anunciava — o que fazia a metade WebMux da
+interface parecer portada e estar morta.
+
+**Comportamento existente que não podia se perder**
+- O padrão ARIA de tablist, os quatro blocos e a ordem deles, o drawer único
+  reidratado a cada atualização, `metric()` como guarda de `undefined ≠ null ≠ 0`,
+  a regra dura de tema, as três escalas com exatamente três exceções, os 19 pares
+  de contraste medidos e o glossário fechado (ADR-20) — tudo herdado da Fase 8C.
+- O `<noscript>` apontando para `status.json`: §50.8 manda **preservar**.
+- A postura de §48.6: o Roteiro B não pode impedir o Roteiro A. Abrir uma sessão
+  livre, sem issue, sem plano e sem workflow, continua a um clique.
+
+**Implementação no Issue Flow**
+
+*Backend*
+`src/web/worktrees-api.ts` (NEW) · `src/web/sessions-api.ts` (`listProjects`,
+`projectId` no payload, `services` no projeto) · `src/web/server.ts`
+(`GET /api/worktrees`, `?all=1`, as duas rotas de §20, as capabilities novas, a
+remoção do mount duplo) · `src/web/terminal-ws.ts` (`socketName` como costura) ·
+`src/commands/serve.ts` (fiação de `terminal`, do takeover de §32 e do monitor de
+PR/CI) · `src/agents/session/context.ts` (`services` no contexto resolvido) ·
+`packages/issue-flow-contract/src/capabilities.ts` (`sessions`, `session:open`).
+
+*Frontend*
+`web/src/lib/{WorkspaceBlock,ReviewBlock}.svelte` (NEW) ·
+`web/src/lib/ExecutionPanel.svelte` (vira **o** painel, para os dois modos) ·
+`web/src/lib/{ExecutionHeader,ProgressBlock,OutputBlock,ExecutionsDashboard}.svelte`
+· `web/src/lib/{api,executions,types}.ts` · `web/src/App.svelte` (seleção
+unificada) · `web/src/lib/ExecutionTabs.svelte` (inalterado — o conjunto de abas
+passou a ser dado, não constante).
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `mainView: 'executions' \| 'worktree'` → **uma** seleção, e o painel decide por *"existe snapshot?"* | §50.5. Enquanto a escolha era "de qual lista veio", as duas telas eram inevitáveis. Com a pergunta trocada, a promoção de §49.2 fica de graça: uma sessão livre vinculada a uma issue passa a ter snapshot e o workflow aparece no lugar — sem componente novo e sem evento (I4) |
+| `GET /api/worktrees` é uma **projeção** de `agent_sessions` | §25: uma implementação por responsabilidade. O worktree é do `runtime/worktree/`, a intenção de usá-lo é do `agent_sessions` (ADR-08/ADR-16), e este módulo só junta as duas na forma que a barra lateral portada já sabe desenhar. Um segundo registro é exatamente como os dois começariam a discordar sobre qual branch está aberta |
+| `executionId` da linha **é** o `runId` da sessão | E o run id **é** o `sessionId` do dashboard (`web/session-directory.ts` passa um como o outro). Essa igualdade única é o que faz I1 e I4 funcionarem sem nada novo |
+| `worktrees` partida em `sessions` + `session:open` (+ `pr:ci` anunciada) | As duas metades são promessas diferentes. `worktrees` fecha vinte rotas de mutação sem backend; um monitor que listava perfeitamente bem não podia dizer isso sem alegar que sabia integrar, arquivar e trocar profile. Foi essa fusão que deixou o grupo "Sessões" vazio desde a Fase 8B |
+| "Novo worktree" → **"Nova sessão"**, sem diálogo | I3/S1. Todo campo de `POST /api/sessions` é opcional e a branch é gerada no servidor; pedir qualquer um deles seria a cerimônia que o modo livre existe para pular. O diálogo portado (`CreateWorktreeDialog`) continua atrás da capability `worktrees`, para quando o backend de criação explícita existir |
+| `ProgressBlock` ganhou `part`, não um irmão | §50.5 põe fases em "Visão geral" e stories em "Stories". Dois arquivos quase iguais é como uma lista de fases e uma de stories começam a discordar sobre o que é uma linha |
+| `WorkspaceBlock` é **um** componente para N linhas (Task) e uma (sessão livre) | A regra literal do enunciado. Um segundo componente para "a versão de sessão" é o sintoma de estar reconstruindo as duas interfaces dentro de um produto só |
+| `ExecutionHeader` aceita `snapshot: null` | Mesma razão: um "header de sessão" seria a segunda interface voltando pela porta dos fundos. Sem snapshot ele nomeia a sessão e a branch e some com os timers, porque não há execução para cronometrar |
+| Verificação saiu de "Saída" para uma aba própria | §50.5 lista "Verificação" como aba de primeira classe. U21 é sobre **o que** o veredito diz, não sobre em que aba ele aparece; o `VerificationVerdictCard` não mudou |
+| O terminal é a **única** aba que não fica sempre renderizada | `display: none` dá ao xterm um contêiner de tamanho zero, e um terminal que se mediu com zero colunas é pior do que um que reanexa — e reanexar é o caminho que o porte já endureceu (`lastOffset`). O `<div role="tabpanel">` continua sempre no documento, para o `aria-controls` resolver |
+| `commands/serve.ts` passa `terminal` | Até esta fase **nada** passava. O transporte de §15 existia desde a Fase 8 e não tinha janela para anexar, o que mantinha quatro dos nove fluxos do Roteiro A vermelhos por fiação, não por porte |
+| O takeover de §32 entra por `onHumanInput` | "Uma pessoa tocando o teclado **é** o sinal" — sem confirmação e sem troca de modo. Só uma sessão que pertence a um run pode ser assumida; numa sessão livre não há nada automático para parar (§49.2) |
+| O gate do display sync de §20 é `GET /api/worktrees` | A Fase 14 deixou `isActive` como "o ponto onde o painel encaixa"; este é o ponto. É a requisição que um painel aberto faz, e é a resposta dela que os PRs decoram — ninguém olhando, nenhuma chamada `gh`, nenhum rate limit gasto |
+| `prs` da linha vem do sync, e é **vazia** sem ele | `PrEntry` exige um `state` e um `ciStatus` observados. Preencher sem ter olhado seria afirmar "aberto" sobre algo que ninguém consultou — a mesma classe de mentira que U21 proíbe para verificação |
+| `terminal-ws.ts` ganhou `socketName` | Uma costura, não um ajuste. A suíte de integração roda a sessão dona num socket descartável; sem isso o *viewer* anexava no socket padrão do produto, não achava a janela, e **toda** asserção de "saída ao vivo" era satisfeita pelo shell ecoando a própria entrada. O caso C6 passava sem medir nada |
+| `GET /api/agent-sessions?all=1` | I5/§49.4. "O que está rodando em qualquer lugar" não é respondível por uma listagem por projeto: o painel teria de perguntar N vezes e não saberia quanto é N |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| A aba "Commits / PR / CI" de uma **sessão livre** (§50.5 a desenha) | Não há fonte. Commits vêm do reducer de git da pipeline (ligado a um run) e o diff exige `fetchWorktreeDiff`, que a capability `worktrees` fecha. Uma aba que nunca enche é pior do que uma aba a menos — e ela aparece sozinha no instante em que a sessão ganha um run (I4) |
+| As vinte rotas de mutação de worktree (criar, integrar, arquivar, rotular, profile, diff, tabs, agentes, `pull-main`) | São o backend que `worktrees` promete e que ninguém escreveu. Escrevê-lo aqui seria uma fase de UX crescendo um backend inteiro; a capability continua não anunciada e a superfície continua honestamente ausente |
+| Abas múltiplas por worktree (`tabs`) | A Fase 9B registrou que o modelo de layout de multi-aba não foi portado. A projeção devolve `tabs: []` e a `TabBar` fica escondida, em vez de oferecer um "+" que responderia 404 |
+| Notificação nativa do SO | Mesma razão das fases 8B e 8C: depende de um canal de notificação que não existe aqui |
+
+**Testes**
+
+| # | Capacidade | Teste que a defende | Estado |
+|---|---|---|---|
+| I1 | Task → sessões e worktrees | `web/src/lib/WorkspaceBlock.test.ts` (6) · `lib/ExecutionPanel.test.ts` › "lists the Task's own sessions and worktrees (I1)" · `src/web/worktrees-api.test.ts` › "carries the run id as executionId" | ✅ |
+| I2 | Story → terminal | `lib/WorkspaceBlock.test.ts` › "offers the terminal only for a session that has a pane (I2)" · `lib/ExecutionPanel.test.ts` › "goes from a session row to the terminal tab (I2)" | ✅ |
+| I3 | Sessão livre num clique | `App.executions.test.ts` › "opening a free session (I3)" (3) · `lib/api.test.ts` › "opens one under the active prefix, with nothing the caller did not ask for" | ✅ |
+| I4 | Promoção | `lib/ExecutionPanel.test.ts` › "shows the workflow for the same session once it belongs to a run (I4)" · `App.executions.test.ts` › "promoting a session (I4)" · `src/web/worktrees-api.test.ts` (o campo) · `src/web/sessions-api.test.ts` (`/link`, preexistente) | ✅ |
+| I5 | Multi-projeto | `lib/executions.test.ts` › `activeWorkGroups` com sessões (3) · `lib/ExecutionsDashboard.test.ts` › "the consolidated view (I5, §49.4)" (5) · `lib/api.test.ts` › "asks for every project" | ✅ |
+| I6 | Review unificado | `lib/ReviewBlock.test.ts` (7) — as duas metades na **mesma** `<section>` | ✅ |
+| I7 | Push, ≤ 250 ms p95 | `src/web/stream-latency.integration.test.ts` · `src/web/terminal-ws.integration.test.ts` › "I7: delivers live output … with no polling" | ✅ |
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/web/worktrees-api.test.ts` | novo — a projeção, o vínculo por `executionId`, serviços, PRs e as duas rotas de §20 | 9 | ✅ |
+| `web/src/lib/ReviewBlock.test.ts` | novo — I6 | 7 | ✅ |
+| `web/src/lib/WorkspaceBlock.test.ts` | novo — I1, I2 | 6 | ✅ |
+| `web/src/lib/ExecutionPanel.test.ts` | ampliado — o painel unificado de §50.5 | +6 (36 no total) | ✅ |
+| `web/src/lib/ExecutionsDashboard.test.ts` | ampliado — I5 | +5 (15) | ✅ |
+| `web/src/lib/api.test.ts` | ampliado — §49.3 e a divisão de capability | +6 (21) | ✅ |
+| `web/src/App.executions.test.ts` | ampliado — I3 e I4 | +4 (15) | ✅ |
+| `web/src/lib/executions.test.ts` | ampliado — I5 | +3 (17) | ✅ |
+| `src/web/server.test.ts` | ampliado — a rota, as capabilities, e o que responde sem build | +3 novos, 4 atualizados (46) | ✅ |
+| `src/commands/serve.test.ts` | ampliado — `matchesTerminalRequest` | +4 (13) | ✅ |
+| `src/web/terminal-ws.integration.test.ts` | ampliado — I7, e o `socketName` que fez os casos existentes medirem o pane de verdade | +1 (17) | ✅ |
+| `src/web/sessions-api.test.ts` | atualizado — `services` no projeto resolvido | 16 | ✅ |
+
+**Suíte do painel: 342 → 386 casos. Suíte da CLI: 3.425 → 3.438.**
+
+**Testes que mudaram de assunto com o código que testavam** — nenhum foi
+removido nem marcado `skip`:
+
+| Teste | O que mudou | Para onde foi |
+|---|---|---|
+| `lib/ExecutionPanel.test.ts` › "the tablist (U5)" (3 casos) | o conjunto de abas passou de 3 para o de §50.5 | mesmas asserções sobre o conjunto novo; `kanban` → `stories` |
+| `lib/ExecutionPanel.test.ts` › `"Andamento" (U9)` | `ProgressBlock` virou duas metades | virou **dois** casos, um por metade, nos painéis novos |
+| `lib/ExecutionPanel.test.ts` › "renders unverified…" (U21) | verificação ganhou aba própria | mesma asserção, escopada em `#panel-verification` |
+| `lib/api.test.ts` › "allows it once the capability is announced" | `fetchWorktrees` mudou de capability | `worktrees` → `sessions`, mais um caso novo provando que a listagem **não** libera a mutação |
+| `src/web/server.test.ts` › "serves static assets from the public directory" | o painel que ele servia saiu | virou "says the dashboard is not built, and keeps status.json reachable" |
+| `src/web/server.test.ts` › "lets the dashboard build take over / and keeps the previous panel at /legacy/" | idem | virou "serves the built dashboard and only the assets the build emits" |
+| `src/core/prompt-resolver.test.ts` › "resolves web/public from the compiled dist/ layout" | o diretório saiu | virou `web/dist`, mesmo assunto (um diretório aninhado achado a partir de `dist/`) |
+| `web/src/tokens.test.ts` › "is a verbatim copy of the palette layer of the legacy panel" | **foi junto com o arquivo que vigiava** | o que ele protegia é mais forte e continua: `lib/contrast.test.ts` recalcula os 19 pares a partir de `tokens.css`/`app.css` |
+| `src/storage/projects/prefix.test.ts` › o conjunto reservado | a rota `/legacy/` saiu, a reserva **fica** | comentário explicando por quê: 404 é a resposta honesta para o favorito de um painel que saiu |
+
+**Deletado** (o mapa completo está em §25 do documento de pesquisa)
+
+| Item | Linhas | Substituído por |
+|---|---|---|
+| `web/public/index.html` | 277 | `web/index.html` + `web/src/**` |
+| `web/public/app.js` | 2.421 | `web/src/lib/{Execution*,format,vocabulary,snapshot,executions}` |
+| `web/public/app.css` | 1.528 | `web/src/{tokens.css,app.css}` |
+| `LEGACY_ROUTES`, `loadLegacyAssets`, o 301 de `/legacy`, a opção `publicDir` | ~45 | `loadDashboardAssets` sozinho, e `UNBUILT_DASHBOARD` no lugar do fallback |
+| `web/public` no `files` do `package.json` | 1 | só `web/dist` (`npm pack --dry-run` confere) |
+
+**Preservado explicitamente:** `status.json` (rota estática, único fallback sem
+JS, alvo do `<noscript>`) e `web/AGENTS.md`, cujas decisões medidas foram
+reescritas no presente em vez de sumirem com o painel que as originou — os 19
+pares de contraste, as três escalas com exatamente três exceções, o padrão ARIA
+de tablist, a regra dura de tema e a retrocompatibilidade de `session.json`
+foram conferidos um a um.
+
+**Risco inverso (§45.3)**
+Conferido. `writeFileAtomic` intacto — nada nesta fase escreve arquivo.
+Nenhum `spawn` direto: o terminal entra por `attachTerminal` e o PR/CI por
+`gh()`, os dois já no chokepoint `run()`; nenhuma string de shell, argv em todo
+lugar. Permissão semântica preservada — `POST /api/sessions` continua com
+`permission` de três níveis e default `workspace`. Telemetria e redaction não
+tocadas. **Auth:** as rotas novas de escrita (`sync-prs`) e a superfície de
+sessão continuam atrás de loopback + capability anunciada (ADR-10); `GET
+/api/worktrees` e `GET /api/ci-logs/:runId` são leituras, e as duas respondem
+501 sem a dependência em vez de vazar existência. Isolamento de `review`/`verify`
+inalterado (ADR-07). Autoridade de estado preservada: a interface lê e não deriva
+— `executionId` vem do banco, não de heurística de nome de branch.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| Bundle do painel (gzip, sem xterm) | — | 114,7 KB (`index`, era 110,4) + 11,0 KB de CSS (era 10,7) |
+| xterm, em chunk separado | — | 73,9 KB gzip — inalterado |
+| `DiffDialog` + `diff2html`, sob demanda | — | 14,7 KB gzip — inalterado |
+| Build do painel (`vite build`) | — | 1,52 s (era 1,40 s) |
+| Suíte do painel (33 arquivos, 386 casos) | — | 3,3 s |
+| Suíte da CLI (251 arquivos, 3.438 casos) | — | 16,8 s |
+| **I7 — evento do agente → tela, canal de snapshot** | ≤ 250 ms p95 | **51 ms mediana, 55 ms p95** (`stream-latency.integration.test.ts`, 10 amostras) |
+| **I7 — saída do agente → tela, canal de terminal** | ≤ 250 ms p95 | **0 ms mediana, 1 ms p95** (`terminal-ws.integration.test.ts`, 10 amostras) |
+| Reconexão do terminal | ≤ 100 ms | 27 ms mediana |
+| Chamadas `gh` com o painel fechado | — | **0** (o gate de §20 é a última `GET /api/worktrees`, 30 s de janela) |
+
+**Decisões autônomas relevantes**
+
+1. **Os grupos da barra lateral continuam "Execuções" e "Sessões"**, não
+   "Tasks"/"Sessions". §50.5 desenha o esboço em inglês; o glossário fechado já
+   nomeia os dois conceitos em pt-BR (ADR-20), e um terceiro termo para uma
+   coisa que já tem nome é precisamente o que §50.4 proíbe.
+2. **Criar um worktree é abrir uma sessão.** No modelo unificado uma sessão
+   *contém* seu worktree, então uma segunda rota de criação produziria um
+   worktree em que ninguém está trabalhando. `POST /api/sessions` é o caminho.
+3. **`sessions` como capability nova em vez de anunciar `worktrees`.** A
+   alternativa era anunciar `worktrees` e ver vinte rotas responderem 404.
+4. **A aba "Saída" de uma sessão livre não existe** enquanto não houver fonte
+   para commits e PRs dela (registrado acima).
+5. **`terminal-ws.ts` ganhou `socketName`.** Sem essa costura a suíte de
+   integração media o eco do próprio shell; corrigir isso era pré-requisito para
+   a medição de I7 dizer alguma coisa.
+
+**Bloqueios externos remanescentes**
+Nenhum. A superfície de mutação de worktrees (`worktrees`) segue sem backend e
+segue não anunciada — é escopo declarado de outra fase, não um bloqueio desta.

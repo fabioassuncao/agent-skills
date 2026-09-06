@@ -1,5 +1,6 @@
 import { loadRuntimeConfig } from '../../config/runtime.js';
 import { resolveProfile } from '../../runtime/profiles.js';
+import type { ServiceSpec } from '../../runtime/services.js';
 import { createTmuxGateway } from '../../runtime/tmux/gateway.js';
 import { createGitWorktreeGateway } from '../../runtime/worktree/git.js';
 import { createWorktreeManager } from '../../runtime/worktree/lifecycle.js';
@@ -41,6 +42,14 @@ export interface ResolvedAgentSessionContext {
   /** The profile actually resolved, which may not be the one asked for. */
   profileName: string;
   mainBranch: string;
+  /**
+   * Services declared by the project (§19).
+   *
+   * Returned here rather than re-read by every caller: the monitor needs them
+   * to probe health per worktree, and a second `loadRuntimeConfig` for that
+   * would be a second answer to "which services does this project have".
+   */
+  services: readonly ServiceSpec[];
 }
 
 export async function resolveAgentSessionDeps(
@@ -82,5 +91,6 @@ export async function resolveAgentSessionDeps(
     storage,
     profileName: resolved.name,
     mainBranch,
+    services: runtime.services,
   };
 }
