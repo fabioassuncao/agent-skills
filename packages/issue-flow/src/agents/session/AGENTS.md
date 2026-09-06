@@ -87,3 +87,72 @@ launcher, and adding one would be the duplication §25 forbids.
 - Never mint a `runs` row to make a link succeed.
 - Never let a phase that must stay independent land in a window somebody else's
   agent is already running in.
+
+## O canal estruturado — `claude-stream.ts`, `claude.ts`, `codex.ts`, `codex-conversation.ts`, `export.ts`
+
+ADR-06 faz do terminal e do chat estruturado **canais independentes**. Este é o
+segundo: nada aqui depende de `runtime/terminal/`, nada aqui escreve em pane, e
+nada aqui lê a tela de um agente.
+
+Ler o arquivo de conversa do provider **não** é o erro que ADR-05 proíbe. O que
+ADR-05 proíbe é inferir estado de workflow do que aparece num TUI; estado de
+agente continua vindo de hook (`agents/hooks/`). Aqui só se lê o histórico do
+modelo, e o resultado é dado que um painel renderiza e um export grava.
+
+### Uma gramática, dois leitores (invariante 13)
+
+`core/stream.ts` já lia o `stream-json` do Claude antes da absorção. Não há uma
+segunda cópia:
+
+- **`claude-stream.ts` é a gramática** — que tipos de linha existem e o que cada
+  um carrega. Um só módulo, e é dele que `core/stream.ts` lê o `result`.
+- **`core/stream.ts` é o desfecho headless** — texto do `result`, `is_error`,
+  `usage` (que é `core/metrics.ts`, não gramática), transcrição crua e o
+  heartbeat do watchdog. `StreamOutcome` não mudou de forma.
+- **`claude.ts` é a conversa** — ler uma conversa *gravada*, listar conversas por
+  `cwd`, retomar por id, correlacionar `tool_result` e manter o cursor entre
+  linhas. É tudo o que `core/stream.ts` não faz.
+
+Acrescentar um campo à gramática é acrescentar em `claude-stream.ts`. Ler uma
+linha à mão em qualquer outro lugar é criar o segundo parser.
+
+### A identidade de bloco (§45.2-A)
+
+Um bloco é `${anthropicMessageId}:${contentBlockIndex}`. `content_block.index`
+reinicia em 0 a cada `message_start` e um turno costuma ter várias mensagens de
+API, então o índice sozinho colide e dois parágrafos distintos viram uma bolha
+só. A transcrição reproduz a **mesma** numeração — contando inclusive os blocos
+que ela não renderiza — e é essa igualdade que faz o painel dar upsert em vez de
+append quando o bloco chega pelas duas rotas. O sintoma de perder isso aparece
+longe da causa; `claude.test.ts` é onde ele é defendido.
+
+### `rejectPending` (§45.2-B)
+
+Quando o `codex app-server` morre, toda requisição em voo é rejeitada. Sem isso
+elas esperam para sempre: não há filho da invocação para o watchdog observar, e
+o chamador fica bloqueado num `await` que nunca resolve. Duas linhas, e é a
+diferença entre requisição falha e processo travado.
+
+### Conversa é dado, nunca instrução
+
+Uma mensagem lida de um arquivo de conversa foi escrita por um modelo.
+Reinjetá-la num prompt sem dizer isso é injeção com o atacante já dentro.
+`buildConversationSeedPrompt` é o único caminho suportado: ele antepõe
+`CONVERSATION_DATA_NOTICE` e fecha o transcript numa cerca
+`<prior-conversation>`. É a mesma regra de `agents/handoff/types.ts`, com a
+redação deliberadamente parecida.
+
+### Never
+
+- Never spawn an agent from here. `agents/invoke.ts` (headless) and
+  `agents/tty.ts` (interactive) are the launcher; the upstream's `sendMessage`
+  was deliberately not ported (§25).
+- Never log the content of a conversation line. The corrupt-transcript warning
+  reports a count and nothing else — §45.3 lists raw logging as the degraded
+  form of this project's redacted telemetry.
+- Never write a second truncation rule for tool payloads. Both routes go through
+  `compactToolPayload`/`extractToolResultText`, or the two copies of one block
+  differ by their tail and the block rewrites itself on screen.
+- Never let `conversation.ts` drift from `AgentsUiConversationMessage` in
+  `packages/issue-flow-contract`. It is a local mirror kept structurally
+  identical on purpose, and it disappears the day `src/` depends on that package.

@@ -719,7 +719,7 @@ absorve-se **apenas** o conceito de agente custom, o modo TTY e o `--resume`.
 
 | O quê | Origem | Por quê |
 |---|---|---|
-| `adapters/claude-cli.ts` (767 LOC) e `codex-app-server.ts` (862 LOC) | §22 | São o **canal estruturado** — leitura de conversa e streaming — e o Issue Flow já tem o dele em `core/stream.ts` para o modo headless. §22 os endereça a `src/agents/session/{claude,codex}.ts` como trabalho próprio; portá-los junto com o wrapper TTY misturaria duas responsabilidades numa fase de alto risco. Registrado como pendência explícita |
+| `adapters/claude-cli.ts` (767 LOC) e `codex-app-server.ts` (862 LOC) | §22 | São o **canal estruturado** — leitura de conversa e streaming — e portá-los junto com o wrapper TTY misturaria duas responsabilidades numa fase de alto risco. **Não é mais pendência:** foram portados na Fase 7B, com `conversation-export-service.ts` (§45.1 linha 20). Ficha em [Canal estruturado de conversa](#canal-estruturado-de-conversa--agentssessionclaude-streamclaudecodexcodex-conversationexportts-fase-7b), que também registra como a sobreposição com `core/stream.ts` foi convergida num só parser (invariante 13) |
 | `session-discovery.ts` (varredura de `~/.claude/**` e `~/.codex/**`) | `adapters/session-discovery.ts` | Descobrir conversas no disco do provider é útil para *reconciliação* (Fase 11), não para iniciar uma. O id de conversa aqui vem do próprio provider via hook/resultado |
 | `DOCKER_PATH_FALLBACK` embutido no bootstrap | `agent-service.ts:4` | O parâmetro `extraPathEntries` existe e é genérico; a lista concreta do container pertence à Fase 12, que é quem sabe o que a imagem tem |
 | `agentTerminalStale` e a lógica de `resolveCodexResumeConversationId` | `lifecycle-service.ts:105` | Depende de `tabs`/`forkCounter`, que são estado de UI do painel do WebMux (§48/§50) |
@@ -1788,6 +1788,10 @@ ADAPT em rotas, contrato, idioma e paleta.
 | Toda superfície de worktree/sessão/agente atrás de capability | Este monitor pode ser o que uma execução da pipeline subiu inline, que serve execuções e nada mais. Uma lista vazia leria como defeito |
 | `publicDir: false` no Vite | `web/public/` aqui é o **painel antigo**, não os estáticos deste app; o default copiaria os dois para dentro de `dist/` |
 | `files` do `package.json` restrito a `web/public` + `web/dist`, com `.npmignore` em `web/` | Com `files: ["web"]` o tarball levava `web/src/**` e o cache do Vite, e **não** levava `web/dist` (o `.gitignore` de `web/` o excluía) — ou seja, o pacote publicado não teria o painel novo |
+| `src/web/server.ts` passa a carregar dois diretórios e sobrepor o do painel novo | ADR-18: o painel novo é a superfície padrão e o antigo fica em `/legacy/` até §50.7 fechar. O upstream serve um frontend só, então não há o que portar aqui |
+| `/legacy` sem barra responde 301 | O `index.html` do painel antigo referencia `app.css`/`app.js`/`status.json` por caminho **relativo**. É isso que permite servir os mesmos bytes nos dois pontos de montagem sem reescrever nada — e é isso que quebra sem a barra final |
+| `'legacy'` acrescentado a `RESERVED_PROJECT_PREFIXES` | Senão um projeto chamado `legacy` sombreia a rota do painel antigo |
+| Fallback: sem build, `/` continua sendo o painel antigo | Um checkout que nunca rodou `npm run build:web` fica com um monitor funcional em vez de um 404 |
 
 **Comportamento deliberadamente NÃO portado**
 
@@ -1824,6 +1828,8 @@ ADAPT em rotas, contrato, idioma e paleta.
 | `web/src/lib/AgentStatusIcon.test.ts` | idem upstream | 3 portados + 1 | ✅ |
 | `web/src/lib/DiffDialog.test.ts` | idem upstream | 2 portados + 1 | ✅ |
 | `web/src/tokens.test.ts` | novo — guarda de deriva da paleta (ADR-19) | 3 | ✅ |
+| `src/web/server.test.ts` (mount duplo) | novo — `/` = painel novo, `/legacy/` = antigo, 301 sem barra, fallback sem build, `Content-Type` por extensão | 1 novo + 3 atualizados | ✅ |
+| `src/storage/projects/prefix.test.ts` | atualizado — `legacy` no conjunto reservado | 1 atualizado | ✅ |
 
 **Total: 148 casos portados dos 148 do upstream, mais 20 acrescentados.**
 Seis casos do `App.test.ts` eram de Linear (ADR-14); em vez de sumirem da
@@ -1842,3 +1848,200 @@ autenticado por sessão (ADR-10) e o canal de push que substituiu o polling
 | Build do painel (`vite build`) | — | 1,35 s |
 | Suíte do painel (20 arquivos, 168 casos) | — | 2,7 s |
 | Latência output → tela | ≤ 250 ms p95 | não medido aqui — o transporte é o de `src/web/` (Fase 1/8), e este porte só troca polling por assinatura de `/api/stream` |
+
+### Canal estruturado de conversa — `agents/session/{claude-stream,claude,codex,codex-conversation,export}.ts` (Fase 7B)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/claude-cli.ts` @ d8c9d5f — 767 linhas ·
+`.references/webmux-main/backend/src/adapters/codex-app-server.ts` @ d8c9d5f — 862 linhas ·
+`.references/webmux-main/backend/src/services/conversation-export-service.ts` @ d8c9d5f — 380 linhas ·
+`.references/webmux-main/backend/src/services/claude-conversation-service.ts` @ d8c9d5f — 237 linhas
+(apenas `normalizeSessionMessages`) ·
+`.references/webmux-main/backend/src/services/worktree-conversation-service.ts:110-545` @ d8c9d5f
+(apenas a metade pura: os construtores de mensagem por item e os predicados de turno ativo).
+
+Base canônica por `§45.1-A` e `§45.1-B`: **WebMux** para o parsing de conversa do Claude e
+para o cliente do `codex app-server`. `§45.1-C` mantém a orquestração de invocação no Issue
+Flow, e é por isso que nada aqui lança agente.
+
+Esta ficha fecha a pendência registrada na ficha da **Fase 7**, que deixou os dois adapters
+de fora por misturarem duas responsabilidades numa fase de alto risco.
+
+**Comportamento existente**
+- `parseClaudeStreamLine` é **pura**: uma linha de `claude -p --output-format stream-json
+  --include-partial-messages` vira `{ sessionId, messageStart, blockStart, assistantDelta,
+  blocks, completeSessionId, error }`. Linha malformada vira `null`, nunca exceção — a CLI
+  intercala diagnósticos próprios com o stream.
+- **Identidade de bloco `${anthropicMessageId}:${contentBlockIndex}`** (`§45.2-A`).
+  `content_block.index` é escopado à *mensagem de API corrente* e **reinicia em 0 a cada
+  `message_start`**; um turno de usuário costuma conter várias mensagens de API (uma antes
+  da tool call, outra depois do resultado). O índice sozinho colide e dois parágrafos
+  distintos colapsam numa bolha só. A mesma identidade é reproduzida ao ler a transcrição
+  persistida — inclusive contando os blocos que ela **não** renderiza — e é isso que impede
+  mensagem duplicada quando o mesmo bloco chega pelo stream e pelo arquivo.
+- `tool_result` aceita `string` **ou** array de blocos de conteúdo; ambos são reais.
+  Truncamento em 2.000 chars com sufixo contando o resto, aplicado igualmente nas duas
+  rotas — duas regras de truncamento fariam as duas cópias do mesmo bloco diferirem pela
+  cauda, e o bloco se reescreveria na tela ao ler a transcrição.
+- `tool_result` é chaveado por `tool_result:${toolCallId}`, não por posição: é o que o
+  correlaciona com a tool call que o produziu.
+- Transcrição: `~/.claude/projects/<cwd codificado>/<sessionId>.jsonl`. A codificação
+  (`[^A-Za-z0-9]` → `-`) é **lossy** e já mudou entre releases, então uma falha no
+  diretório codificado cai numa varredura ampla que lê o `cwd` gravado em cada arquivo.
+- `codex app-server`: `pending: Map<number, PendingRequest>` com `nextId` monotônico;
+  `initialized` enviado **depois** do handshake (sem ele o servidor recusa todo request
+  posterior); toda resposta validada por schema zod antes de ser entregue; erro JSON-RPC
+  vira `CodexAppServerRequestError` tipado; stdout e stderr lidos por leitores
+  independentes (um stderr não drenado enche o pipe e trava o protocolo).
+- **`rejectPending(error)` quando o processo morre** (`§45.2-B`). Sem isso toda requisição
+  em voo espera para sempre uma resposta de um processo que já não existe. O watchdog não
+  pega: não há filho da invocação para observar; o chamador simplesmente fica bloqueado num
+  `await` que nunca resolve.
+- O decodificador de stdout é reusado com `{ stream: true }` entre chunks: uma fronteira de
+  chunk cai no meio de um caractere multi-byte com frequência suficiente para importar, e
+  linha corrompida é resposta improcessável.
+- A união de itens de thread termina num membro genérico `{type, id}` e o status do turno é
+  `z.string()`, não enum: é o que faz uma versão nova do Codex não quebrar o painel.
+- Export: payload versionado com `conversation`, e o parser **preenche `order` e `kind`**
+  quando faltam, para que um export escrito por uma release anterior continue legível.
+  `escapeFence` neutraliza ``` dentro do texto de uma mensagem — sem isso a mensagem fecha
+  o bloco em que está sendo renderizada e o resto da conversa escapa para o documento.
+- Casos especiais que NÃO podiam se perder: a identidade `${messageId}:${blockIndex}` e o
+  fato de a transcrição contar **todos** os blocos; o `rejectPending` no `exited`; o
+  `initialized` pós-handshake; o decoder com `stream: true`; o membro genérico da união; a
+  varredura ampla dos diretórios de projeto do Claude; o `escapeFence`; a tolerância de
+  `order`/`kind` ausentes.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/agents/session/claude-stream.ts` — estratégia: **ADAPT**
+`packages/issue-flow/src/agents/session/claude.ts` — estratégia: **ADAPT**
+`packages/issue-flow/src/agents/session/codex.ts` — estratégia: **PORT**
+`packages/issue-flow/src/agents/session/codex-conversation.ts` — estratégia: **PORT**
+`packages/issue-flow/src/agents/session/export.ts` — estratégia: **ADAPT**
+`packages/issue-flow/src/agents/session/conversation.ts` — **NEW** (forma compartilhada)
+`packages/issue-flow/src/core/stream.ts` — **MERGE** (passa a delegar a gramática)
+
+**A sobreposição com `src/core/stream.ts` — invariante 13**
+
+`§22` marca `claude-cli.ts` como **ADAPT** e não PORT justamente porque este projeto já lia
+o stream do Claude. A convergência foi feita, e a divisão é esta:
+
+| Responsabilidade | Onde mora agora |
+|---|---|
+| **Gramática** de uma linha `stream-json` — que tipos de evento existem e o que cada um carrega | `agents/session/claude-stream.ts`, um só módulo |
+| Desfecho headless: texto do `result`, `is_error`, `usage`, transcrição crua, heartbeat do watchdog | `core/stream.ts` (inalterado em forma) |
+| Conversa **gravada**: ler, listar e retomar por id; correlação de `tool_result`; identidade de bloco; deltas parciais | `agents/session/claude.ts` |
+
+`core/stream.ts` mantém `StreamOutcome` byte a byte e continua fazendo **um** `JSON.parse`
+por linha; o que mudou é que a leitura do `result` passou a ser
+`parseClaudeStreamRecord(record)` em vez de `record.type === 'result'` escrito à mão.
+`ParsedClaudeStreamLine` ganhou um campo **aditivo** `result: { text, isError } | null`
+para isso — o upstream não precisava dele porque não tinha modo headless. `usage` continua
+em `core/metrics.ts`: não é gramática de stream, é métrica deste projeto.
+
+O que `session/claude.ts` **acrescenta**: ler uma conversa gravada, listar conversas por
+`cwd`, retomar por id, correlacionar `tool_result`, manter o cursor `messageId`/`blockIndex`
+entre linhas e emitir mensagens com identidade estável. O que ele **delega**: a gramática,
+inteira.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `Bun.file`/`Bun.write` → `node:fs/promises`; `Bun.env.HOME` → `os.homedir()` injetável | Runtime. A injeção do `home` é o que permite testar o gateway sem tocar no `~` real |
+| `Bun.spawn(["codex","app-server"])` → `execa('codex', ['app-server'])`, argv | Runtime + ADR-04. **Não** passa pelo `run()` de `utils/shell.ts`: `run()` aguarda um comando terminar e devolve a saída, que é o oposto de um daemon com stdin aberto. É a mesma fronteira que `agents/claude.ts` já cruza com execa para o stream. O filho é registrado em `core/shutdown.ts`, o que o upstream não fazia — um Ctrl-C não deixa daemon para trás |
+| `Bun.Subprocess` → interface `CodexAppServerProcess` injetável | O upstream não conseguia testar o cliente sem `codex` instalado. Com a interface, o handshake, o mapa de pendências e o caminho de saída são exercitados contra um fake — e o `codex.integration.test.ts` cobre o protocolo real |
+| Interface TS + schema zod anotado (duas declarações) → **schema como fonte única**, tipos por `z.infer` | zod 4 deriva a opcionalidade da chave a partir do tipo de *input*: campos `unknown` (`error`, `gitInfo`, `arguments`) inferem como opcionais e deixam de satisfazer uma interface que os declara obrigatórios. Manter as duas declarações custaria um cast em cada fronteira de parse, que é exatamente o que a validação existe para evitar |
+| `.transform()` redundante em `TurnSchema`/`ThreadSchema` removido | O transform reconstruía o objeto campo a campo; `z.object` em modo strip já produz exatamente essas chaves. Nada observável muda |
+| `log.warn(...line.slice(0,120))` numa linha de transcrição corrompida → aviso **sem conteúdo**, com contagem, e injetável | `§45.3` lista "telemetria com redaction" como garantia do Issue Flow e "log cru" como a forma degradada. Uma linha de transcrição é texto de usuário e de modelo. O sinal (uma linha se perdeu, e quantas) é preservado; o payload não vaza |
+| stderr do `app-server` só é entregue se o chamador pedir (`onStderr`) | Mesmo motivo. O pipe continua sendo drenado sempre — não drenar travaria o protocolo |
+| `ClaudeCliClient.sendMessage` (spawn de `claude -p`) → **não portado**; no lugar, `createClaudeStreamReader()` sobre linhas | `§25`: um só agent launcher. Ver "NÃO portado" |
+| `AgentsUiConversationMessage` do `packages/api-contract` → `ConversationMessage` local em `conversation.ts` | `packages/issue-flow/src` não depende de `@issue-flow/contract` (só `web/` depende), e o contrato está preso a zod 3 enquanto este pacote está em zod 4. A forma é **estruturalmente idêntica** — mesmos campos, mesma ordem, mesma opcionalidade — para ser atribuível sem cast no dia em que a dependência existir. Ver "Pendência" |
+| Export para o Linear → export para **arquivo**, via `writeFileAtomic` | ADR-14 descarta Linear. `§45.3` proíbe `writeFile` direto; um export é artefato e é gravado como todo artefato deste projeto |
+| `buildPriorConversationSection` → `buildConversationSeedPrompt`, com `CONVERSATION_DATA_NOTICE` e cerca `<prior-conversation>` | Conversa é texto **escrito por um modelo**. Reinjetá-la sem dizer isso é injeção de prompt com o atacante já dentro. É a mesma situação de `agents/handoff/types.ts`, e é respondida do mesmo jeito, com a redação deliberadamente parecida para que um agente que já respeita a cerca de handoff reconheça esta |
+| `webmux: 1` → `issueFlowConversation: 1` | Nomeação do projeto. Não há dado upstream para ler, então não há compatibilidade a manter — a tolerância a `order`/`kind` ausentes, essa sim, foi portada |
+| `buildCodexItemConversationMessages` trazido de `worktree-conversation-service.ts` | `§22` só endereça `codex-app-server.ts`, mas sem a tradução o porte entrega um cliente tipado que nada renderiza — meia entrega. Só a **metade pura** veio; o serviço com estado ficou onde estava |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `ClaudeCliClient.sendMessage` — lançar `claude -p` e ler o stream | `adapters/claude-cli.ts:~560` | Seria um **segundo agent launcher**, que é literalmente o que `§25` proíbe ("Agent launcher: `src/agents/` — dois modos, um só launcher") e o que `§45.1-C` decide manter no Issue Flow: timeout absoluto, watchdog de inatividade, registro para shutdown, classificação de falha, `usage`, `harnessVersion`, failover. Nada disso existe no upstream. O que a Fase 8B precisa é *ler* o stream, e `createClaudeStreamReader()` faz isso sobre linhas de qualquer origem — inclusive as que `agents/claude.ts` já entrega por `onLine` |
+| `ClaudeCliRunHandle` (`completion`/`interrupt`/`sessionId` como Promise) | `adapters/claude-cli.ts` | Consequência do item acima: é a alça de um processo que este módulo não inicia. `interrupt` no modo interativo já é `agents/tty.ts`; no headless é o watchdog |
+| `services/claude-conversation-stream-service.ts`, `agents-ui-stream-service.ts`, `worktree-conversation-service.ts` (a metade com estado) | serviços do painel | `§22` não os endereça a esta fase. Eles carregam `revision`, assinaturas, persistência de meta em `meta.json` e bookkeeping de abas — estado de UI e de worktree que este projeto guarda em SQLite e em `runtime/`. Portá-los aqui seria trazer o modelo de estado do upstream junto com o parser |
+| `exportConversationToLinear`, `buildSeedFromLinear`, `downloadWebmuxAttachmentDefault`, `defaultSeedFromLinearDeps` | `conversation-export-service.ts` | ADR-14 — Linear é `DISCARD` explícito. É metade do arquivo |
+| `buildIssueHeader` (cabeçalho `Fixes ENG-1`, `branchName` do Linear) | `conversation-export-service.ts` | Mesmo motivo. O que ele resolvia — dar contexto ao agente antes da conversa — virou o parâmetro `header` de `buildConversationSeedPrompt`, **fora** da cerca, porque essa metade é instrução do operador e não texto de modelo |
+| `adapters/session-discovery.ts` | `§22` | Continua fora, e pelo mesmo motivo da Fase 7: descobrir conversas no disco é insumo de *reconciliação* (Fase 11). O que esta fase acrescenta é `listSessions(cwd)` no gateway do Claude, que é a consulta, não a varredura periódica |
+| Reset de `blockIndex` em `message_start` | — | Foi escrito e **removido**. Toda mensagem que emite bloco vem precedida do seu `content_block_start`, que define o índice; resetar pareceria mais limpo e mudaria a identidade de um bloco que chegasse sem ele. Invariante 3: não redesenhar durante o porte |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/agents/session/claude-stream.test.ts` | `__tests__/claude-cli.test.ts` (metade do parser) + novos | 23 (5 portados) | ✅ |
+| `src/agents/session/claude.test.ts` | `__tests__/claude-cli.test.ts` (transcrição) + `claude-stream-block-identity.test.ts` + novos | 23 (5 portados) | ✅ |
+| `src/agents/session/codex.test.ts` | `__tests__/codex-app-server.test.ts` + novos (protocolo contra fake) | 22 (5 portados) | ✅ |
+| `src/agents/session/codex-conversation.test.ts` | novos — a tradução não tinha suíte própria no upstream | 23 | ✅ |
+| `src/agents/session/export.test.ts` | `__tests__/conversation-export-service.test.ts` + novos | 21 (8 portados) | ✅ |
+| `src/agents/session/conversation.integration.test.ts` | novo — handshake e `thread/list` contra o `codex app-server` real; `rejectPending` contra o daemon real; turno real do `claude` sob `ISSUE_FLOW_E2E_CLAUDE=1` | 3 | ✅ (2 executados, 1 condicional) |
+| `src/agents/claude.test.ts`, `src/core/headless.test.ts` | preexistentes, **não alterados** — defendem que a delegação não mudou o desfecho headless | 36 | ✅ |
+
+**Contagem upstream.** Os quatro arquivos citados têm **31** casos reais (`it`): 7 em
+`claude-cli.test.ts`, 3 em `claude-stream-block-identity.test.ts`, 5 em
+`codex-app-server.test.ts` e 16 em `conversation-export-service.test.ts`.
+Os números de `§22`/`§45.1` (14 + 9 + 7 + 9) não correspondem a nenhuma contagem
+verificável na baseline congelada — nem a de casos (31), nem a de asserções (70:
+9 + 5 + 9 + 47). São estimativas do plano que não se confirmaram, e a coluna acima mede
+contra a contagem real.
+
+**Portados: 23 de 31.** Os 8 restantes são todos de `conversation-export-service.test.ts` e
+todos de Linear: os 4 de `exportConversationToLinear` (attachment, criação de issue por
+team key, comentário que falha sem derrubar o export, upload que falha) e os 4 de
+`buildSeedFromLinear` (preferir attachment do webmux, cair para a integração GitHub,
+`source: none`, cabeçalho do Linear). Cada um asserta contra um stub da API do Linear e
+não sobrevive a ADR-14. O que ocupou o lugar deles é o transporte por arquivo
+(`writeConversationExport`, round-trip e ausência de `.tmp`) e a regra do dado
+(`CONVERSATION_DATA_NOTICE` antes de qualquer citação, cerca fechada, `escapeFence` numa
+mensagem hostil) — nenhum dos dois existia no upstream.
+
+**Acrescentados: 92 casos** que o upstream não cobria. Os que mais importam: linha
+malformada e JSON que não é objeto → `null`; tipo de evento desconhecido → forma vazia (uma
+CLI mais nova não é falha de parse); truncamento com sufixo de contagem; identidade de bloco
+**igual** entre stream ao vivo e transcrição relida; bloco pulado ainda avança o contador;
+`rejectPending` com o daemon real e com o fake; handshake que falha não deixa cliente
+meio-aberto; stderr drenado sem chegar ao protocolo; e a cerca de dado do reseed.
+
+**Risco inverso (`§45.3`) — conferido**
+
+| Garantia do Issue Flow | Preservada? |
+|---|---|
+| `writeFileAtomic` | ✅ — `export.ts` é o único que escreve, e escreve por ele |
+| Chokepoint `run()` + allowlist de git destrutivo | ✅ — nenhum comando git aqui. O único spawn é `execa('codex', ['app-server'])`, argv, registrado para shutdown, com a justificativa acima |
+| argv | ✅ — nenhuma string de shell em nenhum caminho |
+| Taxonomia de falha + retry + failover | ✅ — intacta; nada aqui entra no caminho de invocação |
+| Watchdog de inatividade | ✅ — `core/stream.ts` mantém `onLine` e o heartbeat |
+| Permissão semântica por fase | ✅ — nenhum `yolo`; este módulo não decide permissão |
+| Autoridade de estado explícita | ✅ — a conversa continua sendo do provider (§27); nada aqui grava `agent_sessions` |
+| Auth em superfície web | ✅ — não há superfície web nova |
+| Isolamento de `review`/`verify` | ✅ — `reuse.ts` intocado; nada aqui seleciona sessão |
+| Telemetria com redaction | ✅ — **reforçada**: o aviso de linha corrompida perdeu o trecho da linha que o upstream logava |
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| Handshake + `thread/list` contra o `codex app-server` real | — | **154 ms** (`conversation.integration.test.ts`) |
+| `rejectPending` com o daemon real morto | — | **174 ms** até a rejeição, incluindo o handshake |
+| Latência output → tela | ≤ 250 ms p95 | não medido aqui — o transporte é o de `src/web/` (Fase 1/8); este módulo é push por construção (o reader emite por linha lida, sem polling) |
+| Boot da CLI | ≤ 250 ms | inalterado — nada em `session/` entra no caminho de boot; `core/stream.ts` ganhou um import de um módulo sem dependências |
+| Contexto re-ingerido por story | 0 | inalterado |
+
+**Pendência registrada**
+
+`ConversationMessage`/`ConversationState` em `agents/session/conversation.ts` são um espelho
+local de `AgentsUiConversationMessage`/`AgentsUiConversationState` do
+`packages/issue-flow-contract`. A duplicação existe porque `packages/issue-flow/src` não
+depende daquele pacote hoje (só `web/` depende) e porque os dois estão em versões diferentes
+do zod. **Quando a dependência existir, o tipo deve vir do contrato e este arquivo deve
+sumir.** Até lá, qualquer campo acrescentado a um dos dois precisa ser acrescentado ao outro
+na mesma mudança.

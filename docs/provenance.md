@@ -111,3 +111,67 @@ from the documented behaviour, not from the upstream source).
 | `packages/issue-flow/src/commands/session.ts` | `bin/src/worktree-commands.ts` (`add`, `open`, `list`, `send`, `close`, `tab`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/web/sessions-api.ts` | `backend/src/server.ts` (rotas `worktrees`, `worktrees/:branch/prompt`, `worktrees/:branch/interrupt`, `DELETE worktrees/:branch`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/agents/session/store.ts` (`linkSessionToRun`) | none — no upstream counterpart; the mode-2 → mode-1 promotion of §49.2 | — | — | NEW | — |
+| `packages/issue-flow-contract/src/schemas.ts` | `packages/api-contract/src/schemas.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow-contract/src/contract.ts` | `packages/api-contract/src/contract.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow-contract/src/client.ts` | `packages/api-contract/src/client.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow-contract/src/capabilities.ts` | none — no upstream counterpart; the capability gate that ADR-10/`/api/health` require | — | — | NEW | — |
+| `packages/issue-flow/web/index.html` | `frontend/index.html` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/vite.config.ts` | `frontend/vite.config.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/vitest.config.ts` | `frontend/vitest.config.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/svelte.config.js` | `frontend/svelte.config.js` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/main.ts` | `frontend/src/main.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/App.svelte` | `frontend/src/App.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/app.css` | `frontend/src/app.css` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/tokens.css` | `packages/issue-flow/web/public/app.css` (palette layer, verbatim; guarded by `tokens.test.ts`) | — | — | INTERNAL | — |
+| `packages/issue-flow/web/src/lib/types.ts` | `frontend/src/lib/types.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/utils.ts` | `frontend/src/lib/utils.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/api.ts` | `frontend/src/lib/api.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/themes.ts` | `frontend/src/lib/themes.ts` (five palettes → the panel's three theme modes) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/worktree-list.ts` | `frontend/src/lib/worktree-list.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/worktree-conversation.ts` | `frontend/src/lib/worktree-conversation.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/ask-user-question.ts` | `frontend/src/lib/ask-user-question.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/promptUtils.ts` | `frontend/src/lib/promptUtils.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/toast-context.ts` | `frontend/src/lib/toast-context.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/BaseDialog.svelte` | `frontend/src/lib/BaseDialog.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/Btn.svelte` | `frontend/src/lib/Btn.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/LinkBtn.svelte` | `frontend/src/lib/LinkBtn.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/Toggle.svelte` | `frontend/src/lib/Toggle.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/ConfirmDialog.svelte` | `frontend/src/lib/ConfirmDialog.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/ToastStack.svelte` | `frontend/src/lib/ToastStack.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/NotificationItem.svelte` | `frontend/src/lib/NotificationItem.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/CursorButton.svelte` | `frontend/src/lib/CursorButton.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/PrBadge.svelte` | `frontend/src/lib/PrBadge.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/PrStatusGroup.svelte` | `frontend/src/lib/PrStatusGroup.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/SidebarRepoRow.svelte` | `frontend/src/lib/SidebarRepoRow.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/RepoGroup.svelte` | `frontend/src/lib/RepoGroup.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/PaneBar.svelte` | `frontend/src/lib/PaneBar.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/TabBar.svelte` | `frontend/src/lib/TabBar.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/StartupEnvFields.svelte` | `frontend/src/lib/StartupEnvFields.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/AgentStatusIcon.svelte` | `frontend/src/lib/AgentStatusIcon.svelte` | windmill-labs/webmux | d8c9d5f | MERGE | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/AskUserQuestionCard.svelte` | `frontend/src/lib/AskUserQuestionCard.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/EmptyProjects.svelte` | `frontend/src/lib/EmptyProjects.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/ProjectSwitcher.svelte` | `frontend/src/lib/ProjectSwitcher.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/WorktreeLabelDialog.svelte` | `frontend/src/lib/WorktreeLabelDialog.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/WorktreeProfileDialog.svelte` | `frontend/src/lib/WorktreeProfileDialog.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/BranchSelector.svelte` | `frontend/src/lib/BranchSelector.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/AgentEditorDialog.svelte` | `frontend/src/lib/AgentEditorDialog.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/CommentReviewDialog.svelte` | `frontend/src/lib/CommentReviewDialog.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/CiDetailsDialog.svelte` | `frontend/src/lib/CiDetailsDialog.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/DiffDialog.svelte` | `frontend/src/lib/DiffDialog.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/Terminal.svelte` | `frontend/src/lib/Terminal.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/WorktreeList.svelte` | `frontend/src/lib/WorktreeList.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/TopBar.svelte` | `frontend/src/lib/TopBar.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/CreateWorktreeDialog.svelte` | `frontend/src/lib/CreateWorktreeDialog.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/SettingsDialog.svelte` | `frontend/src/lib/SettingsDialog.svelte` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/WorktreeConversationPanel.svelte` | `frontend/src/lib/WorktreeConversationPanel.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/web/src/lib/MobileChatSurface.svelte` | `frontend/src/lib/MobileChatSurface.svelte` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/web/server.ts` (`loadDashboardAssets`, mount duplo `/` + `/legacy/`) | none — no upstream counterpart; the WebMux server serves one frontend. ADR-18 requires both until §50.7 is green | — | — | NEW | — |
+| `packages/issue-flow/scripts/contract-install.mjs` | none — no upstream counterpart; the sibling-package install the two-zod split requires | — | — | NEW | — |
+| `packages/issue-flow/src/agents/session/claude-stream.ts` | `backend/src/adapters/claude-cli.ts` (`parseClaudeStreamLine`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/session/claude.ts` | `backend/src/adapters/claude-cli.ts` (transcript, gateway, block identity) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/session/claude.ts` (`toClaudeConversationState`) | `backend/src/services/claude-conversation-service.ts` (`normalizeSessionMessages`) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/core/stream.ts` (delegação do parsing) | `backend/src/adapters/claude-cli.ts` | windmill-labs/webmux | d8c9d5f | MERGE | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/session/codex.ts` | `backend/src/adapters/codex-app-server.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/session/codex-conversation.ts` | `backend/src/services/worktree-conversation-service.ts:110-545` (metade pura) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/session/export.ts` | `backend/src/services/conversation-export-service.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/session/conversation.ts` | none — espelho local de `packages/api-contract` `AgentsUiConversationMessage`, definido aqui enquanto `src/` não depende de `@issue-flow/contract` | — | — | NEW | — |

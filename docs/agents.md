@@ -225,6 +225,49 @@ Set `agent.hooks.enabled` to `false` (or `ISSUE_FLOW_AGENT_HOOKS=0`) to install
 nothing at all. Runs then behave exactly as they did before this existed —
 `headless` never depends on it.
 
+## The conversation channel
+
+The terminal and the structured conversation are **two independent channels**
+onto the same agent. The terminal carries bytes — it is what you see when you
+attach to a pane. The conversation carries *messages*: a prompt, the paragraphs
+the model wrote, the tools it called and what they returned. The dashboard's
+chat panel reads the second one; nothing about it parses the first.
+
+The conversation itself belongs to the provider, on disk under `~/.claude` or in
+`codex`'s own thread store. This project never copies it. What it keeps is the
+conversation's id, in `agent_sessions`, which is what `--resume` takes — so
+reopening a worktree continues the conversation instead of paying for its
+context again.
+
+Reading it works in two directions:
+
+- **A finished conversation** is read back from the provider's transcript. For
+  Claude that is `~/.claude/projects/<encoded cwd>/<session id>.jsonl`; for
+  Codex it is `codex app-server`, a long-lived process this project talks to
+  over JSON-RPC for `thread/read`, `thread/list` and `turn/interrupt`. That
+  daemon is a control channel, not a second way to run a phase: phases still run
+  through `headless` or `interactive`, unchanged.
+- **A conversation in flight** is read from the agent's own stream, message by
+  message, as it is produced. There is no polling.
+
+Every message carries an id that is stable across both routes, which is what
+stops a paragraph the panel already streamed from being drawn a second time when
+the transcript is read back.
+
+### Exporting a conversation, and handing it to the next agent
+
+A conversation can be written out as a JSON file — the messages plus the branch
+and base it belongs to — and read back later to seed a new session with what the
+previous one learnt.
+
+That reseed is fenced and labelled, always. A conversation is text a **model**
+wrote; pasting it into another agent's prompt as if it were instruction would let
+anything a previous agent was talked into writing become an order to the next
+one. The injected block is preceded by a notice that names it as data and is
+wrapped in a `<prior-conversation>` fence, the same way a phase handoff is. Your
+own text — an objective, an issue body — goes outside the fence, because that
+half really is an instruction.
+
 ## Headless examples
 
 ```bash
