@@ -37,13 +37,17 @@
     <div id="view-dashboard" class="view" hidden>
       <header class="card header">
         <div class="header-main">
-          <h1>Execuções ativas</h1>
+          <h1>Trabalho ativo</h1>
           <p class="header-meta">
             <span id="dashboard-summary" class="muted"></span>
             <span id="app-version-dashboard" class="app-version" hidden></span>
           </p>
         </div>
         <div class="header-side">
+          <label class="project-control" id="project-control" hidden>
+            Projeto
+            <select id="project-select" aria-label="Projeto exibido"></select>
+          </label>
           <label class="refresh-control">
             Atualizar
             <select id="refresh-select-dashboard" aria-label="Intervalo de atualização"></select>

@@ -15,6 +15,11 @@
   const PAUSED = 0;
   const STORAGE_KEY = 'issue-flow:refresh-seconds';
   const THEME_STORAGE_KEY = 'issue-flow:theme';
+  // Qual projeto o usuário escolhe ver. Fica só neste navegador: é preferência
+  // de visualização, não estado do servidor — o registry é a autoridade sobre
+  // quais projetos existem, nunca sobre qual deles alguém está olhando.
+  const PROJECT_STORAGE_KEY = 'issue-flow:project';
+  const ALL_PROJECTS = '';
   // Esta chave também é lida pelo <script> inline do <head>
   // do index.html, que aplica o tema antes do primeiro paint. A duplicação
   // é deliberada: aquele script roda antes deste arquivo existir na página e
@@ -117,6 +122,8 @@
     appVersion: document.getElementById('app-version'),
     appVersionDashboard: document.getElementById('app-version-dashboard'),
     dashboardSummary: document.getElementById('dashboard-summary'),
+    projectControl: document.getElementById('project-control'),
+    projectSelect: document.getElementById('project-select'),
     phases: document.getElementById('phases'),
     nextSteps: document.getElementById('next-steps'),
     stories: document.getElementById('stories'),
@@ -165,6 +172,12 @@
     // selectedSessionId null = modo automático (1 sessão → detalhe; 2+ → dashboard).
     sessions: [],
     selectedSessionId: null,
+    // Multi-projeto (§47): lista de /api/projects. Inclui projetos que o
+    // registry conhece e que não têm execução nenhuma — era justamente isso
+    // que não existia antes, porque um projeto só aparecia depois de rodar.
+    projects: [],
+    // Filtro escolhido pelo usuário; ALL_PROJECTS mostra todos.
+    selectedProjectId: ALL_PROJECTS,
     // sessionId cujo snapshot/detalhe está na tela (evita flash ao trocar).
     detailSessionId: null,
     viewMode: 'detail', // 'detail' | 'dashboard'
@@ -549,8 +562,103 @@
 
   // Decide dashboard vs detalhe a partir de /api/sessions. selectedSessionId
   // null = automático; string = escolha explícita do usuário (card).
-  function resolveView(sessions) {
-    state.sessions = sessions;
+  function readStoredProject() {
+    try {
+      return window.localStorage.getItem(PROJECT_STORAGE_KEY) || ALL_PROJECTS;
+    } catch (_err) {
+      // Navegador com storage bloqueado: mostra todos, que é o default honesto.
+      return ALL_PROJECTS;
+    }
+  }
+
+  function storeProject(value) {
+    try {
+      if (value === ALL_PROJECTS) window.localStorage.removeItem(PROJECT_STORAGE_KEY);
+      else window.localStorage.setItem(PROJECT_STORAGE_KEY, value);
+    } catch (_err) {
+      // Sem storage a escolha vale só para esta visita.
+    }
+  }
+
+  function projectLabel(project) {
+    return project.name || project.id;
+  }
+
+  function findProject(projectId) {
+    return state.projects.find((project) => project.id === projectId) || null;
+  }
+
+  // O seletor só aparece quando há mais de um projeto: num monitor de projeto
+  // único ele seria um controle com uma opção só.
+  function renderProjectSelect() {
+    const multi = state.projects.length > 1;
+    els.projectControl.hidden = !multi;
+    if (!multi) {
+      state.selectedProjectId = ALL_PROJECTS;
+      return;
+    }
+    if (state.selectedProjectId !== ALL_PROJECTS && !findProject(state.selectedProjectId)) {
+      // O projeto escolhido saiu da curadoria: volta para todos em vez de
+      // deixar a tela vazia sem explicação.
+      state.selectedProjectId = ALL_PROJECTS;
+      storeProject(ALL_PROJECTS);
+    }
+    const desired = [ALL_PROJECTS]
+      .concat(state.projects.map((project) => project.id))
+      .join('\u0000');
+    if (els.projectSelect.dataset.options !== desired) {
+      clear(els.projectSelect);
+      const all = document.createElement('option');
+      all.value = ALL_PROJECTS;
+      all.textContent = 'Todos os projetos';
+      els.projectSelect.appendChild(all);
+      for (const project of state.projects) {
+        const option = document.createElement('option');
+        option.value = project.id;
+        option.textContent = projectLabel(project);
+        els.projectSelect.appendChild(option);
+      }
+      els.projectSelect.dataset.options = desired;
+    }
+    els.projectSelect.value = state.selectedProjectId;
+  }
+
+  function visibleSessions(sessions) {
+    if (state.selectedProjectId === ALL_PROJECTS) return sessions;
+    return sessions.filter((session) => session.projectId === state.selectedProjectId);
+  }
+
+  // Projetos a exibir na visão "Trabalho ativo", na ordem que o servidor mandou
+  // (os servidos primeiro, depois os apenas conhecidos), cada um com as suas
+  // execuções — inclusive nenhuma.
+  function activeWorkGroups(sessions) {
+    const groups = [];
+    const byProject = new Map();
+    for (const project of state.projects) {
+      if (state.selectedProjectId !== ALL_PROJECTS && project.id !== state.selectedProjectId) {
+        continue;
+      }
+      const group = { id: project.id, label: projectLabel(project), sessions: [] };
+      byProject.set(project.id, group);
+      groups.push(group);
+    }
+    const orphans = [];
+    for (const session of sessions) {
+      const group = session.projectId ? byProject.get(session.projectId) : null;
+      if (group) group.sessions.push(session);
+      else orphans.push(session);
+    }
+    // Uma sessão cujo projeto o registry não conhece continua visível: o mundo
+    // externo é autoridade sobre o que existe, não o registry.
+    if (orphans.length > 0) {
+      groups.push({ id: null, label: 'Outros projetos', sessions: orphans });
+    }
+    return groups;
+  }
+
+  function resolveView(allSessions) {
+    state.sessions = allSessions;
+    const sessions = visibleSessions(allSessions);
 
     if (state.selectedSessionId !== null) {
       const stillThere = sessions.some((s) => s.sessionId === state.selectedSessionId);
@@ -563,6 +671,14 @@
     if (state.selectedSessionId !== null) {
       const selected = sessions.find((s) => s.sessionId === state.selectedSessionId);
       return { mode: 'detail', session: selected || null };
+    }
+
+    // Numa máquina com vários projetos a visão consolidada é a tela inicial,
+    // mesmo com uma execução só: é ela que responde "o que está acontecendo em
+    // qual projeto". Com um projeto (ou nenhum) o comportamento é exatamente o
+    // de antes — zero ou uma sessão abre direto o detalhe.
+    if (state.projects.length > 1) {
+      return { mode: 'dashboard', session: null };
     }
 
     if (sessions.length === 0) {
@@ -725,6 +841,22 @@
     requestPoll();
   }
 
+  // A lista de projetos muda muito devagar (alguém adiciona ou remove um), e o
+  // custo é uma leitura indexada: buscá-la junto com as sessões mantém tudo em
+  // um ciclo só, sem um segundo temporizador para desincronizar.
+  async function refreshProjects() {
+    try {
+      const res = await fetch('api/projects', { cache: 'no-store' });
+      if (!res.ok) return;
+      const payload = await res.json();
+      const projects = payload && Array.isArray(payload.projects) ? payload.projects : [];
+      state.projects = projects;
+    } catch (_err) {
+      // Um monitor mais antigo não tem a rota; a tela continua funcionando com
+      // a lista que já tem (vazia, no caso de projeto único).
+    }
+  }
+
   async function poll() {
     if (state.polling) {
       state.pollAgain = true;
@@ -733,6 +865,7 @@
     state.polling = true;
     state.pollAgain = false;
     try {
+      await refreshProjects();
       const sessionsRes = await fetch('api/sessions', { cache: 'no-store' });
       if (serverInstanceChanged(sessionsRes)) return;
       if (!sessionsRes.ok) throw new Error(`HTTP ${sessionsRes.status}`);
@@ -744,7 +877,7 @@
       if (resolved.mode === 'dashboard') {
         clearDetailState();
         setViewMode('dashboard');
-        renderDashboard(sessions);
+        renderDashboard(visibleSessions(sessions));
         state.failures = 0;
         els.banner.hidden = true;
         return;
@@ -883,6 +1016,40 @@
         : null;
 
     clear(els.dashboard);
+    renderProjectSelect();
+
+    // Com mais de um projeto conhecido a tela é a visão "Trabalho ativo" de
+    // §47.4: um bloco por projeto, incluindo os que não têm execução nenhuma.
+    // Esse último caso é o que antes era impossível representar.
+    if (state.projects.length > 1) {
+      // O container deixa de ser a grade de cards e passa a empilhar os blocos;
+      // a grade volta a existir dentro de cada projeto.
+      els.dashboard.classList.remove('dashboard-grid');
+      els.dashboard.classList.add('dashboard-groups');
+      const groups = activeWorkGroups(sessions);
+      renderDashboardSummary(sessions);
+      for (const group of groups) {
+        const section = el('section', 'project-group');
+        section.appendChild(el('h2', 'project-group-title', group.label));
+        if (group.sessions.length === 0) {
+          section.appendChild(el('p', 'project-group-empty muted', 'Nenhuma execução ativa.'));
+        } else {
+          const grid = el('div', 'dashboard-grid');
+          for (const session of group.sessions) grid.appendChild(buildSessionCard(session));
+          section.appendChild(grid);
+        }
+        els.dashboard.appendChild(section);
+      }
+      els.dashboardMeta.textContent =
+        `${sessions.length} ${sessions.length === 1 ? 'execução' : 'execuções'} · ` +
+        `${groups.length} ${groups.length === 1 ? 'projeto' : 'projetos'}`;
+      document.title = `${sessions.length} execuções · issue-flow`;
+      restoreCardFocus(focusedId);
+      return;
+    }
+
+    els.dashboard.classList.remove('dashboard-groups');
+    els.dashboard.classList.add('dashboard-grid');
 
     if (sessions.length === 0) {
       els.dashboard.appendChild(el('p', 'empty', 'Nenhuma execução ativa.'));
@@ -895,6 +1062,25 @@
     renderDashboardSummary(sessions);
 
     for (const session of sessions) {
+      els.dashboard.appendChild(buildSessionCard(session));
+    }
+
+    els.dashboardMeta.textContent =
+      sessions.length + (sessions.length === 1 ? ' execução' : ' execuções');
+    document.title = `${sessions.length} execuções · issue-flow`;
+    restoreCardFocus(focusedId);
+  }
+
+  // O card só é reconstruído; o foco tem de voltar para o mesmo, ou navegar
+  // pelo teclado durante um push perde o lugar a cada frame.
+  function restoreCardFocus(focusedId) {
+    if (!focusedId) return;
+    const card = els.dashboard.querySelector(`[data-session-id="${focusedId.replace(/"/g, '')}"]`);
+    if (card) card.focus();
+  }
+
+  function buildSessionCard(session) {
+    {
       // <button> só aceita phrasing content — mesmos spans do Kanban.
       const card = el('button', 'dashboard-card');
       card.type = 'button';
@@ -976,18 +1162,7 @@
         if (session.sessionId) selectSession(session.sessionId);
       });
 
-      els.dashboard.appendChild(card);
-    }
-
-    els.dashboardMeta.textContent =
-      sessions.length + (sessions.length === 1 ? ' execução' : ' execuções');
-    document.title = `${sessions.length} execuções · issue-flow`;
-
-    if (focusedId) {
-      const card = els.dashboard.querySelector(
-        `[data-session-id="${focusedId.replace(/"/g, '')}"]`,
-      );
-      if (card) card.focus();
+      return card;
     }
   }
 
@@ -2168,6 +2343,16 @@
     els.drawerOverlay.addEventListener('click', closeDrawer);
     els.backToDashboard.addEventListener('click', clearSessionSelection);
 
+    if (els.projectSelect) {
+      els.projectSelect.addEventListener('change', () => {
+        state.selectedProjectId = els.projectSelect.value;
+        storeProject(state.selectedProjectId);
+        // Trocar de projeto invalida a sessão aberta: ela pode nem pertencer ao
+        // projeto agora escolhido.
+        clearSessionSelection();
+      });
+    }
+
     els.refreshSelect.addEventListener('change', () => onRefreshChange(els.refreshSelect));
     if (els.refreshSelectDashboard) {
       els.refreshSelectDashboard.addEventListener('change', () =>
@@ -2206,6 +2391,7 @@
 
     // Default do seletor vem da configuração do servidor (/api/health);
     // a escolha do usuário em localStorage tem precedência.
+    state.selectedProjectId = readStoredProject();
     const stored = readStoredRefresh();
     try {
       const healthRes = await fetch('api/health', { cache: 'no-store' });

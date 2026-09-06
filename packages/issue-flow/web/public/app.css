@@ -423,6 +423,7 @@ select:focus-visible,
   font-variant-numeric: tabular-nums;
 }
 
+.project-control,
 .refresh-control,
 .theme-control,
 .log-filter-control {
@@ -1285,6 +1286,36 @@ progress {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space-16);
+}
+
+.dashboard-groups {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Visão "Trabalho ativo" (§47.4): um bloco por projeto, com as execuções dele
+   — ou a afirmação explícita de que não há nenhuma, que é uma informação e não
+   um vazio. Só entra em cena quando o servidor conhece mais de um projeto. */
+.project-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+
+.project-group + .project-group {
+  margin-top: var(--space-24);
+  padding-top: var(--space-24);
+  border-top: 1px solid var(--border);
+}
+
+.project-group-title {
+  margin: 0;
+  color: var(--text);
+}
+
+.project-group-empty {
+  margin: 0;
+  font-size: var(--font-size-sm);
 }
 
 .dashboard-card {

@@ -27,9 +27,31 @@ Toda resposta nova carrega `X-Issue-Flow-Instance`. O client guarda a primeira
 identidade observada e chama `window.location.reload()` quando ela muda: isso é
 o handoff de assets depois de `--restart-web`, não um estado de sessão.
 
-Com **uma** sessão ativa o painel abre direto no detalhe (comportamento
-histórico). Com **duas ou mais**, `renderDashboard()` lista um card por
-execução; o clique define `state.selectedSessionId` e o poll passa a usar o
+## Vários projetos
+
+O painel também consome `GET api/projects`, que lista os projetos que o
+servidor conhece — **inclusive os que não têm execução nenhuma**, que é o caso
+que antes não existia. Com mais de um projeto conhecido, `renderDashboard()`
+troca a grade de cards por um bloco por projeto (a visão "Trabalho ativo"), cada
+um com as suas execuções ou com a afirmação explícita de que não há nenhuma; o
+seletor ao lado do controle de atualização filtra para um projeto só.
+
+Duas regras seguram isso:
+
+- **Com um projeto (ou nenhum) o comportamento é exatamente o de antes.** O
+  seletor nem aparece: seria um controle com uma opção só.
+- **A escolha do projeto é preferência de visualização**, guardada em
+  `localStorage` como o tema e o intervalo. O registry é a autoridade sobre
+  quais projetos existem, nunca sobre qual deles alguém está olhando. Um
+  projeto que sai da curadoria com o filtro apontando para ele volta o painel
+  para "todos", em vez de deixar a tela vazia sem explicação.
+
+Uma sessão cujo `projectId` o registry não conhece continua visível, agrupada
+em "Outros projetos": o mundo externo é autoridade sobre o que existe.
+
+Com **uma** sessão ativa e um único projeto o painel abre direto no detalhe
+(comportamento histórico). Com **duas ou mais**, `renderDashboard()` lista um
+card por execução; o clique define `state.selectedSessionId` e o poll passa a usar o
 `statusUrl` daquela sessão. `selectedSessionId === null` é o modo automático.
 Trocas de sessão (e o modo dashboard) zeram `snapshot`/`etag` via
 `detailSessionId` para não pintar dados da execução anterior. Clique durante
