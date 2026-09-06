@@ -1,6 +1,6 @@
 import type { AgentCapabilities } from '../agents/types.js';
 
-export const MODEL_CATALOG_VERSION = '1';
+export const MODEL_CATALOG_VERSION = '2';
 
 export type ModelTier = 'fast' | 'mid' | 'strong';
 
@@ -35,6 +35,11 @@ export const MODEL_CATALOG: Record<string, readonly ModelEntry[]> = {
     { id: 'gemini-3.5-flash-low', tier: 'fast', relativeCost: 1, relativeLatency: 1 },
     { id: 'gemini-3.5-flash-medium', tier: 'mid', relativeCost: 2.5, relativeLatency: 1.4 },
     { id: 'gemini-3.5-pro-high', tier: 'strong', relativeCost: 6, relativeLatency: 2 },
+  ],
+  'opencode-cli': [
+    { id: 'anthropic/claude-haiku-4-5', tier: 'fast', relativeCost: 1, relativeLatency: 1 },
+    { id: 'anthropic/claude-sonnet-4-5', tier: 'mid', relativeCost: 3.5, relativeLatency: 1.5 },
+    { id: 'anthropic/claude-opus-4-1', tier: 'strong', relativeCost: 8, relativeLatency: 2.2 },
   ],
 };
 

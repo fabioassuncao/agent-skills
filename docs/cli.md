@@ -19,7 +19,8 @@ For pipeline execution, run inside a Git repository with:
 
 - **Node.js ≥22.13.0**, npm and Git available in `PATH`.
 - **An installed, authenticated coding agent.** Claude Code is the default;
-  Codex CLI, Cursor CLI and Antigravity CLI are opt-in alternatives. Follow
+  Codex CLI, Cursor CLI, Antigravity CLI and OpenCode CLI are opt-in
+  alternatives. Follow
   [agent setup and authentication](agents.md).
 - **Authenticated GitHub CLI (`gh`)** for GitHub issues and PR publication.
   The [local provider](issues.md) can work without GitHub access.

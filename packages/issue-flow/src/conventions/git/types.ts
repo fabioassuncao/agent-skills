@@ -62,7 +62,13 @@ export const DEFAULT_LABEL_TYPE_MAP: Readonly<Record<string, ChangeType>> = {
   investigation: 'chore',
 };
 
-export const FORBIDDEN_PROVIDER_NAMES = ['claude', 'codex', 'cursor', 'antigravity'] as const;
+export const FORBIDDEN_PROVIDER_NAMES = [
+  'claude',
+  'codex',
+  'cursor',
+  'antigravity',
+  'opencode',
+] as const;
 
 export interface ChangeTypeInput {
   issueType?: string | null;

@@ -1,7 +1,7 @@
 {
   "name": "issue-flow",
   "version": "0.19.1",
-  "description": "Unified CLI for orchestrating the full issue-flow pipeline via Claude Code, Codex CLI, Cursor CLI or Antigravity CLI",
+  "description": "Unified CLI for orchestrating the full issue-flow pipeline via Claude Code, Codex CLI, Cursor CLI, Antigravity CLI or OpenCode CLI",
   "type": "module",
   "bin": {
     "issue-flow": "./dist/cli.js"
@@ -48,6 +48,7 @@
     "codex",
     "cursor",
     "antigravity",
+    "opencode",
     "automation",
     "cli",
     "pipeline",

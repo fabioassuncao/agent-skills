@@ -11,6 +11,7 @@ import type {
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
+  OpenCodeSettings,
 } from '../agents/types.js';
 import { AGENT_PHASES, isAgentProviderId } from '../agents/types.js';
 import { printWarning } from '../ui/logger.js';
@@ -51,7 +52,7 @@ function readAgentEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void): 
       layer.provider = env.ISSUE_FLOW_AGENT;
     } else {
       warn(
-        `Ignoring ISSUE_FLOW_AGENT="${env.ISSUE_FLOW_AGENT}": expected claude, codex, cursor or antigravity.`,
+        `Ignoring ISSUE_FLOW_AGENT="${env.ISSUE_FLOW_AGENT}": expected claude, codex, cursor, antigravity or opencode.`,
       );
     }
   }
@@ -129,6 +130,17 @@ function readAgentEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void): 
     antigravity.executeTimeout = env.ISSUE_FLOW_ANTIGRAVITY_EXECUTE_TIMEOUT;
   }
   if (Object.keys(antigravity).length > 0) layer.antigravity = antigravity;
+  const opencode: OpenCodeSettings = {};
+  if (env.ISSUE_FLOW_OPENCODE_VARIANT !== undefined && env.ISSUE_FLOW_OPENCODE_VARIANT !== '') {
+    opencode.variant = env.ISSUE_FLOW_OPENCODE_VARIANT;
+  }
+  if (
+    env.ISSUE_FLOW_OPENCODE_MIN_VERSION !== undefined &&
+    env.ISSUE_FLOW_OPENCODE_MIN_VERSION !== ''
+  ) {
+    opencode.minVersion = env.ISSUE_FLOW_OPENCODE_MIN_VERSION;
+  }
+  if (Object.keys(opencode).length > 0) layer.opencode = opencode;
   return layer;
 }
 
@@ -158,6 +170,7 @@ function readAgentKey(
     ...(parsed.data.codex !== undefined ? { codex: parsed.data.codex } : {}),
     ...(parsed.data.cursor !== undefined ? { cursor: parsed.data.cursor } : {}),
     ...(parsed.data.antigravity !== undefined ? { antigravity: parsed.data.antigravity } : {}),
+    ...(parsed.data.opencode !== undefined ? { opencode: parsed.data.opencode } : {}),
     ...(Object.keys(phases).length > 0 ? { phases } : {}),
   };
 }
@@ -189,6 +202,7 @@ function mergeAgentBlockLayers(
       codex: { ...merged.codex, ...layer.block.codex },
       cursor: { ...merged.cursor, ...layer.block.cursor },
       antigravity: { ...merged.antigravity, ...layer.block.antigravity },
+      opencode: { ...merged.opencode, ...layer.block.opencode },
     };
   }
   return any ? merged : undefined;
@@ -202,6 +216,7 @@ function dropUndefinedBlock(block: AgentBlock): AgentBlock {
   if (block.codex !== undefined) result.codex = block.codex;
   if (block.cursor !== undefined) result.cursor = block.cursor;
   if (block.antigravity !== undefined) result.antigravity = block.antigravity;
+  if (block.opencode !== undefined) result.opencode = block.opencode;
   return result;
 }
 
@@ -277,6 +292,12 @@ export async function loadAgentConfig(options: LoadAgentConfigOptions = {}): Pro
     env: envLayer.antigravity,
     cli: cli.antigravity,
   });
+  const opencode = mergeConfigLayers<OpenCodeSettings>({
+    global: globalLayer.opencode,
+    project: projectLayer.opencode,
+    env: envLayer.opencode,
+    cli: cli.opencode,
+  });
 
   const phases: AgentConfig['phases'] = {};
   const phaseOrigins: TrackedPhaseOrigins = {};
@@ -330,7 +351,7 @@ export async function loadAgentConfig(options: LoadAgentConfigOptions = {}): Pro
     phases: phaseOrigins,
   });
 
-  const resolved = { provider, model, claude, codex, cursor, antigravity, phases };
+  const resolved = { provider, model, claude, codex, cursor, antigravity, opencode, phases };
   if (canCache) cachedAgentConfig = resolved;
   return resolved;
 }

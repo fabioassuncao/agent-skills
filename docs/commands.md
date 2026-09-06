@@ -36,7 +36,7 @@ they parse):
 | `-v, --verbose` | Stream the agent output in real time, one line per story, and the full preflight report. The default is a one-screen clean view |
 | `-t, --timeout <seconds>` | Per-invocation headless timeout. `0` removes it. Default **900** (15 min) for every single-invocation phase; `execute` is bounded by its iteration budget instead |
 | `--inactivity-timeout <seconds>` | Kill the agent after this long with no output at all. `0` disables the watchdog. See [resilience](resilience.md#the-inactivity-watchdog) |
-| `--agent <provider>` | Run every phase on `claude`, `codex`, `cursor` or `antigravity` |
+| `--agent <provider>` | Run every phase on `claude`, `codex`, `cursor`, `antigravity` or `opencode` |
 | `--agent-model <model>` | Override the model for every phase |
 | `--agent-phase <phase>=<provider>[:<model>]` | Override one phase. Repeatable |
 | `--verify-level <L0\|L1\|L2\|L3\|L5>` | Acceptance-contract level. See [verification](verification.md) |
@@ -469,6 +469,7 @@ issue-flow agent --json                           # versioned JSON for CLI runti
 issue-flow agent use codex --model gpt-5.6 --global
 issue-flow agent use claude --project
 issue-flow agent use codex --phase execute --project
+issue-flow agent use opencode --model anthropic/claude-sonnet-4-5 --global
 ```
 
 `use` writes an agent preference to `~/.issue-flow/config.json` (`--global`, the

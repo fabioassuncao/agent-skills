@@ -11,6 +11,7 @@ function settings(overrides: Partial<ResolvedAgentSettings> = {}): ResolvedAgent
     codex: {},
     cursor: {},
     antigravity: {},
+    opencode: {},
     origin: { provider: 'default', model: 'default' },
     ...overrides,
   };

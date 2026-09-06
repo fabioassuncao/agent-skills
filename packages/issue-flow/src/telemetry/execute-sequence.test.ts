@@ -48,6 +48,7 @@ function selection(provider: 'claude' | 'codex', failover: boolean) {
       codex: {},
       cursor: {},
       antigravity: {},
+      opencode: {},
       origin: { provider: 'default' as const, model: 'default' as const },
     },
     healthFile: null,

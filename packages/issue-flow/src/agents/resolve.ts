@@ -27,6 +27,7 @@ export function mergeAgentBlocks(base: AgentBlock, overlay: AgentBlock | undefin
     codex: { ...base.codex, ...dropUndefined(overlay.codex ?? {}) },
     cursor: { ...base.cursor, ...dropUndefined(overlay.cursor ?? {}) },
     antigravity: { ...base.antigravity, ...dropUndefined(overlay.antigravity ?? {}) },
+    opencode: { ...base.opencode, ...dropUndefined(overlay.opencode ?? {}) },
   };
 }
 
@@ -66,6 +67,7 @@ export async function resolveAgentFor(
     codex: config.codex,
     cursor: config.cursor,
     antigravity: config.antigravity,
+    opencode: config.opencode,
   };
 
   const phaseBlock = mergeAgentBlocks(config.phases[phase] ?? {}, cli.phases?.[phase]);
@@ -94,6 +96,7 @@ export async function resolveAgentFor(
     codex: merged.codex ?? {},
     cursor: merged.cursor ?? {},
     antigravity: merged.antigravity ?? {},
+    opencode: merged.opencode ?? {},
     origin: { provider: providerOrigin, model: modelOrigin },
   };
 }
@@ -172,7 +175,7 @@ export function parseAgentPhaseFlag(value: string): { phase: AgentPhase; block: 
   const [providerRaw, ...modelParts] = rest.split(':');
   if (!providerRaw || !isAgentProviderId(providerRaw)) {
     throw new Error(
-      `Unknown agent provider "${providerRaw ?? ''}". Valid providers: claude, codex, cursor, antigravity.`,
+      `Unknown agent provider "${providerRaw ?? ''}". Valid providers: claude, codex, cursor, antigravity, opencode.`,
     );
   }
   const model = modelParts.length > 0 ? modelParts.join(':') : undefined;

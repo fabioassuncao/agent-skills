@@ -153,7 +153,7 @@ export async function runAgentUse(
 ): Promise<number> {
   if (!isAgentProviderId(providerRaw)) {
     printError(
-      `Unknown agent provider '${providerRaw}'. Valid providers: claude, codex, cursor, antigravity.`,
+      `Unknown agent provider '${providerRaw}'. Valid providers: claude, codex, cursor, antigravity, opencode.`,
     );
     return 1;
   }

@@ -33,6 +33,7 @@ describe('validateDependencies', () => {
     ['cursor', 'cursor-agent'],
     ['antigravity', 'agy'],
     ['codex', 'codex'],
+    ['opencode', 'opencode'],
   ] as const)('asks for the binary %s actually runs', async (provider, binary) => {
     setAgentCliOverrides({ forceProvider: provider });
 

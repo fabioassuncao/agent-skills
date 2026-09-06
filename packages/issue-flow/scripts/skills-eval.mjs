@@ -19,13 +19,14 @@ import {
 
 export const corpusPath = join(repoRoot, 'evals/skills/scenarios.json');
 const fixtureRoot = join(repoRoot, 'evals/skills/fixtures');
-export const evalProviders = ['claude', 'codex', 'cursor', 'antigravity'];
+export const evalProviders = ['claude', 'codex', 'cursor', 'antigravity', 'opencode'];
 
 const runnerExports = {
   claude: 'ClaudeCodeRunner',
   codex: 'CodexRunner',
   cursor: 'CursorRunner',
   antigravity: 'AntigravityRunner',
+  opencode: 'OpenCodeRunner',
 };
 
 const skillInstallDirectories = {
@@ -33,6 +34,7 @@ const skillInstallDirectories = {
   codex: '.agents/skills',
   cursor: '.cursor/skills',
   antigravity: '.agents/skills',
+  opencode: '.agents/skills',
 };
 
 // References keep shared synthetic capabilities in one source while each run

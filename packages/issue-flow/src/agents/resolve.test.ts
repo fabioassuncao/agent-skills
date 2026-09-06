@@ -25,6 +25,10 @@ describe('parseAgentPhaseFlag', () => {
       phase: 'review',
       block: { provider: 'antigravity', model: 'gemini-3.5-flash-medium' },
     });
+    expect(parseAgentPhaseFlag('review=opencode:anthropic/claude-sonnet-4-5')).toEqual({
+      phase: 'review',
+      block: { provider: 'opencode', model: 'anthropic/claude-sonnet-4-5' },
+    });
     expect(() => parseAgentPhaseFlag('review=unknown')).toThrow(/Unknown agent provider/);
   });
 });
@@ -112,6 +116,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
       codex: {},
       cursor: {},
       antigravity: { effort: 'medium' as const },
+      opencode: {},
       phases: { plan: { provider: 'antigravity' as const, model: 'gemini-3.5-flash-low' } },
     };
     const plan = await resolveAgentFor('plan', { config });
@@ -138,6 +143,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
         codex: {},
         cursor: {},
         antigravity: {},
+        opencode: {},
         phases: { plan: { provider: 'codex' } },
       },
       cli: { forceProvider: 'claude' },
@@ -157,6 +163,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
       codex: {},
       cursor: {},
       antigravity: {},
+      opencode: {},
       phases: {},
     };
     const review = await resolveAgentFor('review', { config, cli });
@@ -198,11 +205,40 @@ describe('loadAgentConfig / resolveAgentFor', () => {
         codex: { sandbox: 'danger-full-access' },
         cursor: {},
         antigravity: {},
+        opencode: {},
         phases: {},
       },
     });
     expect(resolved.provider).toBe('claude');
     expect(resolved.codex.sandbox).toBe('danger-full-access');
+  });
+
+  it('resolves opencode as a phase overlay and via --agent', async () => {
+    const config = {
+      provider: 'claude' as const,
+      model: null,
+      claude: {},
+      codex: {},
+      cursor: {},
+      antigravity: {},
+      opencode: { variant: 'high' as const },
+      phases: {
+        review: { provider: 'opencode' as const, model: 'anthropic/claude-sonnet-4-5' },
+      },
+    };
+    const review = await resolveAgentFor('review', { config });
+    const plan = await resolveAgentFor('plan', { config });
+    expect(review.provider).toBe('opencode');
+    expect(review.model).toBe('anthropic/claude-sonnet-4-5');
+    expect(review.opencode.variant).toBe('high');
+    expect(plan.provider).toBe('claude');
+
+    const forced = await resolveAgentFor('plan', {
+      config,
+      cli: { forceProvider: 'opencode' },
+    });
+    expect(forced.provider).toBe('opencode');
+    expect(forced.origin.provider).toBe('cli');
   });
 
   it('treats a phase override as explicit only for that phase', () => {
@@ -213,6 +249,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
       codex: {},
       cursor: {},
       antigravity: {},
+      opencode: {},
       phases: { review: { provider: 'codex' as const } },
     };
     expect(hasExplicitAgentSelection(config, {}, 'review')).toBe(true);
