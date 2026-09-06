@@ -50,6 +50,8 @@ export interface ResolveIssueOptions {
   stdin?: Readable;
   /** Output stream for the conflict prompt. Defaults to process.stdout. */
   stdout?: Writable;
+  /** Abort the conflict prompt without choosing an origin. */
+  signal?: AbortSignal;
   /** Informational sink. Defaults to printInfo. */
   info?: (message: string) => void;
   /** Warning sink. Defaults to printWarning. */
@@ -193,6 +195,7 @@ async function promptChoice(
   preferred: IssueSource,
   stdin: Readable,
   stdout: Writable,
+  signal?: AbortSignal,
 ): Promise<IssueSource | 'cancel'> {
   const result = await promptSelect<IssueSource | 'cancel'>({
     message: 'Which version should be used?',
@@ -203,6 +206,7 @@ async function promptChoice(
     initialValue: preferred,
     stdin,
     stdout,
+    signal,
   });
   return result.status === 'cancelled' ? 'cancel' : result.value;
 }
@@ -356,6 +360,7 @@ export async function resolveIssue(
     preferred.source,
     stdin,
     stdout,
+    opts.signal,
   );
   if (choice === 'cancel') {
     throw new IssueResolutionError(

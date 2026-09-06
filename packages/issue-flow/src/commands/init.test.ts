@@ -248,6 +248,35 @@ describe('first-run agent prompt', () => {
     ).resolves.toBeNull();
     expect(persist).not.toHaveBeenCalled();
   });
+
+  it('does not persist a fallback on EOF or AbortSignal', async () => {
+    const persist = vi.fn(async () => '/unused/config.json');
+    const eofInput = new PassThrough();
+    eofInput.end();
+
+    await expect(
+      promptInitialAgentChoice({
+        apply: true,
+        stdin: eofInput,
+        stdout: new PassThrough(),
+        persist,
+      }),
+    ).resolves.toBeNull();
+
+    const abortInput = new PassThrough();
+    const controller = new AbortController();
+    const choice = promptInitialAgentChoice({
+      apply: true,
+      stdin: abortInput,
+      stdout: new PassThrough(),
+      signal: controller.signal,
+      persist,
+    });
+    controller.abort();
+
+    await expect(choice).resolves.toBeNull();
+    expect(persist).not.toHaveBeenCalled();
+  });
 });
 
 describe('runInit — a metade de convenções', () => {

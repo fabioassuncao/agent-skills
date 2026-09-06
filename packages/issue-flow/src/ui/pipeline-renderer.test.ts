@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PIPELINE_PHASES } from '../core/pipeline.js';
 import { getStoryStageCallback } from '../core/verbose.js';
 import type { TaskPlan } from '../types.js';
+import { getIcons } from './logger.js';
 import {
   createActiveStoryTracker,
   executeExpandsStories,
   phaseLabel,
   runPipelineWithRenderer,
+  selectRenderer,
   storySubtaskTitle,
 } from './pipeline-renderer.js';
 
@@ -128,6 +130,41 @@ describe('executeExpandsStories', () => {
   it('keeps one line per story only under --verbose', () => {
     expect(executeExpandsStories(false)).toBe(false);
     expect(executeExpandsStories(true)).toBe(true);
+  });
+});
+
+describe('terminal fallback contract', () => {
+  function setStdoutTty(value: boolean): () => void {
+    const descriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value });
+    return () => {
+      if (descriptor) Object.defineProperty(process.stdout, 'isTTY', descriptor);
+      else delete (process.stdout as NodeJS.WriteStream & { isTTY?: boolean }).isTTY;
+    };
+  }
+
+  it('uses the simple listr2 renderer outside a TTY', () => {
+    const restore = setStdoutTty(false);
+    try {
+      expect(selectRenderer(false)).toBe('simple');
+      expect(selectRenderer(true)).toBe('simple');
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps the TTY renderer but uses ASCII icons under NO_COLOR', () => {
+    const restoreTty = setStdoutTty(true);
+    const previousNoColor = process.env.NO_COLOR;
+    process.env.NO_COLOR = '1';
+    try {
+      expect(selectRenderer(false)).toBe('default');
+      expect(getIcons()).toMatchObject({ success: '[OK]', fail: '[FAIL]', connector: '|' });
+    } finally {
+      if (previousNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = previousNoColor;
+      restoreTty();
+    }
   });
 });
 

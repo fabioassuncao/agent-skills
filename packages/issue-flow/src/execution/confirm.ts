@@ -47,6 +47,8 @@ export interface ConfirmQueueOptions {
   singleRequest?: boolean;
   stdin?: Readable;
   stdout?: Writable;
+  /** Abort the prompt without selecting a scope. */
+  signal?: AbortSignal;
   info?: (message: string) => void;
   warn?: (message: string) => void;
 }
@@ -218,7 +220,14 @@ export async function confirmQueue(
     );
   }
 
-  const choice = await selectScope(plan, requestedOnlyCount, stdin, stdout, container);
+  const choice = await selectScope(
+    plan,
+    requestedOnlyCount,
+    stdin,
+    stdout,
+    container,
+    options.signal,
+  );
   const summary = buildScopeSummaryLine(plan, choice);
   if (summary) info(summary);
   return choice;
@@ -230,6 +239,7 @@ async function selectScope(
   stdin: Readable,
   stdout: Writable,
   container: boolean,
+  signal?: AbortSignal,
 ): Promise<QueueChoice> {
   const executableCount = plan.issues.filter((entry) => entry.role !== 'container').length;
   const options: Array<{ value: QueueChoice; label: string }> = container
@@ -257,6 +267,7 @@ async function selectScope(
     initialValue: container ? 'cascade' : 'all',
     stdin,
     stdout,
+    signal,
   });
   return result.status === 'cancelled' ? 'cancel' : result.value;
 }

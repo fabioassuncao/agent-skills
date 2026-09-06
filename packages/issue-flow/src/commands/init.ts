@@ -178,6 +178,8 @@ export interface InitOptions {
   /** Injectable terminal streams used by the interactive first-run choice. */
   stdin?: Readable;
   stdout?: Writable;
+  /** Abort the first-agent prompt without persisting a fallback. */
+  signal?: AbortSignal;
   /** Explicit interactivity override for embedders and tests. */
   interactive?: boolean;
 }
@@ -509,6 +511,7 @@ interface InitialAgentChoiceOptions {
   apply?: boolean;
   stdin?: Readable;
   stdout?: Writable;
+  signal?: AbortSignal;
   persist?: (provider: AgentProviderId) => Promise<string>;
   info?: (message: string) => void;
   success?: (message: string) => void;
@@ -527,6 +530,7 @@ export async function promptInitialAgentChoice(
     initialValue: 'claude',
     stdin: options.stdin,
     stdout: options.stdout,
+    signal: options.signal,
   });
   if (result.status === 'cancelled') return null;
 

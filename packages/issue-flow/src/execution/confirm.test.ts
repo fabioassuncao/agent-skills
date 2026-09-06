@@ -231,4 +231,18 @@ describe('confirmQueue', () => {
       'cancel',
     );
   });
+
+  it('treats an aborted prompt as cancellation, never as the initial scope', async () => {
+    const { stdin, stdout } = streams();
+    const controller = new AbortController();
+    const confirmation = confirmQueue(twoIssues, 1, {
+      interactive: true,
+      stdin,
+      stdout,
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(confirmation).resolves.toBe('cancel');
+  });
 });

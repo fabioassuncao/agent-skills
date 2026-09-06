@@ -382,6 +382,24 @@ describe('resolveIssue', () => {
         expect(error).toBeInstanceOf(IssueResolutionError);
         expect((error as IssueResolutionError).message).toContain('Cancelled');
       });
+
+      it('cancels when the injected signal aborts', async () => {
+        const stdin = new PassThrough();
+        const controller = new AbortController();
+        const resolution = resolveIssue('23', {
+          config: makeConfig({ conflictPolicy: 'ask' }),
+          sources: BOTH,
+          interactive: true,
+          stdin,
+          stdout: sinkStream(),
+          signal: controller.signal,
+          info,
+          warn,
+        });
+        controller.abort();
+
+        await expect(resolution).rejects.toThrow(/Cancelled/);
+      });
     });
   });
 
