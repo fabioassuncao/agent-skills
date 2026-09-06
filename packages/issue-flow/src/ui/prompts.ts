@@ -8,9 +8,13 @@ import { confirm, isCancel, select } from '@clack/prompts';
 type TtyStream = { readonly isTTY?: boolean };
 
 export interface InteractivityOptions {
-  stdin: TtyStream;
-  stdout: TtyStream;
+  stdin: unknown;
+  stdout: unknown;
   ci: string | undefined;
+}
+
+function isTtyStream(stream: unknown): stream is TtyStream {
+  return typeof stream === 'object' && stream !== null && 'isTTY' in stream;
 }
 
 /**
@@ -27,7 +31,13 @@ export function isInteractive({ stdin, stdout, ci }: InteractivityOptions): bool
     normalizedCi !== '0' &&
     normalizedCi !== 'false';
 
-  return stdin.isTTY === true && stdout.isTTY === true && !inCi;
+  return (
+    isTtyStream(stdin) &&
+    stdin.isTTY === true &&
+    isTtyStream(stdout) &&
+    stdout.isTTY === true &&
+    !inCi
+  );
 }
 
 export type PromptResult<Value> = { status: 'submitted'; value: Value } | { status: 'cancelled' };

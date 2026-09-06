@@ -56,7 +56,7 @@ function makeConfig(overrides: Partial<IssuesConfig> = {}): IssuesConfig {
   };
 }
 
-/** Discards everything readline writes while prompting. */
+/** Discards everything Clack writes while prompting. */
 function sinkStream(): Writable {
   return new Writable({
     write(_chunk, _encoding, callback) {
@@ -295,20 +295,18 @@ describe('resolveIssue', () => {
     });
 
     describe('interactive prompt', () => {
-      function answer(...lines: string[]): PassThrough {
+      function answer(input: string): PassThrough {
         const stdin = new PassThrough();
-        for (const line of lines) {
-          stdin.write(`${line}\n`);
-        }
+        stdin.write(input);
         return stdin;
       }
 
-      it('option 1 selects the local version', async () => {
+      it('an arrow key selects the local version from the preferred GitHub option', async () => {
         const resolved = await resolveIssue('23', {
           config: makeConfig({ conflictPolicy: 'ask' }),
           sources: BOTH,
           interactive: true,
-          stdin: answer('1'),
+          stdin: answer('\u001b[A\r'),
           stdout: sinkStream(),
           info,
           warn,
@@ -318,12 +316,12 @@ describe('resolveIssue', () => {
         expect(resolved.divergent).toBe(true);
       });
 
-      it('option 2 selects the GitHub version', async () => {
+      it('Enter selects the initially preferred GitHub version', async () => {
         const resolved = await resolveIssue('23', {
           config: makeConfig({ conflictPolicy: 'ask', preferredProvider: 'local' }),
           sources: BOTH,
           interactive: true,
-          stdin: answer('2'),
+          stdin: answer('\u001b[B\r'),
           stdout: sinkStream(),
           info,
           warn,
@@ -332,12 +330,12 @@ describe('resolveIssue', () => {
         expect(resolved.source).toBe('github');
       });
 
-      it('option 3 cancels with a non-zero exit code', async () => {
+      it('the explicit cancel option exits with a non-zero code', async () => {
         const error = await resolveIssue('23', {
           config: makeConfig({ conflictPolicy: 'ask' }),
           sources: BOTH,
           interactive: true,
-          stdin: answer('3'),
+          stdin: answer('\u001b[B\r'),
           stdout: sinkStream(),
           info,
           warn,
@@ -348,27 +346,23 @@ describe('resolveIssue', () => {
         expect((error as IssueResolutionError).message).toContain('Cancelled');
       });
 
-      it('re-asks after an invalid answer', async () => {
+      it('does not interpret numeric line input as a supported selection', async () => {
         const stdin = new PassThrough();
-        const retryWarn = vi.fn((message: string) => {
-          if (message.includes('Invalid choice')) {
-            stdin.write('2\n');
-          }
-        });
-        stdin.write('x\n');
+        stdin.write('2\n');
+        setImmediate(() => stdin.write('\u001b'));
 
-        const resolved = await resolveIssue('23', {
-          config: makeConfig({ conflictPolicy: 'ask' }),
+        const error = await resolveIssue('23', {
+          config: makeConfig({ conflictPolicy: 'ask', preferredProvider: 'local' }),
           sources: BOTH,
           interactive: true,
           stdin,
           stdout: sinkStream(),
           info,
-          warn: retryWarn,
-        });
+          warn,
+        }).catch((err) => err as IssueResolutionError);
 
-        expect(resolved.source).toBe('github');
-        expect(retryWarn).toHaveBeenCalledWith(expect.stringContaining('Invalid choice'));
+        expect(error).toBeInstanceOf(IssueResolutionError);
+        expect(error.message).toContain('Cancelled');
       });
 
       it('cancels when stdin closes without an answer', async () => {
@@ -434,7 +428,7 @@ describe('resolveIssue', () => {
       expect(reported).toContain('Memory');
     });
 
-    it('the prompt numbers every origin that answered', async () => {
+    it('the prompt lists and can select every origin that answered', async () => {
       registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Local', 'A') }));
       registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Remote', 'B') }));
       registerProvider(fakeProvider('memory', { issue: makeIssue('memory', 'Memory', 'C') }));
@@ -447,7 +441,7 @@ describe('resolveIssue', () => {
         },
       });
       const stdin = new PassThrough();
-      stdin.write('3\n');
+      stdin.write('\u001b[B\r');
 
       const resolved = await resolveIssue('23', {
         config: makeConfig({ conflictPolicy: 'ask' }),
@@ -460,7 +454,8 @@ describe('resolveIssue', () => {
       });
 
       expect(resolved.source).toBe('memory');
-      expect(asked.join('')).toContain('[3] Memory  [4] Cancel');
+      expect(asked.join('')).toContain('Memory');
+      expect(asked.join('')).toContain('Cancel');
     });
 
     it('warns when the conflict policy names an origin that has no version', async () => {
