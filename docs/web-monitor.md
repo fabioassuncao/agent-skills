@@ -278,7 +278,15 @@ than two that drift.
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
 | `GET /api/events?session=<id>` | Journal entries for that session |
 | `GET /api/config?session=<id>` | Captured effective configuration, resolved routing settings and the harness catalog with readiness (`installed`, `authentication`, `state`, models) |
+| `GET /api/agent-events?session=<id>` | Lifecycle history the agent's own [hooks](agents.md#lifecycle-hooks) reported for that run |
 | `GET /api/stream[?session=<id>]` | [Server-Sent Events](#push-updates): state changes pushed as they happen |
+
+The snapshot's `agent` section carries what the agent's own
+[lifecycle hooks](agents.md#lifecycle-hooks) reported — `lifecycle`
+(`busy` / `awaiting-input` / `null`), `since`, `phase` and `awaitingInputCount`.
+The dashboard shows an explicit badge while an agent is blocked on a human,
+because that is the one state in which the run has stopped progressing until
+someone acts. It is never inferred from output.
 | `GET /api/diagnostics?session=<id>` | Correlated records from the global diagnostic log |
 | `POST /api/config/agent` | Save a global provider/model preference for future runs; loopback only |
 | `POST /api/config/routing` | Save global routing mode/profile/policy for future runs; loopback only |

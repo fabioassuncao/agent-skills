@@ -41,3 +41,11 @@ from the documented behaviour, not from the upstream source).
 | `packages/issue-flow/src/web/server.ts` (`/api/stream`) | `backend/src/server.ts` (WebSocket push, `sendWs()`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/web/session-directory.ts` (storage watch, `subscribe()`) | `backend/src/server.ts` + `backend/src/services/reconciliation.ts` (push-on-change) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/web/public/app.js` (EventSource client) | `frontend/src/lib/Terminal.svelte` (client-driven reconnect) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/hooks/contract.ts` | `backend/src/domain/events.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/hooks/agentctl.ts` | `backend/src/adapters/agent-runtime.ts` (`buildAgentCtlScript`) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/hooks/install.ts` | `backend/src/adapters/agent-runtime.ts` (hook settings, merges, `resolveGitCommonDir`) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/hooks/control-server.ts` | `backend/src/adapters/control-token.ts` + `backend/src/server.ts` (runtime-events route) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/agents/hooks/apply.ts` | `backend/src/services/project-runtime.ts` (runtime event projection) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/conventions/git/auto-name.ts` | `backend/src/services/auto-name-service.ts` (prompt, `normalizeGeneratedBranchName`, timeout fallback) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/conventions/git/auto-name.ts` (`generateFallbackBranchName`) | `backend/src/lib/branch-name.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/conventions/git/slug.ts` (`sanitizeBranchName`, `isValidBranchName`) | `backend/src/domain/policies.ts:8–24` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |

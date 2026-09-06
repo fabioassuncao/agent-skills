@@ -142,6 +142,10 @@ A phase override is **partial**: declaring only `model` keeps the provider. Full
 reference — providers, permission mapping, authentication, token economy — in
 [Agents](agents.md).
 
+| Key | Values | Default | Meaning |
+|-----|--------|---------|---------|
+| `hooks.enabled` | boolean | `true` | Whether the pipeline installs the [lifecycle hooks](agents.md#lifecycle-hooks) through which an agent reports that it is working or blocked on a human. Off means nothing is written into the working tree's `.claude/` or `.codex/` |
+
 ### `verify`
 
 ```json
@@ -336,6 +340,7 @@ upwards only.
 | `ISSUE_FLOW_HOME` | The default global storage root; an existing workspace `.issue-flow/issues/` selects local storage — see [Storage](storage.md#issue_flow_home) |
 | `ISSUE_FLOW_WEB`, `ISSUE_FLOW_WEB_PORT`, `ISSUE_FLOW_WEB_HOST`, `ISSUE_FLOW_WEB_REFRESH`, `ISSUE_FLOW_WEB_LOG_LIMIT` | The `web` key |
 | `ISSUE_FLOW_AGENT`, `ISSUE_FLOW_AGENT_MODEL` | The `agent` key. There are **no** per-phase variables |
+| `ISSUE_FLOW_AGENT_HOOKS` | `agent.hooks.enabled` |
 | `ISSUE_FLOW_CODEX_SANDBOX`, `ISSUE_FLOW_CODEX_REASONING_EFFORT`, `ISSUE_FLOW_CODEX_IGNORE_USER_CONFIG` | Codex runner settings |
 | `ISSUE_FLOW_CURSOR_SANDBOX`, `ISSUE_FLOW_CURSOR_PERMISSIONS_FILE` | Cursor runner settings |
 | `ISSUE_FLOW_ANTIGRAVITY_SANDBOX`, `ISSUE_FLOW_ANTIGRAVITY_EFFORT`, `ISSUE_FLOW_ANTIGRAVITY_EXECUTE_TIMEOUT` | Antigravity runner settings |

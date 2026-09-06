@@ -1330,6 +1330,94 @@ export async function touchStoredSession(
   }, context.databaseOptions);
 }
 
+/**
+ * Persist one agent lifecycle event reported by a hook.
+ *
+ * The upstream this is absorbed from keeps these in memory (§2.5). Writing them
+ * down is the point of the difference: an `awaiting_input` that happened while
+ * no monitor was open is exactly the one worth being able to look up.
+ *
+ * Never rejects. This runs inside a handler on the agent's hot path, and a
+ * storage failure may not become an agent failure.
+ */
+export async function recordAgentEvent(
+  context: PlanRepositoryContext,
+  input: {
+    runId: string;
+    phase: string;
+    type: string;
+    lifecycle?: string | null;
+    payload: unknown;
+    occurredAt: string;
+  },
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare(
+        `INSERT INTO agent_events
+           (id, project_id, run_id, phase, type, lifecycle, payload_json, occurred_at, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        context.projectId,
+        input.runId,
+        input.phase,
+        input.type,
+        input.lifecycle ?? null,
+        JSON.stringify(input.payload),
+        input.occurredAt,
+        new Date().toISOString(),
+      );
+  }, context.databaseOptions);
+}
+
+export interface StoredAgentEvent {
+  runId: string;
+  phase: string;
+  type: string;
+  lifecycle: string | null;
+  payload: unknown;
+  occurredAt: string;
+  recordedAt: string;
+}
+
+/** Lifecycle history of one run, oldest first. */
+export async function listAgentEvents(input: {
+  projectId: string;
+  runId: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+}): Promise<StoredAgentEvent[]> {
+  return withDatabase(
+    (database) =>
+      database
+        .prepare(
+          `SELECT run_id, phase, type, lifecycle, payload_json, occurred_at, recorded_at
+             FROM agent_events WHERE project_id = ? AND run_id = ?
+            ORDER BY occurred_at, rowid`,
+        )
+        .all<{
+          run_id: string;
+          phase: string;
+          type: string;
+          lifecycle: string | null;
+          payload_json: string;
+          occurred_at: string;
+          recorded_at: string;
+        }>(input.projectId, input.runId)
+        .map((row) => ({
+          runId: row.run_id,
+          phase: row.phase,
+          type: row.type,
+          lifecycle: row.lifecycle,
+          payload: JSON.parse(row.payload_json) as unknown,
+          occurredAt: row.occurred_at,
+          recordedAt: row.recorded_at,
+        })),
+    input.databaseOptions,
+  );
+}
+
 export async function loadExecution(
   context: PlanRepositoryContext,
   id: string,

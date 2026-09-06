@@ -222,6 +222,22 @@ export interface SessionSnapshot {
   lastError: { message: string; at: string } | null;
   nextSteps: string[];
   environment: SessionEnvironment | null;
+  /**
+   * What the agent's own hooks reported about its lifecycle (ADR-05).
+   *
+   * Every field starts null: a run whose harness installed no hooks, or one
+   * from before this section existed, is simply "never reported" — it is never
+   * inferred from output.
+   */
+  agent: {
+    lifecycle: SessionAgentLifecycle | null;
+    /** When the current lifecycle was reported. */
+    since: string | null;
+    /** Phase the hook reported for. */
+    phase: string | null;
+    /** How many times this run has blocked on a human. */
+    awaitingInputCount: number;
+  };
   /** Acceptance-contract verdict. `null` until a contract has run. */
   verification: {
     verdict: 'passed' | 'failed' | 'unverified' | null;
@@ -229,6 +245,9 @@ export interface SessionSnapshot {
     independence: string | null;
   } | null;
 }
+
+/** Lifecycle states the snapshot projects, one per hook-reported session event. */
+export type SessionAgentLifecycle = 'busy' | 'awaiting-input';
 
 export interface SessionReducerOptions {
   /** Max entries retained in the logs ring buffer. */
@@ -320,6 +339,7 @@ export function createInitialSnapshot(): SessionSnapshot {
       commits: [],
     },
     repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
+    agent: { lifecycle: null, since: null, phase: null, awaitingInputCount: 0 },
     pullRequests: [],
     logs: [],
     errors: [],

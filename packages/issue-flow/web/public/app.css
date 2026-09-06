@@ -475,6 +475,16 @@ select {
   color: var(--state-error);
 }
 
+/* Estado reportado pelos hooks do próprio agente (ADR-05). Reaproveita o par
+   de aviso — já medido em 4,5:1 sobre a própria superfície do badge — em vez
+   de abrir um quinto degrau na escala de estado: "aguardando você" é
+   exatamente um aviso, e não um estado novo da execução. */
+.agent-awaiting {
+  background: var(--state-warn-surface);
+  color: var(--state-warn);
+  margin-right: var(--space-8);
+}
+
 /* ---- Banner de desconexão ---- */
 
 .banner {

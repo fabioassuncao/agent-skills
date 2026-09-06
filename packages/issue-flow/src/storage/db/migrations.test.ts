@@ -115,6 +115,94 @@ describe('SQLite migrations', () => {
     }
   });
 
+  // Migration 9 (agent lifecycle events). A pre-existing database must gain the
+  // table without touching what is already in it, and must stay readable across
+  // a close/reopen cycle.
+  it('adds agent_events to a database that stopped at the previous version', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'issue-flow-db-'));
+    directories.push(directory);
+    const path = join(directory, 'issue-flow.db');
+    const previous = CURRENT_SCHEMA_VERSION - 1;
+
+    const first = await openDatabase(path);
+    try {
+      // Migrate only as far as the release before this one, then seed a row.
+      for (const migration of migrations.filter((entry) => entry.version <= previous)) {
+        migration.up(first);
+      }
+      first.exec(`PRAGMA user_version = ${previous}`);
+      first
+        .prepare('INSERT INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)')
+        .run('project', '/repo', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      expect(
+        first
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agent_events'")
+          .get(),
+      ).toBeUndefined();
+    } finally {
+      first.close();
+    }
+
+    const upgraded = await openDatabase(path);
+    try {
+      expect(migrateDatabase(upgraded)).toBe(CURRENT_SCHEMA_VERSION);
+      // The pre-existing row survived the upgrade.
+      expect(upgraded.prepare('SELECT id FROM projects').all<{ id: string }>()).toEqual([
+        { id: 'project' },
+      ]);
+      upgraded
+        .prepare(
+          `INSERT INTO agent_events
+             (id, project_id, run_id, phase, type, lifecycle, payload_json, occurred_at, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          'event-1',
+          'project',
+          'run-1',
+          'execute',
+          'agent_status_changed',
+          'idle',
+          '{}',
+          '2026-01-01T00:00:01.000Z',
+          '2026-01-01T00:00:01.000Z',
+        );
+      // A lifecycle outside the four the contract knows is rejected by the schema.
+      expect(() =>
+        upgraded
+          .prepare(
+            `INSERT INTO agent_events
+               (id, project_id, run_id, phase, type, lifecycle, payload_json, occurred_at, recorded_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            'event-2',
+            'project',
+            'run-1',
+            'execute',
+            'agent_status_changed',
+            'closed',
+            '{}',
+            '2026-01-01T00:00:02.000Z',
+            '2026-01-01T00:00:02.000Z',
+          ),
+      ).toThrow();
+    } finally {
+      upgraded.close();
+    }
+
+    // Reopening applies no further migration and still reads the row.
+    const reopened = await openDatabase(path);
+    try {
+      expect(migrateDatabase(reopened)).toBe(CURRENT_SCHEMA_VERSION);
+      expect(reopened.prepare('SELECT run_id FROM agent_events').all<{ run_id: string }>()).toEqual(
+        [{ run_id: 'run-1' }],
+      );
+    } finally {
+      reopened.close();
+    }
+  });
+
   it('creates the execution-history indexes required by query readers', async () => {
     const db = await database();
     try {

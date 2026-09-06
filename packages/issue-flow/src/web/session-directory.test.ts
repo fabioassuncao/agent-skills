@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInitialSnapshot } from '../core/session-state.js';
 import type { PlanRepositoryContext } from '../storage/db/repository.js';
-import { touchStoredSession } from '../storage/db/repository.js';
+import { recordAgentEvent, touchStoredSession } from '../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import {
@@ -234,6 +234,26 @@ describe('web/session-directory', () => {
       expect(latencies).toHaveLength(5);
       expect(median).toBeLessThanOrEqual(250);
     });
+  });
+
+  it('reads back the agent lifecycle history a hook reported for a session', async () => {
+    const publisher = publishSession();
+    await publisher.flush();
+    await recordAgentEvent(context('proj-a', '42'), {
+      runId: 'sess-a',
+      phase: 'execute',
+      type: 'agent_status_changed',
+      lifecycle: 'idle',
+      payload: { runId: 'sess-a', phase: 'execute', type: 'agent_status_changed' },
+      occurredAt: '2026-09-06T10:00:00.000Z',
+    });
+    const handle = watch({ pollIntervalMs: 60_000, watch: false });
+    await handle.refresh();
+
+    await expect(handle.agentEvents('sess-a')).resolves.toMatchObject([
+      { runId: 'sess-a', phase: 'execute', type: 'agent_status_changed', lifecycle: 'idle' },
+    ]);
+    await expect(handle.agentEvents('missing')).resolves.toBeUndefined();
   });
 
   it('reads compatibility sessions and journals without SQLite in JSON mode', async () => {

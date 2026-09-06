@@ -186,6 +186,45 @@ escalate it (`approvals_reviewer`, `sandbox_mode`,
 `sandbox_workspace_write.*`). `issue-flow init` warns when those keys are
 present. `ignoreUserConfig: true` is the CI recommendation.
 
+## Lifecycle hooks
+
+An agent's state comes from the agent's own hooks, never from parsing its
+terminal output. A TUI changes between releases, and a parser over one produces
+an answer that is plausible and wrong — so no workflow decision here reads a
+byte of the agent's screen.
+
+Before each invocation the pipeline writes a small helper into the repository's
+**git directory** (`.git/issue-flow/issue-flow-agentctl.mjs` — execution state
+is never committed) and registers it as a hook in `.claude/settings.local.json`
+and `.codex/hooks.json`. The helper reports to a loopback endpoint bound by the
+process running the agent, authenticated with a token that exists only for that
+invocation.
+
+| Reported | Claude hook | Codex hook | Becomes |
+|---|---|---|---|
+| The agent started working | `UserPromptSubmit`, `PostToolUse` | `UserPromptSubmit`, `PreToolUse` | `agent:busy` |
+| **The agent is blocked on a human** | `Notification` (`permission_prompt`, `elicitation_dialog`) | `PermissionRequest`, `SessionStart` | `agent:awaiting-input` + a warning in the log |
+| The agent opened a pull request | `PostToolUse` on `Bash` | `PostToolUse` on `Bash` | `pr:opened`, folded into the run's pull request list |
+| The agent finished its turn | `Stop` | `Stop` | nothing new — the end of the invocation already reports it |
+
+The second row is the one that changes what you can see: before it, an agent
+waiting on a permission prompt was indistinguishable from an agent still
+thinking, including in `headless`, where nobody is watching a terminal. It shows
+up in the dashboard, in `session.json` under `agent`, and in the run's log.
+
+Every event is also written to the `agent_events` table, so a block that
+happened while nothing was watching can still be looked up afterwards.
+
+**What is left behind:** nothing that runs. The hook groups are removed when the
+invocation ends, and the credentials file is deleted first — without it the
+helper exits immediately, so even a hook left behind by a crashed run costs the
+next `claude` session nothing. Hook groups you wrote yourself are never touched:
+the merge replaces only groups whose command is the generated helper.
+
+Set `agent.hooks.enabled` to `false` (or `ISSUE_FLOW_AGENT_HOOKS=0`) to install
+nothing at all. Runs then behave exactly as they did before this existed —
+`headless` never depends on it.
+
 ## Headless examples
 
 ```bash

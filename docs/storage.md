@@ -89,6 +89,21 @@ downgraded or modified. The `db check`, `db backup`, `db vacuum`, `db export`,
 `db verify` and `db import` commands are documented in
 [the command reference](commands.md#database-maintenance).
 
+### `agent_events`
+
+What an agent's own [lifecycle hooks](agents.md#lifecycle-hooks) reported: one
+row per event, with `run_id`, `phase`, `type`, `lifecycle`, the raw payload and
+when it happened.
+
+It is written down rather than kept in memory for one reason: the most useful
+event is `awaiting_input`, and the case worth being able to look up is precisely
+the one where nothing was watching when it happened.
+
+`run_id` carries **no foreign key**. The event arrives from a hook running in
+the agent's own process, and the ordinary race — a hook firing before the run's
+first snapshot has been committed — must not lose it. The outside world is the
+authority on what exists; this table records what was reported.
+
 ## One issue directory
 
 Everything a single issue accumulates. Nothing here is created before something

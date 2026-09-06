@@ -468,6 +468,18 @@ const sessionConfigurationSchema = z.object({
  * SessionSnapshot interface in src/core/session-state.ts — changing one
  * without the other fails the typecheck.
  */
+/**
+ * Whether an agent's own hooks report its lifecycle, and where the artifacts
+ * live. Off means the pipeline never writes into the working tree's `.claude/`
+ * or `.codex/` — the behaviour every release before phase 2 of the WebMux
+ * absorption had.
+ */
+export const agentHooksConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+});
+
+export type AgentHooksConfig = z.infer<typeof agentHooksConfigSchema>;
+
 export const sessionSnapshotSchema = z.object({
   schemaVersion: z.literal(1),
   sessionId: z.string().nullable(),
@@ -606,6 +618,17 @@ export const sessionSnapshotSchema = z.object({
       root: z.string().nullable().default(null),
     })
     .default({ name: null, remoteUrl: null, branch: null, headCommit: null, root: null }),
+  // Additive like the resilience projection: a snapshot written before agent
+  // hooks existed parses into the same "never reported" object the reducer
+  // starts from, so no schema version bump is needed to keep reading it.
+  agent: z
+    .object({
+      lifecycle: z.enum(['busy', 'awaiting-input']).nullable().default(null),
+      since: z.string().nullable().default(null),
+      phase: z.string().nullable().default(null),
+      awaitingInputCount: z.number().int().nonnegative().default(0),
+    })
+    .default({ lifecycle: null, since: null, phase: null, awaitingInputCount: 0 }),
   pullRequests: z.array(z.object({ number: z.number(), url: z.string(), title: z.string() })),
   logs: z.array(sessionLogEntrySchema),
   errors: z.array(sessionLogEntrySchema),

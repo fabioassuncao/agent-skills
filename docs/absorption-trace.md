@@ -82,3 +82,167 @@ Nenhum teste upstream foi portado nesta fase: o caminho equivalente do WebMux
 |---|---|---|
 | Latência output → tela (p95) | ≤ 250 ms (teto duro) | **54 ms** (mediana 51 ms, 10 amostras, `stream-latency.integration.test.ts`) |
 | Antes da fase | — | 3–8 s (poll de 3 s no servidor + 5 s no navegador) |
+
+---
+
+### Convenções Git — nomeação automática de branch e postura de política (Fase 4)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/auto-name-service.ts` @ d8c9d5f — 104 linhas,
+com `backend/src/domain/policies.ts:8–24` (`sanitizeBranchName`, `isValidBranchName`, 17 linhas)
+e `backend/src/lib/branch-name.ts` (`generateFallbackBranchName`, 5 linhas).
+
+Toda a política Git do WebMux cabe em **uma regra de nomeação de branch** mais uma frase de
+system prompt válida só no modo oneshot (§8.4). O que ele tem e o Issue Flow não tinha é
+exatamente o caminho para trabalho **sem issue**: descrição livre → nome gerado, plano,
+kebab-case, ≤ 40 caracteres, **sem prefixo**.
+
+**Comportamento existente**
+- `normalizeGeneratedBranchName` aplica onze passos em ordem fixa; cada um defende contra
+  saída realmente observada de modelo (cerca de código, `Branch name:`, aspas, maiúsculas,
+  caractere ilegal, `/` e `.` que reintroduziriam prefixo, hífens repetidos, bordas, teto de
+  comprimento, e o hífen que a própria truncagem deixa).
+- `isValidBranchName(x) === (sanitizeBranchName(x) === x)`: um nome é válido exatamente
+  quando sanitizá-lo não muda nada. Sem isso, saída ruim vira `git worktree add` falho
+  segundos depois.
+- Timeout de 15 s com fallback `change-<uuid8>`; `spawn_error` e exit ≠ 0 **lançam**.
+- A frase `Do not include quotes, code fences, or prefixes like feature/ or fix/` é a que
+  carrega peso: sem ela o modelo produz `feature/foo` de forma reprodutível, colidindo com o
+  prefixo do caminho convencional.
+- Casos especiais que NÃO podiam se perder: a ordem dos onze passos; a truncagem **antes**
+  da remoção do hífen final; a equivalência sanitize/validate; a literalidade dos dois prompts.
+
+**Implementação no Issue Flow**
+- `packages/issue-flow/src/conventions/git/auto-name.ts` — estratégia: **ADAPT**
+- `packages/issue-flow/src/conventions/git/slug.ts` (`sanitizeBranchName`, `isValidBranchName`) — **PORT**
+- `packages/issue-flow/src/conventions/git/branch.ts` (`resolveBranchName`, os três caminhos de §10.4) — novo
+- `packages/issue-flow/src/conventions/git/convention.ts` (`resolveGitConvention`, ADR-11) — novo, sem origem upstream
+- `packages/issue-flow/src/policy/parsers/git.ts` (`.gitmessage`, commitlint em CI, histórico) — novo, sem origem upstream
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `AutoNameService` (classe com `spawnImpl`) → função `autoNameBranch` com `BranchNameGenerator` injetado | `src/conventions/AGENTS.md`: "a camada Git não aceita provider, agent nem model". O upstream monta `claude -p …` / `codex exec …` dentro deste módulo; no Issue Flow o argv do provider vive em `agents/`, e `dependency-direction.test.ts` proíbe a importação. O prompt, a normalização e o fallback — tudo que **decide** o nome — continuam aqui |
+| `Bun.spawn` + `LlmSpawnTimeoutError` → `AbortController` + `node:timers/promises` | Runtime. O prazo é imposto **pelo chamador**, não confiado ao gerador: um gerador que ignore `timeoutMs`, ou que trave num processo que nunca sai, ainda não pode passar do teto |
+| `spawn_error` / exit ≠ 0 **lançam** → **todo** fracasso vira fallback | ADR-03: `headless` é o default e um repositório sem modelo algum alcançável tem de continuar funcionando. G3 fixa as duas metades ("indisponível **ou** timeout → `change-<uuid8>`") |
+| `normalizeGeneratedBranchName` lança → retorna `null` | A resposta do chamador para "sem nome" é o fallback determinístico, não uma exceção que sobe pela pipeline |
+| `sanitizeBranchName`/`isValidBranchName` movidos para `slug.ts` | Evita ciclo `branch.ts ↔ auto-name.ts`; `slug.ts` já é o módulo de normalização determinística de nome. Re-exportados por `branch.ts` e por `index.ts`, então a superfície pública não muda |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `buildLlmArgs` (argv de `claude -p` e `codex exec`, `escapeTomlString`) | `services/llm-spawn.ts:66–90` | A camada de convenções não pode nomear provider, agent ou model (`src/conventions/AGENTS.md`, precedência §1). O argv pertence a `agents/`, e `agents/argv.ts` já é a implementação canônica (ADR-04, §45.1-M) |
+| `defaultLlmSpawn` (`Bun.spawn` + corrida de timeout manual) | `services/llm-spawn.ts:22–60` | Bun-only, e o Issue Flow já tem `utils/shell.ts` como chokepoint único com allowlist. Reintroduzir um spawn paralelo seria a regressão de §45.3 |
+| `llmProviderLabel` e as mensagens de erro que citam a CLI | `auto-name-service.ts:83–92` | Consequência das duas linhas acima: sem provider no módulo, não há rótulo de provider a imprimir |
+| `resolveBranchAvailability` (colisão rejeitada com 4xx) | `lifecycle-service.ts:1398` | O Issue Flow já resolve colisão com sufixo determinístico (`collide()` em `branch.ts`), que é a implementação mais madura: não falha um `run` por um nome já usado |
+| `AutoNameConfig.provider`/`model` | `domain/config.ts:90–94` | Mesmo motivo; a escolha de agente por fase já é do `routing`/`select` do Issue Flow (§45.1-L) |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/conventions/git/auto-name.test.ts` | `backend/src/__tests__/auto-name-service.test.ts` (17 casos upstream) | 25 (9 portados · 3 adaptados · 13 novos) | ✅ |
+| `src/conventions/git/convention.test.ts` | novo (ADR-11) | 8 | ✅ |
+| `src/policy/parsers/git.test.ts` — bloco das cinco fontes | novo (§11) | 6 | ✅ |
+| `src/conventions/git/characterization.test.ts` — G1, G2, G3, G8, G9, G10, G11 | §34 | 17 | ✅ |
+| `src/policy/characterization.test.ts` — G4, G5, G6, G7 | §34 | 7 | ✅ |
+
+Oito dos dezessete casos upstream **não** portam: todos afirmam o argv de `claude -p` /
+`codex exec`, que este diretório não monta. Três são adaptados — o upstream lança onde o
+Issue Flow degrada, e a asserção passa de `rejects.toThrow` para o fallback determinístico.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| Boot do CLI | ≤ 250 ms | **120 ms** (mediana de 5, `node dist/cli.js --version`) |
+| Descoberta de convenções Git (local, com as duas novas leituras de histórico) | sem budget em §35 | **40 ms** (mediana de 5, neste repositório) |
+| Descoberta de política completa, local-only | sem budget em §35 | **47 ms** (mediana de 5) |
+
+O caminho gerado não tem orçamento em §35 e não entra em `headless`: sem gerador
+configurado — o default — `resolveBranchName` nunca o alcança e nenhuma chamada de modelo
+acontece para nomear uma branch.
+
+---
+
+### Eventos de ciclo de vida do agente por hook (Fase 2)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/agent-runtime.ts` @ d8c9d5f — 530 linhas ·
+`.references/webmux-main/backend/src/domain/events.ts` — 4 tipos de evento ·
+`.references/webmux-main/backend/src/adapters/control-token.ts` — 24 linhas.
+Base canônica segundo `§45.1-D`: **WebMux** (o Issue Flow não tinha equivalente).
+
+**Comportamento existente**
+- O estado do agente **nunca** é lido do TTY; vem de hook (ADR-05).
+- Merge de hooks que **preserva grupos alheios**, identificados pelo prefixo do comando —
+  um grupo que apenas menciona o helper dentro de um wrapper **não** é nosso.
+- `resolveGitCommonDir()`: dentro de um worktree o `gitDir` é
+  `…/.git/worktrees/<nome>` e o `info/exclude` só existe no diretório comum.
+- Matcher `permission_prompt|elicitation_dialog` no `Notification` do Claude — os dois,
+  porque são eventos diferentes e só o par cobre "bloqueado num humano".
+- `--best-effort` no `PreToolUse` do Codex: o hook dispara no caminho quente de toda
+  chamada de ferramenta e uma falha de reporte não pode custar o turno.
+- `codex-stop` imprime `{}` no stdout — o Codex lê um objeto JSON de volta dos hooks `Stop`.
+- Detecção de `gh pr create` por varredura recursiva de todos os valores string do
+  `tool_response`, com regex `https://github\.com/[^\s"]+/pull/\d+`.
+- Timeout de 2 s no POST.
+- Casos especiais que NÃO podiam se perder: os dois primeiros itens desta lista, mais o
+  timeout e o `--best-effort`.
+
+**Implementação no Issue Flow**
+- `src/agents/hooks/contract.ts` — **PORT** de `domain/events.ts`
+- `src/agents/hooks/agentctl.ts` — **PORT** de `buildAgentCtlScript()`
+- `src/agents/hooks/install.ts` — **PORT** do restante de `agent-runtime.ts`
+- `src/agents/hooks/control-server.ts` — **ADAPT** de `control-token.ts` + rota do servidor
+- `src/agents/hooks/apply.ts` — **ADAPT** da projeção de `project-runtime.ts`
+- `src/agents/hooks/runtime.ts` — novo: dono do ciclo de vida por invocação
+- `src/core/session/reducer-agent.ts`, `src/core/session/events.ts`,
+  `src/core/session/snapshot.ts`, `src/schemas.ts` — projeção aditiva
+- `src/storage/db/migrations.ts` (versão 9), `src/storage/db/repository.ts` — persistência
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Script Python → **Node ESM** (`.mjs`) | O Issue Flow já exige Node ≥ 22.13 (§23); depender de `python3` acrescentaria um pré-requisito que hoje não existe. A extensão `.mjs` elimina a ambiguidade de tipo de módulo de um arquivo sem extensão |
+| `Bun.file`/`Bun.write` → `node:fs/promises` + `writeFileAtomic` | Runtime, e §45.3: o WebMux **não** faz escrita atômica; usar `writeFile` direto seria regressão |
+| Correlação `worktreeId`+`branch` → `runId`+`phase` | É o que a pipeline conhece (§18). `runId` é o `sessionId` — `runs.id` e `runs.session_id` são o mesmo valor |
+| Endpoint no **processo da pipeline**, não no servidor do projeto | ADR-03: `headless` é o default e não pode depender de monitor no ar. É o que faz o critério de conclusão da fase — `awaiting_input` num `execute` headless — ser alcançável sem `--web` |
+| Token **efêmero por invocação**, não `~/.issue-flow/control-token` | §18 previa um arquivo persistente, herdado do WebMux, onde servidor e CLI são processos diferentes e precisam de segredo compartilhado. Aqui o servidor de controle **é** o processo que escreve o `control.env`, então pode entregar o token direto. Um segredo de longa duração em disco não compraria nada e ampliaria a superfície. Divergência deliberada, registrada em §8 |
+| Merge que preserva grupos alheios aplicado **também** ao `settings.local.json` | O upstream substitui o array inteiro do evento nesse arquivo, o que apaga os hooks do próprio usuário. `§45.2-D` nomeia justamente esse merge como o que não pode se perder |
+| Todo caminho do helper sai com **código 0** | O upstream devolve 1 em algumas falhas de POST. Um `UserPromptSubmit` não-zero **bloqueia o prompt** no Claude Code: um soluço do endpoint viraria execução quebrada. É o mesmo contrato que `src/web` já mantém com a pipeline — observabilidade nunca decide se um agente roda |
+| `control.env` ausente → sai em silêncio, código 0 | Os hooks sobrevivem a uma invocação. Sem essa saída rápida, um hook deixado para trás custaria 2 s de timeout em toda sessão `claude` posterior do usuário |
+| Eventos **persistidos** em `agent_events` | O WebMux só muta memória (§2.5). Um `awaiting_input` que acontece sem ninguém olhando é exatamente o que vale registrar (§18) |
+| Hooks **removidos** ao fim da invocação | O upstream instala num worktree descartável; aqui os arquivos ficam na árvore de trabalho do usuário |
+| Artefatos em `<gitDir>/issue-flow/` | Invariante 17: artefato de execução nunca é commitado |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `webmux-agentctl` como nome/arquivo sem extensão | `agent-runtime.ts` | Um arquivo sem extensão tem tipo de módulo ambíguo em Node, decidido pelo `package.json` mais próximo. `.mjs` é determinístico |
+| Sub-comandos `starting` e `stopped` produzindo estado próprio na projeção | `domain/events.ts` | O parser aceita os quatro lifecycles (paridade preservada), mas a projeção trata `starting` como `busy` e ignora `stopped`: o fim da invocação já reporta esse fato, e uma segunda fonte para o mesmo fato é uma segunda coisa a manter consistente |
+| Notificação de desktop no `agent_stopped` | `services/notification-service.ts` | Fora do escopo da fase; o evento é persistido e a fase 9 (human-in-the-loop) é quem decide o que fazer com ele |
+| `Bun.serve` sem `hostname` (bind em `0.0.0.0`, sem credencial) | `server.ts` | ADR-10 — a única parte do WebMux explicitamente rejeitada |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/agents/hooks/contract.test.ts` | `__tests__/runtime-events.test.ts` (2) + 2 novos | 4 | ✅ |
+| `src/agents/hooks/install.test.ts` | `__tests__/agent-runtime.test.ts` (2 sem subprocesso) + 8 novos (§23: idempotência, remoção limpa, grupos alheios do Claude, `commondir` em worktree, credenciais, arquivo corrompido) | 10 | ✅ |
+| `src/agents/hooks/control-server.test.ts` | novo (§23: token inválido → 401) | 6 | ✅ |
+| `src/agents/hooks/apply.test.ts` | novo (projeção de §18) | 7 | ✅ |
+| `src/agents/hooks/agentctl.integration.test.ts` | `__tests__/agent-runtime.test.ts` (2 com subprocesso) + 3 novos, incluindo o **critério de conclusão da fase** | 5 | ✅ |
+
+Total portado do upstream: **4 casos** (2 de `runtime-events.test.ts`, 2 de
+`agent-runtime.test.ts`); os outros 2 de `agent-runtime.test.ts` foram portados como
+testes de subprocesso na suíte de integração. Acrescentados: **28 casos**.
+
+**Orçamentos**
+Nenhum orçamento de §35 se aplica a esta fase. O custo acrescentado ao caminho quente é
+uma escrita de dois arquivos JSON pequenos e um `listen()` em porta efêmera por invocação,
+ambos fora do caminho de latência output→tela medido na Fase 1.

@@ -31,6 +31,15 @@
     failed: 'falhou',
   };
 
+  // Estado que o próprio agente reporta pelos seus hooks (ADR-05), nunca
+  // inferido da saída. "aguardando você" é o único estado em que a execução
+  // parou de progredir até alguém agir — por isso ele aparece como alerta, e
+  // não como mais um rótulo neutro ao lado do status da execução.
+  const AGENT_LIFECYCLE_LABELS = {
+    busy: 'agente trabalhando',
+    'awaiting-input': 'aguardando você',
+  };
+
   // O resumo do dashboard conta *execuções* (feminino), então não reaproveita
   // STATUS_LABELS, que qualifica a execução no masculino usado pelo badge.
   const SUMMARY_STATUS_ORDER = ['running', 'idle', 'completed', 'failed'];
@@ -901,6 +910,11 @@
       const badge = el('span', `badge status-${session.status || 'idle'}`);
       badge.textContent = STATUS_LABELS[session.status] || session.status || '—';
       head.appendChild(project);
+      if (session.agentLifecycle === 'awaiting-input') {
+        head.appendChild(
+          el('span', 'badge agent-awaiting', AGENT_LIFECYCLE_LABELS['awaiting-input']),
+        );
+      }
       head.appendChild(badge);
       card.appendChild(head);
 
@@ -1044,6 +1058,28 @@
 
     els.statusBadge.textContent = STATUS_LABELS[snapshot.status] || snapshot.status;
     els.statusBadge.className = `badge status-${snapshot.status}`;
+    renderAgentLifecycle(snapshot);
+  }
+
+  // Um único nó, criado sob demanda e mantido ao lado do badge de status.
+  function renderAgentLifecycle(snapshot) {
+    const agent = snapshot.agent || null;
+    const lifecycle = agent === null ? null : agent.lifecycle;
+    let node = document.getElementById('agent-lifecycle-badge');
+    if (lifecycle !== 'awaiting-input') {
+      if (node !== null) node.remove();
+      return;
+    }
+    if (node === null) {
+      node = el('span', 'badge agent-awaiting');
+      node.id = 'agent-lifecycle-badge';
+      els.statusBadge.parentNode.insertBefore(node, els.statusBadge);
+    }
+    node.textContent = AGENT_LIFECYCLE_LABELS['awaiting-input'];
+    node.title =
+      agent.phase !== null && agent.phase !== undefined
+        ? `O agente pediu sua atenção durante a fase ${agent.phase}`
+        : 'O agente pediu sua atenção';
   }
 
   function renderAlerts(snapshot) {

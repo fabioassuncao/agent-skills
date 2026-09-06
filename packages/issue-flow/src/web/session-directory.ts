@@ -5,8 +5,10 @@ import { type JournalEntry, parseJournal } from '../core/journal.js';
 import { sessionSnapshotSchema, type ValidatedSessionSnapshot } from '../schemas.js';
 import { DATABASE_FILENAME } from '../storage/db/index.js';
 import {
+  listAgentEvents,
   listStoredSessionEvents,
   listStoredSessions,
+  type StoredAgentEvent,
   type StoredSession,
 } from '../storage/db/repository.js';
 import {
@@ -87,6 +89,11 @@ export interface SessionDirectoryHandle {
   sessions(): ActiveSession[];
   getSession(sessionId: string): ActiveSession | undefined;
   events(sessionId: string): Promise<JournalEntry[] | undefined>;
+  /**
+   * Lifecycle history reported by the agent's own hooks, oldest first. Empty
+   * for the `json` compatibility driver, which has no such table.
+   */
+  agentEvents(sessionId: string): Promise<StoredAgentEvent[] | undefined>;
   refresh(): Promise<void>;
   /**
    * Observe changes. Returns an unsubscribe function. Listeners are called
@@ -254,6 +261,16 @@ export function watchSessionDirectory(
       return listStoredSessionEvents({
         projectId: session.projectId,
         sessionId,
+        ...(options.env === undefined ? {} : { databaseOptions: { env: options.env } }),
+      });
+    },
+    agentEvents: async (sessionId) => {
+      const session = sessions.get(sessionId);
+      if (session === undefined) return undefined;
+      if (storageDriver === 'json') return [];
+      return listAgentEvents({
+        projectId: session.projectId,
+        runId: sessionId,
         ...(options.env === undefined ? {} : { databaseOptions: { env: options.env } }),
       });
     },

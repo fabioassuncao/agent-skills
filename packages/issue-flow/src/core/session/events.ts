@@ -121,6 +121,44 @@ export type SessionEvent =
       cooldownUntil?: string | null;
     }
   | { type: 'agent:activity'; at: string; provider: string }
+  | {
+      /**
+       * The agent's own hooks report that it started working (ADR-05). This is
+       * the counterpart of `agent:awaiting-input`, and the only thing that can
+       * clear it — an agent that is producing output is not blocked on anyone.
+       *
+       * Distinct from `agent:activity`, which is the watchdog heartbeat and
+       * says only that a process wrote a byte. This one says what the harness
+       * itself thinks it is doing.
+       */
+      type: 'agent:busy';
+      at: string;
+      phase: string;
+    }
+  | {
+      /**
+       * The agent is blocked on a human: a permission prompt, an elicitation
+       * dialog, or a Codex permission request. It is the single most valuable
+       * event absorbed from WebMux (§18), because before it the state was
+       * indistinguishable from "still thinking" — including in `headless`,
+       * where nobody is looking at a terminal.
+       */
+      type: 'agent:awaiting-input';
+      at: string;
+      phase: string;
+    }
+  | {
+      /**
+       * A pull request the agent opened by itself, seen by the `PostToolUse`
+       * hook rather than reported by the `pr` phase. It folds into the same
+       * `pullRequests` list the phase writes — one concept, two producers.
+       */
+      type: 'pr:opened';
+      at: string;
+      url: string;
+      number: number | null;
+      title?: string;
+    }
   | { type: 'stories:update'; at: string; stories: UserStory[] }
   | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }

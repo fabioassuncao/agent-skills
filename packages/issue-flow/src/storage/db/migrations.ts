@@ -378,6 +378,34 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE pipelines ADD COLUMN issue_closed_at TEXT;
     `),
   },
+  {
+    version: 9,
+    name: 'persist agent lifecycle events reported by hooks',
+    // The upstream this is absorbed from keeps runtime events in memory only
+    // (§2.5). Persisting them is the deliberate difference: an `awaiting_input`
+    // that happens while nobody is watching is precisely the one worth knowing
+    // about afterwards.
+    //
+    // `run_id` has no foreign key on purpose. The event arrives from a hook in
+    // the agent's process, and the mundane race — a hook firing before the
+    // run's first snapshot has been committed — must not lose the event.
+    // ADR-08 also puts authority over existence outside SQLite.
+    up: (database) =>
+      database.exec(`
+        CREATE TABLE agent_events (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL,
+          phase TEXT NOT NULL,
+          type TEXT NOT NULL,
+          lifecycle TEXT CHECK (lifecycle IN ('starting', 'running', 'idle', 'stopped')),
+          payload_json TEXT NOT NULL,
+          occurred_at TEXT NOT NULL,
+          recorded_at TEXT NOT NULL
+        );
+        CREATE INDEX agent_events_run_occurred_idx ON agent_events(run_id, occurred_at);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

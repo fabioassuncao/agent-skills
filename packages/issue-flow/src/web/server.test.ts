@@ -548,6 +548,8 @@ function fakeSessionDirectory(snapshots: SessionSnapshot[]) {
     getSession: (sessionId) => sessions.find((s) => s.snapshot.sessionId === sessionId),
     events: async (sessionId) =>
       sessions.some((s) => s.snapshot.sessionId === sessionId) ? [] : undefined,
+    agentEvents: async (sessionId) =>
+      sessions.some((s) => s.snapshot.sessionId === sessionId) ? [] : undefined,
     refresh: async () => {},
     subscribe: (listener) => {
       listeners.add(listener);

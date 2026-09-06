@@ -86,3 +86,43 @@ only argv and stream parsing move here.
   reported as confirmed. Issue Flow may still attempt it when it is the only
   usable harness; the first real run confirms or the structured failover
   reacts.
+
+## `hooks/`: agent state comes from the agent, not from its screen
+
+The agent reports its own lifecycle through its harness's hook system
+(ADR-05). Nothing in this repository parses a TUI to decide what an agent is
+doing: a parser over a terminal produces a plausible, wrong answer, and it
+breaks on every harness release.
+
+- **`contract.ts`** is the four-type taxonomy and its parser. Four, not five:
+  it is the complete set a harness hook can report, and inventing a fifth
+  would mean inventing a producer for it. Correlation is `runId` + `phase`
+  (the upstream this was ported from uses `worktreeId` + `branch`).
+- **`agentctl.ts`** generates the helper the hooks invoke. It is a file rather
+  than a call into the CLI because it runs on the hot path of every prompt and
+  every tool call — a hook that costs a CLI boot is a hook the user feels.
+- **`install.ts`** merges the hook groups. Two details carry the whole module:
+  the merge **keeps groups that are not ours** (identified by command prefix,
+  not by a marker key), and `resolveGitCommonDir()` puts `info/exclude` in the
+  common git dir, which is the only place git reads it from inside a worktree.
+- **`control-server.ts`** binds the endpoint in the process running the agent,
+  not in the monitor. That is what makes lifecycle events work in `headless`
+  with no server up (ADR-03). Loopback, bearer token, token never persisted.
+- **`runtime.ts`** owns the lifetime: install, bind, publish credentials — and
+  retract all three when the invocation ends, in that order, because the hook
+  files live in the user's working tree.
+
+### Never
+
+- Never leave `control.env` behind. It is what makes a leftover hook a no-op:
+  without it the helper exits immediately instead of waiting two seconds for
+  an endpoint that is gone.
+- Never let the helper exit non-zero. A non-zero `UserPromptSubmit` hook blocks
+  the prompt in Claude Code, which would turn a monitoring hiccup into a broken
+  run. Reporting on a turn may never be the reason one fails.
+- Never apply an event whose `runId` is not the session in flight. Hooks
+  outlive an invocation, and a stale one would move a live run's state on
+  evidence from a dead one.
+- Never make an invocation depend on any of this. Every failure path here
+  returns "no reporting" and the run proceeds exactly as it did before phase 2
+  of the WebMux absorption.

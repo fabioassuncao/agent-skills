@@ -20,6 +20,7 @@ import { resolveAntigravityTimeoutMs } from './antigravity.js';
 import { probeReadinessInventory } from './availability.js';
 import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
+import { type AgentHookSession, startAgentHookSession } from './hooks/runtime.js';
 import { ensureCursorStorageGrant } from './permissions.js';
 import { runnerFor } from './registry.js';
 import { applyOpenCodeGoModel, hasExplicitAgentSelection, resolveAgentFor } from './resolve.js';
@@ -350,6 +351,21 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     );
   }
 
+  // Lifecycle reporting for this invocation: the agent's own hooks tell us when
+  // it starts working and when it is blocked on a human (ADR-05). Absent
+  // whenever it cannot be set up — no session id, not a repository, disabled by
+  // configuration — because observability may never decide whether an agent runs.
+  let hooks: AgentHookSession | null = null;
+  try {
+    hooks = await startAgentHookSession({
+      phase: invocation.phase,
+      runId: publisher.snapshot().sessionId,
+      workingDirectory: invocation.workingDirectory ?? process.cwd(),
+    });
+  } catch {
+    hooks = null;
+  }
+
   let run: AgentRunResult;
   const startedMs = Date.now();
   try {
@@ -411,6 +427,10 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       });
     }
     throw err;
+  } finally {
+    // Always: the hook files live in the user's working tree, so an invocation
+    // that throws may not leave them pointing at an endpoint that is gone.
+    await hooks?.close();
   }
   issueSpend.executions += 1;
   issueSpend.durationMs += Math.max(0, Date.now() - startedMs);

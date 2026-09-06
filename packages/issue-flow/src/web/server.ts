@@ -143,6 +143,8 @@ interface SessionSource {
   /** A specific session by id, or undefined when it is not currently active. */
   get(sessionId: string): SessionSnapshot | undefined;
   events(sessionId: string): Promise<JournalEntry[] | undefined>;
+  /** Persisted agent lifecycle history; `[]` for a backend that keeps none. */
+  agentEvents(sessionId: string): Promise<unknown[] | undefined>;
   /**
    * Observe changes, returning an unsubscribe function. This is what makes
    * `/api/stream` a push transport instead of a polling loop wearing a
@@ -198,6 +200,8 @@ function publisherSessionSource(publisher: SessionPublisher): SessionSource {
       return snapshot.sessionId === sessionId ? snapshot : undefined;
     },
     events: async (sessionId) => (publisher.snapshot().sessionId === sessionId ? [] : undefined),
+    agentEvents: async (sessionId) =>
+      publisher.snapshot().sessionId === sessionId ? [] : undefined,
     subscribe: (listener) => {
       listeners.add(listener);
       if (timer === null) {
@@ -222,6 +226,7 @@ function directorySessionSource(handle: SessionDirectoryHandle): SessionSource {
     list: () => handle.sessions().map((entry) => entry.snapshot),
     get: (sessionId) => handle.getSession(sessionId)?.snapshot,
     events: (sessionId) => handle.events(sessionId),
+    agentEvents: (sessionId) => handle.agentEvents(sessionId),
     subscribe: (listener) => handle.subscribe((change: SessionDirectoryChange) => listener(change)),
   };
 }
@@ -260,6 +265,11 @@ function sessionListPayload(source: SessionSource): unknown[] {
     lastFailureKind: snapshot.resilience.lastFailureKind,
     cooldownUntil: snapshot.resilience.cooldownUntil,
     lastActivityAt: snapshot.resilience.lastActivityAt,
+    // Reported by the agent's own hooks, never inferred (ADR-05). A card has to
+    // be able to distinguish "still thinking" from "blocked on a human",
+    // because only one of the two is waiting for the person reading it.
+    agentLifecycle: snapshot.agent.lifecycle,
+    awaitingInputCount: snapshot.agent.awaitingInputCount,
     statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
     eventsUrl: `/api/events?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
   }));
@@ -584,6 +594,24 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         return;
       }
       const entries = await source.events(sessionId);
+      if (entries === undefined) {
+        respondJson(res, 404, { error: `No active session with id '${sessionId}'.` });
+        return;
+      }
+      respondJson(res, 200, entries);
+      return;
+    }
+
+    if (path === '/api/agent-events') {
+      // The lifecycle history the agent's own hooks reported (ADR-05). It is
+      // persisted precisely so a block that happened with nothing watching can
+      // still be looked up, which needs a way to read it back.
+      const sessionId = requestUrl.searchParams.get('session');
+      if (sessionId === null) {
+        respondJson(res, 400, { error: 'Pass ?session=<id>.' });
+        return;
+      }
+      const entries = await source.agentEvents(sessionId);
       if (entries === undefined) {
         respondJson(res, 404, { error: `No active session with id '${sessionId}'.` });
         return;
