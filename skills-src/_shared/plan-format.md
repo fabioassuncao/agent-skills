@@ -36,7 +36,7 @@ Read execution-options when creating, executing or resuming a configured plan. R
 }
 ```
 
-issueNumber may be a non-empty string for a local identifier. Use a real GitHub URL only for GitHub issues; otherwise use a local reference or an empty string. Each story has a unique US-NNN ID and numeric priority. Allocate new IDs above those already present in the project's local plans; retain IDs of existing stories. Order by actual dependencies, then document order; do not split a coherent story just because it spans layers.
+issueNumber may be a non-empty string for a local identifier. Use a real GitHub URL only for GitHub issues; otherwise use a local reference or an empty string. Each story has a unique US-NNN ID and numeric priority. Optional dependencies lists prerequisite story IDs in this same plan; absent means no dependencies. Missing IDs, self-dependencies, duplicate IDs and cycles are invalid. Allocate new IDs above those already present in the project's local plans; retain IDs of existing stories. Order by actual dependencies, then document order; do not split a coherent story just because it spans layers.
 
 New stories start passes=false. Set prdCompleted/jsonCompleted only after their artifacts exist and validate. A standalone conversion does not create a branch or authorize execution. Preserve an existing branchName or use the actual intended branch.
 
@@ -47,3 +47,12 @@ Standalone execute may mark its plan completed when every story is verified. Whe
 branchName and noBranch encode the accepted branch choice: current captures the actual attached branch and sets noBranch=true; new uses the dedicated planned branch and false. Absence in legacy Skill plans retains new behavior. Other execution choices and their evidence live in the PRD and append-only progress entries described by execution-options, not CLI runState. Rebinding a plan must follow that reference's ownership checks.
 
 A group has its own safe local issueNumber string and empty issueUrl. Preserve every member's actual source in the PRD and map story IDs to sources in the PRD and story notes. Completion requires all included criteria and review findings to be resolved; PR references are derived from member evidence, never from the group ID.
+
+For compact read-only inspection, run `scripts/artifacts.mjs plan <tasks.json> --json`.
+It reports counts, eligible IDs, blocked dependencies, pending correction and the
+next eligible story. The same optional CLI operation is
+`issue-flow artifacts plan <tasks.json> --json`; installing the CLI adds no capability
+required by this Skill. Neither operation migrates or writes state. Never replace
+the plan with this projection.
+
+<!-- generated:workflow -->

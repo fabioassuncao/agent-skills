@@ -7,6 +7,7 @@ Every command of the `issue-flow` CLI, with the flags it really accepts. Run
 installed.
 
 - [Global flags](#global-flags)
+- [Artifact inspection](#artifacts--deterministic-explicit-file-inspection) — explicit files, no agent or state writes
 - [Pipeline](#pipeline) — `run`, `resume`, and the individual phases
 - [Operating a run](#operating-a-run) — `status`, `ps`, `runs`, `history`, `logs`, `usage`, `pause`, `cancel`
 - [Database maintenance](#database-maintenance) — `db check`, `db backup`, `db vacuum`, `db export`, `db verify`, `db import`
@@ -67,15 +68,17 @@ issue-flow run 42 --background        # detach and return the terminal
 
 `run` first executes the `init` prerequisite gate, then **prd → plan → execute
 → review → pr**, plus the optional **pr-review**. It resumes automatically from
-the first incomplete phase when pipeline state already exists. A failing
+the first incomplete phase when pipeline state already exists. A valid failing
 `review` triggers correction cycles (re-execute + re-review) up to
-`maxCorrectionCycles` (default `3`, stored in `tasks.json`).
+`maxCorrectionCycles` (default `3`, stored in `tasks.json`). Missing or malformed
+review results stop the phase without launching a correction agent.
 
 `analyze` is **not** part of `run` — it is a standalone deep-analysis command.
 
 | Flag | Description |
 |------|-------------|
 | `--mode <auto\|manual>` | Recorded in the run header and blocks `--background`. It does **not** stop the CLI pipeline after the artifacts — that behaviour belongs to the portable [`resolve-issue` Skill](../skills/README.md#other-ways-to-work) |
+| `--close-issue` / `--no-close-issue` | Persist or revoke explicit closure for this execution; see [closure contract](#explicit-issue-closure) |
 | `--from <phase>` | Start at a specific phase instead of the first incomplete one |
 | `--no-branch` | Run on the current branch: no branch is created and no PR is opened. Persisted in `tasks.json`; the persisted value wins on resume |
 | `--pr-review` | Review the created Pull Request after `pr`. Resolved as **flag > `prReview.enabled` in `tasks.json` > off**, and persisted once opted in. Combining it with `--no-branch` fails with exit code `1` |
@@ -103,13 +106,15 @@ documented in [Issue sources → hierarchies](issues.md#hierarchies-and-queues).
 ### `resume` — continue an interrupted pipeline
 
 ```bash
-issue-flow resume          # the most recently attempted unfinished issue
-issue-flow resume 42       # a specific issue
+issue-flow resume          # a pending queue, otherwise the latest unfinished issue
+issue-flow resume 42       # a specific issue, or its owning queue
 issue-flow resume --all    # every unfinished issue of this project, in order
 ```
 
 Resumption always worked implicitly by re-running `run`. `resume` makes every
-step explicit, in this order:
+step explicit. It first acquires ownership and checks pending queues; a queue
+or member target resumes through the queue pipeline, including pending delivery
+and closure. For an individual issue with unfinished phases, the sequence is:
 
 1. **Ownership.** A live owner of `run.lock` refuses the resume, naming its pid,
    host and last heartbeat. A dead one is taken over and reported.
@@ -128,10 +133,13 @@ step explicit, in this order:
 
 | Flag | Description |
 |------|-------------|
-| `--all` | Resume every unfinished issue of the project |
-| `--mode <auto\|manual>` | Same semantics as on `run` |
+| `--all` | Resume pending queues and unfinished individual issues, without rerunning queue members separately |
+| `--mode <auto\|manual>` | Same pipeline semantics as `run`; a single-issue closure-only resume does not close in manual mode |
+| `--close-issue` / `--no-close-issue` | Persist or revoke the closure choice; see [closure contract](#explicit-issue-closure) |
 
-`run`'s own automatic resume is unchanged.
+When all individual phases are complete and only an authorized closure remains,
+resume queries the provider and completes closure directly, without launching an
+agent or running implementation preflight. See [closure](#explicit-issue-closure).
 
 ### Individual phases
 
@@ -189,7 +197,8 @@ issue-flow execute --issue 42 --max-iterations 15
 issue-flow execute --issue 42 --retry-forever
 ```
 
-Each iteration is a fresh agent instance that picks the highest-priority story
+Each iteration is a fresh agent instance assigned the highest-priority eligible story
+by the CLI; declared prerequisites must already have passed. It works on a story
 with `passes: false`, implements it, runs quality checks and commits.
 
 | Flag | Description |
@@ -389,7 +398,7 @@ persisted by the selected provider(s). With no destination flag, the
 | Flag | Destination |
 |------|-------------|
 | `--github` | GitHub only |
-| `--local` | `issue.md` + `metadata.json` under `~/.issue-flow/…/issues/<n>/`, no network |
+| `--local` | `issue.md` + `metadata.json` under `~/.issue-flow/…/issues/<n>/`, no GitHub discovery; the configured drafting agent may require network |
 | `--both` | GitHub **and** a local mirror reusing the GitHub number, recording `remote.ref` and `remote.syncedContentHash` |
 
 The flags are mutually exclusive. With `--both` the remote issue is created
@@ -566,3 +575,48 @@ only matters for debugging the monitor itself. See
 | `2` | Standalone `pr-review` only: the verdict fails the `--fail-on` threshold (`REQUEST_CHANGES` by default) |
 
 Code `1` is never suppressed by `--fail-on` — it means the review did not happen.
+
+## Explicit issue closure
+
+`run` and `resume` accept `--close-issue` and `--no-close-issue`. With neither,
+reuse a persisted choice; if absent, leave the issue open. `--yes` authorizes
+scope confirmation only, not closure. This changes the previous implicit closing
+behavior. Use `issue-flow run 42 --close-issue` to retain that behavior explicitly.
+The choice survives interruption and is scoped to this execution or queue.
+
+Closure waits for every requested phase, no pending findings, and confirmed
+provider state. Failure exits 1; resume retries only the pending closure when all
+single-issue phases are complete. It first reads current provider state to avoid
+repeating an uncertain successful mutation. No agent is required for this final
+single-issue retry. A queue resumes consolidated PR/review before its remaining
+closes. A single-issue closure-only resume in manual mode returns without closing.
+Manual mode does not turn the CLI pipeline into a planning-only workflow.
+
+## `artifacts` — deterministic, explicit-file inspection
+
+```bash
+issue-flow artifacts plan ./issues/42/tasks.json --json
+issue-flow artifacts issue ./issues/42/issue.md ./issues/42/metadata.json --json
+```
+
+Both commands work outside Git repositories and never initialize, migrate,
+reconcile or write CLI state. They invoke no agent, prompt or network request.
+Paths are explicit; metadata is optional for `issue`. `plan` validates schema and
+dependencies and reports counts, eligible IDs, blocked stories, pending correction,
+execution completion and the next story's acceptance criteria. `issue` returns
+parsed title/body/hash and checks metadata consistency when supplied. Inspection
+does not rewrite unknown source fields or prove semantic acceptance.
+
+The version 1 JSON envelope always has `schemaVersion`, `ok`, `data` and `errors`.
+Errors contain `code`, `path` and `message`; failure has `data: null`. Exit 0 means
+valid input, exit 1 means invalid input, missing file or argument error. Output is
+one JSON value on stdout, with diagnostics separate. There are no interactive
+prompts. Human mode emits readable data or stderr diagnostics. There are no
+`--quiet`, `--dry-run` or `--fields` flags: the operation is already read-only and
+its plan projection is compact. Use the original file for full-plan work.
+
+`status --json` retains `owner`, `ownerStale`, `issues`, `queues` and adds
+`schemaVersion: 1`; it emits valid JSON without terminal prefixes. A project
+resolution error exits 1 with an `error` object. Status still uses CLI storage
+resolution, which can perform existing compatibility imports; use `artifacts`
+for strictly read-only inspection of a file.

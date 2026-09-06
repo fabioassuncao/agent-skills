@@ -101,10 +101,11 @@ never hang. `prefer-local` and `prefer-github` never prompt.
 - `metadata.json` may be absent: with only `issue.md`, minimal metadata is
   derived (id, H1 title, `state: "open"`, file timestamps). An **invalid**
   `metadata.json` is a hard error naming the path and the offending field.
-- Identifiers for new local issues are allocated above the highest number found
-  among the project's issue directories — which includes anything migrated out of
-  a legacy `issues/` tree — and, when `gh` is reachable, above the highest GitHub
-  issue/PR number too, so a local issue never collides with a future remote one.
+- `generate --local` allocates identifiers above the highest number found among
+  the project's issue directories, including migrated legacy issues. It does not
+  consult GitHub. Remote coordination and collision limits are described in
+  [Local generation boundary](#local-generation-boundary); `generate --both`
+  reuses the number allocated by GitHub.
 
 Local issues are machine-local: a clone on another machine does not see them.
 `generate --both` (a GitHub issue plus a local mirror) is the way to keep the
@@ -248,3 +249,14 @@ Coordination state lives in
 issue's own artifacts stay exactly where they were. The queue id is the
 identifier of the **primary issue** (the first one informed), which is what lets
 `issue-flow run 50` find and resume the queue it started.
+
+## Local generation boundary
+
+`generate --local` discovers local policy and local numbering without probing
+GitHub labels, organization templates, issue types or remote issue numbers. Its
+prompt excludes remote duplicate discovery. Consequently, an ID allocated while
+offline can collide with a remote ID when later synchronized; normal conflict
+resolution applies. Dual/remote delivery keeps remote discovery. Direct provider
+APIs retain their legacy allocation behavior unless `localOnly` is requested.
+
+Issue closure is an explicit execution choice; see [command contract](commands.md#explicit-issue-closure).

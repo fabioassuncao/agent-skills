@@ -288,6 +288,8 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
       issueUrl: String(row.issue_url ?? ''),
       branchName: String(row.branch_name ?? ''),
       ...(Number(row.no_branch) === 1 ? { noBranch: true } : {}),
+      ...(row.close_issue == null ? {} : { closeIssue: Number(row.close_issue) === 1 }),
+      ...(row.issue_closed_at == null ? {} : { issueClosedAt: String(row.issue_closed_at) }),
       description: String(row.description ?? ''),
       issueStatus: String(row.issue_status) as TaskPlan['issueStatus'],
       completedAt: (row.completed_at as string | null) ?? null,
@@ -427,7 +429,7 @@ export function writePlanRows(
        run_phase = ?, run_attempt = ?, run_heartbeat_at = ?, run_blocked_reason = ?, run_owner_pid = ?,
        run_owner_host = ?, run_owner_started_at = ?, pr_number = ?, pr_url = ?, pr_head_branch = ?,
        pr_created_at = ?, pr_review_enabled = ?, pr_review_pull_request_number = ?, pr_review_rounds = ?,
-       pr_review_recommendation = ?, pr_reviewed_at = ? WHERE project_id = ? AND issue_id = ?`,
+       pr_review_recommendation = ?, pr_reviewed_at = ?, close_issue = ?, issue_closed_at = ? WHERE project_id = ? AND issue_id = ?`,
     )
     .run(
       plan.project,
@@ -473,6 +475,8 @@ export function writePlanRows(
       plan.prReview?.rounds ?? null,
       plan.prReview?.lastRecommendation ?? null,
       plan.prReview?.lastReviewedAt ?? null,
+      plan.closeIssue === undefined ? null : plan.closeIssue ? 1 : 0,
+      plan.issueClosedAt ?? null,
       context.projectId,
       context.issueId,
     );
@@ -734,6 +738,16 @@ export async function ingestAgentPlan(context: PlanRepositoryContext): Promise<T
 /** Promote a newly generated plan after the plan phase has validated it. */
 export async function ingestGeneratedPlan(context: PlanRepositoryContext): Promise<TaskPlan> {
   const plan = parsePlan(await readFile(context.tasksPath, 'utf-8'), context.tasksPath);
+  // Generated output cannot grant/revoke CLI authorization or fake confirmation.
+  const current = await loadStoredPlan(context).catch((error: unknown) => {
+    if (error instanceof Error && error.message.startsWith('No SQLite task plan exists'))
+      return null;
+    throw error;
+  });
+  delete plan.closeIssue;
+  delete plan.issueClosedAt;
+  if (current?.closeIssue !== undefined) plan.closeIssue = current.closeIssue;
+  if (current?.issueClosedAt !== undefined) plan.issueClosedAt = current.issueClosedAt;
   await saveStoredPlan(context, plan);
   return plan;
 }

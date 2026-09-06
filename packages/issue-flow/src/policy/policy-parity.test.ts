@@ -107,7 +107,7 @@ describe('portable policy contracts', () => {
         join(REPO_ROOT, 'skills', skill, 'references/repository-policy.md'),
         'utf-8',
       );
-      expect(installed, skill).toBe(source);
+      expect(installed.replace(/^<!-- Generated[^\n]+-->\n\n/, ''), skill).toBe(source);
     }
   });
 
@@ -218,4 +218,10 @@ describe('both paths decide from the same resolved policy', () => {
     expect(reconcileLabels(['anything'], policy.issues.labels).labels).toEqual(['anything']);
     expect(warn).not.toHaveBeenCalled();
   });
+});
+
+it('local-only policy discovery does not call gh or remote git commands', async () => {
+  const exec = vi.fn<PolicyExec>(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+  await loadRepositoryPolicy({ root, exec, remote: false, cache: false, warn });
+  expect(exec.mock.calls).toEqual([]);
 });

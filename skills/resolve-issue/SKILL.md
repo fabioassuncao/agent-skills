@@ -46,7 +46,7 @@ Read one phase at a time; all are included here. Individual Skills remain separa
 
 ## Bundled helpers
 
-Paths in commands are relative to this Skill root. Execute by absolute resolved path while keeping the consumer project as the working directory. Run a helper with `--help` first. No helper installs the Issue Flow CLI.
+Paths in commands are relative to this Skill root. Execute by absolute resolved path while keeping the consumer project as the working directory. Use helpers as documented; consult `--help` only if needed. No helper installs the Issue Flow CLI.
 
 - [scripts/optional-cli.mjs](scripts/optional-cli.mjs)
 - [scripts/conventions.mjs](scripts/conventions.mjs)

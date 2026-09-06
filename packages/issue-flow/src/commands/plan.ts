@@ -1,4 +1,4 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import {
   branchName,
   DEFAULT_BRANCH_CONVENTION,
@@ -9,12 +9,12 @@ import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
+import { inspectTaskPlan } from '../core/task-plan.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
-import { taskPlanSchema } from '../schemas.js';
 import { getPlanRepository, ingestGeneratedPlan } from '../storage/db/repository.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import {
@@ -74,8 +74,11 @@ export async function runPlan(
   printInfo(numberingMessage);
 
   let persistedBranch: string | null = null;
+  let closure: { closeIssue?: boolean; issueClosedAt?: string } = {};
   try {
-    persistedBranch = (await loadTaskPlan(tasksPath)).branchName ?? null;
+    const previous = await loadTaskPlan(tasksPath);
+    persistedBranch = previous.branchName ?? null;
+    closure = { closeIssue: previous.closeIssue, issueClosedAt: previous.issueClosedAt };
   } catch {
     persistedBranch = null;
   }
@@ -169,11 +172,9 @@ export async function runPlan(
       }
 
       // Validate with zod schema
-      const validation = taskPlanSchema.safeParse(parsed);
-      if (!validation.success) {
-        const issues = validation.error.issues
-          .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
-          .join('\n');
+      const validation = inspectTaskPlan(parsed);
+      if (!validation.ok) {
+        const issues = validation.errors.map((i) => `  - ${i.path}: ${i.message}`).join('\n');
         return {
           ok: false,
           transient: true,
@@ -189,6 +190,13 @@ export async function runPlan(
     printError(outcome.error ?? `Task plan generation failed for issue #${issueNumber}`);
     return 1;
   }
+
+  // Authorization is CLI-owned, including legacy JSON storage. A generated
+  // document may describe the work, but cannot grant or confirm issue closure.
+  const generated = JSON.parse(await readFile(tasksPath, 'utf8'));
+  delete generated.closeIssue;
+  delete generated.issueClosedAt;
+  await writeFile(tasksPath, `${JSON.stringify({ ...generated, ...closure }, null, 2)}\n`);
 
   // `plan` is written by the agent to the compatibility projection. Promote
   // the validated result to SQLite before the pipeline reads it back.

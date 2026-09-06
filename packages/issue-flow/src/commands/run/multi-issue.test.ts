@@ -143,6 +143,7 @@ function makeProvider(): IssueProvider {
     },
     close: async (id: string) => {
       closed.push(id);
+      issues.set(id, { ...(issues.get(id) ?? makeIssue(id)), state: 'closed' });
     },
     fetchRelations: async (id: string) => relations.get(id) ?? emptyRelations(id),
   };
@@ -235,6 +236,7 @@ async function run(
   issues: string | string[],
   options: {
     yes?: boolean;
+    closeIssue?: boolean;
     only?: boolean;
     startUs?: number;
     onIssueFailure?: 'stop' | 'skip' | 'block';
@@ -260,7 +262,7 @@ describe('single issue — no behaviour change', () => {
       undefined,
       expect.objectContaining({ issue: '42', commitScope: undefined }),
     );
-    expect(closed).toEqual(['42']);
+    expect(closed).toEqual([]);
   });
 
   it('skips discovery entirely with --only', async () => {
@@ -449,9 +451,16 @@ describe('queue of several issues', () => {
     ]);
   });
 
-  it('closes every issue of the queue once it is done', async () => {
-    await run('50');
+  it('closes authorized queue delivery once and resumes without repeating closure', async () => {
+    expect(await run('50', { yes: true, closeIssue: true })).toBe(0);
     expect(closed.sort()).toEqual(['50', '51', '52']);
+    expect(await run('50')).toBe(0);
+    expect(closed).toHaveLength(3);
+  });
+
+  it('leaves every issue open when closure was not authorized', async () => {
+    await run('50');
+    expect(closed).toEqual([]);
   });
 
   it('runs only the informed issues with --only', async () => {

@@ -33,11 +33,15 @@ Version sources, the manifest, dependency lockfile, tests, scenarios and documen
 
 Invocation vocabulary and choice propagation live in `skills-src/_shared/execution-options.md`. It delegates source ownership to issue-input, policy discovery to repository-policy and Git behavior to git-conventions. Changes to these contracts must reach standalone consumers and resolve-issue through the manifest. Options belong in the request/body, not proprietary frontmatter. The CLI runtime and its persisted configuration remain independent.
 
-Pure TypeScript modules remain canonical for Git conventions/default taxonomy, issue Markdown parsing, body hashes, task-plan/metadata schemas and scaffold renderers. `esbuild` bundles small Node entry points, including their libraries, into each consuming Skill. Runtime imports may use Node built-ins; no `node_modules` or Issue Flow installation is needed. Bundled third-party licenses are copied alongside the affected helpers. The CLI still compiles its own code and loads its own packaged prompts. No runtime imports point into `skills/` or `skills-src/`.
+Pure TypeScript modules remain canonical for Git conventions/default taxonomy, issue Markdown parsing, body hashes, task-plan/metadata schemas, dependency validation/eligibility and scaffold renderers. `esbuild` bundles small Node entry points, including their libraries, into each consuming Skill. Runtime imports may use Node built-ins; no `node_modules` or Issue Flow installation is needed. Bundled third-party licenses are copied alongside the affected helpers. The CLI still compiles its own code and loads its own packaged prompts. No runtime imports point into `skills/` or `skills-src/`.
 
 Distributed helper scripts must remain readable and unminified, including bundled dependencies. Preserve indentation, descriptive identifiers, module source comments and legal notices so users can inspect the installed code. Larger artifacts are an accepted tradeoff for auditability. Each bundle's header identifies its canonical entry point and regeneration command; module comments identify the included source files. These repository paths are provenance information, not runtime dependencies. Change the original source and run `skills:sync`; do not format or edit generated copies manually. Regression tests check readable output alongside existing isolated execution tests.
 
 Small prose contracts with real parity requirements (repository decisions, PR metadata, evidence, publication, structured review results) are composed into CLI prompts using `<!-- contract:name -->`. The directive reads one `_shared/name.md` file at generation time. It is not a runtime template language or a plugin API. Existing CLI placeholders, conditional sections and user prompt overrides are preserved. A replacement prompt remains the consumer's maintenance responsibility.
+
+The existing generator also renders `<!-- generated:workflow -->` from `src/core/workflow-contract.ts`. This one fixed directive produces the phase contract in the plan reference. Phase order and persisted field mapping come from the same module used by the CLI; domain-specific operations remain in their existing modules. Generated Markdown carries a provenance header; CLI prompt rendering removes that header before invoking an agent.
+
+`artifacts.mjs plan <tasks.json> --json` returns a versioned inspection with the next eligible story and blocking dependencies. Its implementation is the same source as `issue-flow artifacts plan`; both inspect explicit files without migrating or reconciling storage. The portable helper works when the CLI is absent. Its legacy invocation without `--json` retains `{valid, stories}`. Do not read the whole bundled JavaScript into context; execute its documented operation. `--help` is conditional, not a mandatory extra call. Reuse policy already established in the same execution until scope, instructions, configuration or checkout changes.
 
 ## Format and disclosure
 
@@ -68,7 +72,7 @@ npm run skills:cli-test
 
 Run `skills:check` once immediately after `npm ci` when reviewing a checkout,
 before any sync, to detect stale committed artifacts. Run sync after source
-edits. `build` compiles the CLI; it does not regenerate Skills or prompts.
+edits. `build` regenerates Skills and prompts, then compiles the CLI. Use `build:cli` only when explicitly testing compilation without generation. `prepack` checks committed generation before building, so stale artifacts cannot be hidden by packaging.
 `skills:cli-test` packs the existing build with lifecycle scripts disabled, so
 build first. Installer tests require Git; the global variant additionally
 requires Docker, may pull its pinned Node image, and fetches the pinned Skills

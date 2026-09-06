@@ -258,9 +258,12 @@ them keeps loading unchanged, and a round-trip never materialises them.
 seed the [snapshot's derived status](#story-status) — the only way to get
 `in_review` onto the board.
 
-`dependencies` is validated **by shape only** (an array of strings). Issue Flow
-does not check that the referenced ids exist, and does not detect cycles among
-them.
+`dependencies` declares prerequisites in the same task plan. Planning and execution
+reject missing IDs, self-references, duplicate story IDs and cycles. Execution
+selects the lowest numeric priority among unpassed stories whose dependencies
+have all passed; ties retain document order. Omitted dependencies means none.
+Existing valid plans require no migration. Previously invalid graphs must be
+corrected before execution; the inspector reports violations without editing them.
 
 `stage` mirrors the snapshot field of the same name, but nothing writes it back
 onto `tasks.json` today and a `stage` declared in a plan is **not** carried into
@@ -478,7 +481,7 @@ cycle a story goes through — `execute` → `review` → correction → done.
 | `stage` | Set by | Meaning |
 |---------|--------|---------|
 | `pending` | `iteration:start` | Not the story `execute` is currently working on |
-| `executing` | `iteration:start` | The story `execute` is working on right now — "the highest-priority story with `passes: false`", the exact rule the execute prompt gives the agent |
+| `executing` | `iteration:start` | The eligible unpassed story selected by the CLI, after checking declared dependencies and priority |
 | `awaiting_review` | `stories:update` | `passes` just flipped to `true`, but `review` has not started yet |
 | `in_review` | `phase:start` (review) | The `review` phase is running. Every already-passing story moves here at once |
 | `in_correction` | `correction:cycle` | An automatic correction cycle is in progress; `stageDetail` carries `"Cycle 1/3"`. Pipeline-wide, like `in_review` |
@@ -691,3 +694,27 @@ Two consequences are worth knowing:
   issue that has already been migrated — once a global copy exists it wins.
   Upgrading the whole team, or moving the demand to GitHub issues, closes the
   gap.
+
+## Completion and closure authorization
+
+Execution completion sets `pipeline.executionCompleted`. During `run`, it leaves
+`issueStatus: in_progress` and `completedAt: null` until the requested delivery
+phases finish. Standalone `execute` retains its independent completion behavior.
+A malformed issue-review result is a `review_protocol` error, never implicit PASS;
+previous findings remain available and no correction agent is launched for a
+protocol defect.
+
+`closeIssue?: boolean` is a CLI-owned execution choice. Absence means false for
+legacy plans. `issueClosedAt?: string` records confirmed provider closure.
+SQLite migration 8 adds nullable columns; JSON compatibility retains optional
+fields. Generated agent plans cannot grant/revoke authorization or fabricate
+confirmation. `--no-close-issue` revokes future closure; it does not reopen an
+already closed issue.
+
+Queue authorization belongs to `execution-plan.json`: `closeIssue`,
+`closedIssueIds` and `prReviewCompleted`. A queue closes completed members only
+after consolidated delivery and the requested review succeed. Confirmation is
+persisted per member, so a retry reads provider state and skips confirmed closes.
+A closure failure exits 1 and remains resumable. `resume <queue-or-member>` resumes
+queue-owned work together; `resume --all` also considers pending queue delivery.
+These fields do not enable cross-resumption between CLI and portable Skills.

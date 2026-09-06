@@ -304,6 +304,7 @@ export function conventionPlaceholders(
 }
 
 export interface ResolvePolicyPlaceholdersOptions {
+  remote?: boolean;
   /** Repository root. Defaults to the git project root. */
   root?: string;
   /** Subdirectory the policy applies to, for monorepos. */
@@ -327,7 +328,11 @@ export async function resolvePolicyPlaceholders(
   let policy: RepositoryPolicy | null = null;
   let projection = emptyPolicyPlaceholders();
   try {
-    policy = await loadRepositoryPolicy({ root: options.root, scope: options.scope ?? null });
+    policy = await loadRepositoryPolicy({
+      root: options.root,
+      scope: options.scope ?? null,
+      remote: options.remote,
+    });
     const config = await loadPolicyConfig({ projectRoot: policy.root });
     projection = policyPlaceholders(policy, { budgetTokens: config.contextBudget });
   } catch {
@@ -337,7 +342,7 @@ export async function resolvePolicyPlaceholders(
 
   let fallbackBase = 'main';
   try {
-    fallbackBase = await getBaseBranch();
+    if (options.remote !== false) fallbackBase = await getBaseBranch();
   } catch {
     // getBaseBranch() does not throw today, but its contract is "never fails",
     // and a base branch that cannot be resolved must not cost the whole prompt.

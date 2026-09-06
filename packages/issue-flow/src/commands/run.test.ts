@@ -521,6 +521,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(code).toBe(0);
     expect(vi.mocked(runExecute)).toHaveBeenCalledWith(undefined, {
       issue: '42',
+      inPipeline: true,
       commitScope: undefined,
       retryLimit: undefined,
       retryForever: undefined,
@@ -549,7 +550,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(vi.mocked(runPrd)).not.toHaveBeenCalled();
   });
 
-  it('fecha a Issue pelo provider da origem resolvida', async () => {
+  it('não fecha a Issue sem autorização explícita', async () => {
     const close = vi.fn(async () => {});
     vi.mocked(getProvider).mockReturnValue(makeProvider(close));
 
@@ -557,8 +558,8 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
 
     expect(code).toBe(0);
     expect(vi.mocked(getProvider)).toHaveBeenCalledWith('github');
-    expect(close).toHaveBeenCalledWith('42');
-    expect(lines.some((l) => l.includes('Closing issue'))).toBe(true);
+    expect(close).not.toHaveBeenCalled();
+    expect(lines.some((l) => l.includes('Closing issue'))).toBe(false);
   });
 
   it('pula o fechamento, sem falhar, quando o provider não implementa close', async () => {
@@ -570,7 +571,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(lines.some((l) => l.includes('Closing issue'))).toBe(false);
   });
 
-  it('falha ao fechar continua não-fatal', async () => {
+  it('provider sem autorização de fechamento não é chamado', async () => {
     vi.mocked(getProvider).mockReturnValue(
       makeProvider(async () => {
         throw new Error('403');
@@ -738,13 +739,13 @@ describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  it('sem a flag: fases idênticas às atuais, fase não roda e a Issue continua sendo fechada', async () => {
+  it('sem a flag: fases idênticas às atuais, fase não roda e a Issue fica aberta', async () => {
     const { code } = await runCapturingLines();
 
     expect(code).toBe(0);
     expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review', 'pr']);
     expect(vi.mocked(runPrReview)).not.toHaveBeenCalled();
-    expect(close).toHaveBeenCalledWith('42');
+    expect(close).not.toHaveBeenCalled();
   });
 
   it('com a flag: a fase entra ao final da ordem e roda sem confirmação', async () => {
@@ -753,7 +754,7 @@ describe('runPipeline — fase pr-review opcional (issue 25, US-009)', () => {
     expect(code).toBe(0);
     expect(renderedPhases()).toEqual(['prd', 'plan', 'execute', 'review', 'pr', 'pr-review']);
     expect(vi.mocked(runPrReview)).toHaveBeenCalledWith(undefined, { issue: '42', yes: true });
-    expect(close).toHaveBeenCalledWith('42');
+    expect(close).not.toHaveBeenCalled();
   });
 
   it('veredito REQUEST_CHANGES: pipeline retorna 0, não fecha a Issue e destaca o aviso', async () => {

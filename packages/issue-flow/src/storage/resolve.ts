@@ -55,6 +55,8 @@ export interface ResolveIssuePathsOptions extends GetGlobalRootOptions {
    * from the repo root and from any subdirectory.
    */
   projectRoot?: string;
+  /** Diagnostics are separate from structured command output. */
+  notice?: (message: string) => void;
 }
 
 /** Everything the process needs to know about a project, resolved once. */
@@ -75,13 +77,13 @@ interface StorageResolutionConfig {
 /** Resolve only the storage knobs; invalid project input safely uses defaults. */
 async function loadStorageResolutionConfig(
   projectRoot: string,
-  options: GetGlobalRootOptions,
+  options: ResolveIssuePathsOptions,
 ): Promise<StorageResolutionConfig> {
-  const global = await loadGlobalConfig({ env: options.env, warn: printInfo });
-  const project = await readProjectConfigFile(projectRoot, printInfo);
+  const global = await loadGlobalConfig({ env: options.env, warn: options.notice ?? printInfo });
+  const project = await readProjectConfigFile(projectRoot, options.notice ?? printInfo);
   const parsedProject = storageConfigInputSchema.safeParse(project?.storage);
   if (!parsedProject.success && project?.storage !== undefined) {
-    printInfo(
+    (options.notice ?? printInfo)(
       `Ignoring "storage" key of ${PROJECT_CONFIG_FILENAME}: ${parsedProject.error.issues[0]?.message ?? 'invalid value'}.`,
     );
   }
@@ -154,16 +156,14 @@ async function directoryExists(path: string): Promise<boolean> {
  * second migration when an issue really is still legacy-only — in which case a
  * notice is the correct output, not a duplicate.
  */
-function announceMigration(result: MigrationResult): void {
+function announceMigration(result: MigrationResult, notice = printInfo): void {
   if (result.copied.length === 0) return;
 
   const count = result.copied.length;
   const target = join(result.globalDir, ISSUES_DIR_NAME);
 
-  printInfo(
-    `Migrated ${count} file${count === 1 ? '' : 's'} from ${result.legacyDir} to ${target}`,
-  );
-  printInfo(
+  notice(`Migrated ${count} file${count === 1 ? '' : 's'} from ${result.legacyDir} to ${target}`);
+  notice(
     `The legacy directory was not modified or removed — ${result.legacyDir} is kept as-is, read-only, for compatibility.`,
   );
 }
@@ -178,7 +178,7 @@ function announceMigration(result: MigrationResult): void {
  */
 async function resolveProject(
   projectRoot: string,
-  options: GetGlobalRootOptions,
+  options: ResolveIssuePathsOptions,
 ): Promise<ProjectResolution> {
   // resolveStorageMode returns the project id *and* the remote in a single git
   // call — calling getProjectId() afterwards would shell out to
@@ -187,7 +187,10 @@ async function resolveProject(
   const storage = await loadStorageResolutionConfig(projectRoot, options);
 
   if (status.mode === 'needs-migration') {
-    announceMigration(await migrateLegacyStorage(projectRoot, options));
+    announceMigration(
+      await migrateLegacyStorage(projectRoot, options),
+      options.notice ?? printInfo,
+    );
   }
 
   const imported =
@@ -202,7 +205,7 @@ async function resolveProject(
             ? {}
             : { backupRetention: storage.retention?.backups ?? storage.backupRetention }),
           ...(storage.retention === undefined ? {} : { retention: storage.retention }),
-          onWarning: printInfo,
+          onWarning: options.notice ?? printInfo,
         })
       : null;
   if (imported !== null && imported.imported > 0) {
@@ -210,7 +213,7 @@ async function resolveProject(
       .filter(([, count]) => count > 0)
       .map(([table, count]) => `${table}: ${count}`)
       .join(', ');
-    printInfo(
+    (options.notice ?? printInfo)(
       `Imported ${imported.imported} structured artifact${imported.imported === 1 ? '' : 's'} from ${status.globalDir} into ${getDatabasePath(options)} (${counts || 'no rows'}). No source artifacts were removed.`,
     );
   }
@@ -229,7 +232,7 @@ async function resolveProject(
 /** Cached half of {@link resolveIssuePaths}: one git call per project, per process. */
 function getProjectResolution(
   projectRoot: string,
-  options: GetGlobalRootOptions,
+  options: ResolveIssuePathsOptions,
 ): Promise<ProjectResolution> {
   const key = `${getGlobalRoot(options)}::${projectRoot}`;
 

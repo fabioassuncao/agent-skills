@@ -380,7 +380,7 @@ scenario_github_only() {
   expect_missing "$prompts" "gh issue view" "no prompt tells the agent to fetch the issue"
 
   expect_contains "$repo/.smoke/gh.log" "issue view 42" "the provider fetched the issue via gh"
-  expect_contains "$repo/.smoke/gh.log" "issue close 42" "the GitHub provider closed the issue"
+  expect_missing "$repo/.smoke/gh.log" "issue close 42" "the issue remains open without explicit closure"
 
   expect_contains "$out" "Pipeline finished" "the pipeline reports completion"
   expect_contains "$out" "unverified" "an empty verification contract is not reported green"
@@ -427,7 +427,7 @@ scenario_local_only() {
   expect_missing "$prompts" "gh issue view" "no prompt tells the agent to fetch the issue"
 
   expect_missing "$repo/.smoke/gh.log" "issue view" "an unauthenticated gh is never asked for the issue"
-  expect_contains "$(artifact_path "$repo" 7 metadata.json)" '"state": "closed"' "the local provider closed the issue"
+  expect_contains "$(artifact_path "$repo" 7 metadata.json)" '"state": "open"' "the local issue remains open by default"
   expect_contains "$out" "Pipeline finished" "the pipeline reports completion"
   expect_contains "$out" "unverified" "an empty verification contract is not reported green"
   expect_missing "$out" "PR:" "--no-branch prints no PR line"

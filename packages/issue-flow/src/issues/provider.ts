@@ -55,7 +55,7 @@ export interface IssueProvider {
   get(id: string): Promise<Issue | null>;
 
   /** Persist a new Issue and return it with ids, timestamps and content hash. */
-  create(draft: IssueDraft): Promise<Issue>;
+  create(draft: IssueDraft, options?: { localOnly?: boolean }): Promise<Issue>;
 
   /** Move an Issue to the `closed` state. Optional: read-only origins omit it. */
   close?(id: string): Promise<void>;

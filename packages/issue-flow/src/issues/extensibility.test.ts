@@ -421,13 +421,26 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     });
   });
 
-  it('a Issue é lida uma única vez e fechada pelo provider da origem', async () => {
+  it('closes explicitly authorized delivery and confirms the provider result', async () => {
+    expect(
+      await runPipeline(ISSUE_ID, 'auto', undefined, undefined, undefined, { closeIssue: true }),
+    ).toBe(0);
+    expect(provider.calls.close).toBe(1);
+    expect(provider.peek(ISSUE_ID)?.state).toBe('closed');
+    const paths = await resolveIssuePaths(ISSUE_ID);
+    expect(JSON.parse(await readFile(paths.tasksFile, 'utf8'))).toMatchObject({
+      closeIssue: true,
+      issueClosedAt: expect.any(String),
+    });
+  });
+
+  it('a Issue é lida uma única vez e permanece aberta por padrão', async () => {
     expect(await runPipeline(ISSUE_ID, 'auto')).toBe(0);
 
     // One read for the whole run: the origin is settled once and propagated.
     expect(provider.calls.get).toBe(1);
-    expect(provider.calls.close).toBe(1);
-    expect(provider.peek(ISSUE_ID)?.state).toBe('closed');
+    expect(provider.calls.close).toBe(0);
+    expect(provider.peek(ISSUE_ID)?.state).toBe('open');
   });
 
   it('a Issue não é fechada nem procurada como PR no GitHub', async () => {
