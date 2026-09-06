@@ -38,9 +38,13 @@ describe('terminal WebSocket', () => {
   const ownerSessionName = 'if-ws-owner';
   const windowName = 'if-feature';
 
+  /** What the two owner-window operations asked tmux to do. */
+  let tmuxCalls: Array<{ op: 'sendHexKeys' | 'selectPane'; target: string; hexBytes?: string[] }>;
+
   beforeEach(async () => {
     cwd = await mkdtemp(join(tmpdir(), 'issue-flow-ws-'));
     dirs.push(cwd);
+    tmuxCalls = [];
 
     server = createServer((_req, res) => {
       res.statusCode = 404;
@@ -53,6 +57,14 @@ describe('terminal WebSocket', () => {
       server,
       host: '127.0.0.1',
       resolveTarget: async () => ({ ownerSessionName, windowName, cwd }),
+      tmux: {
+        sendHexKeys: async (target, hexBytes) => {
+          tmuxCalls.push({ op: 'sendHexKeys', target, hexBytes: [...hexBytes] });
+        },
+        selectPane: async (target) => {
+          tmuxCalls.push({ op: 'selectPane', target });
+        },
+      },
       onWarn: () => {},
     });
 
@@ -155,6 +167,90 @@ describe('terminal WebSocket', () => {
       } finally {
         await new Promise<void>((resolve) => other.close(() => resolve()));
       }
+    });
+  });
+
+  // A viewer's pty is a *reader* of the pane: writing a key sequence into it
+  // reaches nothing. Both operations act on the owner's window, through tmux.
+  describe('the two owner-window operations', () => {
+    it.runIf(tmuxAvailable)('sends a key sequence to the window, not to the viewer', async () => {
+      const socket = connect();
+      const frames = collect(socket);
+      await open(socket);
+      socket.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+      await waitFor(() => frames.length > 0);
+
+      socket.send(
+        JSON.stringify({ type: 'sendKeys', hexBytes: ['1b', '5b', '31', '33', '3b', '32', '75'] }),
+      );
+      await waitFor(() => tmuxCalls.length > 0);
+
+      expect(tmuxCalls[0]).toEqual({
+        op: 'sendHexKeys',
+        target: `${ownerSessionName}:${windowName}`,
+        hexBytes: ['1b', '5b', '31', '33', '3b', '32', '75'],
+      });
+    });
+
+    it.runIf(tmuxAvailable)('addresses the pane by index when selecting one', async () => {
+      const socket = connect();
+      const frames = collect(socket);
+      await open(socket);
+      socket.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+      await waitFor(() => frames.length > 0);
+
+      socket.send(JSON.stringify({ type: 'selectPane', pane: 1 }));
+      await waitFor(() => tmuxCalls.length > 0);
+
+      expect(tmuxCalls[0]).toEqual({
+        op: 'selectPane',
+        target: `${ownerSessionName}:${windowName}.1`,
+      });
+    });
+
+    // The attach is what resolves the window, and it is the general guard that
+    // refuses anything sent before it — these two are not an exception to it.
+    it('refuses before the attach, like every other message', async () => {
+      const socket = connect();
+      const frames = collect(socket);
+      await open(socket);
+
+      socket.send(JSON.stringify({ type: 'selectPane', pane: 1 }));
+      await waitFor(() => frames.length > 0);
+      expect(frames[0]).toContain('Send a resize before anything else');
+      expect(tmuxCalls).toEqual([]);
+    });
+
+    // A monitor an inline pipeline run brought up has no runtime beside it, so
+    // there is no window to act on. Saying so beats dropping the keystroke.
+    it.runIf(tmuxAvailable)('says what is missing when there is no tmux runtime', async () => {
+      const bare = createServer((_req, res) => {
+        res.statusCode = 404;
+        res.end();
+      });
+      await new Promise<void>((resolve) => bare.listen(0, '127.0.0.1', resolve));
+      const barePort = (bare.address() as AddressInfo).port;
+      const bareHandle = await startTerminalWebSocket({
+        server: bare,
+        host: '127.0.0.1',
+        resolveTarget: async () => ({ ownerSessionName, windowName, cwd }),
+        onWarn: () => {},
+      });
+
+      const socket = new WebSocket(
+        `ws://127.0.0.1:${barePort}${TERMINAL_WS_PATH}?token=${encodeURIComponent(bareHandle.token)}`,
+      );
+      sockets.push(socket);
+      const frames = collect(socket);
+      await open(socket);
+      socket.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+      await waitFor(() => frames.length > 0);
+
+      socket.send(JSON.stringify({ type: 'sendKeys', hexBytes: ['0d'] }));
+      await waitFor(() => frames.some((frame) => frame.includes('needs a tmux runtime')));
+
+      await bareHandle.close();
+      await new Promise<void>((resolve) => bare.close(() => resolve()));
     });
   });
 

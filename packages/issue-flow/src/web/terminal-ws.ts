@@ -3,6 +3,8 @@ import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import { attachTerminal, type TerminalAttachment } from '../runtime/terminal/attach.js';
+import type { TmuxGateway } from '../runtime/tmux/gateway.js';
+import { buildPaneTarget } from '../runtime/tmux/names.js';
 
 /**
  * The terminal transport: a worktree's tmux window, pushed to a browser.
@@ -66,6 +68,17 @@ export interface TerminalWebSocketOptions {
     sessionId: string | null;
     branch: string | null;
   }) => Promise<{ ownerSessionName: string; windowName: string; cwd?: string } | null>;
+  /**
+   * The two tmux operations that act on the **owner's** window rather than on
+   * this viewer's pty: a key sequence xterm cannot express as bytes, and moving
+   * the active pane.
+   *
+   * A dependency rather than a gateway built here, for the same reason
+   * `resolveTarget` is one: this module owns a transport, not a multiplexer.
+   * Absent leaves both refused, which is what a monitor with no runtime beside
+   * it should do — it has no window to act on.
+   */
+  tmux?: Pick<TmuxGateway, 'sendHexKeys' | 'selectPane'>;
   /** Credential required in the handshake. Default: a fresh one per server. */
   token?: string;
   /**
@@ -217,6 +230,37 @@ export async function startTerminalWebSocket(
   async function handleConnection(ws: WebSocket, url: URL): Promise<void> {
     connections.add(ws);
     let attachment: TerminalAttachment | null = null;
+    let resolved: { ownerSessionName: string; windowName: string; cwd?: string } | null = null;
+
+    /**
+     * The window and the gateway a tmux operation needs, or `null` after
+     * reporting why it cannot run. Refusing with a reason is the point: a
+     * silently dropped keystroke reads as a broken terminal.
+     */
+    const requireTmuxTarget = (
+      operation: string,
+    ): {
+      tmux: NonNullable<TerminalWebSocketOptions['tmux']>;
+      ownerSessionName: string;
+      windowName: string;
+    } | null => {
+      if (options.tmux === undefined) {
+        sendJson({
+          type: 'error',
+          message: `'${operation}' needs a tmux runtime beside this monitor.`,
+        });
+        return null;
+      }
+      // Narrowing only: reaching this switch means the attach already happened,
+      // and the attach is what sets `resolved`. The guard above the switch is
+      // what actually refuses anything sent before it.
+      if (resolved === null) return null;
+      return {
+        tmux: options.tmux,
+        ownerSessionName: resolved.ownerSessionName,
+        windowName: resolved.windowName,
+      };
+    };
     let droppedBytes = 0;
     // Reported once per connection: the hold is idempotent anyway, and calling
     // out on every keystroke would put a database write on the input path.
@@ -274,6 +318,7 @@ export async function startTerminalWebSocket(
               return;
             }
 
+            resolved = target;
             attachment = await attachTerminal({
               target: { ownerSessionName: target.ownerSessionName, windowName: target.windowName },
               cols: message.cols,
@@ -310,13 +355,26 @@ export async function startTerminalWebSocket(
             case 'resize':
               await attachment.resize(message.cols, message.rows);
               return;
-            case 'sendKeys':
-            case 'selectPane':
-              // Both are tmux operations on the *owner* session rather than on
-              // this viewer's pty, and they belong to the runtime layer that
-              // owns those targets. Reported rather than silently ignored.
-              sendJson({ type: 'error', message: `'${message.type}' is not available yet.` });
+            // Both act on the owner's window, not on this viewer's pty: a
+            // viewer's `script`/pty is a *reader* of the pane, so writing a key
+            // sequence into it would reach nothing. They go through tmux.
+            case 'sendKeys': {
+              const target = requireTmuxTarget(message.type);
+              if (target === null) return;
+              await target.tmux.sendHexKeys(
+                `${target.ownerSessionName}:${target.windowName}`,
+                message.hexBytes,
+              );
               return;
+            }
+            case 'selectPane': {
+              const target = requireTmuxTarget(message.type);
+              if (target === null) return;
+              await target.tmux.selectPane(
+                buildPaneTarget(target.ownerSessionName, target.windowName, message.pane),
+              );
+              return;
+            }
           }
         } catch (error) {
           sendJson({

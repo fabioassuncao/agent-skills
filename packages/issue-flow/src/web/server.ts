@@ -143,7 +143,7 @@ export interface WebServerOptions {
    * surface is a remote shell, so it only exists when the server is bound to
    * loopback (ADR-10) — the same gate the configuration write routes use.
    */
-  terminal?: Pick<TerminalWebSocketOptions, 'resolveTarget' | 'token' | 'onHumanInput'>;
+  terminal?: Pick<TerminalWebSocketOptions, 'resolveTarget' | 'token' | 'onHumanInput' | 'tmux'>;
   /**
    * The agent-session surface (§49): opening an agent with no issue behind it.
    *
@@ -953,6 +953,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       ...(options.terminal.onHumanInput === undefined
         ? {}
         : { onHumanInput: options.terminal.onHumanInput }),
+      ...(options.terminal.tmux === undefined ? {} : { tmux: options.terminal.tmux }),
       onWarn: warn,
     });
   }
