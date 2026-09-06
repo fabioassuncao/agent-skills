@@ -1,5 +1,6 @@
 import type { PipelineState, TaskPlan } from '../types.js';
 import { loadTaskPlan, saveTaskPlan } from './state-manager.js';
+import { DEFAULT_PIPELINE_STATE, WORKFLOW_PHASES } from './workflow-contract.js';
 
 /**
  * Ordered pipeline phases. Each phase must complete before the next can start.
@@ -9,15 +10,17 @@ import { loadTaskPlan, saveTaskPlan } from './state-manager.js';
  * `prReviewCompleted`) look unfinished, so `getNextPhase()` would resume into a
  * phase the user never asked for.
  */
-export const PIPELINE_PHASES = ['init', 'prd', 'plan', 'execute', 'review', 'pr'] as const;
+export type PipelinePhase = 'init' | (typeof WORKFLOW_PHASES)[number]['phase'];
+export const PIPELINE_PHASES: readonly PipelinePhase[] = [
+  'init',
+  ...WORKFLOW_PHASES.filter(({ phase }) => phase !== 'pr-review').map(({ phase }) => phase),
+];
 
 /**
  * The default set plus the opt-in `pr-review` phase, used when the user passes
  * `--pr-review` (or the flag was persisted in `plan.prReview.enabled`).
  */
 export const PIPELINE_PHASES_WITH_PR_REVIEW = [...PIPELINE_PHASES, 'pr-review'] as const;
-
-export type PipelinePhase = (typeof PIPELINE_PHASES_WITH_PR_REVIEW)[number];
 
 /**
  * Pipeline phases excluding the 'pr' phase, for --no-branch mode.
@@ -31,15 +34,10 @@ export const PIPELINE_PHASES_NO_BRANCH = PIPELINE_PHASES.filter(
  * Map pipeline phases to their corresponding PipelineState field.
  * 'init' has no persisted state — it's a runtime-only check.
  */
-const PHASE_TO_FIELD: Record<PipelinePhase, keyof PipelineState | null> = {
-  init: null,
-  prd: 'prdCompleted',
-  plan: 'jsonCompleted',
-  execute: 'executionCompleted',
-  review: 'reviewCompleted',
-  pr: 'prCreated',
-  'pr-review': 'prReviewCompleted',
-};
+const PHASE_TO_FIELD = Object.fromEntries([
+  ['init', null],
+  ...WORKFLOW_PHASES.map(({ phase, field }) => [phase, field]),
+]) as Record<PipelinePhase, keyof PipelineState | null>;
 
 export class PipelineManager {
   private tasksJsonPath: string;
@@ -115,13 +113,7 @@ export class PipelineManager {
     this.plan = {
       ...this.plan,
       pipeline: {
-        ...(this.plan.pipeline ?? {
-          prdCompleted: false,
-          jsonCompleted: false,
-          executionCompleted: false,
-          reviewCompleted: false,
-          prCreated: false,
-        }),
+        ...(this.plan.pipeline ?? DEFAULT_PIPELINE_STATE),
         [field]: true,
       },
     };

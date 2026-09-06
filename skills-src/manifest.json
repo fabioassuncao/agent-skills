@@ -7,6 +7,8 @@
       "references/issue-input.md": "skills-src/_shared/issue-input.md",
       "references/analyze-issue.md": "skills-src/analyze-issue/workflow.md",
       "scripts/optional-cli.mjs": "skills-src/_shared/optional-cli.mjs",
+      "scripts/artifacts.mjs": "packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs",
+      "THIRD_PARTY_LICENSES.txt": "packages/issue-flow/node_modules/zod/LICENSE",
       "references/execution-options.md": "skills-src/_shared/execution-options.md"
     },
     "generate-prd": {
@@ -57,6 +59,8 @@
       "references/publication.md": "skills-src/_shared/publication.md",
       "references/create-pr.md": "skills-src/create-pr/workflow.md",
       "scripts/optional-cli.mjs": "skills-src/_shared/optional-cli.mjs",
+      "scripts/artifacts.mjs": "packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs",
+      "THIRD_PARTY_LICENSES.txt": "packages/issue-flow/node_modules/zod/LICENSE",
       "scripts/conventions.mjs": "packages/issue-flow/scripts/skill-entries/conventions.entry.mjs",
       "references/execution-options.md": "skills-src/_shared/execution-options.md",
       "references/pr-metadata.md": "skills-src/_shared/pr-metadata.md"
@@ -70,6 +74,8 @@
       "references/publication.md": "skills-src/_shared/publication.md",
       "references/review-issue.md": "skills-src/review-issue/workflow.md",
       "scripts/optional-cli.mjs": "skills-src/_shared/optional-cli.mjs",
+      "scripts/artifacts.mjs": "packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs",
+      "THIRD_PARTY_LICENSES.txt": "packages/issue-flow/node_modules/zod/LICENSE",
       "references/execution-options.md": "skills-src/_shared/execution-options.md"
     },
     "review-pr": {
@@ -80,6 +86,8 @@
       "references/pr-review-result.md": "skills-src/_shared/pr-review-result.md",
       "references/review-pr.md": "skills-src/review-pr/workflow.md",
       "scripts/optional-cli.mjs": "skills-src/_shared/optional-cli.mjs",
+      "scripts/artifacts.mjs": "packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs",
+      "THIRD_PARTY_LICENSES.txt": "packages/issue-flow/node_modules/zod/LICENSE",
       "references/execution-options.md": "skills-src/_shared/execution-options.md"
     },
     "generate-issue": {
@@ -91,6 +99,8 @@
       "references/git-conventions.md": "skills-src/_shared/git-conventions.md",
       "references/generate-issue.md": "skills-src/generate-issue/workflow.md",
       "scripts/optional-cli.mjs": "skills-src/_shared/optional-cli.mjs",
+      "scripts/artifacts.mjs": "packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs",
+      "THIRD_PARTY_LICENSES.txt": "packages/issue-flow/node_modules/zod/LICENSE",
       "scripts/conventions.mjs": "packages/issue-flow/scripts/skill-entries/conventions.entry.mjs",
       "references/execution-options.md": "skills-src/_shared/execution-options.md"
     },
@@ -116,6 +126,8 @@
       "references/init-repository.md": "skills-src/init-repository/workflow.md",
       "scripts/optional-cli.mjs": "skills-src/_shared/optional-cli.mjs",
       "scripts/scaffold.mjs": "packages/issue-flow/scripts/skill-entries/scaffold.entry.mjs",
+      "scripts/artifacts.mjs": "packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs",
+      "THIRD_PARTY_LICENSES.txt": "packages/issue-flow/node_modules/zod/LICENSE",
       "references/execution-options.md": "skills-src/_shared/execution-options.md"
     },
     "resolve-issue": {

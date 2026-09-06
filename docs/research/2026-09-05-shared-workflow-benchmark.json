@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "baseline": "ebb7124",
+  "measurement": "estimated tokens = ceil(characters / 4); no model invocation",
+  "skills": [
+    {
+      "name": "analyze-issue",
+      "entryBefore": 468,
+      "entryAfter": 474,
+      "allMarkdownBefore": 5003,
+      "allMarkdownAfter": 5168
+    },
+    {
+      "name": "generate-prd",
+      "entryBefore": 518,
+      "entryAfter": 525,
+      "allMarkdownBefore": 6299,
+      "allMarkdownAfter": 6835
+    },
+    {
+      "name": "convert-prd-to-json",
+      "entryBefore": 537,
+      "entryAfter": 544,
+      "allMarkdownBefore": 7563,
+      "allMarkdownAfter": 8099
+    },
+    {
+      "name": "execute-tasks",
+      "entryBefore": 579,
+      "entryAfter": 586,
+      "allMarkdownBefore": 8305,
+      "allMarkdownAfter": 8880
+    },
+    {
+      "name": "create-pr",
+      "entryBefore": 533,
+      "entryAfter": 540,
+      "allMarkdownBefore": 8686,
+      "allMarkdownAfter": 8911
+    },
+    {
+      "name": "review-issue",
+      "entryBefore": 539,
+      "entryAfter": 546,
+      "allMarkdownBefore": 5916,
+      "allMarkdownAfter": 6141
+    },
+    {
+      "name": "review-pr",
+      "entryBefore": 501,
+      "entryAfter": 507,
+      "allMarkdownBefore": 6067,
+      "allMarkdownAfter": 6272
+    },
+    {
+      "name": "generate-issue",
+      "entryBefore": 550,
+      "entryAfter": 557,
+      "allMarkdownBefore": 7302,
+      "allMarkdownAfter": 7526
+    },
+    {
+      "name": "generate-local-issue",
+      "entryBefore": 570,
+      "entryAfter": 576,
+      "allMarkdownBefore": 7414,
+      "allMarkdownAfter": 7638
+    },
+    {
+      "name": "init-repository",
+      "entryBefore": 514,
+      "entryAfter": 521,
+      "allMarkdownBefore": 5500,
+      "allMarkdownAfter": 5685
+    },
+    {
+      "name": "resolve-issue",
+      "entryBefore": 802,
+      "entryAfter": 809,
+      "allMarkdownBefore": 15404,
+      "allMarkdownAfter": 16196
+    }
+  ],
+  "prompts": [
+    {
+      "name": "analyze.md",
+      "before": 730,
+      "after": 750
+    },
+    {
+      "name": "execute.md",
+      "before": 2446,
+      "after": 2425
+    },
+    {
+      "name": "generate.md",
+      "before": 1650,
+      "after": 1728
+    },
+    {
+      "name": "plan.md",
+      "before": 1407,
+      "after": 1427
+    },
+    {
+      "name": "pr-review.md",
+      "before": 2956,
+      "after": 2976
+    },
+    {
+      "name": "pr.md",
+      "before": 2704,
+      "after": 2723
+    },
+    {
+      "name": "prd.md",
+      "before": 954,
+      "after": 973
+    },
+    {
+      "name": "review.md",
+      "before": 1486,
+      "after": 1506
+    }
+  ],
+  "projection": {
+    "stories": 20,
+    "fullPlanEstimatedTokens": 4396,
+    "inspectionEstimatedTokens": 419,
+    "reductionPercent": 90,
+    "callsBefore": 1,
+    "callsAfter": 1,
+    "caveat": "Only the discovery projection; implementation may still require PRD, code, evidence and source-plan edits."
+  }
+}

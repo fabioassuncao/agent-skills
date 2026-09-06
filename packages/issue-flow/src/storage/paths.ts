@@ -1,7 +1,22 @@
-import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { getRemoteUrl, normalizeRemoteUrl } from '../utils/git.js';
+import { ISSUES_DIR_NAME, type IssuePaths, resolveIssueArtifactPaths } from './artifact-paths.js';
+import { projectIdFromRemote } from './project-identity.js';
+
+export {
+  EVENTS_FILENAME,
+  ISSUES_DIR_NAME,
+  type IssuePaths,
+  PRD_FILENAME,
+  ROTATED_EVENTS_FILENAME,
+  ROTATED_RUN_LOG_FILENAME,
+  RUN_LOG_FILENAME,
+  SESSION_FILENAME,
+  TASKS_FILENAME,
+  VERIFY_FILENAME,
+} from './artifact-paths.js';
+export { projectIdFromRemote } from './project-identity.js';
 
 /** Directory created under the user's home when no override is provided. */
 export const GLOBAL_DIR_NAME = '.issue-flow';
@@ -16,8 +31,6 @@ export const PROJECTS_DIR_NAME = 'projects';
 export const LOGS_DIR_NAME = 'logs';
 
 /** Directory under a project holding one folder per issue. */
-export const ISSUES_DIR_NAME = 'issues';
-
 /** Directory under a project holding one folder per multi-issue execution queue. */
 export const QUEUES_DIR_NAME = 'queues';
 
@@ -28,18 +41,11 @@ export const RUN_LOCK_FILENAME = 'run.lock';
 export const PROVIDERS_HEALTH_FILENAME = 'providers.json';
 
 /** Projection and journal filenames shared by storage and the web reader. */
-export const SESSION_FILENAME = 'session.json';
-export const EVENTS_FILENAME = 'events.jsonl';
-export const ROTATED_EVENTS_FILENAME = 'events.1.jsonl';
 /**
  * Acceptance-contract evidence. Named here — and not at the call site — because
  * `verify/run-issue.ts` also writes it in standalone mode, where there is no
  * `IssuePaths` to ask: one constant, two callers, no second spelling.
  */
-export const VERIFY_FILENAME = 'verify.json';
-
-export const RUN_LOG_FILENAME = 'run.log';
-export const ROTATED_RUN_LOG_FILENAME = 'run.log.1';
 
 export interface GetGlobalRootOptions {
   /** Environment source. Defaults to process.env. */
@@ -90,30 +96,6 @@ export function getDiagnosticsDir(options: GetGlobalRootOptions = {}): string {
   return join(getGlobalRoot(options), LOGS_DIR_NAME);
 }
 
-/** Maximum length of the human-readable half of a project id. */
-const SLUG_MAX_LENGTH = 32;
-
-/** Number of hex characters kept from the sha256 of the seed. */
-const HASH_LENGTH = 12;
-
-/** Used when the repository name has no character that survives sanitization. */
-const FALLBACK_SLUG = 'project';
-
-/**
- * Reduce an arbitrary repository name to a path-safe slug: lowercase, only
- * `[a-z0-9-]`, runs of separators collapsed, truncated to {@link SLUG_MAX_LENGTH}.
- */
-function slugify(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, SLUG_MAX_LENGTH)
-    .replace(/-+$/g, '');
-
-  return slug === '' ? FALLBACK_SLUG : slug;
-}
-
 /**
  * Derive a stable identifier for a project, in the form `<slug>-<hash12>`.
  *
@@ -147,24 +129,6 @@ export async function getProjectId(projectRoot: string): Promise<string> {
  * `metadata.json`) can compute the id without shelling out to git a second
  * time.
  */
-export function projectIdFromRemote(remote: string | null, projectRoot: string): string {
-  let seed: string;
-  let name: string;
-  if (remote) {
-    // `host/org/repo` -> the repository name is the last path segment.
-    seed = `remote:${remote}`;
-    name = remote.split('/').pop() ?? '';
-  } else {
-    const absolute = resolve(projectRoot);
-    seed = `path:${absolute}`;
-    name = basename(absolute);
-  }
-
-  const hash = createHash('sha256').update(seed).digest('hex').slice(0, HASH_LENGTH);
-
-  return `${slugify(name)}-${hash}`;
-}
-
 /**
  * Absolute directory of a project inside the global storage tree.
  *
@@ -182,26 +146,6 @@ export function getProjectDir(projectId: string, options: GetGlobalRootOptions =
  * is the task plan (`tasks.json`) — unlike `ResolvedPaths.prdFile` in
  * `types.ts`, which historically points at `tasks.json`.
  */
-export interface IssuePaths {
-  issueDir: string;
-  issueFile: string;
-  metadataFile: string;
-  prdFile: string;
-  tasksFile: string;
-  progressFile: string;
-  analysisFile: string;
-  sessionFile: string;
-  eventsFile: string;
-  rotatedEventsFile: string;
-  runLogFile: string;
-  rotatedRunLogFile: string;
-  decompositionFile: string;
-  verifyFile: string;
-  lastBranchFile: string;
-  archiveDir: string;
-  prReviewDir: string;
-}
-
 /**
  * Artifacts of one multi-issue execution queue.
  *
@@ -230,11 +174,12 @@ export function getQueuePaths(
   queueId: string | number,
   options: GetGlobalRootOptions = {},
 ): QueuePaths {
-  const queueDir = join(
-    getProjectDir(projectId, options),
-    QUEUES_DIR_NAME,
-    normalizeIssueNumber(queueId),
-  );
+  return getQueuePathsAt(getProjectDir(projectId, options), queueId);
+}
+
+/** Resolve one queue below an already selected project storage directory. */
+export function getQueuePathsAt(projectDir: string, queueId: string | number): QueuePaths {
+  const queueDir = join(projectDir, QUEUES_DIR_NAME, normalizeIssueNumber(queueId));
 
   return { queueDir, planFile: join(queueDir, 'execution-plan.json') };
 }
@@ -275,33 +220,10 @@ export function getIssuePaths(
   issueNumber: string | number,
   options: GetGlobalRootOptions = {},
 ): IssuePaths {
-  const issueDir = join(
-    getProjectDir(projectId, options),
-    ISSUES_DIR_NAME,
-    normalizeIssueNumber(issueNumber),
-  );
+  return getIssuePathsAt(getProjectDir(projectId, options), issueNumber);
+}
 
-  return {
-    issueDir,
-    issueFile: join(issueDir, 'issue.md'),
-    metadataFile: join(issueDir, 'metadata.json'),
-    prdFile: join(issueDir, 'prd.md'),
-    tasksFile: join(issueDir, 'tasks.json'),
-    progressFile: join(issueDir, 'progress.txt'),
-    analysisFile: join(issueDir, 'analysis.md'),
-    sessionFile: join(issueDir, SESSION_FILENAME),
-    // The journal, and the single generation kept when it rotates. The
-    // snapshot above is the projection; this pair is the history.
-    eventsFile: join(issueDir, EVENTS_FILENAME),
-    rotatedEventsFile: join(issueDir, ROTATED_EVENTS_FILENAME),
-    runLogFile: join(issueDir, RUN_LOG_FILENAME),
-    rotatedRunLogFile: join(issueDir, ROTATED_RUN_LOG_FILENAME),
-    // "This issue looks larger than one run": written only when the signals
-    // agree, and read by a person rather than by the pipeline.
-    decompositionFile: join(issueDir, 'decomposition.md'),
-    verifyFile: join(issueDir, VERIFY_FILENAME),
-    lastBranchFile: join(issueDir, '.last-branch'),
-    archiveDir: join(issueDir, 'archive'),
-    prReviewDir: join(issueDir, 'pr-review'),
-  };
+/** Resolve one issue below an already selected project storage directory. */
+export function getIssuePathsAt(projectDir: string, issueNumber: string | number): IssuePaths {
+  return resolveIssueArtifactPaths(projectDir, issueNumber);
 }

@@ -3,6 +3,7 @@ import { isVerbose } from '../../core/verbose.js';
 import type { IssuePaths } from '../../storage/paths.js';
 import { printError } from '../../ui/logger.js';
 import { runPipelineWithRenderer } from '../../ui/pipeline-renderer.js';
+import { persistClosureChoice } from './closure.js';
 import { finalizeSuccessfulIssueRun } from './phase-finalize.js';
 import { preparePhaseRun } from './phase-prepare.js';
 import { buildInstrumentedPhaseRunners } from './phase-runners.js';
@@ -39,6 +40,16 @@ export async function runPipelinePhases(
     queue,
   } = prepared;
   let { producedBranch, plannedExecutionBranch, branchExistedBeforeExecution } = prepared;
+  const closureChoice = queue ? undefined : input.runOptions?.closeIssue;
+  try {
+    await persistClosureChoice(tasksPath, closureChoice);
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
+      !String(error).includes('No SQLite task plan exists')
+    )
+      throw error;
+  }
   const startResolved = await resolveStartPhase({
     from,
     activePhases,
@@ -72,6 +83,7 @@ export async function runPipelinePhases(
     initialBranch,
     queueCommitScope,
     branchState,
+    closureChoice,
   });
   // Run pipeline with listr2 renderer — startup header printed above, summary below
   const phaseSuffixes = phaseSuffixesFor(agentSummary);

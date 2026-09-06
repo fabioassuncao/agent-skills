@@ -146,7 +146,7 @@ describe('legacy JSON importer', () => {
     expect(first.failed).toBe(false);
     expect(first.imported).toBe(3);
     const second = await importProjectArtifacts(options);
-    expect(second).toMatchObject({ failed: false, imported: 0, skipped: 0 });
+    expect(second).toMatchObject({ failed: false, imported: 0, skipped: 1 });
     const events = await importProjectArtifacts({ ...options, withEvents: true });
     expect(events).toMatchObject({ failed: false, imported: 2 });
     await expect(readFile(taskFile, 'utf-8')).resolves.toBe(taskBefore);
@@ -194,7 +194,7 @@ describe('legacy JSON importer', () => {
     }
   });
 
-  it('marks a project as adopted so changed compatibility projections are never reimported', async () => {
+  it('reimports a changed tasks projection after project adoption', async () => {
     const home = await temporary('issue-flow-import-marker-');
     const projectDir = join(home, 'projects', 'marker-project');
     const issueDir = join(projectDir, 'issues', '91');
@@ -214,7 +214,7 @@ describe('legacy JSON importer', () => {
     await writeFile(taskFile, JSON.stringify(changed));
 
     await expect(importProjectArtifacts(options)).resolves.toMatchObject({
-      imported: 0,
+      imported: 1,
       skipped: 0,
     });
     const database = await openIssueFlowDatabase({ env: options.env });
@@ -223,7 +223,7 @@ describe('legacy JSON importer', () => {
         database
           .prepare('SELECT description FROM pipelines WHERE project_id = ? AND issue_id = ?')
           .get<{ description: string }>('marker-project', '91')?.description,
-      ).toBe('Import this state');
+      ).toBe('projection must not replace canonical state');
     } finally {
       database.close();
     }

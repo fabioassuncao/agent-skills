@@ -12,7 +12,11 @@ import type {
   ProvidersHealth,
   UserStoryNumberingDecision,
 } from '../schemas.js';
-import { type OpenIssueFlowDatabaseOptions, openIssueFlowDatabase } from './index.js';
+import {
+  databaseOptionsForProject,
+  type OpenIssueFlowDatabaseOptions,
+  openIssueFlowDatabase,
+} from './index.js';
 
 /** Identity needed to address one plan in the shared SQLite database. */
 export interface PlanRepositoryContext {
@@ -288,6 +292,8 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
       issueUrl: String(row.issue_url ?? ''),
       branchName: String(row.branch_name ?? ''),
       ...(Number(row.no_branch) === 1 ? { noBranch: true } : {}),
+      ...(row.close_issue == null ? {} : { closeIssue: Number(row.close_issue) === 1 }),
+      ...(row.issue_closed_at == null ? {} : { issueClosedAt: String(row.issue_closed_at) }),
       description: String(row.description ?? ''),
       issueStatus: String(row.issue_status) as TaskPlan['issueStatus'],
       completedAt: (row.completed_at as string | null) ?? null,
@@ -427,7 +433,7 @@ export function writePlanRows(
        run_phase = ?, run_attempt = ?, run_heartbeat_at = ?, run_blocked_reason = ?, run_owner_pid = ?,
        run_owner_host = ?, run_owner_started_at = ?, pr_number = ?, pr_url = ?, pr_head_branch = ?,
        pr_created_at = ?, pr_review_enabled = ?, pr_review_pull_request_number = ?, pr_review_rounds = ?,
-       pr_review_recommendation = ?, pr_reviewed_at = ? WHERE project_id = ? AND issue_id = ?`,
+       pr_review_recommendation = ?, pr_reviewed_at = ?, close_issue = ?, issue_closed_at = ? WHERE project_id = ? AND issue_id = ?`,
     )
     .run(
       plan.project,
@@ -473,6 +479,8 @@ export function writePlanRows(
       plan.prReview?.rounds ?? null,
       plan.prReview?.lastRecommendation ?? null,
       plan.prReview?.lastReviewedAt ?? null,
+      plan.closeIssue === undefined ? null : plan.closeIssue ? 1 : 0,
+      plan.issueClosedAt ?? null,
       context.projectId,
       context.issueId,
     );
@@ -587,7 +595,21 @@ export async function materializePlan(
   plan?: TaskPlan,
 ): Promise<void> {
   const projection = plan ?? (await loadStoredPlan(context));
-  await writeFileAtomic(context.tasksPath, `${JSON.stringify(projection, null, 2)}\n`);
+  const content = `${JSON.stringify(projection, null, 2)}\n`;
+  await writeFileAtomic(context.tasksPath, content);
+  const sha256 = createHash('sha256').update(content).digest('hex');
+  await withDatabase(
+    (database) =>
+      database
+        .prepare(
+          `INSERT INTO migrated_artifacts (source_path, sha256, migrated_at, table_counts_json)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(source_path) DO UPDATE SET sha256 = excluded.sha256,
+             migrated_at = excluded.migrated_at, table_counts_json = excluded.table_counts_json`,
+        )
+        .run(context.tasksPath, sha256, new Date().toISOString(), '{}'),
+    context.databaseOptions,
+  );
 }
 
 /** Persist a queue's coordination state before refreshing its readable projection. */
@@ -714,26 +736,67 @@ export async function loadStoredQueue(
  * deliberate merge, not a file import: telemetry and pipeline updates made
  * while the agent ran remain authoritative in the database.
  */
-export async function ingestAgentPlan(context: PlanRepositoryContext): Promise<TaskPlan> {
+export async function ingestAgentPlan(
+  context: PlanRepositoryContext,
+  baseline?: Pick<TaskPlan, 'lastReviewFindings' | 'lastError'>,
+): Promise<TaskPlan> {
   const submitted = parsePlan(await readFile(context.tasksPath, 'utf-8'), context.tasksPath);
-  const current = await loadStoredPlan(context);
-  const submittedStories = new Map(submitted.userStories.map((story) => [story.id, story]));
-  const merged: TaskPlan = {
-    ...current,
-    userStories: current.userStories.map((story) => {
-      const change = submittedStories.get(story.id);
-      return change === undefined
-        ? story
-        : { ...story, passes: change.passes, notes: change.notes };
-    }),
-  };
-  await saveStoredPlan(context, merged);
+  await withDatabase(
+    (database) =>
+      database.transaction(() => {
+        for (const story of submitted.userStories) {
+          database
+            .prepare(
+              'UPDATE stories SET passes = ?, notes = ? WHERE project_id = ? AND issue_id = ? AND id = ?',
+            )
+            .run(story.passes ? 1 : 0, story.notes, context.projectId, context.issueId, story.id);
+        }
+        if (baseline !== undefined) {
+          // A correction can acknowledge its own findings, never erase a newer review.
+          if (submitted.lastReviewFindings === null) {
+            database
+              .prepare(
+                'UPDATE pipelines SET last_review_findings = NULL WHERE project_id = ? AND issue_id = ? AND last_review_findings IS ?',
+              )
+              .run(context.projectId, context.issueId, baseline.lastReviewFindings);
+          }
+          database
+            .prepare(
+              `UPDATE pipelines SET last_error_category = ?, last_error_message = ?, last_error_at = ?
+         WHERE project_id = ? AND issue_id = ? AND last_error_category IS ? AND last_error_message IS ? AND last_error_at IS ?`,
+            )
+            .run(
+              submitted.lastError?.category ?? null,
+              submitted.lastError?.message ?? null,
+              submitted.lastError?.at ?? null,
+              context.projectId,
+              context.issueId,
+              baseline.lastError?.category ?? null,
+              baseline.lastError?.message ?? null,
+              baseline.lastError?.at ?? null,
+            );
+        }
+      }),
+    context.databaseOptions,
+  );
+  const merged = await loadStoredPlan(context);
+  await materializePlan(context, merged);
   return merged;
 }
 
 /** Promote a newly generated plan after the plan phase has validated it. */
 export async function ingestGeneratedPlan(context: PlanRepositoryContext): Promise<TaskPlan> {
   const plan = parsePlan(await readFile(context.tasksPath, 'utf-8'), context.tasksPath);
+  // Generated output cannot grant/revoke CLI authorization or fake confirmation.
+  const current = await loadStoredPlan(context).catch((error: unknown) => {
+    if (error instanceof Error && error.message.startsWith('No SQLite task plan exists'))
+      return null;
+    throw error;
+  });
+  delete plan.closeIssue;
+  delete plan.issueClosedAt;
+  if (current?.closeIssue !== undefined) plan.closeIssue = current.closeIssue;
+  if (current?.issueClosedAt !== undefined) plan.issueClosedAt = current.issueClosedAt;
   await saveStoredPlan(context, plan);
   return plan;
 }
@@ -1305,7 +1368,7 @@ export async function listStoredExecutions(input: {
       )
       .all<{ payload_json: string }>(...values)
       .map((row) => JSON.parse(row.payload_json) as ExecutionRecord);
-  }, input.databaseOptions);
+  }, input.databaseOptions ?? databaseOptionsForProject(input.projectId));
 }
 
 export interface StoredUserStoryNumber {
@@ -1334,7 +1397,7 @@ export async function findHighestStoredUserStoryNumber(input: {
     return row === undefined
       ? null
       : { number: row.story_number, issueId: row.issue_id, storyId: row.id };
-  }, input.databaseOptions);
+  }, input.databaseOptions ?? databaseOptionsForProject(input.projectId));
 }
 
 /** A stable, JSON-friendly diagnostic export that never exposes SQL to callers. */

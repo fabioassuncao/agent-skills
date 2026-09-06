@@ -82,8 +82,8 @@ function renderIssueMarkdown(title: string, body: string): string {
 }
 
 /**
- * Issue provider backed by plain files in the project's global storage
- * directory (`~/.issue-flow/projects/<project-id>/issues/<id>/`).
+ * Issue provider backed by plain files in the project's resolved artifact
+ * store (global by default, workspace-local after explicit opt-in).
  *
  * Enables the whole pipeline without any network access: no gh, no remote, no
  * authentication. `issue.md` is the source of truth for the content and
@@ -103,15 +103,15 @@ export class LocalFileIssueProvider implements IssueProvider {
 
   /**
    * @param projectRoot Repository the issues belong to. It is no longer the
-   * literal parent of an `issues/` directory: it is the root the project id —
-   * and therefore the global storage directory — is derived from.
+   * literal parent of an `issues/` directory: it is the root from which project
+   * identity and the active artifact store are resolved.
    */
   constructor(projectRoot?: string) {
     this.configuredRoot = projectRoot;
   }
 
   /**
-   * True whenever the project's global storage directory already is — or
+   * True whenever the project's resolved storage directory already is — or
    * could be — a writable directory. Never mutates the filesystem, never
    * throws.
    *
@@ -181,11 +181,14 @@ export class LocalFileIssueProvider implements IssueProvider {
     };
   }
 
-  async create(draft: IssueDraft): Promise<Issue> {
+  async create(draft: IssueDraft, options?: { localOnly?: boolean }): Promise<Issue> {
     // An explicit id is how a mirror keeps the identifier of the Issue it
     // mirrors: allocating a fresh one would make `issue-flow run <n>` see two
     // unrelated Issues instead of one demand in two places.
-    const id = draft.id === undefined ? String(await this.allocateNumber()) : normalizeId(draft.id);
+    const id =
+      draft.id === undefined
+        ? String(await this.allocateNumber(options?.localOnly))
+        : normalizeId(draft.id);
     const paths = await this.paths(id);
 
     await mkdir(paths.issueDir, { recursive: true });
@@ -274,8 +277,11 @@ export class LocalFileIssueProvider implements IssueProvider {
    * what makes a naive `localMax + 1` collide the moment someone opens an Issue
    * on GitHub.
    */
-  async allocateNumber(): Promise<number> {
-    const [local, remote] = await Promise.all([this.highestLocalNumber(), highestRemoteNumber()]);
+  async allocateNumber(localOnly = false): Promise<number> {
+    const [local, remote] = await Promise.all([
+      this.highestLocalNumber(),
+      localOnly ? Promise.resolve(0) : highestRemoteNumber(),
+    ]);
     return Math.max(local, remote) + 1;
   }
 
@@ -343,7 +349,7 @@ export class LocalFileIssueProvider implements IssueProvider {
    *
    * Resolving `issuesDir` also migrates the legacy tree when it is the only one
    * that exists, which is what keeps an already-taken number from being handed
-   * out a second time after adopting the global storage.
+   * out a second time after resolving artifact storage.
    */
   private async highestLocalNumber(): Promise<number> {
     const { issuesDir: dir } = await resolveProjectPaths({ projectRoot: await this.root() });

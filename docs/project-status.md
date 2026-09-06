@@ -74,6 +74,9 @@ guarantees. Monitor usage in your host when using Skills. For the CLI, use its
 [usage reporting](storage.md#tokens-and-cost) and [web monitor](web-monitor.md).
 Treat the numbers from your first runs as the real cost estimate for your
 repository; Skill use does not provide the CLI's telemetry.
+The dated [Agent Skills audit](research/2026-09-06-agent-skills-audit.md)
+separates static context reduction from live token usage; its small behavior
+sample preserved quality but did not demonstrate an end-to-end token saving.
 
 CLI-specific controls include [agent selection per phase](agents.md), the
 token economy notes in that document, and the

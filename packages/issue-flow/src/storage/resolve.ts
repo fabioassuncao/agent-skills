@@ -8,9 +8,19 @@ import {
 import { bindTelemetry } from '../telemetry/recorder.js';
 import { printInfo } from '../ui/logger.js';
 import { getProjectRoot } from '../utils/git.js';
+import {
+  directoryExists,
+  ensureWorkspaceStorageIgnored,
+  selectArtifactStorage,
+  WORKSPACE_STORAGE_DIR,
+} from './artifact-storage.js';
 import { type MigrationResult, migrateLegacyStorage, resolveStorageMode } from './compat.js';
 import { importProjectArtifacts } from './db/import.js';
-import { getDatabasePath } from './db/index.js';
+import {
+  getDatabasePath,
+  registerProjectDatabaseOptions,
+  resetProjectDatabaseOptions,
+} from './db/index.js';
 import {
   registerPlanRepository,
   registerQueueRepository,
@@ -20,10 +30,10 @@ import {
 } from './db/repository.js';
 import {
   type GetGlobalRootOptions,
+  GLOBAL_ROOT_ENV,
   getGlobalRoot,
-  getIssuePaths,
-  getProjectDir,
-  getQueuePaths,
+  getIssuePathsAt,
+  getQueuePathsAt,
   ISSUES_DIR_NAME,
   type IssuePaths,
   PROVIDERS_HEALTH_FILENAME,
@@ -42,10 +52,10 @@ import { storageConfigInputSchema } from './schemas.js';
  * triggers the legacy migration when one is due, and caches all of that for the
  * lifetime of the process, so a call site is reduced to one line.
  *
- * It deliberately does **not** create the issue directory. Callers that write
- * keep doing their own `mkdir(..., { recursive: true })`, which preserves the
- * rule in `storage/CLAUDE.md` that path resolution never touches the
- * filesystem's shape.
+ * It deliberately does **not** create the issue directory. When a repository
+ * has explicitly opted into workspace storage by creating
+ * `.issue-flow/issues/`, resolution only maintains a scoped nested `.gitignore`
+ * so operational state cannot be staged accidentally.
  */
 
 export interface ResolveIssuePathsOptions extends GetGlobalRootOptions {
@@ -55,12 +65,17 @@ export interface ResolveIssuePathsOptions extends GetGlobalRootOptions {
    * from the repo root and from any subdirectory.
    */
   projectRoot?: string;
+  /** Diagnostics are separate from structured command output. */
+  notice?: (message: string) => void;
 }
 
 /** Everything the process needs to know about a project, resolved once. */
 interface ProjectResolution {
   projectId: string;
   legacyDir: string;
+  projectDir: string;
+  storageMode: 'global' | 'workspace';
+  databaseOptions: GetGlobalRootOptions;
   /** JSON remains active after a failed import or an explicit compatibility setting. */
   driver: 'sqlite' | 'json';
   retention?: StoredRetentionPolicy;
@@ -75,13 +90,13 @@ interface StorageResolutionConfig {
 /** Resolve only the storage knobs; invalid project input safely uses defaults. */
 async function loadStorageResolutionConfig(
   projectRoot: string,
-  options: GetGlobalRootOptions,
+  options: ResolveIssuePathsOptions,
 ): Promise<StorageResolutionConfig> {
-  const global = await loadGlobalConfig({ env: options.env, warn: printInfo });
-  const project = await readProjectConfigFile(projectRoot, printInfo);
+  const global = await loadGlobalConfig({ env: options.env, warn: options.notice ?? printInfo });
+  const project = await readProjectConfigFile(projectRoot, options.notice ?? printInfo);
   const parsedProject = storageConfigInputSchema.safeParse(project?.storage);
   if (!parsedProject.success && project?.storage !== undefined) {
-    printInfo(
+    (options.notice ?? printInfo)(
       `Ignoring "storage" key of ${PROJECT_CONFIG_FILENAME}: ${parsedProject.error.issues[0]?.message ?? 'invalid value'}.`,
     );
   }
@@ -113,7 +128,7 @@ async function loadStorageResolutionConfig(
 const projectCache = new Map<string, Promise<ProjectResolution>>();
 
 /**
- * Issues whose global directory has already been checked in this process, so
+ * Issues whose active directory has already been checked in this process, so
  * the per-issue fallback below stats each issue at most once.
  */
 const checkedIssues = new Set<string>();
@@ -131,14 +146,30 @@ export function resetStorageResolutionCache(): void {
   // resolver cache. Clearing one without the other would leak a test's
   // temporary database into the next resolution.
   resetPlanRepositories();
+  resetProjectDatabaseOptions();
 }
 
-async function directoryExists(path: string): Promise<boolean> {
+async function pathExists(path: string): Promise<boolean> {
   try {
-    return (await stat(path)).isDirectory();
+    await stat(path);
+    return true;
   } catch {
     return false;
   }
+}
+
+function databaseOptionsFor(
+  projectRoot: string,
+  storageMode: 'global' | 'workspace',
+  options: ResolveIssuePathsOptions,
+): GetGlobalRootOptions {
+  if (storageMode === 'global') return options.env === undefined ? {} : { env: options.env };
+  return {
+    env: {
+      ...(options.env ?? process.env),
+      [GLOBAL_ROOT_ENV]: join(projectRoot, WORKSPACE_STORAGE_DIR),
+    },
+  };
 }
 
 /**
@@ -154,16 +185,14 @@ async function directoryExists(path: string): Promise<boolean> {
  * second migration when an issue really is still legacy-only — in which case a
  * notice is the correct output, not a duplicate.
  */
-function announceMigration(result: MigrationResult): void {
+function announceMigration(result: MigrationResult, notice = printInfo): void {
   if (result.copied.length === 0) return;
 
   const count = result.copied.length;
   const target = join(result.globalDir, ISSUES_DIR_NAME);
 
-  printInfo(
-    `Migrated ${count} file${count === 1 ? '' : 's'} from ${result.legacyDir} to ${target}`,
-  );
-  printInfo(
+  notice(`Migrated ${count} file${count === 1 ? '' : 's'} from ${result.legacyDir} to ${target}`);
+  notice(
     `The legacy directory was not modified or removed — ${result.legacyDir} is kept as-is, read-only, for compatibility.`,
   );
 }
@@ -178,31 +207,46 @@ function announceMigration(result: MigrationResult): void {
  */
 async function resolveProject(
   projectRoot: string,
-  options: GetGlobalRootOptions,
+  options: ResolveIssuePathsOptions,
 ): Promise<ProjectResolution> {
   // resolveStorageMode returns the project id *and* the remote in a single git
   // call — calling getProjectId() afterwards would shell out to
   // `git remote get-url origin` a second time for the same answer.
   const status = await resolveStorageMode(projectRoot, options);
   const storage = await loadStorageResolutionConfig(projectRoot, options);
+  const workspaceIssuesDir = join(projectRoot, WORKSPACE_STORAGE_DIR, ISSUES_DIR_NAME);
+  const selected = selectArtifactStorage(
+    projectRoot,
+    getGlobalRoot(options),
+    status.projectId,
+    await directoryExists(workspaceIssuesDir),
+  );
+  const { storageMode, projectDir } = selected;
+  const databaseOptions = databaseOptionsFor(projectRoot, storageMode, options);
+  registerProjectDatabaseOptions(status.projectId, databaseOptions);
 
-  if (status.mode === 'needs-migration') {
-    announceMigration(await migrateLegacyStorage(projectRoot, options));
+  if (storageMode === 'workspace') {
+    await ensureWorkspaceStorageIgnored(projectRoot);
+  } else if (status.mode === 'needs-migration') {
+    announceMigration(
+      await migrateLegacyStorage(projectRoot, options),
+      options.notice ?? printInfo,
+    );
   }
 
   const imported =
-    storage.driver === 'sqlite'
+    storage.driver === 'sqlite' && !(await pathExists(join(projectDir, RUN_LOCK_FILENAME)))
       ? await importProjectArtifacts({
-          ...options,
+          ...databaseOptions,
           projectId: status.projectId,
-          projectDir: status.globalDir,
+          projectDir,
           projectRoot,
           remoteUrl: status.remoteUrl,
           ...((storage.retention?.backups ?? storage.backupRetention) === undefined
             ? {}
             : { backupRetention: storage.retention?.backups ?? storage.backupRetention }),
           ...(storage.retention === undefined ? {} : { retention: storage.retention }),
-          onWarning: printInfo,
+          onWarning: options.notice ?? printInfo,
         })
       : null;
   if (imported !== null && imported.imported > 0) {
@@ -210,14 +254,17 @@ async function resolveProject(
       .filter(([, count]) => count > 0)
       .map(([table, count]) => `${table}: ${count}`)
       .join(', ');
-    printInfo(
-      `Imported ${imported.imported} structured artifact${imported.imported === 1 ? '' : 's'} from ${status.globalDir} into ${getDatabasePath(options)} (${counts || 'no rows'}). No source artifacts were removed.`,
+    (options.notice ?? printInfo)(
+      `Imported ${imported.imported} structured artifact${imported.imported === 1 ? '' : 's'} from ${projectDir} into ${getDatabasePath(databaseOptions)} (${counts || 'no rows'}). No source artifacts were removed.`,
     );
   }
 
   return {
     projectId: status.projectId,
     legacyDir: status.legacyDir,
+    projectDir,
+    storageMode,
+    databaseOptions,
     // An import failure is a successful *resolution* through the JSON
     // compatibility path. Do not subsequently register a SQLite repository,
     // or telemetry would create a fresh empty database and hide the fallback.
@@ -229,7 +276,7 @@ async function resolveProject(
 /** Cached half of {@link resolveIssuePaths}: one git call per project, per process. */
 function getProjectResolution(
   projectRoot: string,
-  options: GetGlobalRootOptions,
+  options: ResolveIssuePathsOptions,
 ): Promise<ProjectResolution> {
   const key = `${getGlobalRoot(options)}::${projectRoot}`;
 
@@ -247,13 +294,17 @@ function getProjectResolution(
   return pending;
 }
 
-/** Project-level directories of the current repository inside the global tree. */
+/** Project-level directories of the current repository inside the active store. */
 export interface ProjectStoragePaths {
   /** Deterministic id derived from the repository's remote (or its path). */
   projectId: string;
   /** Active structured-state driver after migration/recovery resolution. */
   storageDriver: 'sqlite' | 'json';
-  /** `<globalRoot>/projects/<projectId>`. */
+  /** Whether the explicit workspace override or the global fallback is active. */
+  storageMode: 'global' | 'workspace';
+  /** Database location selected with the artifact store. */
+  databaseOptions: GetGlobalRootOptions;
+  /** Global `<root>/projects/<projectId>` or opted-in `<workspace>/.issue-flow`. */
   projectDir: string;
   /** `<projectDir>/issues` — the parent of every issue directory. */
   issuesDir: string;
@@ -288,7 +339,7 @@ export async function resolveProjectPaths(
   const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
 
   const project = await getProjectResolution(projectRoot, rootOptions);
-  const projectDir = getProjectDir(project.projectId, rootOptions);
+  const projectDir = project.projectDir;
   const providersHealthFile = join(projectDir, PROVIDERS_HEALTH_FILENAME);
   if (project.driver === 'sqlite') {
     registerStorageProjections({
@@ -297,6 +348,7 @@ export async function resolveProjectPaths(
         projectId: project.projectId,
         issueId: '',
         projectRoot,
+        databaseOptions: project.databaseOptions,
         retention: project.retention,
       },
       providersHealthFile,
@@ -306,6 +358,8 @@ export async function resolveProjectPaths(
   return {
     projectId: project.projectId,
     storageDriver: project.driver,
+    storageMode: project.storageMode,
+    databaseOptions: project.databaseOptions,
     projectDir,
     issuesDir: join(projectDir, ISSUES_DIR_NAME),
     runLockFile: join(projectDir, RUN_LOCK_FILENAME),
@@ -328,12 +382,13 @@ export async function resolveQueuePaths(
   const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
 
   const project = await getProjectResolution(projectRoot, rootOptions);
-  const paths = getQueuePaths(project.projectId, queueId, rootOptions);
+  const paths = getQueuePathsAt(project.projectDir, queueId);
   if (project.driver === 'sqlite') {
     registerQueueRepository({
       planFile: paths.planFile,
       projectId: project.projectId,
       projectRoot,
+      databaseOptions: project.databaseOptions,
       retention: project.retention,
     });
   }
@@ -341,8 +396,8 @@ export async function resolveQueuePaths(
 }
 
 /**
- * Resolve every path of `issueNumber` under the global storage, migrating the
- * legacy `<projectRoot>/issues/` tree first when needed.
+ * Resolve every path of `issueNumber` under the selected store, migrating the
+ * legacy `<projectRoot>/issues/` tree only while global storage is active.
  *
  * The migration is triggered in two situations:
  *
@@ -363,7 +418,7 @@ export async function resolveIssuePaths(
   const projectRoot = resolve(projectRootOption ?? (await getProjectRoot()));
 
   const project = await getProjectResolution(projectRoot, rootOptions);
-  const paths = getIssuePaths(project.projectId, issueNumber, rootOptions);
+  const paths = getIssuePathsAt(project.projectDir, issueNumber);
 
   if (!checkedIssues.has(paths.issueDir)) {
     // `getIssuePaths` already validated and normalized the identifier, so the
@@ -371,7 +426,11 @@ export async function resolveIssuePaths(
     // tree.
     const legacyIssueDir = join(project.legacyDir, basename(paths.issueDir));
 
-    if (!(await directoryExists(paths.issueDir)) && (await directoryExists(legacyIssueDir))) {
+    if (
+      project.storageMode === 'global' &&
+      !(await directoryExists(paths.issueDir)) &&
+      (await directoryExists(legacyIssueDir))
+    ) {
       announceMigration(await migrateLegacyStorage(projectRoot, rootOptions));
     }
 
@@ -386,6 +445,7 @@ export async function resolveIssuePaths(
       projectId: project.projectId,
       issueId: basename(paths.issueDir),
       projectRoot,
+      databaseOptions: project.databaseOptions,
       retention: project.retention,
     };
     registerPlanRepository(context);
@@ -393,10 +453,7 @@ export async function resolveIssuePaths(
       context,
       verifyFile: paths.verifyFile,
       lastBranchFile: paths.lastBranchFile,
-      providersHealthFile: join(
-        getProjectDir(project.projectId, rootOptions),
-        PROVIDERS_HEALTH_FILENAME,
-      ),
+      providersHealthFile: join(project.projectDir, PROVIDERS_HEALTH_FILENAME),
     });
     bindTelemetry({ tasksPath: paths.tasksFile });
   } else {

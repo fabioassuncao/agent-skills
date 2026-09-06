@@ -31,6 +31,8 @@ import {
  */
 
 export interface LoadRepositoryPolicyOptions {
+  /** Local-only discovery never probes GitHub. Included in the cache key. */
+  remote?: boolean;
   /** Repository root. Defaults to the git project root. */
   root?: string;
   /** Subdirectory the policy applies to, for monorepos. Root when omitted. */
@@ -174,19 +176,22 @@ async function resolvePolicy(
 
   // The organization defaults are only worth asking for when the local tree has
   // none — that is precisely the case local discovery cannot see.
-  const wantsOrgTemplates = toggles.issueTemplates && templateDiscovery.templates.length === 0;
+  const wantsOrgTemplates =
+    options.remote !== false && toggles.issueTemplates && templateDiscovery.templates.length === 0;
   const [baseBranch, slug] = await Promise.all([
-    discoverBaseBranch(root, options.exec),
-    toggles.issueTypes || wantsOrgTemplates
+    options.remote === false
+      ? Promise.resolve({ baseBranch: null, sources: [] })
+      : discoverBaseBranch(root, options.exec),
+    (options.remote !== false && toggles.issueTypes) || wantsOrgTemplates
       ? discoverGitHubSlug(root, options.exec)
       : Promise.resolve(null),
   ]);
 
   const [labels, issueTypes, orgTemplates, orgForms] = await Promise.all([
-    toggles.labels
+    options.remote !== false && toggles.labels
       ? discoverLabels(root, options.exec)
       : Promise.resolve({ labels: [], sources: [disabledSource('labels')] }),
-    toggles.issueTypes
+    options.remote !== false && toggles.issueTypes
       ? discoverIssueTypes(root, slug?.owner ?? null, options.exec)
       : Promise.resolve({ types: [], sources: [disabledSource('issue-types')] }),
     wantsOrgTemplates
@@ -336,7 +341,7 @@ export async function loadRepositoryPolicy(
     return resolvePolicy(root, scope, options);
   }
 
-  const key = `${root} ${scope ?? ''}`;
+  const key = `${root}\0${scope ?? ''}\0${options.remote !== false}`;
   const cached = cache.get(key);
   if (cached !== undefined) {
     return cached;

@@ -8,18 +8,11 @@ import type { ResolvedIssue } from '../../issues/types.js';
 import { printInfo, printSuccess, printWarning } from '../../ui/logger.js';
 import { printRunSummary } from '../../ui/summary.js';
 import type { PrQueueContext } from '../pr.js';
+import { finishIssueClosure } from './closure.js';
 import { verificationForSummary } from './publish.js';
-import { closeIssue } from './pull-request.js';
 import type { IssueRunResult, PrReviewOutcome } from './types.js';
 
-export async function applyReviewOutcomeAndClose(input: {
-  issueNumber: string;
-  resolvedIssue: ResolvedIssue;
-  review: PrReviewOutcome | null;
-  inQueue: boolean;
-}): Promise<void> {
-  const { issueNumber, resolvedIssue, review, inQueue } = input;
-
+function reportReviewOutcome(review: PrReviewOutcome | null): void {
   // A PR review asking for changes is not a pipeline failure, but the work is
   // not done either: the warning is highlighted and the issue stays open.
   if (review?.requestedChanges) {
@@ -30,18 +23,8 @@ export async function applyReviewOutcomeAndClose(input: {
     }
   }
 
-  // Close the issue through whoever owns it. A provider without close() (a
-  // read-only origin) has nothing to do here, so the step is simply skipped.
-  // REQUEST_CHANGES also leaves the local plan unfinished: marking
-  // `issueStatus: completed` while `prReviewCompleted` is false would lie to
-  // every tool that keys off the local status.
-  // Inside a queue the issues are closed once, after the consolidated Pull
-  // Request: closing one here would announce it as done while the branch that
-  // carries its work has not even been proposed yet.
   if (review?.requestedChanges) {
     printInfo('Issue left open until the review blockers are addressed.');
-  } else if (!inQueue) {
-    await closeIssue(issueNumber, resolvedIssue.source);
   }
 }
 
@@ -92,7 +75,24 @@ export async function finalizeSuccessfulIssueRun(input: {
     elapsedSeconds,
   } = input;
 
-  await applyReviewOutcomeAndClose({ issueNumber, resolvedIssue, review, inQueue });
+  reportReviewOutcome(review);
+  const closurePlan = !inQueue ? await loadTaskPlan(tasksPath).catch(() => null) : null;
+  if (
+    !inQueue &&
+    !review?.requestedChanges &&
+    (closurePlan?.closeIssue || closurePlan?.lastError?.category === 'issue_closure')
+  ) {
+    const code = await finishIssueClosure(tasksPath, issueNumber, resolvedIssue.source);
+    if (code !== 0)
+      return {
+        code,
+        failedPhase: 'close',
+        branchName: producedBranch,
+        storyCount: 0,
+        elapsedSeconds,
+        review,
+      };
+  }
 
   // Get branch and story count
   let branchName = 'unknown';
@@ -113,7 +113,7 @@ export async function finalizeSuccessfulIssueRun(input: {
     planPrUrl = plan.pullRequest?.url ?? null;
 
     plan.lastAttemptAt = isoNow();
-    if (!review?.requestedChanges) {
+    if (!review?.requestedChanges && !inQueue) {
       plan.issueStatus = 'completed';
       plan.completedAt = isoNow();
     }

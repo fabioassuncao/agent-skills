@@ -129,11 +129,14 @@ describe('runGenerate destinations', () => {
   it('creates only locally with target local, without touching GitHub', async () => {
     expect(await runGenerate('add retries', 'local')).toBe(0);
 
-    expect(local.create).toHaveBeenCalledWith({
-      title: 'Add retries',
-      body: 'Because it fails.',
-      labels: ['bug'],
-    });
+    expect(local.create).toHaveBeenCalledWith(
+      {
+        title: 'Add retries',
+        body: 'Because it fails.',
+        labels: ['bug'],
+      },
+      { localOnly: true },
+    );
     expect(github.create).not.toHaveBeenCalled();
     expect(output()).toContain('issues/42/issue.md');
   });

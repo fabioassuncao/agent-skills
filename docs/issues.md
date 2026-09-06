@@ -8,7 +8,7 @@ works the same way regardless of where the issue lives.
 | Provider | Origin | Requires |
 |----------|--------|----------|
 | `github` (default) | GitHub issues, read through `gh` | `gh` installed and authenticated |
-| `local` | `issue.md` + `metadata.json` under `~/.issue-flow/…/issues/<n>/` | nothing beyond git — works offline, in a repo with no remote, or on a demand that is not public yet |
+| `local` | `issue.md` + `metadata.json` in the [resolved artifact store](storage.md) | nothing beyond git — works offline, in a repo with no remote, or on a demand that is not public yet |
 
 This page describes CLI providers. Standalone Skills read the selected issue
 directly, using files or an authenticated GitHub capability; see
@@ -66,11 +66,20 @@ never hang. `prefer-local` and `prefer-github` never prompt.
 
 ## Local issue format
 
-```
+```text
 ~/.issue-flow/projects/<project-id>/issues/42/
   issue.md        # H1 (first non-empty line) is the title, everything after it is the body
   metadata.json   # validated against the issue metadata schema
+
+# Or, after explicit workspace opt-in:
+<workspace>/.issue-flow/issues/42/
+  issue.md
+  metadata.json
 ```
+
+CLI and Skills select the same complete store. The workspace form is active only
+when `.issue-flow/issues/` already exists; ordinary resolution does not create it,
+and operational files there are covered by the managed nested `.gitignore`.
 
 ```json
 {
@@ -101,12 +110,13 @@ never hang. `prefer-local` and `prefer-github` never prompt.
 - `metadata.json` may be absent: with only `issue.md`, minimal metadata is
   derived (id, H1 title, `state: "open"`, file timestamps). An **invalid**
   `metadata.json` is a hard error naming the path and the offending field.
-- Identifiers for new local issues are allocated above the highest number found
-  among the project's issue directories — which includes anything migrated out of
-  a legacy `issues/` tree — and, when `gh` is reachable, above the highest GitHub
-  issue/PR number too, so a local issue never collides with a future remote one.
+- `generate --local` allocates identifiers above the highest number found among
+  the project's issue directories, including migrated legacy issues. It does not
+  consult GitHub. Remote coordination and collision limits are described in
+  [Local generation boundary](#local-generation-boundary); `generate --both`
+  reuses the number allocated by GitHub.
 
-Local issues are machine-local: a clone on another machine does not see them.
+Local issues are operational and untracked: a clone on another machine does not see them.
 `generate --both` (a GitHub issue plus a local mirror) is the way to keep the
 demand shared.
 
@@ -248,3 +258,14 @@ Coordination state lives in
 issue's own artifacts stay exactly where they were. The queue id is the
 identifier of the **primary issue** (the first one informed), which is what lets
 `issue-flow run 50` find and resume the queue it started.
+
+## Local generation boundary
+
+`generate --local` discovers local policy and local numbering without probing
+GitHub labels, organization templates, issue types or remote issue numbers. Its
+prompt excludes remote duplicate discovery. Consequently, an ID allocated while
+offline can collide with a remote ID when later synchronized; normal conflict
+resolution applies. Dual/remote delivery keeps remote discovery. Direct provider
+APIs retain their legacy allocation behavior unless `localOnly` is requested.
+
+Issue closure is an explicit execution choice; see [command contract](commands.md#explicit-issue-closure).

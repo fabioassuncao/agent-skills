@@ -147,49 +147,7 @@ export async function getHeadCommit(cwd?: string): Promise<string | null> {
  * routinely type the wrong case) matters more than telling apart two repos
  * whose paths differ only by case.
  */
-export function normalizeRemoteUrl(url: string | null | undefined): string | null {
-  if (typeof url !== 'string') return null;
-
-  const trimmed = url.trim();
-  if (trimmed === '') return null;
-
-  let authority: string;
-  let path: string;
-
-  const scheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.exec(trimmed);
-  if (scheme) {
-    const rest = trimmed.slice(scheme[0].length);
-    const slash = rest.indexOf('/');
-    if (slash === -1) return null;
-    authority = rest.slice(0, slash);
-    path = rest.slice(slash + 1);
-  } else {
-    // scp-like syntax: [user@]host:path — everything after the first colon is
-    // the path, which is how git itself reads it (no port is possible here).
-    const colon = trimmed.indexOf(':');
-    if (colon === -1) return null;
-    authority = trimmed.slice(0, colon);
-    path = trimmed.slice(colon + 1);
-  }
-
-  // Drop embedded credentials (user, user:token) and the ssh user.
-  const at = authority.lastIndexOf('@');
-  if (at !== -1) authority = authority.slice(at + 1);
-
-  const host = authority.replace(/:\d+$/, '').toLowerCase();
-  if (host === '') return null;
-
-  const normalizedPath = path
-    .replace(/[?#].*$/, '')
-    .replace(/\/+/g, '/')
-    .replace(/^\/+|\/+$/g, '')
-    .replace(/\.git$/i, '')
-    .replace(/\/+$/, '')
-    .toLowerCase();
-  if (normalizedPath === '') return null;
-
-  return `${host}/${normalizedPath}`;
-}
+export { normalizeRemoteUrl } from '../storage/project-identity.js';
 
 /**
  * Remove Basic-Auth-style credentials (`user:token@`, `user@`) embedded in an

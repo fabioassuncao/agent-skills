@@ -532,3 +532,9 @@ describe('isAvailable', () => {
     expect(await new LocalFileIssueProvider(root).isAvailable()).toBe(false);
   });
 });
+
+it('allocates locally without probing GitHub when localOnly is explicit', async () => {
+  mockRun.mockClear();
+  await provider.create({ title: 'Local demand', body: 'Body', labels: [] }, { localOnly: true });
+  expect(mockRun.mock.calls.filter(([cmd]) => cmd === 'gh')).toEqual([]);
+});

@@ -25,7 +25,9 @@ const { printInfo } = await import('../ui/logger.js');
 const { getProjectRoot, getRemoteUrl } = await import('../utils/git.js');
 const { GLOBAL_ROOT_ENV, getIssuePaths, projectIdFromRemote } = await import('./paths.js');
 const { LEGACY_ISSUES_DIR_NAME } = await import('./compat.js');
-const { resetStorageResolutionCache, resolveIssuePaths } = await import('./resolve.js');
+const { resetStorageResolutionCache, resolveIssuePaths, resolveProjectPaths } = await import(
+  './resolve.js'
+);
 const { getPlanRepository } = await import('./db/repository.js');
 
 const mockGetRemoteUrl = vi.mocked(getRemoteUrl);
@@ -92,6 +94,66 @@ describe('resolveIssuePaths', () => {
     expect(paths).toEqual(expectedPaths(42));
     expect(paths.issueDir.startsWith(globalHome)).toBe(true);
     expect(paths.tasksFile).toBe(join(paths.issueDir, 'tasks.json'));
+  });
+
+  it('uses an existing workspace .issue-flow/issues directory for every consumer', async () => {
+    await mkdir(join(projectRoot, '.issue-flow', 'issues'), { recursive: true });
+
+    const paths = await resolveIssuePaths(42, { env });
+    const project = await resolveProjectPaths({ env });
+
+    expect(paths.issueDir).toBe(join(projectRoot, '.issue-flow', 'issues', '42'));
+    expect(project).toMatchObject({
+      storageMode: 'workspace',
+      projectDir: join(projectRoot, '.issue-flow'),
+      issuesDir: join(projectRoot, '.issue-flow', 'issues'),
+    });
+    const ignore = await readFile(join(projectRoot, '.issue-flow', '.gitignore'), 'utf8');
+    expect(ignore).toContain('/issues/');
+    expect(ignore).toContain('/issue-flow.db-*');
+    expect(ignore).toContain('/metadata.json');
+    expect(ignore).toContain('/backups/');
+    expect(ignore).not.toContain('/prompts/');
+    await expect(stat(join(projectRoot, '.issue-flow', 'issue-flow.db'))).resolves.toBeDefined();
+    await expect(stat(join(globalHome, 'issue-flow.db'))).rejects.toThrow();
+  });
+
+  it('does not copy global artifacts into an explicitly selected workspace store', async () => {
+    const global = expectedPaths(42);
+    await mkdir(global.issueDir, { recursive: true });
+    await writeFile(global.tasksFile, 'global state', 'utf8');
+    await mkdir(join(projectRoot, '.issue-flow', 'issues'), { recursive: true });
+
+    const local = await resolveIssuePaths(42, { env });
+
+    expect(local.issueDir).toBe(join(projectRoot, '.issue-flow', 'issues', '42'));
+    await expect(stat(local.tasksFile)).rejects.toThrow();
+    await expect(readFile(global.tasksFile, 'utf8')).resolves.toBe('global state');
+  });
+
+  it('does not migrate the legacy repository tree while workspace storage is selected', async () => {
+    await writeLegacy(join('42', 'tasks.json'), 'legacy state');
+    await mkdir(join(projectRoot, '.issue-flow', 'issues'), { recursive: true });
+
+    const local = await resolveIssuePaths(42, { env });
+
+    await expect(stat(local.tasksFile)).rejects.toThrow();
+    await expect(stat(expectedPaths(42).tasksFile)).rejects.toThrow();
+    await expect(
+      readFile(join(projectRoot, LEGACY_ISSUES_DIR_NAME, '42', 'tasks.json'), 'utf8'),
+    ).resolves.toBe('legacy state');
+  });
+
+  it('preserves an existing workspace ignore file while adding scoped protection', async () => {
+    const localRoot = join(projectRoot, '.issue-flow');
+    await mkdir(join(localRoot, 'issues'), { recursive: true });
+    await writeFile(join(localRoot, '.gitignore'), '/custom-cache/\n', 'utf8');
+
+    await resolveIssuePaths('local-id', { env });
+
+    const ignore = await readFile(join(localRoot, '.gitignore'), 'utf8');
+    expect(ignore).toContain('/custom-cache/');
+    expect(ignore).toContain('/issues/');
   });
 
   it('accepts a non-numeric identifier', async () => {

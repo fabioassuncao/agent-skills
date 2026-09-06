@@ -499,7 +499,7 @@ async function prepareDatabase(options: ImportProjectOptions): Promise<void> {
 }
 
 /**
- * Import the structured JSON state already present in one global project tree.
+ * Import the structured JSON state already present in one resolved project tree.
  * Sources are read first and never written. A complete project is then applied
  * in one SQLite transaction, so a repeat after interruption is safe.
  */
@@ -514,13 +514,16 @@ export async function importProjectArtifacts(
       const adopted = database
         .prepare('SELECT project_id FROM project_imports WHERE project_id = ?')
         .get<{ project_id: string }>(options.projectId);
-      // JSON becomes a compatibility projection after successful adoption;
-      // never scan it again in a later process and overwrite canonical rows.
-      if (adopted !== undefined && options.withEvents !== true)
-        return { imported: 0, skipped: 0, tableCounts: counts, failed: false };
       const artifacts = (
         await collectArtifacts(options.projectDir, options.withEvents === true)
-      ).filter((artifact) => adopted === undefined || artifact.kind === 'events');
+      ).filter((artifact) => {
+        if (adopted === undefined) return true;
+        if (options.withEvents === true) return artifact.kind === 'events';
+        // tasks.json is the portable interchange boundary. A Skill may update
+        // it between CLI processes; the stored projection hash below makes an
+        // unchanged CLI materialization free while importing real external drift.
+        return artifact.kind === 'tasks';
+      });
       let imported = 0;
       let skipped = 0;
       database.transaction(() => {

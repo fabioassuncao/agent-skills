@@ -1,0 +1,542 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-05",
+  "sourceBaseline": "24662d3ca1a0e6349292e2c8f3547d1d06c9b265",
+  "candidate": "87ae3c58e9bc608f2e92a911564113f036ec5220",
+  "measurement": "Harness-reported normalized usage; inputTokens excludes cacheReadTokens. Duration is evaluator wall time. Observed tool actions are not a complete tool-call census. No raw streams, reasoning, final responses or fixture bodies retained here.",
+  "limits": {
+    "invocationsAllowedPerVersion": 12,
+    "baselineInvocations": 12,
+    "candidateInvocations": 9,
+    "model": "Harness default unidentified (null); one run per paired scenario, not a significance test.",
+    "costUsd": null,
+    "reasoningTokens": null
+  },
+  "runs": [
+    {
+      "createdAt": "2026-09-06T02:39:13.462Z",
+      "provider": "claude",
+      "version": "2.1.261 (Claude Code)",
+      "baseline": "24662d3",
+      "corpusHash": "cf1bf22871479e9f0375551fe4dc8a4a4d28e5fae90de5657f30d418257be3a0",
+      "arm": "baseline",
+      "results": [
+        {
+          "id": "review-fresh-evidence",
+          "surface": null,
+          "status": "HARNESS_ERROR",
+          "durationMs": 2128,
+          "agent": {
+            "provider": "claude",
+            "model": "<synthetic>"
+          },
+          "usage": null,
+          "hashes": {
+            "review-issue": "589322a70e20d6fc7418e5d75de18c10b04c143b25f4b8c96f3b5bf01e1db057"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 0,
+          "assessment": "Claude HTTP 429/session quota; unavailable model evidence, not a Skill failure."
+        },
+        {
+          "id": "execute-invalid-feedback",
+          "surface": null,
+          "status": "HARNESS_ERROR",
+          "durationMs": 1944,
+          "agent": {
+            "provider": "claude",
+            "model": "<synthetic>"
+          },
+          "usage": null,
+          "hashes": {
+            "execute-tasks": "efde6903b3296c90bb8893cad11cdd59d3c0d7b2aa921e9d42a0d63c0a19e2be"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 0,
+          "assessment": "Claude HTTP 429/session quota; unavailable model evidence, not a Skill failure."
+        },
+        {
+          "id": "execute-current-rule",
+          "surface": null,
+          "status": "HARNESS_ERROR",
+          "durationMs": 2021,
+          "agent": {
+            "provider": "claude",
+            "model": "<synthetic>"
+          },
+          "usage": null,
+          "hashes": {
+            "execute-tasks": "efde6903b3296c90bb8893cad11cdd59d3c0d7b2aa921e9d42a0d63c0a19e2be"
+          },
+          "failures": [],
+          "manualReview": true,
+          "observedToolActions": 0,
+          "assessment": "Claude HTTP 429/session quota; unavailable model evidence, not a Skill failure."
+        },
+        {
+          "id": "execute-current-resume-choices",
+          "surface": null,
+          "status": "HARNESS_ERROR",
+          "durationMs": 2169,
+          "agent": {
+            "provider": "claude",
+            "model": "<synthetic>"
+          },
+          "usage": null,
+          "hashes": {
+            "execute-tasks": "efde6903b3296c90bb8893cad11cdd59d3c0d7b2aa921e9d42a0d63c0a19e2be"
+          },
+          "failures": [],
+          "manualReview": true,
+          "observedToolActions": 0,
+          "assessment": "Claude HTTP 429/session quota; unavailable model evidence, not a Skill failure."
+        },
+        {
+          "id": "pr-metadata-partial-retry",
+          "surface": null,
+          "status": "HARNESS_ERROR",
+          "durationMs": 1915,
+          "agent": {
+            "provider": "claude",
+            "model": "<synthetic>"
+          },
+          "usage": null,
+          "hashes": {
+            "create-pr": "9f2c99b3405f7e2f99a11296848f01770921929ad844ca1283dd5748da446a29"
+          },
+          "failures": [],
+          "manualReview": true,
+          "observedToolActions": 0,
+          "assessment": "Claude HTTP 429/session quota; unavailable model evidence, not a Skill failure."
+        }
+      ]
+    },
+    {
+      "createdAt": "2026-09-06T02:39:16.673Z",
+      "provider": "codex",
+      "version": "codex-cli 0.153.4",
+      "baseline": "24662d3",
+      "corpusHash": "cf1bf22871479e9f0375551fe4dc8a4a4d28e5fae90de5657f30d418257be3a0",
+      "arm": "baseline",
+      "results": [
+        {
+          "id": "review-fresh-evidence",
+          "surface": null,
+          "status": "PASS",
+          "durationMs": 33758,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 14465,
+            "outputTokens": 505,
+            "cacheReadTokens": 104960,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "review-issue": "589322a70e20d6fc7418e5d75de18c10b04c143b25f4b8c96f3b5bf01e1db057"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 4,
+          "assessment": "Rejected stale approval with actionable current defect. Skill case explicitly reports checks unverified; CLI case runs checks. No code/publication mutation."
+        },
+        {
+          "id": "execute-invalid-feedback",
+          "surface": null,
+          "status": "PASS",
+          "durationMs": 59909,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 18827,
+            "outputTokens": 1369,
+            "cacheReadTokens": 139008,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "execute-tasks": "efde6903b3296c90bb8893cad11cdd59d3c0d7b2aa921e9d42a0d63c0a19e2be"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 9,
+          "assessment": "Rejected contradictory finding with verification and recorded evidence; source implementation preserved. Skill case also reports a branch-creation sandbox blocker."
+        },
+        {
+          "id": "execute-current-rule",
+          "surface": null,
+          "status": "FAIL",
+          "durationMs": 87794,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 38079,
+            "outputTokens": 1842,
+            "cacheReadTokens": 183296,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "execute-tasks": "efde6903b3296c90bb8893cad11cdd59d3c0d7b2aa921e9d42a0d63c0a19e2be"
+          },
+          "failures": [
+            "No new commits on main",
+            "Missing \"passes\"\\s*:\\s*true in issues/42/tasks.json",
+            "Expected new commit messages, found none"
+          ],
+          "manualReview": true,
+          "observedToolActions": 10,
+          "assessment": "FAIL retained: required commit absent. Failed Git action and reported .git/index.lock sandbox denial; cannot certify commit behavior."
+        },
+        {
+          "id": "execute-current-resume-choices",
+          "surface": null,
+          "status": "FAIL",
+          "durationMs": 83114,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 22248,
+            "outputTokens": 1867,
+            "cacheReadTokens": 236288,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "execute-tasks": "efde6903b3296c90bb8893cad11cdd59d3c0d7b2aa921e9d42a0d63c0a19e2be"
+          },
+          "failures": [
+            "No new commits on main",
+            "Expected new commit messages, found none"
+          ],
+          "manualReview": true,
+          "observedToolActions": 8,
+          "assessment": "FAIL retained: required commit absent. Failed Git action and reported .git/index.lock sandbox denial; cannot certify commit behavior."
+        },
+        {
+          "id": "pr-metadata-partial-retry",
+          "surface": null,
+          "status": "PASS",
+          "durationMs": 67632,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 20931,
+            "outputTokens": 1169,
+            "cacheReadTokens": 200832,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "create-pr": "9f2c99b3405f7e2f99a11296848f01770921929ad844ca1283dd5748da446a29"
+          },
+          "failures": [],
+          "manualReview": true,
+          "observedToolActions": 14,
+          "assessment": "Rubric inspected: labels/context/published diff consulted before create, same PR repaired after partial label failure and verified, four ordered body sections, tests disclosed unavailable."
+        }
+      ]
+    },
+    {
+      "createdAt": "2026-09-06T02:43:58.212Z",
+      "provider": "codex",
+      "version": "codex-cli 0.153.4",
+      "baseline": "24662d3",
+      "corpusHash": "5a537d980537be97466843033990c23f124f6e9a14474623b7d8ff88122dd841",
+      "arm": "baseline",
+      "results": [
+        {
+          "id": "cli-review-fresh-context",
+          "surface": "cli-prompt",
+          "status": "PASS",
+          "durationMs": 56040,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 18835,
+            "outputTokens": 1111,
+            "cacheReadTokens": 116096,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "cliPrompt": "323049a1aa14d293cfd87ce1e69fd832c610d3782afdc79dbab0742c305aabab"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 6,
+          "assessment": "Rejected stale approval with actionable current defect. Skill case explicitly reports checks unverified; CLI case runs checks. No code/publication mutation."
+        },
+        {
+          "id": "execute-long-progress",
+          "surface": "skill",
+          "status": "PASS",
+          "durationMs": 72153,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 21920,
+            "outputTokens": 1590,
+            "cacheReadTokens": 175104,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "execute-tasks": "efde6903b3296c90bb8893cad11cdd59d3c0d7b2aa921e9d42a0d63c0a19e2be"
+          },
+          "failures": [],
+          "manualReview": true,
+          "observedToolActions": 7,
+          "assessment": "Rubric inspected: current main retained, relevant nullish fix and verification recorded, old work not resumed, no commit/publication. CLI case leaves pipeline flags unchanged.",
+          "contextObservation": "CLI case used head/tail sections; Skill case read the full progress file despite JIT guidance."
+        }
+      ]
+    },
+    {
+      "createdAt": "2026-09-06T02:47:34.656Z",
+      "provider": "codex",
+      "version": "codex-cli 0.153.4",
+      "baseline": null,
+      "corpusHash": "5a537d980537be97466843033990c23f124f6e9a14474623b7d8ff88122dd841",
+      "arm": "candidate",
+      "results": [
+        {
+          "id": "review-fresh-evidence",
+          "surface": "skill",
+          "status": "PASS",
+          "durationMs": 31330,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 14406,
+            "outputTokens": 529,
+            "cacheReadTokens": 79616,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "review-issue": "0ae2418c3f9134c8e476ded295ebe82509961706c848397092a3e88d601a3e9b"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 4,
+          "assessment": "Rejected stale approval with actionable current defect. Skill case explicitly reports checks unverified; CLI case runs checks. No code/publication mutation."
+        },
+        {
+          "id": "execute-invalid-feedback",
+          "surface": "skill",
+          "status": "PASS",
+          "durationMs": 78981,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 19551,
+            "outputTokens": 1653,
+            "cacheReadTokens": 168576,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "execute-tasks": "49199ef0f2990756c765cb5bd72acffd749ad89a025b2130d83a16c7dd549b68"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 5,
+          "assessment": "Rejected contradictory finding with verification and recorded evidence; source implementation preserved. Skill case also reports a branch-creation sandbox blocker."
+        },
+        {
+          "id": "execute-current-rule",
+          "surface": "skill",
+          "status": "FAIL",
+          "durationMs": 83029,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 20896,
+            "outputTokens": 1755,
+            "cacheReadTokens": 229632,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "execute-tasks": "49199ef0f2990756c765cb5bd72acffd749ad89a025b2130d83a16c7dd549b68"
+          },
+          "failures": [
+            "No new commits on main",
+            "Missing \"passes\"\\s*:\\s*true in issues/42/tasks.json",
+            "Expected new commit messages, found none"
+          ],
+          "manualReview": true,
+          "observedToolActions": 9,
+          "assessment": "FAIL retained: required commit absent. Failed Git action and reported .git/index.lock sandbox denial; cannot certify commit behavior."
+        },
+        {
+          "id": "execute-current-resume-choices",
+          "surface": "skill",
+          "status": "FAIL",
+          "durationMs": 93116,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 21272,
+            "outputTokens": 2035,
+            "cacheReadTokens": 262912,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "execute-tasks": "49199ef0f2990756c765cb5bd72acffd749ad89a025b2130d83a16c7dd549b68"
+          },
+          "failures": [
+            "No new commits on main",
+            "Expected new commit messages, found none"
+          ],
+          "manualReview": true,
+          "observedToolActions": 8,
+          "assessment": "FAIL retained: required commit absent. Failed Git action and reported .git/index.lock sandbox denial; cannot certify commit behavior."
+        },
+        {
+          "id": "pr-metadata-partial-retry",
+          "surface": "skill",
+          "status": "PASS",
+          "durationMs": 63965,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 36162,
+            "outputTokens": 1084,
+            "cacheReadTokens": 180736,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "create-pr": "4c36ffbfb1ed3f47e985bc2a69cba25a0210f2e7ba54ddf4aea5c3c25342da28"
+          },
+          "failures": [],
+          "manualReview": true,
+          "observedToolActions": 20,
+          "assessment": "Rubric inspected: labels/context/published diff consulted before create, same PR repaired after partial label failure and verified, four ordered body sections, tests disclosed unavailable."
+        },
+        {
+          "id": "cli-review-fresh-context",
+          "surface": "cli-prompt",
+          "status": "PASS",
+          "durationMs": 47447,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 30357,
+            "outputTokens": 780,
+            "cacheReadTokens": 102784,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "cliPrompt": "73afb05f96ed8fcf1fc15b54a60145ac4642a06d530505c82a2e3becf5c05687"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 7,
+          "assessment": "Rejected stale approval with actionable current defect. Skill case explicitly reports checks unverified; CLI case runs checks. No code/publication mutation."
+        },
+        {
+          "id": "execute-long-progress",
+          "surface": "skill",
+          "status": "PASS",
+          "durationMs": 79715,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 22520,
+            "outputTokens": 1699,
+            "cacheReadTokens": 208128,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "execute-tasks": "49199ef0f2990756c765cb5bd72acffd749ad89a025b2130d83a16c7dd549b68"
+          },
+          "failures": [],
+          "manualReview": true,
+          "observedToolActions": 7,
+          "assessment": "Rubric inspected: current main retained, relevant nullish fix and verification recorded, old work not resumed, no commit/publication. CLI case leaves pipeline flags unchanged.",
+          "contextObservation": "CLI case used head/tail sections; Skill case read the full progress file despite JIT guidance."
+        }
+      ]
+    },
+    {
+      "createdAt": "2026-09-06T02:50:56.991Z",
+      "provider": "codex",
+      "version": "codex-cli 0.153.4",
+      "baseline": null,
+      "corpusHash": "f20a0d30e23b85e6c8c7117b680ced68de139aa9b2e9454f8e763bf1c2c2f982",
+      "arm": "candidate",
+      "results": [
+        {
+          "id": "cli-execute-invalid-feedback",
+          "surface": "cli-prompt",
+          "status": "PASS",
+          "durationMs": 62302,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 24484,
+            "outputTokens": 1219,
+            "cacheReadTokens": 138240,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "cliPrompt": "646b95f6c8913bba945a1ef825cb136d1523c3095d848b4dab2e43e5d358cb4e"
+          },
+          "failures": [],
+          "manualReview": false,
+          "observedToolActions": 6,
+          "assessment": "Rejected contradictory finding with verification and recorded evidence; source implementation preserved. Skill case also reports a branch-creation sandbox blocker."
+        },
+        {
+          "id": "cli-execute-long-progress",
+          "surface": "cli-prompt",
+          "status": "PASS",
+          "durationMs": 59168,
+          "agent": {
+            "provider": "codex",
+            "model": null
+          },
+          "usage": {
+            "inputTokens": 15211,
+            "outputTokens": 1099,
+            "cacheReadTokens": 157056,
+            "cacheCreationTokens": 0
+          },
+          "hashes": {
+            "cliPrompt": "646b95f6c8913bba945a1ef825cb136d1523c3095d848b4dab2e43e5d358cb4e"
+          },
+          "failures": [],
+          "manualReview": true,
+          "observedToolActions": 6,
+          "assessment": "Rubric inspected: current main retained, relevant nullish fix and verification recorded, old work not resumed, no commit/publication. CLI case leaves pipeline flags unchanged.",
+          "contextObservation": "CLI case used head/tail sections; Skill case read the full progress file despite JIT guidance."
+        }
+      ]
+    }
+  ]
+}

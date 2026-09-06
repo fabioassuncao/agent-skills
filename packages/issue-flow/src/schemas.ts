@@ -322,6 +322,8 @@ export const executionRecordSchema = z.object({
 }) satisfies z.ZodType<ExecutionRecord>;
 
 export const taskPlanSchema = z.object({
+  closeIssue: z.boolean().optional(),
+  issueClosedAt: z.string().optional(),
   project: z.string(),
   issueNumber: z.union([z.number().int().positive(), z.string().min(1)]),
   issueUrl: z.string().optional().default(''),

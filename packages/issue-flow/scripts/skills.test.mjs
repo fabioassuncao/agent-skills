@@ -1,9 +1,25 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import {
+  aggregateResults,
+  compareAggregates,
+  markdownReport,
+  statistics,
+} from './skills-benchmark.mjs';
 import { artifactRoot, assemble, compare, files, repoRoot, sourceRoot } from './skills-build.mjs';
 import { frontmatter, validateSkill } from './skills-check.mjs';
 import {
@@ -85,6 +101,75 @@ test('eval corpus covers every Skill and rejects escaping fixtures and absent ou
   const missing = structuredClone(corpus);
   missing.scenarios = missing.scenarios.filter((s) => s.skill !== 'resolve-issue');
   assert.throws(() => validateCorpus(missing, names));
+  const missingHoldout = structuredClone(corpus);
+  missingHoldout.scenarios = missingHoldout.scenarios.filter(
+    (scenario) =>
+      !(
+        scenario.skill === 'analyze-issue' &&
+        scenario.kind === 'positive' &&
+        scenario.split === 'holdout'
+      ),
+  );
+  assert.throws(() => validateCorpus(missingHoldout, names));
+  const unsafePrompt = structuredClone(corpus);
+  const fixture = unsafePrompt.scenarios.find((scenario) => scenario.cliExecute);
+  fixture.cliExecute.tasksFile = '../outside';
+  assert.throws(() => validateCorpus(unsafePrompt, names));
+  const ambiguousPrompt = structuredClone(corpus);
+  const ambiguous = ambiguousPrompt.scenarios.find((scenario) => scenario.cliExecute);
+  ambiguous.cliReview = ambiguous.cliExecute;
+  assert.throws(() => validateCorpus(ambiguousPrompt, names));
+  const invalidSplit = structuredClone(corpus);
+  invalidSplit.scenarios[0].split = 'secret-test-set';
+  assert.throws(() => validateCorpus(invalidSplit, names));
+});
+
+test('benchmark aggregates repeated arms without inventing missing usage', () => {
+  assert.deepEqual(statistics([10, 20]), {
+    reported: 2,
+    mean: 15,
+    standardDeviation: Math.sqrt(50),
+    min: 10,
+    max: 20,
+  });
+  assert.equal(statistics([null, undefined]), null);
+  const results = [
+    {
+      provider: 'claude',
+      arm: 'baseline',
+      surface: 'skill',
+      kind: 'behavior',
+      status: 'PASS',
+      durationMs: 20,
+      usage: { inputTokens: 10, outputTokens: 5 },
+      actions: [{ kind: 'tool' }],
+    },
+    {
+      provider: 'claude',
+      arm: 'candidate',
+      surface: 'skill',
+      kind: 'behavior',
+      status: 'FAIL',
+      durationMs: 10,
+      usage: null,
+      actions: [],
+    },
+  ];
+  const aggregates = aggregateResults(results);
+  assert.equal(aggregates.find((entry) => entry.arm === 'candidate').metrics.totalTokens, null);
+  const comparisons = compareAggregates(aggregates);
+  assert.equal(comparisons[0].passRate.delta, -1);
+  assert.equal(comparisons[0].metrics.durationMs.delta, -10);
+  assert.equal(comparisons[0].metrics.totalTokens, null);
+  assert.match(
+    markdownReport({
+      createdAt: '2026-09-06T00:00:00.000Z',
+      configuration: { baseline: '1234567' },
+      aggregates,
+      comparisons,
+    }),
+    /n\/a/,
+  );
 });
 
 test('shared eval fixtures materialize inside the scenario and reject invalid references', async () => {
@@ -376,6 +461,47 @@ test('packaged issue hash normalizes CRLF and validates metadata without the rep
     assert.equal(run(script, ['issue', file]).status, 1);
   }));
 
+test('packaged artifact helper shares CLI storage selection and protects workspace artifacts', async () =>
+  temporary(async (root) => {
+    assert.equal(spawnSync('git', ['init', '-q'], { cwd: root }).status, 0);
+    const script = join(artifactRoot, 'analyze-issue/scripts/artifacts.mjs');
+    const globalHome = join(root, 'global-state');
+    const env = { ...process.env, HOME: root, ISSUE_FLOW_HOME: globalHome, NO_COLOR: '1' };
+
+    const global = run(script, ['resolve', '42', '--json'], { cwd: root, env });
+    assert.equal(global.status, 0, global.stderr);
+    const globalData = JSON.parse(global.stdout).data;
+    assert.equal(globalData.storageMode, 'global');
+    assert.ok(globalData.paths.issueDir.startsWith(globalHome));
+
+    await mkdir(join(root, '.issue-flow', 'issues'), { recursive: true });
+    const local = run(script, ['prepare', '42', '--json'], { cwd: root, env });
+    assert.equal(local.status, 0, local.stderr);
+    const localData = JSON.parse(local.stdout).data;
+    assert.equal(localData.storageMode, 'workspace');
+    assert.equal(
+      localData.paths.issueDir,
+      join(await realpath(root), '.issue-flow', 'issues', '42'),
+    );
+    assert.deepEqual(await readdir(localData.paths.issueDir), []);
+    const ignore = await readFile(join(root, '.issue-flow', '.gitignore'), 'utf8');
+    assert.match(ignore, /^\/issues\/$/m);
+    assert.match(ignore, /^\/issue-flow\.db-\*$/m);
+    assert.doesNotMatch(ignore, /prompts/);
+    await writeFile(join(localData.paths.issueDir, 'tasks.json'), '{}');
+    await mkdir(join(root, '.issue-flow', 'prompts'));
+    await writeFile(join(root, '.issue-flow', 'prompts', 'plan.md'), 'override');
+    assert.equal(
+      spawnSync('git', ['check-ignore', '-q', '.issue-flow/issues/42/tasks.json'], { cwd: root })
+        .status,
+      0,
+    );
+    assert.equal(
+      spawnSync('git', ['check-ignore', '-q', '.issue-flow/prompts/plan.md'], { cwd: root }).status,
+      1,
+    );
+  }));
+
 test('documented plan is accepted by the actual schema; corrupt and duplicate plans fail', async () =>
   temporary(async (root) => {
     const guide = await readFile(
@@ -393,6 +519,44 @@ test('documented plan is accepted by the actual schema; corrupt and duplicate pl
     plan.lastError = { message: 'wrong shape' };
     await writeFile(file, JSON.stringify(plan));
     assert.equal(run(script, ['plan', file]).status, 1);
+  }));
+
+test('standalone execution context retains active criteria without rewriting the plan', async () =>
+  temporary(async (root) => {
+    const guide = await readFile(
+      join(artifactRoot, 'execute-tasks/references/plan-format.md'),
+      'utf8',
+    );
+    const plan = JSON.parse(guide.match(/```json\n([\s\S]*?)\n```/)[1]);
+    plan.userStories = [
+      {
+        ...plan.userStories[0],
+        id: 'US-001',
+        passes: true,
+        notes: 'Old trace',
+        description: 'Completed detail',
+      },
+      {
+        ...plan.userStories[0],
+        id: 'US-002',
+        passes: false,
+        dependencies: ['US-001'],
+        acceptanceCriteria: ['Preserve current behavior'],
+      },
+    ];
+    const file = join(root, 'tasks.json');
+    const original = JSON.stringify(plan);
+    await writeFile(file, original);
+    const script = join(root, 'artifacts.mjs');
+    await cp(join(artifactRoot, 'execute-tasks/scripts/artifacts.mjs'), script);
+    const result = run(script, ['plan', file, '--context', '--json'], { cwd: root });
+    assert.equal(result.status, 0, result.stderr);
+    const context = JSON.parse(result.stdout).data;
+    assert.equal(context.activeStory.id, 'US-002');
+    assert.deepEqual(context.activeStory.acceptanceCriteria, ['Preserve current behavior']);
+    assert.ok(!result.stdout.includes('Completed detail'));
+    assert.ok(!result.stdout.includes('Old trace'));
+    assert.equal(await readFile(file, 'utf8'), original);
   }));
 
 test('scaffold candidate rendering does not write consumer files', async () =>

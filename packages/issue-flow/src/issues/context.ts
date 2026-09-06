@@ -20,8 +20,8 @@ export function localIssueRef(id: string): string {
  * Reference a human (or an agent) can follow to read the Issue: the remote URL
  * when there is one, the local file otherwise.
  */
-export function issueReference(issue: Issue): string {
-  return issue.remoteRef ?? localIssueRef(issue.id);
+export function issueReference(issue: Issue, localPath?: string): string {
+  return issue.remoteRef ?? localPath ?? localIssueRef(issue.id);
 }
 
 /** Shown instead of an empty list so the prompt never renders a dangling label. */
@@ -31,14 +31,17 @@ const NO_LABELS = '(none)';
  * Placeholder values every phase template consumes, replacing the former
  * `gh issue view` instruction.
  */
-export function issuePlaceholders(resolved: ResolvedIssue): Record<string, string> {
+export function issuePlaceholders(
+  resolved: ResolvedIssue,
+  localPath?: string,
+): Record<string, string> {
   const { issue } = resolved;
   return {
     __ISSUE_TITLE__: issue.title,
     __ISSUE_BODY__: issue.body,
     __ISSUE_LABELS__: issue.labels.length > 0 ? issue.labels.join(', ') : NO_LABELS,
     __ISSUE_SOURCE__: resolved.source,
-    __ISSUE_URL__: issueReference(issue),
+    __ISSUE_URL__: issueReference(issue, localPath),
   };
 }
 

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -231,7 +231,7 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     vi.clearAllMocks();
     prompts = [];
     generatedPlan = VALID_TASK_PLAN;
-    executeAgentCompletesStory = false;
+    executeAgentCompletesStory = true;
 
     // Every binary the pipeline may reach for. The environment is a healthy
     // GitHub one — gh installed and authenticated, prerequisite checks green —
@@ -246,6 +246,18 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
         };
       }
       if (file === 'gh') {
+        if (args[0] === 'pr' && args[1] === 'view' && args.includes('--json')) {
+          return {
+            stdout: JSON.stringify({
+              headRefOid: 'head-sha',
+              baseRefOid: 'base-sha',
+              title: ISSUE_TITLE,
+              url: 'https://github.com/acme/repo/pull/42',
+            }),
+            stderr: '',
+            exitCode: 0,
+          };
+        }
         return { stdout: 'gh version 2.44.0', stderr: '', exitCode: 0 };
       }
       if (file === 'claude') {
@@ -280,34 +292,35 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
       return { stdout: '2.44.0', stderr: '', exitCode: 0 };
     }) as unknown as typeof execa);
 
-    // The agent is replaced by the artifacts each phase expects to find.
+    // The agent returns each phase's structured protocol; deterministic CLI
+    // code persists the artifacts.
     vi.mocked(runHeadless).mockImplementation(
       async (options: HeadlessOptions): Promise<HeadlessResult> => {
         prompts.push(options.prompt);
         const status = options.statusMessage ?? '';
-        // Where the phase told the agent it may write: the same directory it
-        // will read the artifact back from, whichever layout it resolved.
-        const issueDir = options.addDirs?.[0] ?? join(tmp, 'issues', ISSUE_ID);
-        if (status.startsWith('Analyzing')) {
-          await writeFile(join(issueDir, 'analysis.md'), '# Analysis\n\nDone.', 'utf-8');
-        }
-        if (status.startsWith('Generating PRD')) {
-          await writeFile(join(issueDir, 'prd.md'), '# PRD\n\nUser stories go here.', 'utf-8');
-        }
-        if (status.startsWith('Converting PRD')) {
-          await writeFile(
-            join(issueDir, 'tasks.json'),
-            JSON.stringify(generatedPlan, null, 2),
-            'utf-8',
-          );
-        }
-        const output = status.startsWith('Reviewing Pull Request')
-          ? '<pr-review-result>\nRECOMMENDATION: APPROVE\nBLOCKERS:\n- None\n</pr-review-result>'
-          : status.startsWith('Reviewing')
-            ? '<review-result>\nSTATUS: PASS\n</review-result>'
-            : status.startsWith('Creating PR')
-              ? 'https://github.com/acme/repo/pull/42'
-              : 'done';
+        const semanticPlan = {
+          description: generatedPlan.description,
+          stories: generatedPlan.userStories.map((story) => ({
+            key: story.id,
+            title: story.title,
+            description: story.description,
+            acceptanceCriteria: story.acceptanceCriteria,
+            dependsOn: story.dependencies ?? [],
+          })),
+        };
+        const output = status.startsWith('Analyzing')
+          ? '<issue-analysis>\n# Analysis\n\nDone.\n</issue-analysis>'
+          : status.startsWith('Generating PRD')
+            ? '<prd>\n# PRD\n\nUser stories go here.\n</prd>'
+            : status.startsWith('Converting PRD')
+              ? `<task-plan>\n${JSON.stringify(semanticPlan)}\n</task-plan>`
+              : status.startsWith('Reviewing Pull Request')
+                ? '<pr-review-result>\nRECOMMENDATION: APPROVE\nBLOCKERS:\n- None\n</pr-review-result>'
+                : status.startsWith('Reviewing')
+                  ? '<review-result>\nSTATUS: PASS\n</review-result>'
+                  : status.startsWith('Creating PR')
+                    ? 'https://github.com/acme/repo/pull/42'
+                    : 'done';
         return { success: true, result: output, cost: null, error: null };
       },
     );
@@ -421,13 +434,26 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     });
   });
 
-  it('a Issue é lida uma única vez e fechada pelo provider da origem', async () => {
+  it('closes explicitly authorized delivery and confirms the provider result', async () => {
+    expect(
+      await runPipeline(ISSUE_ID, 'auto', undefined, undefined, undefined, { closeIssue: true }),
+    ).toBe(0);
+    expect(provider.calls.close).toBe(1);
+    expect(provider.peek(ISSUE_ID)?.state).toBe('closed');
+    const paths = await resolveIssuePaths(ISSUE_ID);
+    expect(JSON.parse(await readFile(paths.tasksFile, 'utf8'))).toMatchObject({
+      closeIssue: true,
+      issueClosedAt: expect.any(String),
+    });
+  });
+
+  it('a Issue é lida uma única vez e permanece aberta por padrão', async () => {
     expect(await runPipeline(ISSUE_ID, 'auto')).toBe(0);
 
     // One read for the whole run: the origin is settled once and propagated.
     expect(provider.calls.get).toBe(1);
-    expect(provider.calls.close).toBe(1);
-    expect(provider.peek(ISSUE_ID)?.state).toBe('closed');
+    expect(provider.calls.close).toBe(0);
+    expect(provider.peek(ISSUE_ID)?.state).toBe('open');
   });
 
   it('a Issue não é fechada nem procurada como PR no GitHub', async () => {

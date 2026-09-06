@@ -21,12 +21,8 @@ import {
 } from '../../storage/resolve.js';
 import { printError, printInfo, printSuccess, printWarning } from '../../ui/logger.js';
 import { printQueueSummary, type QueueIssueSummary } from '../../ui/summary.js';
-import {
-  buildPrQueueContext,
-  closeIssue,
-  primaryPrCreated,
-  propagatePullRequest,
-} from './pull-request.js';
+import { closeAndConfirm } from './closure.js';
+import { buildPrQueueContext, primaryPrCreated, propagatePullRequest } from './pull-request.js';
 import { handleQueueIssueFailure } from './queue-failure.js';
 import type {
   PrReviewOutcome,
@@ -74,6 +70,7 @@ export async function decideQueue(input: DecideQueueInput): Promise<QueueDecisio
       planFile: queuePaths.planFile,
       noBranch: input.noBranch,
       prReview: input.prReview,
+      closeIssue: input.runOptions.closeIssue,
       confirm: {
         yes: input.runOptions.yes,
         only: input.runOptions.only,
@@ -165,6 +162,10 @@ export async function runQueue(
   runIssueSession: RunIssueSession,
 ): Promise<number> {
   const planFile = (await resolveQueuePaths(initialPlan.id)).planFile;
+  if (options.runOptions?.closeIssue !== undefined) {
+    initialPlan = { ...initialPlan, closeIssue: options.runOptions.closeIssue };
+    await saveExecutionPlan(planFile, initialPlan);
+  }
   const queueUsage = beginUsageScope();
   const startedAtMs = Date.now();
   const resilience = getActiveResilienceConfig();
@@ -412,7 +413,11 @@ async function finishQueue(
   // One Pull Request for the whole queue, and only when there is a branch to
   // propose and no Pull Request has been opened for this queue yet.
   const alreadyOpened = current.pullRequest !== undefined || (await primaryPrCreated(current));
-  if (!current.noBranch && options.noBranch !== true && !alreadyOpened) {
+  if (
+    !current.noBranch &&
+    options.noBranch !== true &&
+    (!alreadyOpened || (current.prReview && !current.prReviewCompleted))
+  ) {
     const outcome = await runIssueSession(current.id, options.mode, {
       prReview: options.prReview ?? current.prReview,
       queue: {
@@ -428,19 +433,47 @@ async function finishQueue(
       await saveExecutionPlan(planFile, current);
       return outcome.code;
     }
+    if (current.prReview) current.prReviewCompleted = review !== null && !review.requestedChanges;
     const pullRequest = await propagatePullRequest(current);
     if (pullRequest !== null) {
       current = setQueuePullRequest(current, pullRequest);
     }
   }
   await saveExecutionPlan(planFile, current);
+  if (current.prReview && !current.prReviewCompleted && !review?.requestedChanges) {
+    printError('Consolidated PR review is still pending; resume the queue.');
+    return 1;
+  }
   // A review asking for changes leaves every issue open, exactly as it does for
   // a single-issue run: the work is proposed, not accepted.
   if (review?.requestedChanges === true) {
     printInfo('Issues left open until the review blockers are addressed.');
-  } else {
+  } else if (current.closeIssue && (!current.prReview || current.prReviewCompleted)) {
     for (const entry of current.issues) {
-      await closeIssue(entry.id, entry.source);
+      if (entry.status !== 'completed' || (current.closedIssueIds ?? []).includes(entry.id))
+        continue;
+      try {
+        await closeAndConfirm(entry.id, entry.source);
+        current.closedIssueIds = [...(current.closedIssueIds ?? []), entry.id];
+        await saveExecutionPlan(planFile, current);
+      } catch (error) {
+        printError(`Issue #${entry.id} closure pending: ${String(error)}`);
+        return 1;
+      }
+    }
+  }
+  // Per-issue execution was deliberately left in_progress until delivery.
+  if (!review?.requestedChanges && (!current.prReview || current.prReviewCompleted)) {
+    for (const entry of current.issues.filter((entry) => entry.status === 'completed')) {
+      try {
+        const paths = await resolveIssuePaths(entry.id);
+        const task = await loadTaskPlan(paths.tasksFile);
+        task.issueStatus = 'completed';
+        task.completedAt = new Date().toISOString();
+        await saveTaskPlan(paths.tasksFile, task);
+      } catch {
+        /* Containers need not own task plans. */
+      }
     }
   }
   printQueueSummary({

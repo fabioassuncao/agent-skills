@@ -8,6 +8,7 @@ import {
   exportStoredState,
   findHighestStoredUserStoryNumber,
   ingestAgentPlan,
+  ingestGeneratedPlan,
   listStoredExecutions,
   loadStoredPlan,
   loadStoredQueue,
@@ -71,6 +72,24 @@ describe('SQLite plan repository', () => {
 
   afterEach(() => resetPlanRepositories());
 
+  it('persists closure choices but refuses authorization or confirmation from generated output', async () => {
+    await saveStoredPlan(context, { ...plan(), closeIssue: false });
+    await writeFile(
+      context.tasksPath,
+      JSON.stringify({ ...plan(), closeIssue: true, issueClosedAt: 'forged' }),
+    );
+    await ingestGeneratedPlan(context);
+    expect(await loadStoredPlan(context)).toMatchObject({ closeIssue: false });
+    expect((await loadStoredPlan(context)).issueClosedAt).toBeUndefined();
+    await saveStoredPlan(context, { ...plan(), closeIssue: true, issueClosedAt: 'confirmed' });
+    await writeFile(context.tasksPath, JSON.stringify(plan()));
+    await ingestGeneratedPlan(context);
+    expect(await loadStoredPlan(context)).toMatchObject({
+      closeIssue: true,
+      issueClosedAt: 'confirmed',
+    });
+  });
+
   it('reingests agent passes and notes after telemetry closes its execution', async () => {
     const execution = {
       id: 'execution-1',
@@ -121,6 +140,47 @@ describe('SQLite plan repository', () => {
     await expect(exportStoredState()).resolves.toMatchObject({
       stories: expect.arrayContaining([expect.objectContaining({ id: 'US-001', story_number: 1 })]),
       executions: expect.arrayContaining([expect.objectContaining({ id: 'execution-history' })]),
+    });
+  });
+
+  it('ingests correction acknowledgement and blockers without granting pipeline ownership', async () => {
+    const baseline = { ...plan(), lastReviewFindings: 'Fix expiry', closeIssue: false };
+    await saveStoredPlan(context, baseline);
+    const blocker = {
+      category: 'verification',
+      message: 'Browser unavailable',
+      at: '2026-09-05T00:00:00Z',
+    };
+    await writeFile(
+      context.tasksPath,
+      JSON.stringify({
+        ...baseline,
+        lastReviewFindings: null,
+        lastError: blocker,
+        closeIssue: true,
+        pipeline: { ...baseline.pipeline, reviewCompleted: true, prCreated: true },
+      }),
+    );
+    expect(await ingestAgentPlan(context, baseline)).toMatchObject({
+      lastReviewFindings: null,
+      lastError: blocker,
+      closeIssue: false,
+      pipeline: { reviewCompleted: false, prCreated: false },
+    });
+  });
+
+  it('preserves newer canonical findings and blockers while ingesting story progress', async () => {
+    const baseline = { ...plan(), lastReviewFindings: 'Old finding' };
+    const newer = { category: 'review', message: 'New blocker', at: '2026-09-05T00:00:00Z' };
+    await saveStoredPlan(context, {
+      ...baseline,
+      lastReviewFindings: 'New finding',
+      lastError: newer,
+    });
+    await writeFile(context.tasksPath, JSON.stringify({ ...baseline, lastReviewFindings: null }));
+    expect(await ingestAgentPlan(context, baseline)).toMatchObject({
+      lastReviewFindings: 'New finding',
+      lastError: newer,
     });
   });
 

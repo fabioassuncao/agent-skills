@@ -22,50 +22,29 @@ vi.mock('execa', () => ({
   }),
 }));
 
-/** The plan the mocked headless call writes to tasksPath — set per test. */
-const nextPlanUserStoryId = vi.hoisted(() => ({ current: 'US-001' }));
 const headlessOptions = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
-const tasksPathBox = vi.hoisted(() => ({ current: '' }));
 
 vi.mock('../core/headless.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../core/headless.js')>()),
   runHeadless: vi.fn(async (options: Record<string, unknown>) => {
     headlessOptions.last = options;
-    // Simulate Claude honoring __NEXT_US_NUMBER__ by writing a minimal, valid
-    // tasks.json whose first story carries the id the prompt was told to use.
     const plan = {
-      project: 'test',
-      issueNumber: 42,
-      issueUrl: 'https://github.com/acme/repo/issues/42',
-      branchName: 'issue/42-sample',
       description: 'Test plan',
-      issueStatus: 'pending',
-      completedAt: null,
-      lastAttemptAt: null,
-      lastError: null,
-      correctionCycle: 0,
-      maxCorrectionCycles: 3,
-      pipeline: {
-        prdCompleted: true,
-        jsonCompleted: false,
-        executionCompleted: false,
-        reviewCompleted: false,
-        prCreated: false,
-      },
-      userStories: [
+      stories: [
         {
-          id: nextPlanUserStoryId.current,
+          key: 'first-story',
           title: 'First story',
           description: 'As a user, I want X',
           acceptanceCriteria: ['Typecheck passes'],
-          priority: 1,
-          passes: false,
-          notes: '',
         },
       ],
     };
-    await writeFile(tasksPathBox.current, JSON.stringify(plan, null, 2), 'utf-8');
-    return { success: true, result: 'Done', cost: null, error: null };
+    return {
+      success: true,
+      result: `<task-plan>${JSON.stringify(plan)}</task-plan>`,
+      cost: null,
+      error: null,
+    };
   }),
 }));
 
@@ -128,14 +107,12 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     process.env[GLOBAL_ROOT_ENV] = globalHome;
     resetStorageResolutionCache();
     headlessOptions.last = null;
-    nextPlanUserStoryId.current = 'US-001';
     mockPrintInfo.mockClear();
     mockPrintWarning.mockClear();
 
     const paths = await resolveIssuePaths('42');
     issueDir = paths.issueDir;
     tasksPath = paths.tasksFile;
-    tasksPathBox.current = tasksPath;
     await mkdir(issueDir, { recursive: true });
     await writeFile(paths.prdFile, '# PRD\n\nSome requirements.', 'utf-8');
   });
@@ -183,7 +160,9 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
     const code = await runPlan('42', makeResolved());
 
     expect(code).toBe(0);
-    expect(String(headlessOptions.last?.prompt)).toContain('US-001');
+    expect((JSON.parse(await readFile(tasksPath, 'utf8')) as TaskPlan).userStories[0]?.id).toBe(
+      'US-001',
+    );
     const messages = mockPrintInfo.mock.calls.map(([line]) => String(line));
     expect(messages.some((m) => m.includes('US-001') && m.includes('no previous history'))).toBe(
       true,
@@ -195,12 +174,13 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
   it('continues numbering automatically from a previous issue in the same project', async () => {
     // Seed history: another issue in the same project already used up to US-015.
     await seedPriorStory();
-    nextPlanUserStoryId.current = 'US-016';
 
     const code = await runPlan('42', makeResolved());
 
     expect(code).toBe(0);
-    expect(String(headlessOptions.last?.prompt)).toContain('US-016');
+    expect((JSON.parse(await readFile(tasksPath, 'utf8')) as TaskPlan).userStories[0]?.id).toBe(
+      'US-016',
+    );
     const messages = mockPrintInfo.mock.calls.map(([line]) => String(line));
     expect(messages.some((m) => m.includes('Continuing') && m.includes('US-016'))).toBe(true);
 
@@ -209,12 +189,13 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
 
   it('--start-us forces the numbering and ignores history', async () => {
     await seedPriorStory();
-    nextPlanUserStoryId.current = 'US-027';
 
     const code = await runPlan('42', makeResolved(), { startUs: 27 });
 
     expect(code).toBe(0);
-    expect(String(headlessOptions.last?.prompt)).toContain('US-027');
+    expect((JSON.parse(await readFile(tasksPath, 'utf8')) as TaskPlan).userStories[0]?.id).toBe(
+      'US-027',
+    );
     const messages = mockPrintInfo.mock.calls.map(([line]) => String(line));
     expect(messages.some((m) => m.includes('forced') && m.includes('US-027'))).toBe(true);
 
@@ -223,7 +204,6 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
 
   it('--continue names the flag explicitly in the log while resolving the same number', async () => {
     await seedPriorStory();
-    nextPlanUserStoryId.current = 'US-016';
 
     const code = await runPlan('42', makeResolved(), { continueFlag: true });
 
@@ -234,25 +214,25 @@ describe('runPlan — User Story numbering continuity (issue #36)', () => {
 
   it('re-running plan on the same issue does not push its own numbering forward', async () => {
     await seedPriorStory();
-    nextPlanUserStoryId.current = 'US-016';
 
     expect(await runPlan('42', makeResolved())).toBe(0);
     // Second run over the tasks.json the first one just wrote (US-016).
     expect(await runPlan('42', makeResolved())).toBe(0);
 
-    expect(String(headlessOptions.last?.prompt)).toContain('US-016');
+    expect((JSON.parse(await readFile(tasksPath, 'utf8')) as TaskPlan).userStories[0]?.id).toBe(
+      'US-016',
+    );
     expect(await readStoredNumbering()).toMatchObject({ nextNumber: 16, source: 'history' });
   });
 
-  it('warns when the generated plan ignores the requested numbering', async () => {
+  it('assigns numbering in code rather than trusting generated IDs', async () => {
     await seedPriorStory();
-    // Claude ignores __NEXT_US_NUMBER__ and restarts at US-001.
-    nextPlanUserStoryId.current = 'US-001';
 
     expect(await runPlan('42', makeResolved())).toBe(0);
 
-    const warnings = mockPrintWarning.mock.calls.map(([line]) => String(line));
-    expect(warnings.some((m) => m.includes('US-001') && m.includes('US-016'))).toBe(true);
+    const plan = JSON.parse(await readFile(tasksPath, 'utf8')) as TaskPlan;
+    expect(plan.userStories[0]?.id).toBe('US-016');
+    expect(mockPrintWarning).not.toHaveBeenCalled();
   });
 
   it('is unaffected when tasksPath and prdPath differ from earlier fixtures', async () => {

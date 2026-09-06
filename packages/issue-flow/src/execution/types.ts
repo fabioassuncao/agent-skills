@@ -98,6 +98,9 @@ export interface ExecutionPlanExcluded {
 }
 
 export interface ExecutionPlan {
+  closeIssue?: boolean;
+  closedIssueIds?: string[];
+  prReviewCompleted?: boolean;
   schemaVersion: 1;
   /** Queue id: the identifier of the primary (first requested) Issue. */
   id: string;

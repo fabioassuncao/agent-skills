@@ -56,6 +56,7 @@ vi.mock('../utils/git.js', async (importOriginal) => {
   return {
     ...actual,
     getBaseBranch: vi.fn(async () => 'main'),
+    getCurrentBranch: vi.fn(async () => 'main'),
     isWorkingTreeClean: vi.fn(async () => repository.clean),
     committedStoryIds: vi.fn(async () => new Set(repository.committed)),
   };
@@ -141,6 +142,24 @@ describe('runEngine — pending-correction guard', () => {
   async function writePlan(plan: TaskPlan): Promise<void> {
     await writeFile(paths.prdFile, JSON.stringify(plan, null, 2), 'utf-8');
   }
+
+  it('stops on a newly recorded blocker even when the agent emits COMPLETE', async () => {
+    await writePlan(makePlan({ lastReviewFindings: 'Check required browser behavior' }));
+    mockExecuteClaude.mockImplementationOnce(async () => {
+      await writePlan(
+        makePlan({
+          lastError: {
+            category: 'verification',
+            message: 'Required browser unavailable',
+            at: new Date().toISOString(),
+          },
+        }),
+      );
+      return { exitCode: 0, output: '<promise>COMPLETE</promise>', cost: null };
+    });
+    expect(await runEngine(baseConfig, paths)).toBe(1);
+    expect((await readPlan()).lastError?.message).toBe('Required browser unavailable');
+  });
 
   async function readPlan(): Promise<TaskPlan> {
     return JSON.parse(await readFile(paths.prdFile, 'utf-8'));
@@ -303,6 +322,61 @@ describe('runEngine — execute-phase metrics', () => {
       return { exitCode: 0, output, cost };
     });
   }
+
+  it('rejects broken dependencies and no-branch mismatch before invoking an agent', async () => {
+    await writePlan(pendingPlan({ ...makeStory('US-001', 1, false), dependencies: ['missing'] }));
+    expect(await runEngine(baseConfig, paths)).toBe(1);
+    expect(mockExecuteClaude).not.toHaveBeenCalled();
+    await writePlan({
+      ...pendingPlan(makeStory('US-001', 1, false)),
+      noBranch: true,
+      branchName: 'other',
+    });
+    expect(await runEngine(baseConfig, paths)).toBe(1);
+    expect(mockExecuteClaude).not.toHaveBeenCalled();
+  });
+
+  it('schedules an eligible prerequisite before a higher-priority blocked story', async () => {
+    await writePlan(
+      pendingPlan(
+        { ...makeStory('US-002', 1, false), dependencies: ['US-001'] },
+        makeStory('US-001', 2, false),
+      ),
+    );
+    agentCompleting(['US-001'], '', null);
+    await runEngine(baseConfig, paths);
+    expect(publisher.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'iteration:start', storyId: 'US-001' }),
+      ]),
+    );
+  });
+
+  it('preserves CLI closure ownership when a legacy agent writes forged completion fields', async () => {
+    await writePlan({ ...pendingPlan(makeStory('US-001', 1, false)), closeIssue: false });
+    mockExecuteClaude.mockImplementationOnce(async () => {
+      const plan = await readPlan();
+      plan.closeIssue = true;
+      plan.issueClosedAt = 'forged';
+      plan.userStories[0].passes = true;
+      await writePlan(plan);
+      return { exitCode: 0, output: '<promise>COMPLETE</promise>', cost: null };
+    });
+    expect(await runEngine(baseConfig, paths)).toBe(0);
+    expect(await readPlan()).toMatchObject({ closeIssue: false });
+    expect((await readPlan()).issueClosedAt).toBeUndefined();
+  });
+
+  it('completes execution without prematurely completing pipeline delivery', async () => {
+    await writePlan(pendingPlan(makeStory('US-001', 1, false)));
+    agentCompleting(['US-001'], '<promise>COMPLETE</promise>', null);
+    expect(await runEngine({ ...baseConfig, inPipeline: true }, paths)).toBe(0);
+    expect(await readPlan()).toMatchObject({
+      issueStatus: 'in_progress',
+      completedAt: null,
+      pipeline: { executionCompleted: true, reviewCompleted: false, prCreated: false },
+    });
+  });
 
   it('publishes iteration:start with the highest-priority pending story, regardless of array order', async () => {
     // US-002 (priority 1, highest) is listed second in the plan on purpose —
@@ -676,6 +750,17 @@ describe('runEngine — commit scope in the prompt', () => {
 
     const prompt = mockExecuteClaude.mock.calls[0]?.[0] ?? '';
     expect(prompt).toContain('feat(issue-42): [Story ID] - [Story Title]');
+    expect(prompt).not.toContain('fix(issue-42): address review findings');
+  });
+
+  it('loads correction instructions only while review findings are pending', async () => {
+    const plan = makePlan({ lastReviewFindings: 'Address the failing edge case' });
+    await writeFile(paths.prdFile, JSON.stringify(plan, null, 2), 'utf-8');
+
+    await runEngine({ ...baseConfig, commitScope: 'issue-42' }, paths);
+
+    const prompt = mockExecuteClaude.mock.calls[0]?.[0] ?? '';
+    expect(prompt).toContain('## Correction findings');
     expect(prompt).toContain('fix(issue-42): address review findings');
   });
 });

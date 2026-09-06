@@ -5,19 +5,18 @@ import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { ensureProvidersRegistered } from '../issues/bootstrap.js';
-import { localIssueRef } from '../issues/context.js';
 import { IssueDraftParseError, parseIssueDraft } from '../issues/draft.js';
 import { createMissingLabels, reconcileLabels } from '../issues/label-policy.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueDraft, IssueGenerateTarget } from '../issues/types.js';
 import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
-import { resolveProjectPaths } from '../storage/resolve.js';
+import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 
 /** Human-readable pointer to a created Issue. */
-function issueLocation(issue: Issue): string {
-  return issue.remoteRef ?? localIssueRef(issue.id);
+async function issueLocation(issue: Issue): Promise<string> {
+  return issue.remoteRef ?? (await resolveIssuePaths(issue.id)).issueFile;
 }
 
 /**
@@ -26,7 +25,10 @@ function issueLocation(issue: Issue): string {
  * The agent only drafts: creation belongs to the providers, so the same draft
  * can be persisted to GitHub, to the local files, or to both.
  */
-async function draftIssue(promptText: string): Promise<IssueDraft> {
+async function draftIssue(
+  promptText: string,
+  destination: IssueGenerateTarget,
+): Promise<IssueDraft> {
   // The duplicate check reads the local issues, which live in the global
   // storage: the path has to be handed over (and allowed) explicitly, since it
   // is outside the working directory the agent is started in.
@@ -36,7 +38,9 @@ async function draftIssue(promptText: string): Promise<IssueDraft> {
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
     // what keeps the rendered prompt identical to the pre-policy one.
-    ...(await resolvePolicyPlaceholders()),
+    ...(await resolvePolicyPlaceholders({ remote: destination !== 'local' })),
+    __REMOTE_DISCOVERY__: destination === 'local' ? '' : 'enabled',
+    __DESTINATION__: destination,
     __USER_PROMPT__: promptText,
     __LOCAL_ISSUES_DIR__: issuesDir,
   });
@@ -95,7 +99,7 @@ async function createBoth(draft: IssueDraft): Promise<Issue[]> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `GitHub issue created at ${issueLocation(remote)}, but the local mirror was not written: ` +
+      `GitHub issue created at ${await issueLocation(remote)}, but the local mirror was not written: ` +
         `${message}. Nothing else was persisted; re-run with --local to create the mirror.`,
     );
   }
@@ -105,7 +109,9 @@ async function createIssues(target: IssueGenerateTarget, draft: IssueDraft): Pro
   if (target === 'both') {
     return createBoth(draft);
   }
-  return [await getProvider(target).create(draft)];
+  return [
+    await getProvider(target).create(draft, ...(target === 'local' ? [{ localOnly: true }] : [])),
+  ];
 }
 
 /**
@@ -118,14 +124,14 @@ async function createIssues(target: IssueGenerateTarget, draft: IssueDraft): Pro
  *
  * Never throws: a policy that could not be resolved leaves the draft untouched.
  */
-async function applyLabelPolicy(draft: IssueDraft): Promise<IssueDraft> {
+async function applyLabelPolicy(draft: IssueDraft, localOnly: boolean): Promise<IssueDraft> {
   let known: Awaited<ReturnType<typeof loadRepositoryPolicy>>['issues']['labels'];
   let allowCreation: boolean;
   try {
-    const policy = await loadRepositoryPolicy();
+    const policy = await loadRepositoryPolicy({ remote: !localOnly });
     known = policy.issues.labels;
     const config = await loadPolicyConfig({ projectRoot: policy.root });
-    allowCreation = config.issues.allowLabelCreation ?? false;
+    allowCreation = !localOnly && (config.issues.allowLabelCreation ?? false);
   } catch {
     return draft;
   }
@@ -158,7 +164,7 @@ export async function runGenerate(
 
   let draft: IssueDraft;
   try {
-    draft = await draftIssue(promptText);
+    draft = await draftIssue(promptText, destination);
   } catch (err) {
     if (err instanceof IssueDraftParseError) {
       printError(`Could not read the generated Issue draft: ${err.message}`);
@@ -168,7 +174,7 @@ export async function runGenerate(
     return 1;
   }
 
-  const finalDraft = await applyLabelPolicy(draft);
+  const finalDraft = await applyLabelPolicy(draft, destination === 'local');
   if (finalDraft.template !== undefined) {
     printInfo(`Following the repository's Issue Template: ${finalDraft.template}`);
   }
@@ -185,7 +191,7 @@ export async function runGenerate(
   }
 
   for (const issue of created) {
-    printSuccess(`Issue created (${issue.source}): ${issueLocation(issue)}`);
+    printSuccess(`Issue created (${issue.source}): ${await issueLocation(issue)}`);
   }
   return 0;
 }

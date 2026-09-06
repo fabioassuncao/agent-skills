@@ -59,8 +59,8 @@ uses Codex and GitHub issue `42`; substitute your issue number or full URL.
    Use resolve-issue for GitHub issue 42 in manual mode.
    ```
 
-4. Inspect `issues/42/prd.md` for requirements and acceptance criteria, and
-   `issues/42/tasks.json` for the ordered task plan. The response should identify
+4. Inspect the resolved `prd.md` for requirements and acceptance criteria, and
+   `tasks.json` for the ordered task plan. The response should identify
    the intended branch, artifact paths and any unresolved decisions.
 
 Manual mode stops here, before implementation. It records an intended branch
@@ -160,9 +160,9 @@ title followed by its body; metadata is optional when reading an existing issue.
 
 ```text
 Use resolve-issue for local issue 42 in manual mode.
-Use resolve-issue for issues/42/issue.md, without publication.
-Use analyze-issue to analyze issues/42/issue.md; do not implement it.
-Use convert-prd-to-json for issues/42/prd.md and stop after creating tasks.json.
+Use resolve-issue for /path/to/issue.md, without publication.
+Use analyze-issue to analyze /path/to/issue.md; do not implement it.
+Use convert-prd-to-json for /path/to/prd.md and stop after creating tasks.json.
 Use review-issue to verify local issue 42. Return the report only.
 ```
 
@@ -260,11 +260,18 @@ and must resolve unmerged dependencies before starting dependent implementation.
 
 ## Artifacts, resumption and limits
 
-Default artifacts live under `<consumer-project>/issues/<id>/`: PRD, task plan,
-progress and review reports, plus `issue.md` and optional metadata for local
-issues. Explicit artifact paths are supported. Paths refer to the consumer
-project, not the installed Skill directory. Inspect the consumer repository's
-ignore and contribution policy before deciding which artifacts to commit.
+Skills resolve artifacts with their bundled `scripts/artifacts.mjs` helper. The
+default is `~/.issue-flow/projects/<project-id>/issues/<id>/` (or
+`ISSUE_FLOW_HOME`). If `<consumer-project>/.issue-flow/issues/` already exists,
+both Skills and CLI select `.issue-flow/issues/<id>/` instead. The helper never
+creates that opt-in directory implicitly and never copies between stores.
+
+PRDs, task plans, progress and review reports, plus local `issue.md` and metadata,
+are operational artifacts and must not be staged or committed. Global storage is
+outside the repository. Workspace storage maintains a scoped
+`.issue-flow/.gitignore` for its operational files without ignoring unrelated
+`.issue-flow` content. Explicit artifact paths are supported and remain
+operational state.
 
 Resume by asking `resolve-issue` to continue the same issue. It verifies artifacts
 and Git evidence, then resumes the earliest incomplete phase, including a
@@ -276,14 +283,23 @@ or branches. Artifact history alone does not authorize publication. A new manual
 planning. Corrections are bounded to three rounds by default; invalid findings
 must be rejected with evidence.
 
+Task prerequisites and the compact plan-inspection helper are documented in the
+bundled [plan format](execute-tasks/references/plan-format.md). The helper validates
+structure and reports eligible work; the agent still evaluates requirements and
+test evidence. It runs independently of the CLI. Use documented helper operations
+and load their help only when needed; reuse already established policy until
+relevant scope, instructions, configuration or checkout changes.
+
 This runs in the current agent. It does not provide transactional locks or an
 independently isolated reviewer. Those runtime capabilities belong to the
 [experimental CLI](../docs/cli.md).
 
-**A run cannot be transferred or resumed between Skills and the CLI.** CLI-owned
-SQLite data, sessions, locks and telemetry are separate from Skill artifacts.
-Do not point Skills at CLI-managed state. The CLI's legacy migration is not a
-Skill session transfer mechanism. See [CLI storage](../docs/storage.md).
+Readable artifacts can continue between Skills and the CLI. Run `resolve <id>`
+before reading/writing, `prepare <id>` before the first write, and `reconcile
+<id>` after changing `tasks.json`; the helper is bundled and does not require an
+installed CLI. CLI-owned sessions, locks and telemetry remain separate: a Skill
+continues from artifact and Git evidence rather than taking ownership of a live
+CLI process. See [storage](../docs/storage.md).
 
 ## Installation options and compatibility
 

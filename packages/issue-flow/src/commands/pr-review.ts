@@ -13,6 +13,7 @@ import {
   parseFindings,
   parsePrReviewResult,
   prReviewDir,
+  readPrReviewIndex,
   reportFileName,
   resolveRound,
 } from '../core/pr-review/report.js';
@@ -94,11 +95,12 @@ interface GhPullRequest {
   url?: string;
   headRefName?: string;
   headRefOid?: string;
+  baseRefOid?: string;
 }
 
 /**
- * Best-effort `gh pr view`. A failure here costs the report a title and the
- * index a head SHA; it never costs the review, so nothing is thrown.
+ * Collect revision metadata without throwing. Missing revisions leave the
+ * report available for inspection but cannot produce a verified recommendation.
  */
 async function fetchPullRequestMetadata(number: number): Promise<GhPullRequest | null> {
   try {
@@ -107,7 +109,7 @@ async function fetchPullRequestMetadata(number: number): Promise<GhPullRequest |
       'view',
       String(number),
       '--json',
-      'title,url,headRefName,headRefOid',
+      'title,url,headRefName,headRefOid,baseRefOid',
     ]);
     if (result.exitCode !== 0) {
       return null;
@@ -210,11 +212,24 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
   const round = await resolveRound(dir, target.number, explicitRound);
   const reportPath = join(dir, reportFileName(target.number, round));
 
+  const meta = await fetchPullRequestMetadata(target.number);
+  const previous = (await readPrReviewIndex(dir))?.rounds
+    .filter((entry) => entry.round < round)
+    .sort((a, b) => b.round - a.round)[0];
   const template = await loadPrompt('pr-review');
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
     // what keeps the rendered prompt identical to the pre-policy one.
-    ...(await resolvePolicyPlaceholders()),
+    ...(await resolvePolicyPlaceholders({ phase: 'pr-review' })),
+    __PR_HEAD__: meta?.headRefOid ?? 'unavailable',
+    __PR_BASE__: meta?.baseRefOid ?? 'unavailable',
+    __PREVIOUS_REVIEW__: previous
+      ? JSON.stringify({
+          headSha: previous.headSha,
+          reportPath: join(dir, reportFileName(target.number, previous.round)),
+        })
+      : '',
+    __ISSUE_CONTEXT__: issue === undefined ? '' : 'enabled',
     __PR_NUMBER__: String(target.number),
     __ISSUE_NUMBER__: issue ?? NO_ISSUE,
     __TASKS_PATH__: tasksPath ?? NO_PATH,
@@ -248,10 +263,16 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
   }
 
   const parsed = parsePrReviewResult(result.result);
-  const recommendation = parsed.ok ? parsed.result.recommendation : null;
+  const latest = await fetchPullRequestMetadata(target.number);
+  const revisionError =
+    !meta?.headRefOid || !meta.baseRefOid || !latest?.headRefOid || !latest.baseRefOid
+      ? 'PR revision could not be verified before and after review.'
+      : meta.headRefOid !== latest.headRefOid || meta.baseRefOid !== latest.baseRefOid
+        ? 'PR head or base changed during review; this report describes the earlier revision.'
+        : null;
+  const recommendation = parsed.ok && revisionError === null ? parsed.result.recommendation : null;
   const blockers = parsed.ok ? parsed.result.blockers : [];
 
-  const meta = await fetchPullRequestMetadata(target.number);
   const pullRequest = mergePullRequest(target, meta);
   const at = isoNow();
   const headSha = meta?.headRefOid ?? null;
@@ -271,7 +292,7 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
       headSha,
       recommendation,
       body: result.result,
-      parseError: parsed.ok ? null : parsed.error,
+      parseError: revisionError ?? (parsed.ok ? null : parsed.error),
     }),
   };
 
@@ -303,7 +324,10 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
   // A verdict that could not be read is an execution failure, never an
   // approval — the raw output is in the report for whoever has to look.
   if (!parsed.ok || recommendation === null) {
-    printError(`PR review could not be parsed: ${parsed.ok ? 'no recommendation' : parsed.error}`);
+    printError(
+      revisionError ??
+        `PR review could not be parsed: ${parsed.ok ? 'no recommendation' : parsed.error}`,
+    );
     return 1;
   }
 

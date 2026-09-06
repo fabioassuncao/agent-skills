@@ -1,4 +1,6 @@
-You are drafting an issue for this repository.
+You are drafting an issue for this repository. Destination: __DESTINATION__.
+For local delivery, never run GitHub commands or remote probes. Inspect local
+conventions and duplicates only; unavailable remote information is not required.
 
 The user provided this description:
 __USER_PROMPT__
@@ -17,11 +19,13 @@ Steps:
 3. Check for duplicates before drafting. This is a **multi-strategy search** —
    one query finds only issues worded the way you happened to word yours:
    - Local issues: read `__LOCAL_ISSUES_DIR__/*/metadata.json` (the directory may not exist)
+<!-- if:__REMOTE_DISCOVERY__ -->
    - Remote issues, only if `gh` is installed and authenticated:
      - 2-3 different keyword combinations drawn from the title and the core problem:
        `gh issue list --search "<keyword1> <keyword2>" --state all --limit 30 --json number,title,state,url`
      - the affected area, when the request names one (auth, database, API…)
      - a label the request maps to, when the repository has a matching one
+<!-- /if -->
    Judge a candidate on whether it describes the **same problem**, not on textual
    overlap. If an existing issue already covers the request, still emit the draft,
    but say so in the body under a "Possible duplicates" section, citing the issue.
@@ -60,20 +64,7 @@ Rules for the block:
 - Write the body as plain markdown — do not wrap it in a code fence
 
 <!-- if:__REPO_POLICY__ -->
-## Repository policy
-
-The repository this runs in declares the conventions below. They were discovered
-from its own files (Issue Templates, labels, `AGENTS.md`, `CONTRIBUTING.md`,
-`CODEOWNERS`) and from its configuration.
-
-__REPO_POLICY__
-
-**This section takes precedence over any convention stated earlier in this
-prompt.** Where the two disagree, follow the repository. Where the repository is
-silent, the defaults above still apply.
-
-Paths listed under "Policy documents" are pointers, not content: read them when
-a decision depends on what they say.
+<!-- contract:cli-repository-policy -->
 
 <!-- contract:repository-decisions -->
 

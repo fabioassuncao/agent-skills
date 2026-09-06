@@ -67,9 +67,8 @@ export interface UserStory extends ClaudeUsage {
    */
   status?: UserStoryStatus;
   /**
-   * IDs of other stories in the same plan this one depends on. Validated by
-   * shape only (`string[]`): neither existence nor cycles are checked, and
-   * nothing in the pipeline orders execution by it.
+   * IDs of prerequisite stories in the same plan. Execution validates the graph
+   * and waits until every dependency passes. Absent means no dependencies.
    */
   dependencies?: string[];
   /**
@@ -174,6 +173,9 @@ export interface IssueRunState {
 }
 
 export interface TaskPlan {
+  /** Explicit CLI-owned closure authorization; absent means false. */
+  closeIssue?: boolean;
+  issueClosedAt?: string;
   project: string;
   /** Numeric for GitHub Issues, string for local (possibly non-numeric) ids. */
   issueNumber: number | string;
@@ -226,6 +228,8 @@ export interface TaskPlan {
 }
 
 export interface EngineConfig {
+  /** Execution is one phase of a larger workflow. */
+  inPipeline?: boolean;
   issueNumber: string | undefined;
   maxIterations: number | undefined;
   retryLimit: number;

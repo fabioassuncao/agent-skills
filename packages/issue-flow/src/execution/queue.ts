@@ -10,6 +10,7 @@ import {
   isQueueComplete,
   loadExecutionPlan,
   markQueueIssueCompleted,
+  queueNeedsFinalization,
   saveExecutionPlan,
 } from './plan.js';
 import type { ExecutionPlan } from './types.js';
@@ -31,6 +32,7 @@ export type QueueDecision =
   | { kind: 'stop'; code: number };
 
 export interface PlanQueueInput {
+  closeIssue?: boolean;
   /** Identifiers the user asked for, in order. */
   requested: string[];
   /** Origin the run resolved, used to ask the right provider about relations. */
@@ -148,6 +150,10 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
 
   let resumable = await loadResumableQueue(input.planFile, input.requested);
   if (resumable !== null) {
+    if (input.closeIssue !== undefined) {
+      resumable.closeIssue = input.closeIssue;
+      await saveExecutionPlan(input.planFile, resumable);
+    }
     const reconciled = await reconcileClosedDiscoveredIssues(resumable, warn);
     resumable = reconciled.plan;
     if (reconciled.closed.length > 0) {
@@ -162,7 +168,7 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
   // A queue that already finished has nothing left to run, and re-planning it
   // would overwrite its `execution-plan.json` — losing the Pull Request and
   // the record of what ran. Report it and stop successfully instead.
-  if (resumable !== null && isQueueComplete(resumable)) {
+  if (resumable !== null && isQueueComplete(resumable) && !queueNeedsFinalization(resumable)) {
     const pr = resumable.pullRequest?.url;
     info(
       `The execution queue of issue #${resumable.id} is already complete ` +
@@ -324,6 +330,7 @@ export async function planQueue(input: PlanQueueInput): Promise<QueueDecision> {
     );
   }
 
+  if (input.closeIssue !== undefined) plan.closeIssue = input.closeIssue;
   await saveExecutionPlan(input.planFile, plan);
   return { kind: 'queue', plan, resumed: false };
 }

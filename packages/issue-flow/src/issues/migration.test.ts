@@ -112,10 +112,14 @@ describe('prompt templates consume the resolved Issue', () => {
     expect(missing).toEqual([]);
   });
 
-  it('plan.md fills issueUrl from the resolved reference', async () => {
+  it('plan.md receives the resolved reference but leaves metadata to the orchestrator', async () => {
     const content = await readPrompt('plan.md');
 
-    expect(content).toContain('"issueUrl": "__ISSUE_URL__"');
+    expect(content).toContain('__ISSUE_URL__');
+    expect(content).toContain(
+      'Do not include lifecycle state, story IDs, priorities, branch or issue metadata',
+    );
+    expect(content).not.toContain('"issueUrl": "__ISSUE_URL__"');
     // The old rule derived the URL from gh, which no local Issue could satisfy.
     expect(content).not.toContain('<github-issue-url>');
   });

@@ -1,16 +1,21 @@
-# CLI storage and artifacts
+# Storage and artifacts
 
 [CLI guide](cli.md) · [Project overview](../README.md)
 
-The Issue Flow CLI keeps pipeline artifacts in a machine-wide storage layer
-rooted at `~/.issue-flow`. Plans, sessions and telemetry are machine-local and
-do not need to be committed or ignored in the consumer repository. Implementation
-phases still edit and commit the project's code.
+Issue Flow uses one artifact resolver for the CLI and the portable Agent Skills.
+By default it stores operational artifacts outside the repository, under
+`~/.issue-flow`. If `<workspace>/.issue-flow/issues/` already exists, that
+directory explicitly selects workspace-local storage for both interfaces. An
+ordinary run never creates this opt-in directory and never copies state between
+the two stores.
 
-Agent Skills use a separate [artifact layout](../skills/README.md#artifacts-resumption-and-limits)
-under the consumer project's `issues/<id>/` by default. The database, sessions,
-telemetry and migration described here belong to the CLI; they are not Skill
-runtime requirements or a supported way to transfer a Skill run to the CLI.
+Artifacts such as PRDs, task plans, progress and reviews are operational state
+and must not be committed. Global storage is already outside Git. Workspace
+storage maintains a scoped `.issue-flow/.gitignore` that ignores `issues/`,
+queues, SQLite files, locks, provider/project metadata and backups while leaving
+other `.issue-flow` content, such as prompt overrides, eligible for versioning.
+The CLI alone owns sessions, locks, telemetry and orchestration; `tasks.json`
+and the readable documents form the portable continuation boundary.
 
 - [Directory tree](#directory-tree)
 - [SQLite database](#sqlite-database)
@@ -49,6 +54,26 @@ runtime requirements or a supported way to transfer a Skill run to the CLI.
 ```
 
 `queues/` only exists once a run really coordinates more than one issue.
+
+The workspace-local variant has the same project-level shape without the
+`projects/<project-id>/` segment:
+
+```text
+<workspace>/.issue-flow/
+  .gitignore
+  issue-flow.db
+  metadata.json
+  providers.json
+  run.lock
+  issues/<id>/
+  queues/<id>/
+  backups/
+```
+
+Existence of `<workspace>/.issue-flow/issues/` is the complete opt-in signal.
+Removing or adding it changes the selected store on the next process; Issue Flow
+does not merge, copy or choose per artifact. The same store remains active for
+the whole process.
 
 ## SQLite database
 
@@ -165,11 +190,12 @@ identified by path can never collide with one identified by remote.
 ISSUE_FLOW_HOME=/tmp/issue-flow-ci npx issue-flow run 42
 ```
 
-`ISSUE_FLOW_HOME` is the single seam through which the root is resolved: set it
-and *every* path above moves with it. A relative value is resolved against the
-current working directory. Use it to isolate CI runs, sandboxes and test suites
-from the real `$HOME` — Issue Flow's own tests point it at a temporary directory
-for exactly this reason. Unset, the root is `~/.issue-flow`.
+`ISSUE_FLOW_HOME` relocates the default global root. A relative value is resolved
+against the current working directory. Use it to isolate CI runs, sandboxes and
+test suites from the real `$HOME` — Issue Flow's own tests point it at a
+temporary directory for exactly this reason. Unset, the root is
+`~/.issue-flow`. An existing workspace `.issue-flow/issues/` remains the more
+specific explicit store selection and therefore does not move with this value.
 
 ## `~/.issue-flow/web.lock`
 
@@ -215,10 +241,19 @@ writes.
 
 `analyzeCompleted` is also accepted, for the standalone `analyze` command.
 
-The top-level `lastReviewFindings` (`string | null`) holds the verbatim findings
-of the most recent failed `review`. Non-null overrides the "issue already
+The top-level `lastReviewFindings` (`string | null`) holds actionable findings
+from failed review or acceptance, with check output framed as diagnostic data.
+Non-null overrides the "issue already
 complete" check even when every story has `passes: true`, so a correction cycle's
 re-execute step is guaranteed to run instead of exiting immediately.
+
+The execute agent may update existing stories' `passes` and `notes`, acknowledge
+resolved findings by clearing them, and record or clear `lastError`. SQLite
+reingestion changes only those fields. Clearing findings and changing a blocker
+compare against the pre-invocation state, so an agent cannot erase newer feedback.
+Pipeline flags, telemetry, correction counters and closure authorization remain
+CLI-owned. A newly recorded blocker prevents completion even if the agent emits
+the completion marker. Resume retains the consumed correction-cycle budget.
 
 ### User stories
 
@@ -258,9 +293,12 @@ them keeps loading unchanged, and a round-trip never materialises them.
 seed the [snapshot's derived status](#story-status) — the only way to get
 `in_review` onto the board.
 
-`dependencies` is validated **by shape only** (an array of strings). Issue Flow
-does not check that the referenced ids exist, and does not detect cycles among
-them.
+`dependencies` declares prerequisites in the same task plan. Planning and execution
+reject missing IDs, self-references, duplicate story IDs and cycles. Execution
+selects the lowest numeric priority among unpassed stories whose dependencies
+have all passed; ties retain document order. Omitted dependencies means none.
+Existing valid plans require no migration. Previously invalid graphs must be
+corrected before execution; the inspector reports violations without editing them.
 
 `stage` mirrors the snapshot field of the same name, but nothing writes it back
 onto `tasks.json` today and a `stage` declared in a plan is **not** carried into
@@ -478,7 +516,7 @@ cycle a story goes through — `execute` → `review` → correction → done.
 | `stage` | Set by | Meaning |
 |---------|--------|---------|
 | `pending` | `iteration:start` | Not the story `execute` is currently working on |
-| `executing` | `iteration:start` | The story `execute` is working on right now — "the highest-priority story with `passes: false`", the exact rule the execute prompt gives the agent |
+| `executing` | `iteration:start` | The eligible unpassed story selected by the CLI, after checking declared dependencies and priority |
 | `awaiting_review` | `stories:update` | `passes` just flipped to `true`, but `review` has not started yet |
 | `in_review` | `phase:start` (review) | The `review` phase is running. Every already-passing story moves here at once |
 | `in_correction` | `correction:cycle` | An automatic correction cycle is in progress; `stageDetail` carries `"Cycle 1/3"`. Pipeline-wide, like `in_review` |
@@ -668,18 +706,23 @@ When files are actually copied, the CLI prints the source directory, the
 destination and how many files moved, plus a reminder that the legacy directory
 was left untouched. A run that copies nothing prints nothing.
 
-An existing global directory always wins. The check also runs **per issue**, not
-only per project: an issue that appears under `<projectRoot>/issues/` after the
-project was migrated is picked up the first time it is resolved.
+Workspace storage, when explicitly selected by an existing
+`.issue-flow/issues/`, wins as a whole and disables this legacy migration. In
+global mode, an existing global destination wins. The legacy check also runs
+**per issue**, not only per project: an issue that appears under
+`<projectRoot>/issues/` after the project was migrated is picked up the first
+time it is resolved.
 
-These consequences concern legacy CLI artifacts. A Skill using the same default
-`issues/` path still owns its local files. The migration can copy files from
-that path too; a successful copy does not establish supported cross-surface
-resumption or keep the two execution states synchronized.
+The legacy `<projectRoot>/issues/` directory is never an active Skill store.
+Both surfaces resolve the same new location. A Skill that updates a valid
+`tasks.json` runs the bundled `reconcile` helper; the next CLI process also
+detects the changed projection by SHA-256 and imports it into SQLite. CLI writes
+materialize the same readable projection for a later Skill. Process sessions,
+locks and telemetry remain CLI-only and are not transferred.
 
 Two consequences are worth knowing:
 
-- **CLI artifacts are no longer shareable through git.** If your project used to
+- **Issue artifacts are no longer shareable through git.** If your project used to
   commit `issues/` to review `prd.md` or `tasks.json`, those files now live under
   `~/.issue-flow` on the machine that ran the pipeline. The committed copies stay
   valid as a historical record, but stop being updated.
@@ -691,3 +734,29 @@ Two consequences are worth knowing:
   issue that has already been migrated — once a global copy exists it wins.
   Upgrading the whole team, or moving the demand to GitHub issues, closes the
   gap.
+
+## Completion and closure authorization
+
+Execution completion sets `pipeline.executionCompleted`. During `run`, it leaves
+`issueStatus: in_progress` and `completedAt: null` until the requested delivery
+phases finish. Standalone `execute` retains its independent completion behavior.
+A malformed issue-review result is a `review_protocol` error, never implicit PASS;
+previous findings remain available and no correction agent is launched for a
+protocol defect.
+
+`closeIssue?: boolean` is a CLI-owned execution choice. Absence means false for
+legacy plans. `issueClosedAt?: string` records confirmed provider closure.
+SQLite migration 8 adds nullable columns; JSON compatibility retains optional
+fields. Generated agent plans cannot grant/revoke authorization or fabricate
+confirmation. `--no-close-issue` revokes future closure; it does not reopen an
+already closed issue.
+
+Queue authorization belongs to `execution-plan.json`: `closeIssue`,
+`closedIssueIds` and `prReviewCompleted`. A queue closes completed members only
+after consolidated delivery and the requested review succeed. Confirmation is
+persisted per member, so a retry reads provider state and skips confirmed closes.
+A closure failure exits 1 and remains resumable. `resume <queue-or-member>` resumes
+queue-owned work together; `resume --all` also considers pending queue delivery.
+These fields do not turn a Skill invocation into a resumable CLI process. The
+portable artifact state can continue across interfaces; process ownership and
+runtime telemetry cannot.

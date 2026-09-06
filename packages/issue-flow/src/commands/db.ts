@@ -5,7 +5,6 @@ import { importProjectArtifacts } from '../storage/db/import.js';
 import { getDatabasePath, openIssueFlowDatabase } from '../storage/db/index.js';
 import { exportStoredState } from '../storage/db/repository.js';
 import { verifyProjectProjections } from '../storage/db/verify.js';
-import { getGlobalRoot } from '../storage/paths.js';
 import { resolveProjectPaths } from '../storage/resolve.js';
 import { printError, printInfo } from '../ui/logger.js';
 import { getProjectRoot, getRemoteUrl } from '../utils/git.js';
@@ -18,7 +17,8 @@ function failure(action: string, error: unknown): number {
 
 export async function runDbCheck(): Promise<number> {
   try {
-    const database = await openIssueFlowDatabase();
+    const project = await resolveProjectPaths();
+    const database = await openIssueFlowDatabase(project.databaseOptions);
     try {
       const result = database.integrityCheck();
       if (result !== 'ok') {
@@ -27,7 +27,7 @@ export async function runDbCheck(): Promise<number> {
         );
         return 1;
       }
-      printInfo(`Database is healthy: ${getDatabasePath()}`);
+      printInfo(`Database is healthy: ${getDatabasePath(project.databaseOptions)}`);
       return 0;
     } finally {
       database.close();
@@ -38,9 +38,11 @@ export async function runDbCheck(): Promise<number> {
 }
 
 export async function runDbBackup(destination?: string): Promise<number> {
-  const target = destination ?? join(getGlobalRoot(), 'backups', `issue-flow-${Date.now()}.db`);
   try {
-    const database = await openIssueFlowDatabase();
+    const project = await resolveProjectPaths();
+    const target =
+      destination ?? join(project.projectDir, 'backups', `issue-flow-${Date.now()}.db`);
+    const database = await openIssueFlowDatabase(project.databaseOptions);
     try {
       database.backup(target);
       printInfo(`Database backup created: ${target}`);
@@ -55,10 +57,11 @@ export async function runDbBackup(destination?: string): Promise<number> {
 
 export async function runDbVacuum(): Promise<number> {
   try {
-    const database = await openIssueFlowDatabase();
+    const project = await resolveProjectPaths();
+    const database = await openIssueFlowDatabase(project.databaseOptions);
     try {
       database.vacuum();
-      printInfo(`Database vacuum completed: ${getDatabasePath()}`);
+      printInfo(`Database vacuum completed: ${getDatabasePath(project.databaseOptions)}`);
       return 0;
     } finally {
       database.close();
@@ -71,12 +74,13 @@ export async function runDbVacuum(): Promise<number> {
 /** Export the relational state as portable, readable JSON for diagnostics. */
 export async function runDbExport(destination?: string): Promise<number> {
   try {
+    const project = await resolveProjectPaths();
     const payload = JSON.stringify(
       {
         schemaVersion: 1,
         exportedAt: new Date().toISOString(),
-        database: getDatabasePath(),
-        tables: await exportStoredState(),
+        database: getDatabasePath(project.databaseOptions),
+        tables: await exportStoredState(project.databaseOptions),
       },
       null,
       2,
@@ -105,6 +109,7 @@ export async function runDbVerify(): Promise<number> {
       projectId: project.projectId,
       projectDir: project.projectDir,
       projectRoot,
+      databaseOptions: project.databaseOptions,
     });
     if (result.divergences.length > 0) {
       printError(`Database verification found ${result.divergences.length} divergence(s):`);
@@ -127,6 +132,7 @@ export async function runDbImport(options: { withEvents?: boolean } = {}): Promi
       projectDir: project.projectDir,
       projectRoot,
       remoteUrl: await getRemoteUrl(projectRoot),
+      ...project.databaseOptions,
       withEvents: options.withEvents === true,
       onWarning: printInfo,
     });
@@ -140,6 +146,6 @@ export async function runDbImport(options: { withEvents?: boolean } = {}): Promi
   }
 }
 
-export function databaseExists(): boolean {
-  return existsSync(getDatabasePath());
+export function databaseExists(options: Parameters<typeof getDatabasePath>[0] = {}): boolean {
+  return existsSync(getDatabasePath(options));
 }

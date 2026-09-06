@@ -63,9 +63,9 @@ export async function findHighestUserStoryNumber(
   options: FindHighestUserStoryNumberOptions = {},
 ): Promise<HighestUserStoryNumberResult | null> {
   const { excludeIssueId, ...rootOptions } = options;
-  let projectId: string;
+  let project: Awaited<ReturnType<typeof resolveProjectPaths>>;
   try {
-    ({ projectId } = await resolveProjectPaths(rootOptions));
+    project = await resolveProjectPaths(rootOptions);
   } catch (error) {
     throw new Error(
       "Could not query the project's User Story history: " +
@@ -76,9 +76,9 @@ export async function findHighestUserStoryNumber(
   }
   try {
     return await findHighestStoredUserStoryNumber({
-      projectId,
+      projectId: project.projectId,
       excludeIssueId,
-      databaseOptions: { env: options.env },
+      databaseOptions: project.databaseOptions,
     });
   } catch (error) {
     throw new Error(
@@ -206,7 +206,7 @@ export async function determineUserStoryNumbering(
       {
         projectId: project.projectId,
         projectRoot,
-        databaseOptions: { env: options.env },
+        databaseOptions: project.databaseOptions,
       },
       outcome.decision,
     );

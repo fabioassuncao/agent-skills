@@ -67,6 +67,13 @@ describe('issuePlaceholders', () => {
     expect(vars.__ISSUE_URL__).toBe('issues/42/issue.md');
   });
 
+  it('uses the active storage path when the resolver supplies it', () => {
+    const issue = makeIssue({ id: '42', number: 42, source: 'local', remoteRef: null });
+    const vars = issuePlaceholders(makeResolved(issue, 'local'), '/tmp/state/issues/42/issue.md');
+
+    expect(vars.__ISSUE_URL__).toBe('/tmp/state/issues/42/issue.md');
+  });
+
   it('keeps the remote URL for a local mirror that has one', () => {
     const issue = makeIssue({ source: 'local', remoteRef: 'https://example.com/issues/23' });
     const vars = issuePlaceholders(makeResolved(issue, 'local'));

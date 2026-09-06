@@ -96,15 +96,25 @@ describe('applyConditionalSections', () => {
   ].join('\n');
 
   it('removes the block, and the blank line before it, when the value is empty', () => {
-    expect(applyConditionalSections(template, { __REPO_POLICY__: '' })).toBe('Body line.\n');
+    expect(
+      applyConditionalSections(template, { __REMOTE_DISCOVERY__: '', __REPO_POLICY__: '' }),
+    ).toBe('Body line.\n');
   });
 
   it('treats a whitespace-only value as empty', () => {
-    expect(applyConditionalSections(template, { __REPO_POLICY__: '   \n  ' })).toBe('Body line.\n');
+    expect(
+      applyConditionalSections(template, { __REMOTE_DISCOVERY__: '', __REPO_POLICY__: '   \n  ' }),
+    ).toBe('Body line.\n');
   });
 
   it('keeps the block, without its markers, when the value is present', () => {
-    const result = applyConditionalSections(template, { __REPO_POLICY__: 'x' });
+    const result = applyConditionalSections(template, {
+      __REMOTE_DISCOVERY__: '',
+      __PREVIOUS_REVIEW__: '',
+      __CORRECTION_MODE__: '',
+      __ISSUE_CONTEXT__: '',
+      __REPO_POLICY__: 'x',
+    });
 
     expect(result).toBe('Body line.\n\n## Repository policy\n\n__REPO_POLICY__\n');
     expect(result).not.toContain('<!-- if:');
@@ -119,7 +129,14 @@ describe('applyConditionalSections', () => {
 describe('rendered prompts without a policy', () => {
   /** The projection of "this repository declares nothing", on a `main` base. */
   function noPolicy(): Record<string, string> {
-    return { ...emptyPolicyPlaceholders(), ...conventionPlaceholders(null, 'main') };
+    return {
+      __REMOTE_DISCOVERY__: '',
+      __PREVIOUS_REVIEW__: '',
+      __CORRECTION_MODE__: '',
+      __ISSUE_CONTEXT__: '',
+      ...emptyPolicyPlaceholders(),
+      ...conventionPlaceholders(null, 'main'),
+    };
   }
 
   it('leaves no trace of the conditional sections in any packaged prompt', async () => {
@@ -184,12 +201,14 @@ describe('rendered prompts without a policy', () => {
 
     const rendered = applyPlaceholders(template, {
       ...noPolicy(),
+      __REMOTE_DISCOVERY__: '',
+      __PREVIOUS_REVIEW__: '',
       __REPO_POLICY__: '### Base branch\n\ndevelop',
     });
 
     expect(rendered).toContain('## Repository policy');
     expect(rendered).toContain('### Base branch\n\ndevelop');
-    expect(rendered).toContain('takes precedence');
+    expect(rendered).toContain('take precedence');
     expect(rendered).not.toContain('<!-- ');
   });
 
@@ -257,7 +276,11 @@ describe('review prompts and repository policy', () => {
     'review',
     'pr-review',
   ])('adds conformance as an explicit axis of the %s report when there is a policy', async (name) => {
-    const rendered = await render(name, { __REPO_POLICY__: '### Base branch\n\ndevelop' });
+    const rendered = await render(name, {
+      __REMOTE_DISCOVERY__: '',
+      __PREVIOUS_REVIEW__: '',
+      __REPO_POLICY__: '### Base branch\n\ndevelop',
+    });
 
     expect(rendered.toLowerCase()).toContain(AXIS);
     // Every violation names the document that defines the rule, or the review
@@ -273,7 +296,13 @@ describe('review prompts and repository policy', () => {
     'review',
     'pr-review',
   ])('tells the %s to read the policy, never to replicate it', async (name) => {
-    const rendered = (await render(name, { __REPO_POLICY__: '### Base branch\n\ndevelop' }))
+    const rendered = (
+      await render(name, {
+        __REMOTE_DISCOVERY__: '',
+        __PREVIOUS_REVIEW__: '',
+        __REPO_POLICY__: '### Base branch\n\ndevelop',
+      })
+    )
       .split(/\s+/)
       .join(' ');
 
@@ -287,7 +316,13 @@ describe('review prompts and repository policy', () => {
     'review',
     'pr-review',
   ])('tells the %s to follow a pointer file rather than stopping at it', async (name) => {
-    const rendered = (await render(name, { __REPO_POLICY__: '### Base branch\n\ndevelop' }))
+    const rendered = (
+      await render(name, {
+        __REMOTE_DISCOVERY__: '',
+        __PREVIOUS_REVIEW__: '',
+        __REPO_POLICY__: '### Base branch\n\ndevelop',
+      })
+    )
       .split(/\s+/)
       .join(' ');
 

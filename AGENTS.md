@@ -58,6 +58,15 @@ decisions — never a source of truth for behaviour.
 - [`docs/research/2026-09-05-skills-portability.md`](docs/research/2026-09-05-skills-portability.md)
   — complete Skill audit, architecture and measured validation
 
+- [`docs/research/2026-09-05-shared-workflow-contracts.md`](docs/research/2026-09-05-shared-workflow-contracts.md)
+  — Skills/CLI audit, external comparisons, shared contracts and benchmark
+
+- [`docs/research/2026-09-05-context-engineering.md`](docs/research/2026-09-05-context-engineering.md)
+  — prompt/context audit, correction-state fixes, measurements and behavioral limits
+
+- [`docs/research/2026-09-06-agent-skills-audit.md`](docs/research/2026-09-06-agent-skills-audit.md)
+  — Agent Skills refactor, Skill Creator/Ralph comparison, triggering holdout and comparative eval harness
+
 ## Developing
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment, issue-to-PR contribution

@@ -10,41 +10,7 @@ import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess, printWarning } from '../ui/logger.js';
 import { applyAcceptanceToPlan, runAcceptanceGate } from '../verify/gate.js';
 import { formatVerificationLine } from '../verify/present.js';
-
-export interface ReviewResult {
-  status: 'PASS' | 'FAIL';
-  findings?: string;
-}
-
-/**
- * Parse the <review-result> block from headless output.
- */
-function parseReviewResult(output: string): ReviewResult {
-  const match = output.match(/<review-result>([\s\S]*?)<\/review-result>/);
-  if (!match) {
-    // Try to detect PASS/FAIL from the raw output
-    if (/STATUS:\s*PASS/i.test(output)) {
-      return { status: 'PASS' };
-    }
-    if (/STATUS:\s*FAIL/i.test(output)) {
-      const findingsMatch = output.match(/FINDINGS:([\s\S]*?)(?:$|<\/)/);
-      return { status: 'FAIL', findings: findingsMatch?.[1]?.trim() ?? 'Unknown findings' };
-    }
-    // Default to PASS if no explicit status found and no errors
-    return { status: 'PASS' };
-  }
-
-  const block = match[1];
-  if (/STATUS:\s*PASS/i.test(block)) {
-    return { status: 'PASS' };
-  }
-
-  const findingsMatch = block.match(/FINDINGS:([\s\S]*)/);
-  return {
-    status: 'FAIL',
-    findings: findingsMatch?.[1]?.trim() ?? 'Unknown findings',
-  };
-}
+import { parseIssueReviewResult } from '../verify/review-result.js';
 
 export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
   const issueNumber = issue.replace(/^#/, '');
@@ -75,29 +41,16 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
   } else {
     printSuccess(formatVerificationLine(acceptance.verdict, acceptance.level));
   }
-  if (acceptance.review?.status === 'failed') {
-    printError('Independent review failed');
-    try {
-      const plan = await loadTaskPlan(tasksPath);
-      plan.pipeline.reviewCompleted = false;
-      plan.lastReviewFindings = acceptance.review.findings
-        .map((finding) => finding.claim)
-        .join('\n');
-      await saveTaskPlan(tasksPath, plan);
-    } catch {
-      // tasks.json may not exist
-    }
-    return 1;
-  }
-
   const template = await loadPrompt('review');
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
     // what keeps the rendered prompt identical to the pre-policy one.
-    ...(await resolvePolicyPlaceholders()),
+    ...(await resolvePolicyPlaceholders({ phase: 'review' })),
     __ISSUE_NUMBER__: issueNumber,
     __TASKS_PATH__: tasksPath,
-    ...issuePlaceholders(resolution.resolved),
+    __PROGRESS_FILE__: paths.progressFile,
+    __VERIFY_PATH__: paths.verifyFile,
+    ...issuePlaceholders(resolution.resolved, paths.issueFile),
   });
 
   const startedAtMs = Date.now();
@@ -134,12 +87,31 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     return 1;
   }
 
-  const review = parseReviewResult(result.result);
+  const review = parseIssueReviewResult(result.result);
+  if (!review.ok) {
+    printError(`Invalid review result: ${review.error}`);
+    try {
+      const plan = await loadTaskPlan(tasksPath);
+      plan.pipeline.reviewCompleted = false;
+      plan.issueStatus = 'in_progress';
+      plan.completedAt = null;
+      plan.lastError = {
+        category: 'review_protocol',
+        message: review.error,
+        at: new Date().toISOString(),
+      };
+      await saveTaskPlan(tasksPath, plan);
+    } catch {
+      /* Standalone review may have no task plan. */
+    }
+    return 1;
+  }
 
   if (review.status === 'PASS') {
     // Update pipeline state
     try {
       const plan = await loadTaskPlan(tasksPath);
+      if (plan.lastError?.category === 'review_protocol') plan.lastError = null;
       plan.pipeline.reviewCompleted = true;
       plan.lastReviewFindings = null;
       await saveTaskPlan(tasksPath, plan);
@@ -163,6 +135,9 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
   try {
     const plan = await loadTaskPlan(tasksPath);
     plan.pipeline.reviewCompleted = false;
+    if (plan.lastError?.category === 'review_protocol') plan.lastError = null;
+    plan.issueStatus = 'in_progress';
+    plan.completedAt = null;
     plan.lastReviewFindings = review.findings ?? 'Unknown findings';
     await saveTaskPlan(tasksPath, plan);
   } catch {

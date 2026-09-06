@@ -1,0 +1,1440 @@
+{
+  "schemaVersion": 1,
+  "baseline": "24662d3",
+  "measurement": "estimated tokens = ceil(characters / 4); no model invocation",
+  "skills": [
+    {
+      "name": "analyze-issue",
+      "entryMetricsBefore": {
+        "bytes": 1895,
+        "characters": 1895,
+        "lines": 32,
+        "estimatedTokens": 474
+      },
+      "entryMetricsAfter": {
+        "bytes": 1895,
+        "characters": 1895,
+        "lines": 32,
+        "estimatedTokens": 474
+      },
+      "resources": [
+        {
+          "path": "references/analyze-issue.md",
+          "metrics": {
+            "bytes": 1231,
+            "characters": 1231,
+            "lines": 12,
+            "estimatedTokens": 308
+          }
+        },
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        }
+      ],
+      "entryBefore": 474,
+      "entryAfter": 474,
+      "allMarkdownBefore": 5168,
+      "allMarkdownAfter": 5208
+    },
+    {
+      "name": "generate-prd",
+      "entryMetricsBefore": {
+        "bytes": 2097,
+        "characters": 2097,
+        "lines": 35,
+        "estimatedTokens": 525
+      },
+      "entryMetricsAfter": {
+        "bytes": 2097,
+        "characters": 2097,
+        "lines": 35,
+        "estimatedTokens": 525
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/evidence.md",
+          "metrics": {
+            "bytes": 1357,
+            "characters": 1357,
+            "lines": 12,
+            "estimatedTokens": 340
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/generate-prd.md",
+          "metrics": {
+            "bytes": 1617,
+            "characters": 1617,
+            "lines": 12,
+            "estimatedTokens": 405
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/plan-format.md",
+          "metrics": {
+            "bytes": 5120,
+            "characters": 5118,
+            "lines": 78,
+            "estimatedTokens": 1280
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        }
+      ],
+      "entryBefore": 525,
+      "entryAfter": 525,
+      "allMarkdownBefore": 6835,
+      "allMarkdownAfter": 6974
+    },
+    {
+      "name": "convert-prd-to-json",
+      "entryMetricsBefore": {
+        "bytes": 2173,
+        "characters": 2173,
+        "lines": 36,
+        "estimatedTokens": 544
+      },
+      "entryMetricsAfter": {
+        "bytes": 2173,
+        "characters": 2173,
+        "lines": 36,
+        "estimatedTokens": 544
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/convert-prd-to-json.md",
+          "metrics": {
+            "bytes": 1845,
+            "characters": 1845,
+            "lines": 14,
+            "estimatedTokens": 462
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/git-conventions.md",
+          "metrics": {
+            "bytes": 6110,
+            "characters": 6110,
+            "lines": 44,
+            "estimatedTokens": 1528
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/plan-format.md",
+          "metrics": {
+            "bytes": 5120,
+            "characters": 5118,
+            "lines": 78,
+            "estimatedTokens": 1280
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        }
+      ],
+      "entryBefore": 544,
+      "entryAfter": 544,
+      "allMarkdownBefore": 8099,
+      "allMarkdownAfter": 8238
+    },
+    {
+      "name": "execute-tasks",
+      "entryMetricsBefore": {
+        "bytes": 2341,
+        "characters": 2341,
+        "lines": 38,
+        "estimatedTokens": 586
+      },
+      "entryMetricsAfter": {
+        "bytes": 2341,
+        "characters": 2341,
+        "lines": 38,
+        "estimatedTokens": 586
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/completion-signal.md",
+          "metrics": {
+            "bytes": 437,
+            "characters": 437,
+            "lines": 6,
+            "estimatedTokens": 110
+          }
+        },
+        {
+          "path": "references/evidence.md",
+          "metrics": {
+            "bytes": 1357,
+            "characters": 1357,
+            "lines": 12,
+            "estimatedTokens": 340
+          }
+        },
+        {
+          "path": "references/execute-tasks.md",
+          "metrics": {
+            "bytes": 3390,
+            "characters": 3390,
+            "lines": 19,
+            "estimatedTokens": 848
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/git-conventions.md",
+          "metrics": {
+            "bytes": 6110,
+            "characters": 6110,
+            "lines": 44,
+            "estimatedTokens": 1528
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/plan-format.md",
+          "metrics": {
+            "bytes": 5120,
+            "characters": 5118,
+            "lines": 78,
+            "estimatedTokens": 1280
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        }
+      ],
+      "entryBefore": 586,
+      "entryAfter": 586,
+      "allMarkdownBefore": 8880,
+      "allMarkdownAfter": 9116
+    },
+    {
+      "name": "create-pr",
+      "entryMetricsBefore": {
+        "bytes": 2157,
+        "characters": 2157,
+        "lines": 36,
+        "estimatedTokens": 540
+      },
+      "entryMetricsAfter": {
+        "bytes": 2157,
+        "characters": 2157,
+        "lines": 36,
+        "estimatedTokens": 540
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/create-pr.md",
+          "metrics": {
+            "bytes": 3197,
+            "characters": 3197,
+            "lines": 16,
+            "estimatedTokens": 800
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/git-conventions.md",
+          "metrics": {
+            "bytes": 6110,
+            "characters": 6110,
+            "lines": 44,
+            "estimatedTokens": 1528
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/pr-metadata.md",
+          "metrics": {
+            "bytes": 5585,
+            "characters": 5585,
+            "lines": 28,
+            "estimatedTokens": 1397
+          }
+        },
+        {
+          "path": "references/publication.md",
+          "metrics": {
+            "bytes": 1044,
+            "characters": 1044,
+            "lines": 10,
+            "estimatedTokens": 261
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        }
+      ],
+      "entryBefore": 540,
+      "entryAfter": 540,
+      "allMarkdownBefore": 8911,
+      "allMarkdownAfter": 8950
+    },
+    {
+      "name": "review-issue",
+      "entryMetricsBefore": {
+        "bytes": 2182,
+        "characters": 2182,
+        "lines": 35,
+        "estimatedTokens": 546
+      },
+      "entryMetricsAfter": {
+        "bytes": 2182,
+        "characters": 2182,
+        "lines": 35,
+        "estimatedTokens": 546
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/evidence.md",
+          "metrics": {
+            "bytes": 1357,
+            "characters": 1357,
+            "lines": 12,
+            "estimatedTokens": 340
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/issue-review-result.md",
+          "metrics": {
+            "bytes": 965,
+            "characters": 965,
+            "lines": 27,
+            "estimatedTokens": 242
+          }
+        },
+        {
+          "path": "references/publication.md",
+          "metrics": {
+            "bytes": 1044,
+            "characters": 1044,
+            "lines": 10,
+            "estimatedTokens": 261
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        },
+        {
+          "path": "references/review-issue.md",
+          "metrics": {
+            "bytes": 1465,
+            "characters": 1465,
+            "lines": 12,
+            "estimatedTokens": 367
+          }
+        }
+      ],
+      "entryBefore": 546,
+      "entryAfter": 546,
+      "allMarkdownBefore": 6141,
+      "allMarkdownAfter": 6180
+    },
+    {
+      "name": "review-pr",
+      "entryMetricsBefore": {
+        "bytes": 2028,
+        "characters": 2028,
+        "lines": 34,
+        "estimatedTokens": 507
+      },
+      "entryMetricsAfter": {
+        "bytes": 2028,
+        "characters": 2028,
+        "lines": 34,
+        "estimatedTokens": 507
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/evidence.md",
+          "metrics": {
+            "bytes": 1357,
+            "characters": 1357,
+            "lines": 12,
+            "estimatedTokens": 340
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/pr-review-result.md",
+          "metrics": {
+            "bytes": 1443,
+            "characters": 1439,
+            "lines": 39,
+            "estimatedTokens": 360
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        },
+        {
+          "path": "references/review-pr.md",
+          "metrics": {
+            "bytes": 2715,
+            "characters": 2715,
+            "lines": 18,
+            "estimatedTokens": 679
+          }
+        }
+      ],
+      "entryBefore": 507,
+      "entryAfter": 507,
+      "allMarkdownBefore": 6272,
+      "allMarkdownAfter": 6312
+    },
+    {
+      "name": "generate-issue",
+      "entryMetricsBefore": {
+        "bytes": 2226,
+        "characters": 2226,
+        "lines": 36,
+        "estimatedTokens": 557
+      },
+      "entryMetricsAfter": {
+        "bytes": 2226,
+        "characters": 2226,
+        "lines": 36,
+        "estimatedTokens": 557
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/generate-issue.md",
+          "metrics": {
+            "bytes": 1620,
+            "characters": 1620,
+            "lines": 14,
+            "estimatedTokens": 405
+          }
+        },
+        {
+          "path": "references/git-conventions.md",
+          "metrics": {
+            "bytes": 6110,
+            "characters": 6110,
+            "lines": 44,
+            "estimatedTokens": 1528
+          }
+        },
+        {
+          "path": "references/issue-authoring.md",
+          "metrics": {
+            "bytes": 1555,
+            "characters": 1555,
+            "lines": 12,
+            "estimatedTokens": 389
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/publication.md",
+          "metrics": {
+            "bytes": 1044,
+            "characters": 1044,
+            "lines": 10,
+            "estimatedTokens": 261
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        }
+      ],
+      "entryBefore": 557,
+      "entryAfter": 557,
+      "allMarkdownBefore": 7526,
+      "allMarkdownAfter": 7566
+    },
+    {
+      "name": "generate-local-issue",
+      "entryMetricsBefore": {
+        "bytes": 2304,
+        "characters": 2304,
+        "lines": 37,
+        "estimatedTokens": 576
+      },
+      "entryMetricsAfter": {
+        "bytes": 2304,
+        "characters": 2304,
+        "lines": 37,
+        "estimatedTokens": 576
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/generate-local-issue.md",
+          "metrics": {
+            "bytes": 1593,
+            "characters": 1593,
+            "lines": 14,
+            "estimatedTokens": 399
+          }
+        },
+        {
+          "path": "references/git-conventions.md",
+          "metrics": {
+            "bytes": 6110,
+            "characters": 6110,
+            "lines": 44,
+            "estimatedTokens": 1528
+          }
+        },
+        {
+          "path": "references/issue-authoring.md",
+          "metrics": {
+            "bytes": 1555,
+            "characters": 1555,
+            "lines": 12,
+            "estimatedTokens": 389
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/local-issue-files.md",
+          "metrics": {
+            "bytes": 1441,
+            "characters": 1441,
+            "lines": 14,
+            "estimatedTokens": 361
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        }
+      ],
+      "entryBefore": 576,
+      "entryAfter": 576,
+      "allMarkdownBefore": 7638,
+      "allMarkdownAfter": 7678
+    },
+    {
+      "name": "init-repository",
+      "entryMetricsBefore": {
+        "bytes": 2082,
+        "characters": 2082,
+        "lines": 34,
+        "estimatedTokens": 521
+      },
+      "entryMetricsAfter": {
+        "bytes": 2082,
+        "characters": 2082,
+        "lines": 34,
+        "estimatedTokens": 521
+      },
+      "resources": [
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/init-repository.md",
+          "metrics": {
+            "bytes": 1512,
+            "characters": 1512,
+            "lines": 14,
+            "estimatedTokens": 378
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        },
+        {
+          "path": "references/repository-scaffold.md",
+          "metrics": {
+            "bytes": 1597,
+            "characters": 1597,
+            "lines": 12,
+            "estimatedTokens": 400
+          }
+        }
+      ],
+      "entryBefore": 521,
+      "entryAfter": 521,
+      "allMarkdownBefore": 5685,
+      "allMarkdownAfter": 5724
+    },
+    {
+      "name": "resolve-issue",
+      "entryMetricsBefore": {
+        "bytes": 3233,
+        "characters": 3233,
+        "lines": 54,
+        "estimatedTokens": 809
+      },
+      "entryMetricsAfter": {
+        "bytes": 3233,
+        "characters": 3233,
+        "lines": 54,
+        "estimatedTokens": 809
+      },
+      "resources": [
+        {
+          "path": "references/analyze-issue.md",
+          "metrics": {
+            "bytes": 1231,
+            "characters": 1231,
+            "lines": 12,
+            "estimatedTokens": 308
+          }
+        },
+        {
+          "path": "references/cli-integration.md",
+          "metrics": {
+            "bytes": 2987,
+            "characters": 2987,
+            "lines": 20,
+            "estimatedTokens": 747
+          }
+        },
+        {
+          "path": "references/completion-signal.md",
+          "metrics": {
+            "bytes": 437,
+            "characters": 437,
+            "lines": 6,
+            "estimatedTokens": 110
+          }
+        },
+        {
+          "path": "references/convert-prd-to-json.md",
+          "metrics": {
+            "bytes": 1845,
+            "characters": 1845,
+            "lines": 14,
+            "estimatedTokens": 462
+          }
+        },
+        {
+          "path": "references/create-pr.md",
+          "metrics": {
+            "bytes": 3197,
+            "characters": 3197,
+            "lines": 16,
+            "estimatedTokens": 800
+          }
+        },
+        {
+          "path": "references/evidence.md",
+          "metrics": {
+            "bytes": 1357,
+            "characters": 1357,
+            "lines": 12,
+            "estimatedTokens": 340
+          }
+        },
+        {
+          "path": "references/execute-tasks.md",
+          "metrics": {
+            "bytes": 3390,
+            "characters": 3390,
+            "lines": 19,
+            "estimatedTokens": 848
+          }
+        },
+        {
+          "path": "references/execution-options.md",
+          "metrics": {
+            "bytes": 4958,
+            "characters": 4958,
+            "lines": 43,
+            "estimatedTokens": 1240
+          }
+        },
+        {
+          "path": "references/generate-prd.md",
+          "metrics": {
+            "bytes": 1617,
+            "characters": 1617,
+            "lines": 12,
+            "estimatedTokens": 405
+          }
+        },
+        {
+          "path": "references/git-conventions.md",
+          "metrics": {
+            "bytes": 6110,
+            "characters": 6110,
+            "lines": 44,
+            "estimatedTokens": 1528
+          }
+        },
+        {
+          "path": "references/issue-input.md",
+          "metrics": {
+            "bytes": 3858,
+            "characters": 3858,
+            "lines": 20,
+            "estimatedTokens": 965
+          }
+        },
+        {
+          "path": "references/issue-review-result.md",
+          "metrics": {
+            "bytes": 965,
+            "characters": 965,
+            "lines": 27,
+            "estimatedTokens": 242
+          }
+        },
+        {
+          "path": "references/plan-format.md",
+          "metrics": {
+            "bytes": 5120,
+            "characters": 5118,
+            "lines": 78,
+            "estimatedTokens": 1280
+          }
+        },
+        {
+          "path": "references/pr-metadata.md",
+          "metrics": {
+            "bytes": 5585,
+            "characters": 5585,
+            "lines": 28,
+            "estimatedTokens": 1397
+          }
+        },
+        {
+          "path": "references/pr-review-result.md",
+          "metrics": {
+            "bytes": 1443,
+            "characters": 1439,
+            "lines": 39,
+            "estimatedTokens": 360
+          }
+        },
+        {
+          "path": "references/publication.md",
+          "metrics": {
+            "bytes": 1044,
+            "characters": 1044,
+            "lines": 10,
+            "estimatedTokens": 261
+          }
+        },
+        {
+          "path": "references/repository-policy.md",
+          "metrics": {
+            "bytes": 5896,
+            "characters": 5896,
+            "lines": 34,
+            "estimatedTokens": 1474
+          }
+        },
+        {
+          "path": "references/resolve-issue.md",
+          "metrics": {
+            "bytes": 7380,
+            "characters": 7380,
+            "lines": 46,
+            "estimatedTokens": 1845
+          }
+        },
+        {
+          "path": "references/review-issue.md",
+          "metrics": {
+            "bytes": 1465,
+            "characters": 1465,
+            "lines": 12,
+            "estimatedTokens": 367
+          }
+        },
+        {
+          "path": "references/review-pr.md",
+          "metrics": {
+            "bytes": 2715,
+            "characters": 2715,
+            "lines": 18,
+            "estimatedTokens": 679
+          }
+        }
+      ],
+      "entryBefore": 809,
+      "entryAfter": 809,
+      "allMarkdownBefore": 16196,
+      "allMarkdownAfter": 16462
+    }
+  ],
+  "prompts": [
+    {
+      "name": "analyze.md",
+      "metricsBefore": {
+        "bytes": 2999,
+        "characters": 2997,
+        "lines": 74,
+        "estimatedTokens": 750
+      },
+      "metricsAfter": {
+        "bytes": 2731,
+        "characters": 2729,
+        "lines": 67,
+        "estimatedTokens": 683
+      },
+      "before": 750,
+      "after": 683
+    },
+    {
+      "name": "execute.md",
+      "metricsBefore": {
+        "bytes": 9712,
+        "characters": 9698,
+        "lines": 156,
+        "estimatedTokens": 2425
+      },
+      "metricsAfter": {
+        "bytes": 5956,
+        "characters": 5956,
+        "lines": 91,
+        "estimatedTokens": 1489
+      },
+      "before": 2425,
+      "after": 1489
+    },
+    {
+      "name": "generate.md",
+      "metricsBefore": {
+        "bytes": 6924,
+        "characters": 6912,
+        "lines": 115,
+        "estimatedTokens": 1728
+      },
+      "metricsAfter": {
+        "bytes": 6656,
+        "characters": 6644,
+        "lines": 108,
+        "estimatedTokens": 1661
+      },
+      "before": 1728,
+      "after": 1661
+    },
+    {
+      "name": "plan.md",
+      "metricsBefore": {
+        "bytes": 5713,
+        "characters": 5707,
+        "lines": 118,
+        "estimatedTokens": 1427
+      },
+      "metricsAfter": {
+        "bytes": 5445,
+        "characters": 5439,
+        "lines": 111,
+        "estimatedTokens": 1360
+      },
+      "before": 1427,
+      "after": 1360
+    },
+    {
+      "name": "pr-review.md",
+      "metricsBefore": {
+        "bytes": 11953,
+        "characters": 11901,
+        "lines": 216,
+        "estimatedTokens": 2976
+      },
+      "metricsAfter": {
+        "bytes": 12111,
+        "characters": 12059,
+        "lines": 219,
+        "estimatedTokens": 3015
+      },
+      "before": 2976,
+      "after": 3015
+    },
+    {
+      "name": "pr.md",
+      "metricsBefore": {
+        "bytes": 10900,
+        "characters": 10892,
+        "lines": 126,
+        "estimatedTokens": 2723
+      },
+      "metricsAfter": {
+        "bytes": 10632,
+        "characters": 10624,
+        "lines": 119,
+        "estimatedTokens": 2656
+      },
+      "before": 2723,
+      "after": 2656
+    },
+    {
+      "name": "prd.md",
+      "metricsBefore": {
+        "bytes": 3894,
+        "characters": 3892,
+        "lines": 80,
+        "estimatedTokens": 973
+      },
+      "metricsAfter": {
+        "bytes": 3626,
+        "characters": 3624,
+        "lines": 73,
+        "estimatedTokens": 906
+      },
+      "before": 973,
+      "after": 906
+    },
+    {
+      "name": "review.md",
+      "metricsBefore": {
+        "bytes": 6035,
+        "characters": 6023,
+        "lines": 108,
+        "estimatedTokens": 1506
+      },
+      "metricsAfter": {
+        "bytes": 6186,
+        "characters": 6174,
+        "lines": 107,
+        "estimatedTokens": 1544
+      },
+      "before": 1506,
+      "after": 1544
+    }
+  ],
+  "projection": {
+    "fullPlan": {
+      "bytes": 23349,
+      "characters": 23349,
+      "lines": 322,
+      "estimatedTokens": 5838
+    },
+    "executionContext": {
+      "bytes": 1086,
+      "characters": 1086,
+      "lines": 2,
+      "estimatedTokens": 272
+    },
+    "stories": 20,
+    "fullPlanEstimatedTokens": 5838,
+    "inspectionEstimatedTokens": 262,
+    "reductionPercent": 96,
+    "executionContextReductionPercent": 95.3,
+    "callsBefore": 1,
+    "callsAfter": 1,
+    "caveat": "Only the discovery projection; implementation may still require PRD, code, evidence and source-plan edits."
+  },
+  "contracts": [
+    {
+      "name": "cli-integration.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 2908,
+        "characters": 2908,
+        "lines": 18,
+        "estimatedTokens": 727
+      }
+    },
+    {
+      "name": "cli-repository-policy.md",
+      "promptConsumers": [
+        "analyze.md.in",
+        "execute.md.in",
+        "generate.md.in",
+        "plan.md.in",
+        "pr-review.md.in",
+        "pr.md.in",
+        "prd.md.in",
+        "review.md.in"
+      ],
+      "metrics": {
+        "bytes": 286,
+        "characters": 286,
+        "lines": 8,
+        "estimatedTokens": 72
+      }
+    },
+    {
+      "name": "completion-signal.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 358,
+        "characters": 358,
+        "lines": 4,
+        "estimatedTokens": 90
+      }
+    },
+    {
+      "name": "evidence.md",
+      "promptConsumers": [
+        "execute.md.in",
+        "plan.md.in",
+        "pr-review.md.in",
+        "prd.md.in",
+        "review.md.in"
+      ],
+      "metrics": {
+        "bytes": 1278,
+        "characters": 1278,
+        "lines": 10,
+        "estimatedTokens": 320
+      }
+    },
+    {
+      "name": "execution-options.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 4879,
+        "characters": 4879,
+        "lines": 41,
+        "estimatedTokens": 1220
+      }
+    },
+    {
+      "name": "git-conventions.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 6031,
+        "characters": 6031,
+        "lines": 42,
+        "estimatedTokens": 1508
+      }
+    },
+    {
+      "name": "issue-authoring.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 1476,
+        "characters": 1476,
+        "lines": 10,
+        "estimatedTokens": 369
+      }
+    },
+    {
+      "name": "issue-input.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 3779,
+        "characters": 3779,
+        "lines": 18,
+        "estimatedTokens": 945
+      }
+    },
+    {
+      "name": "issue-review-result.md",
+      "promptConsumers": [
+        "review.md.in"
+      ],
+      "metrics": {
+        "bytes": 886,
+        "characters": 886,
+        "lines": 25,
+        "estimatedTokens": 222
+      }
+    },
+    {
+      "name": "local-issue-files.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 1362,
+        "characters": 1362,
+        "lines": 12,
+        "estimatedTokens": 341
+      }
+    },
+    {
+      "name": "plan-format.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 4342,
+        "characters": 4342,
+        "lines": 65,
+        "estimatedTokens": 1086
+      }
+    },
+    {
+      "name": "pr-metadata.md",
+      "promptConsumers": [
+        "pr.md.in"
+      ],
+      "metrics": {
+        "bytes": 5506,
+        "characters": 5506,
+        "lines": 26,
+        "estimatedTokens": 1377
+      }
+    },
+    {
+      "name": "pr-review-result.md",
+      "promptConsumers": [
+        "pr-review.md.in"
+      ],
+      "metrics": {
+        "bytes": 1364,
+        "characters": 1360,
+        "lines": 37,
+        "estimatedTokens": 340
+      }
+    },
+    {
+      "name": "publication.md",
+      "promptConsumers": [
+        "generate.md.in",
+        "pr.md.in"
+      ],
+      "metrics": {
+        "bytes": 965,
+        "characters": 965,
+        "lines": 8,
+        "estimatedTokens": 242
+      }
+    },
+    {
+      "name": "repository-decisions.md",
+      "promptConsumers": [
+        "analyze.md.in",
+        "execute.md.in",
+        "generate.md.in",
+        "plan.md.in",
+        "pr-review.md.in",
+        "pr.md.in",
+        "prd.md.in",
+        "review.md.in"
+      ],
+      "metrics": {
+        "bytes": 933,
+        "characters": 933,
+        "lines": 6,
+        "estimatedTokens": 234
+      }
+    },
+    {
+      "name": "repository-policy.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 4923,
+        "characters": 4923,
+        "lines": 28,
+        "estimatedTokens": 1231
+      }
+    },
+    {
+      "name": "repository-scaffold.md",
+      "promptConsumers": [],
+      "metrics": {
+        "bytes": 1518,
+        "characters": 1518,
+        "lines": 10,
+        "estimatedTokens": 380
+      }
+    }
+  ]
+}

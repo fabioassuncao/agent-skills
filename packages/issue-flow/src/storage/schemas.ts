@@ -467,6 +467,9 @@ export const executionPlanIssueSchema = z.object({
 });
 
 export const executionPlanSchema = z.object({
+  closeIssue: z.boolean().optional(),
+  closedIssueIds: z.array(z.string()).optional(),
+  prReviewCompleted: z.boolean().optional(),
   schemaVersion: z.literal(1),
   id: z.string().min(1),
   project: z.string().min(1),

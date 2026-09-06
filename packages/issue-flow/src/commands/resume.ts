@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { parseJournal } from '../core/journal.js';
 import { PIPELINE_PHASES, PipelineManager, type PipelinePhase } from '../core/pipeline.js';
 import { loadTaskPlan } from '../core/state-manager.js';
-import { loadExecutionPlan, nextQueueIssue } from '../execution/plan.js';
+import { loadExecutionPlan, nextQueueIssue, queueNeedsFinalization } from '../execution/plan.js';
+import { resolveCommandIssue } from '../issues/context.js';
 import {
   listStoredIssueEvents,
   listStoredIssueIds,
@@ -15,6 +16,7 @@ import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import type { TaskPlan } from '../types.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
 import { describePreflight, preflightRepository } from '../utils/git.js';
+import { finishIssueClosure, persistClosureChoice } from './run/closure.js';
 import { runPipeline } from './run.js';
 
 /**
@@ -43,6 +45,7 @@ import { runPipeline } from './run.js';
  */
 
 export interface ResumeOptions {
+  closeIssue?: boolean;
   /** Resume every unfinished issue of the project, not just one. */
   all?: boolean;
   /** Execution mode handed to the pipeline. Same values as `run`. */
@@ -88,6 +91,34 @@ export async function runResume(issue?: string, options: ResumeOptions = {}): Pr
   }
 
   try {
+    // Resume queue-owned delivery/closure as a queue, not as an isolated member.
+    const queues =
+      project.storageDriver === 'sqlite'
+        ? await listStoredQueues({ projectId: project.projectId })
+        : await Promise.all(
+            (await readdir(join(project.projectDir, QUEUES_DIR_NAME)).catch(() => [])).map((id) =>
+              loadExecutionPlan(
+                join(project.projectDir, QUEUES_DIR_NAME, id, 'execution-plan.json'),
+              ),
+            ),
+          );
+    const pendingQueues = queues.filter(
+      (candidate) =>
+        candidate &&
+        (issue
+          ? candidate.id === issue.replace(/^#/, '') ||
+            candidate.issues.some((entry) => entry.id === issue.replace(/^#/, ''))
+          : queueNeedsFinalization(candidate) || nextQueueIssue(candidate) !== null),
+    );
+    const queueMembers = new Set<string>();
+    for (const queue of pendingQueues) {
+      if (!queue) continue;
+      const code = await runPipeline(queue.requested, mode, undefined, undefined, undefined, {
+        ...(options.closeIssue === undefined ? {} : { closeIssue: options.closeIssue }),
+      });
+      if (code !== 0 || !options.all || issue) return code;
+      for (const member of queue.issues) queueMembers.add(member.id);
+    }
     // 2. What is there to resume.
     const targets = await findTargets(project, issue, options.all === true);
     if (targets.length === 0) {
@@ -100,7 +131,8 @@ export async function runResume(issue?: string, options: ResumeOptions = {}): Pr
     }
 
     for (const target of targets) {
-      const code = await resumeOne(target, mode);
+      if (queueMembers.has(target.issue)) continue;
+      const code = await resumeOne(target, mode, options.closeIssue);
       if (code !== 0) return code;
     }
     return 0;
@@ -109,12 +141,26 @@ export async function runResume(issue?: string, options: ResumeOptions = {}): Pr
   }
 }
 
-async function resumeOne(target: ResumeTarget, mode: string): Promise<number> {
+async function resumeOne(
+  target: ResumeTarget,
+  mode: string,
+  closeIssue?: boolean,
+): Promise<number> {
   const phases = activePhases(target.plan);
   const manager = new PipelineManager(target.plan, target.tasksFile, phases);
   const next = manager.getNextPhase();
 
+  if (closeIssue !== undefined) {
+    await persistClosureChoice(target.tasksFile, closeIssue);
+    target.plan.closeIssue = closeIssue;
+  }
   if (next === null) {
+    if (mode === 'manual') return 0;
+    if (target.plan.closeIssue || target.plan.lastError?.category === 'issue_closure') {
+      const resolution = await resolveCommandIssue(target.issue);
+      if (!resolution.ok) return resolution.code;
+      return finishIssueClosure(target.tasksFile, target.issue, resolution.resolved.source);
+    }
     printInfo(`Issue #${target.issue} has every phase complete; nothing to resume.`);
     return 0;
   }
@@ -144,7 +190,10 @@ async function resumeOne(target: ResumeTarget, mode: string): Promise<number> {
 
   // 5. The phase, stated before anything runs.
   printInfo(`Resuming issue #${target.issue} from the '${next}' phase.`);
-  return runPipeline(target.issue, mode, next, undefined, undefined, { only: true });
+  return runPipeline(target.issue, mode, next, undefined, undefined, {
+    only: true,
+    ...(closeIssue === undefined ? {} : { closeIssue }),
+  });
 }
 
 /** The phase set this plan's pipeline actually has, so `pr-review` is honoured. */
@@ -214,44 +263,9 @@ async function findTargets(
     return target === null ? [] : [target];
   }
 
-  const queued = await queueTarget(project);
-  if (queued !== null && !all) return [queued];
-
   const unfinished = await unfinishedTargets(project);
   if (all) return unfinished;
   return unfinished.slice(0, 1);
-}
-
-/** The issue a queue would hand out next, when this project has a queue. */
-async function queueTarget(
-  project: Awaited<ReturnType<typeof resolveProjectPaths>>,
-): Promise<ResumeTarget | null> {
-  if (project.storageDriver === 'sqlite') {
-    for (const plan of await listStoredQueues({ projectId: project.projectId })) {
-      const next = nextQueueIssue(plan);
-      if (next === null) continue;
-      const target = await loadTarget(project, next.id);
-      if (target !== null) return target;
-    }
-    return null;
-  }
-  const queuesDir = join(project.projectDir, QUEUES_DIR_NAME);
-  let entries: string[];
-  try {
-    entries = await readdir(queuesDir);
-  } catch {
-    return null;
-  }
-
-  for (const entry of entries) {
-    const plan = await loadExecutionPlan(join(queuesDir, entry, 'execution-plan.json'));
-    if (plan === null) continue;
-    const next = nextQueueIssue(plan);
-    if (next === null) continue;
-    const target = await loadTarget(project, next.id);
-    if (target !== null) return target;
-  }
-  return null;
 }
 
 /** Every issue whose plan is not finished, most recently attempted first. */
@@ -272,9 +286,15 @@ async function unfinishedTargets(
   for (const id of ids) {
     const target = await loadTarget(project, id);
     if (target === null) continue;
-    if (target.plan.issueStatus === 'completed') continue;
+    const pendingClosure = target.plan.closeIssue === true && !target.plan.issueClosedAt;
+    if (target.plan.issueStatus === 'completed' && !pendingClosure) continue;
     const manager = new PipelineManager(target.plan, target.tasksFile, activePhases(target.plan));
-    if (manager.getNextPhase() === null) continue;
+    if (
+      manager.getNextPhase() === null &&
+      !pendingClosure &&
+      target.plan.lastError?.category !== 'issue_closure'
+    )
+      continue;
     targets.push(target);
   }
 

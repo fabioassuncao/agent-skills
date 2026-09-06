@@ -12,7 +12,7 @@ Use issue-input to normalize and inspect all requested demands together. Identif
 
 Propose a concrete grouping with its rationale and await approval before consolidating it, unless that exact grouping was already authorized. While awaiting a decision, continue read-only analysis. If grouping is declined, or demands are independent, execute separate plans sequentially. Order by dependencies, then the user's order; report cycles or missing prerequisite work. Do not silently add linked issues or children to the authorized scope. Stop the sequence on a failed/blocked unit, preserving completed results.
 
-For an approved group, allocate a safe local group identifier under issues/<id>/ using issue-input, with one PRD/tasks/progress set. In the PRD map every story and acceptance criterion to its source demand(s); preserve that mapping in story notes and evidence. Keep each source's identity and completion separate. Do not manufacture a GitHub umbrella issue. Separate logical changes into suitable commits, including when they share a plan.
+For an approved group, allocate a safe local group identifier with issue-input and the artifact helper, with one PRD/tasks/progress set. In the PRD map every story and acceptance criterion to its source demand(s); preserve that mapping in story notes and evidence. Keep each source's identity and completion separate. Do not manufacture a GitHub umbrella issue. Separate logical changes into suitable commits, including when they share a plan.
 
 Each separate unit in new mode gets its own planned branch from the resolved base. Never branch the next unit from unrelated unmerged implementation; if a prerequisite is not on the base, resolve that dependency before starting it. In current mode all units stay on the initially captured branch and retain separate plans/results. Respect artifact ownership and preserve work before any switch.
 
@@ -30,7 +30,7 @@ Load execute-tasks with the plan and pending findings; keep issueStatus=in_progr
 
 On FAIL, persist findings in review-findings.md and lastReviewFindings, including GENERAL findings. Before any correction, validate each finding against requirements/code. Record evidence for rejected findings and pass it to the next review. For valid findings, reset affected stories, invalidate execution/review flags and clear completedAt. General findings must be resolved even when no story ID is present.
 
-If correctionCycle has reached maxCorrectionCycles (default 3), stop with preserved work and actionable blockers. Otherwise increment once per attempted correction round, run execution, then re-review. Clear lastReviewFindings only when addressed/rejected with evidence and the fresh review passes. A completion signal alone never bypasses unresolved findings.
+If correctionCycle has reached maxCorrectionCycles (default 3), stop with preserved work and actionable blockers. Otherwise increment once per attempted correction round, run execution, then re-review. Execution may clear lastReviewFindings after addressing/rejecting every finding with recorded evidence. Keep review-findings.md and pass the correction evidence to the next review; only its fresh PASS completes review. A completion signal alone never bypasses unresolved findings.
 
 ## Deliver
 
@@ -40,4 +40,4 @@ When prReview=true (including --pr-review) was requested, load review-pr after c
 
 A verified local-only flow may complete without a PR, with prCreated=false and that choice recorded in progress. A published PR does not independently authorize immediate issue closure. Follow the user's explicit closure request, otherwise let the PR's authorized issue reference govern closure on merge. Local metadata closes only when requested.
 
-Finally set issueStatus=completed, completedAt/lastAttemptAt and clear lastError only when every requested phase is complete. Return branch, artifacts, verified stories, correction rounds, PR if any and material limits. This conversational resumption does not provide transactional locks or an independently isolated reviewer; the CLI remains the surface for those runtime guarantees.
+Finally set issueStatus=completed, completedAt/lastAttemptAt and clear lastError only when every requested phase is complete. Reconcile the final task plan. Return branch, artifacts, verified stories, correction rounds, PR if any and material limits. This conversational resumption does not provide transactional locks or an independently isolated reviewer; the CLI remains the surface for those runtime guarantees.

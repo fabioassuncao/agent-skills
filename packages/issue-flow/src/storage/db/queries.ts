@@ -1,7 +1,11 @@
 import type { SessionSnapshot } from '../../core/session-state.js';
 import type { ExecutionPlan } from '../../execution/types.js';
 import type { ExecutionRecord } from '../../telemetry/types.js';
-import { type OpenIssueFlowDatabaseOptions, openIssueFlowDatabase } from './index.js';
+import {
+  databaseOptionsForProject,
+  type OpenIssueFlowDatabaseOptions,
+  openIssueFlowDatabase,
+} from './index.js';
 
 async function query<T>(
   work: (database: Awaited<ReturnType<typeof openIssueFlowDatabase>>) => T,
@@ -29,7 +33,7 @@ export async function listStoredIssueIds(input: {
         )
         .all<{ issue_id: string }>(input.projectId)
         .map((row) => row.issue_id),
-    input.databaseOptions,
+    input.databaseOptions ?? databaseOptionsForProject(input.projectId),
   );
 }
 
@@ -48,7 +52,7 @@ export async function latestStoredIssueSnapshot(input: {
       )
       .get<{ payload_json: string }>(input.projectId, input.issueId);
     return row === undefined ? null : (JSON.parse(row.payload_json) as SessionSnapshot);
-  }, input.databaseOptions);
+  }, input.databaseOptions ?? databaseOptionsForProject(input.projectId));
 }
 
 /** Canonical queue plans for one project. */
@@ -62,7 +66,7 @@ export async function listStoredQueues(input: {
         .prepare('SELECT payload_json FROM queues WHERE project_id = ? ORDER BY updated_at DESC')
         .all<{ payload_json: string }>(input.projectId)
         .map((row) => JSON.parse(row.payload_json) as ExecutionPlan),
-    input.databaseOptions,
+    input.databaseOptions ?? databaseOptionsForProject(input.projectId),
   );
 }
 
@@ -104,7 +108,7 @@ export async function listStoredIssueEvents(input: {
             event: parsed as StoredIssueEvent['event'],
           };
         }),
-    input.databaseOptions,
+    input.databaseOptions ?? databaseOptionsForProject(input.projectId),
   );
 }
 
@@ -162,5 +166,5 @@ export async function getStoredIssueHistory(input: {
       .all<{ payload_json: string }>(input.projectId, input.issueId)
       .map((row) => JSON.parse(row.payload_json) as Record<string, unknown>);
     return { issueId: input.issueId, runs, phases, executions, verifications, reviews };
-  }, input.databaseOptions);
+  }, input.databaseOptions ?? databaseOptionsForProject(input.projectId));
 }
