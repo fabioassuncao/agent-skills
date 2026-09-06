@@ -406,6 +406,70 @@ export const migrations: readonly Migration[] = [
         CREATE INDEX agent_events_run_occurred_idx ON agent_events(run_id, occurred_at);
       `),
   },
+  {
+    version: 10,
+    name: 'curate the known projects registry',
+    // The `projects` table already existed as a foreign-key anchor: a row is
+    // created the first time a project runs. What it could not answer is
+    // "which projects does this user actually work on" — a project only
+    // appeared after it had executed at least once.
+    //
+    // These four columns turn the same table into the single Project Registry
+    // (§47.2) instead of adding a second state file next to the database.
+    // Nothing derivable from the repository is stored here: `name` is a label,
+    // the rest is curation and recency. The URL prefix stays *derived* per
+    // process (`storage/projects/prefix.ts`), never persisted, so moving or
+    // renaming a checkout cannot strand a route.
+    //
+    // `source` is what keeps direct mode intact: `discovered` is what a plain
+    // `issue-flow run` already creates (hence the default, which reclassifies
+    // no existing row), `registered` is explicit curation, and `ephemeral` is
+    // never written — it exists in the domain, in memory only, for a repo that
+    // one `serve` process happens to sit in. Demotion is a column update:
+    // `project rm` never destroys runs, artifacts or telemetry.
+    up: (database) =>
+      database.exec(`
+        ALTER TABLE projects ADD COLUMN name TEXT;
+        ALTER TABLE projects ADD COLUMN added_at TEXT;
+        ALTER TABLE projects ADD COLUMN last_seen_at TEXT;
+        ALTER TABLE projects ADD COLUMN source TEXT NOT NULL DEFAULT 'discovered'
+          CHECK (source IN ('registered', 'discovered', 'ephemeral'));
+        CREATE INDEX projects_source_last_seen_idx ON projects(source, last_seen_at DESC);
+      `),
+  },
+  {
+    version: 11,
+    name: 'bind managed worktrees to their project',
+    // ADR-08 draws the line this table sits on: git is the authority on
+    // whether a worktree *exists*, SQLite on what it is *bound to* — which
+    // branch, which agent, which conversation to resume, which ports it owns.
+    // A row whose directory git no longer lists is `orphaned`, never recreated.
+    //
+    // The upstream keeps the same model in a `meta.json` per worktree
+    // (§45.2-G). The model is kept; the vehicle is not, because a second store
+    // beside the database is a second thing that can disagree with it.
+    up: (database) =>
+      database.exec(`
+        CREATE TABLE worktrees (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          branch TEXT NOT NULL,
+          path TEXT NOT NULL,
+          base_branch TEXT,
+          label TEXT,
+          profile TEXT NOT NULL,
+          agent TEXT NOT NULL,
+          runtime TEXT NOT NULL CHECK (runtime IN ('host', 'docker')),
+          startup_env_json TEXT NOT NULL,
+          allocated_ports_json TEXT NOT NULL,
+          source TEXT,
+          conversation_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX worktrees_project_branch_idx ON worktrees(project_id, branch);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

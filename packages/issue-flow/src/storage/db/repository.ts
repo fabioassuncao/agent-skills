@@ -171,10 +171,16 @@ function ensureStoredProject(
 ): void {
   database
     .prepare(
-      `INSERT INTO projects (id, root, remote_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+      // `last_seen_at` is what makes a project that only ever ran — never
+      // curated — sort into the dashboard's "recent" list (§47.3). The row was
+      // always created here; before the registry there was simply nothing that
+      // could tell one dormant project from another.
+      `INSERT INTO projects (id, root, remote_url, created_at, updated_at, last_seen_at)
+       VALUES (?, ?, NULL, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at,
+         last_seen_at = excluded.last_seen_at`,
     )
-    .run(context.projectId, context.projectRoot, timestamp, timestamp);
+    .run(context.projectId, context.projectRoot, timestamp, timestamp, timestamp);
 }
 
 /**
@@ -394,10 +400,16 @@ export function writePlanRows(
   const timestamp = plan.lastAttemptAt ?? new Date().toISOString();
   database
     .prepare(
-      `INSERT INTO projects (id, root, remote_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+      // `last_seen_at` is what makes a project that only ever ran — never
+      // curated — sort into the dashboard's "recent" list (§47.3). The row was
+      // always created here; before the registry there was simply nothing that
+      // could tell one dormant project from another.
+      `INSERT INTO projects (id, root, remote_url, created_at, updated_at, last_seen_at)
+       VALUES (?, ?, NULL, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at,
+         last_seen_at = excluded.last_seen_at`,
     )
-    .run(context.projectId, context.projectRoot, timestamp, timestamp);
+    .run(context.projectId, context.projectRoot, timestamp, timestamp, timestamp);
   database
     .prepare(
       `INSERT INTO issues (project_id, id, title, status, branch_name, created_at, updated_at)
@@ -1153,10 +1165,12 @@ export async function saveSessionEvent(
         const startedAt = input.snapshot.startedAt ?? input.event.at;
         database
           .prepare(
-            `INSERT INTO projects (id, root, remote_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+            `INSERT INTO projects (id, root, remote_url, created_at, updated_at, last_seen_at)
+             VALUES (?, ?, NULL, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at,
+               last_seen_at = excluded.last_seen_at`,
           )
-          .run(context.projectId, context.projectRoot, startedAt, updatedAt);
+          .run(context.projectId, context.projectRoot, startedAt, updatedAt, updatedAt);
         database
           .prepare(
             `INSERT INTO issues (project_id, id, title, status, branch_name, created_at, updated_at)
@@ -1416,6 +1430,156 @@ export async function listAgentEvents(input: {
         })),
     input.databaseOptions,
   );
+}
+
+export interface StoredWorktree {
+  worktreeId: string;
+  branch: string;
+  path: string;
+  baseBranch: string | null;
+  label: string | null;
+  profile: string;
+  agent: string;
+  runtime: 'host' | 'docker';
+  startupEnvValues: Record<string, string>;
+  allocatedPorts: Record<string, number>;
+  source: string | null;
+  conversationId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function toStoredWorktree(row: {
+  id: string;
+  branch: string;
+  path: string;
+  base_branch: string | null;
+  label: string | null;
+  profile: string;
+  agent: string;
+  runtime: string;
+  startup_env_json: string;
+  allocated_ports_json: string;
+  source: string | null;
+  conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}): StoredWorktree {
+  return {
+    worktreeId: row.id,
+    branch: row.branch,
+    path: row.path,
+    baseBranch: row.base_branch,
+    label: row.label,
+    profile: row.profile,
+    agent: row.agent,
+    runtime: row.runtime === 'docker' ? 'docker' : 'host',
+    startupEnvValues: JSON.parse(row.startup_env_json) as Record<string, string>,
+    allocatedPorts: JSON.parse(row.allocated_ports_json) as Record<string, number>,
+    source: row.source,
+    conversationId: row.conversation_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Read order, shared by every worktree query so the row shape stays one thing. */
+const WORKTREE_COLUMNS =
+  'id, branch, path, base_branch, label, profile, agent, runtime, startup_env_json, allocated_ports_json, source, conversation_id, created_at, updated_at';
+
+/**
+ * Record what a worktree is bound to.
+ *
+ * Keyed by `(project_id, branch)` rather than by path: a worktree is the branch
+ * it carries, and moving the directory does not make it a different one.
+ */
+export async function saveWorktree(
+  context: PlanRepositoryContext,
+  worktree: StoredWorktree,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      // The project row is a foreign key of this table and a worktree can be
+      // the first thing a project ever records — a `run` that starts in a
+      // worktree has not written a session yet. Upserting it here keeps the
+      // writer self-sufficient, the same way saveSessionEvent does.
+      database
+        .prepare(
+          `INSERT INTO projects (id, root, remote_url, created_at, updated_at)
+           VALUES (?, ?, NULL, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+        )
+        .run(context.projectId, context.projectRoot, worktree.createdAt, worktree.updatedAt);
+      database
+        .prepare(
+          `INSERT INTO worktrees
+           (project_id, id, branch, path, base_branch, label, profile, agent, runtime,
+            startup_env_json, allocated_ports_json, source, conversation_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(project_id, branch) DO UPDATE SET
+           path = excluded.path,
+           base_branch = excluded.base_branch,
+           label = excluded.label,
+           profile = excluded.profile,
+           agent = excluded.agent,
+           runtime = excluded.runtime,
+           startup_env_json = excluded.startup_env_json,
+           allocated_ports_json = excluded.allocated_ports_json,
+           source = excluded.source,
+           conversation_id = excluded.conversation_id,
+           updated_at = excluded.updated_at`,
+        )
+        .run(
+          context.projectId,
+          worktree.worktreeId,
+          worktree.branch,
+          worktree.path,
+          worktree.baseBranch,
+          worktree.label,
+          worktree.profile,
+          worktree.agent,
+          worktree.runtime,
+          JSON.stringify(worktree.startupEnvValues),
+          JSON.stringify(worktree.allocatedPorts),
+          worktree.source,
+          worktree.conversationId,
+          worktree.createdAt,
+          worktree.updatedAt,
+        );
+    });
+  }, context.databaseOptions);
+}
+
+export async function loadWorktree(
+  context: PlanRepositoryContext,
+  branch: string,
+): Promise<StoredWorktree | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare(`SELECT ${WORKTREE_COLUMNS} FROM worktrees WHERE project_id = ? AND branch = ?`)
+      .get<Parameters<typeof toStoredWorktree>[0]>(context.projectId, branch);
+    return row === undefined ? null : toStoredWorktree(row);
+  }, context.databaseOptions);
+}
+
+export async function listWorktrees(context: PlanRepositoryContext): Promise<StoredWorktree[]> {
+  return withDatabase((database) => {
+    return database
+      .prepare(`SELECT ${WORKTREE_COLUMNS} FROM worktrees WHERE project_id = ? ORDER BY branch`)
+      .all<Parameters<typeof toStoredWorktree>[0]>(context.projectId)
+      .map(toStoredWorktree);
+  }, context.databaseOptions);
+}
+
+export async function deleteWorktree(
+  context: PlanRepositoryContext,
+  branch: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare('DELETE FROM worktrees WHERE project_id = ? AND branch = ?')
+      .run(context.projectId, branch);
+  }, context.databaseOptions);
 }
 
 export async function loadExecution(

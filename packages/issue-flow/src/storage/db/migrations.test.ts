@@ -115,30 +115,36 @@ describe('SQLite migrations', () => {
     }
   });
 
-  // Migration 9 (agent lifecycle events). A pre-existing database must gain the
-  // table without touching what is already in it, and must stay readable across
-  // a close/reopen cycle.
-  it('adds agent_events to a database that stopped at the previous version', async () => {
+  // Every migration added by the WebMux absorption has to reach a database that
+  // already exists, without disturbing what is in it, and the result has to
+  // survive a close and reopen. Anchored on version 8 — the last release before
+  // the absorption — rather than on `CURRENT_SCHEMA_VERSION - 1`, so adding a
+  // migration does not silently narrow what this covers.
+  const LAST_PRE_ABSORPTION_VERSION = 8;
+
+  it('brings a pre-absorption database forward without disturbing its rows', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'issue-flow-db-'));
     directories.push(directory);
     const path = join(directory, 'issue-flow.db');
-    const previous = CURRENT_SCHEMA_VERSION - 1;
 
     const first = await openDatabase(path);
     try {
-      // Migrate only as far as the release before this one, then seed a row.
-      for (const migration of migrations.filter((entry) => entry.version <= previous)) {
+      for (const migration of migrations.filter(
+        (entry) => entry.version <= LAST_PRE_ABSORPTION_VERSION,
+      )) {
         migration.up(first);
       }
-      first.exec(`PRAGMA user_version = ${previous}`);
+      first.exec(`PRAGMA user_version = ${LAST_PRE_ABSORPTION_VERSION}`);
       first
         .prepare('INSERT INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)')
         .run('project', '/repo', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
-      expect(
-        first
-          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agent_events'")
-          .get(),
-      ).toBeUndefined();
+      for (const table of ['agent_events', 'worktrees']) {
+        expect(
+          first
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+            .get(table),
+        ).toBeUndefined();
+      }
     } finally {
       first.close();
     }
@@ -150,6 +156,7 @@ describe('SQLite migrations', () => {
       expect(upgraded.prepare('SELECT id FROM projects').all<{ id: string }>()).toEqual([
         { id: 'project' },
       ]);
+
       upgraded
         .prepare(
           `INSERT INTO agent_events
@@ -187,17 +194,73 @@ describe('SQLite migrations', () => {
             '2026-01-01T00:00:02.000Z',
           ),
       ).toThrow();
+
+      const insertWorktree = upgraded.prepare(
+        `INSERT INTO worktrees
+           (id, project_id, branch, path, profile, agent, runtime,
+            startup_env_json, allocated_ports_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      insertWorktree.run(
+        'wt-1',
+        'project',
+        'feature',
+        '/wt/feature',
+        'default',
+        'claude',
+        'host',
+        '{}',
+        '{}',
+        '2026-01-01T00:00:03.000Z',
+        '2026-01-01T00:00:03.000Z',
+      );
+      // One binding per branch: a second row for the same branch would let two
+      // worktrees claim it.
+      expect(() =>
+        insertWorktree.run(
+          'wt-2',
+          'project',
+          'feature',
+          '/wt/other',
+          'default',
+          'claude',
+          'host',
+          '{}',
+          '{}',
+          '2026-01-01T00:00:04.000Z',
+          '2026-01-01T00:00:04.000Z',
+        ),
+      ).toThrow();
+      // And a runtime the three modes do not include is refused.
+      expect(() =>
+        insertWorktree.run(
+          'wt-3',
+          'project',
+          'other',
+          '/wt/other',
+          'default',
+          'claude',
+          'kubernetes',
+          '{}',
+          '{}',
+          '2026-01-01T00:00:05.000Z',
+          '2026-01-01T00:00:05.000Z',
+        ),
+      ).toThrow();
     } finally {
       upgraded.close();
     }
 
-    // Reopening applies no further migration and still reads the row.
+    // Reopening applies no further migration and still reads both rows.
     const reopened = await openDatabase(path);
     try {
       expect(migrateDatabase(reopened)).toBe(CURRENT_SCHEMA_VERSION);
       expect(reopened.prepare('SELECT run_id FROM agent_events').all<{ run_id: string }>()).toEqual(
         [{ run_id: 'run-1' }],
       );
+      expect(reopened.prepare('SELECT branch FROM worktrees').all<{ branch: string }>()).toEqual([
+        { branch: 'feature' },
+      ]);
     } finally {
       reopened.close();
     }

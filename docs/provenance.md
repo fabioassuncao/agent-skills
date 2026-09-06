@@ -46,6 +46,12 @@ from the documented behaviour, not from the upstream source).
 | `packages/issue-flow/src/agents/hooks/install.ts` | `backend/src/adapters/agent-runtime.ts` (hook settings, merges, `resolveGitCommonDir`) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/agents/hooks/control-server.ts` | `backend/src/adapters/control-token.ts` + `backend/src/server.ts` (runtime-events route) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/agents/hooks/apply.ts` | `backend/src/services/project-runtime.ts` (runtime event projection) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/worktree/git.ts` | `backend/src/adapters/git.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/worktree/lifecycle.ts` | `backend/src/services/lifecycle-service.ts` + `services/worktree-service.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/worktree/meta.ts` | `backend/src/adapters/fs.ts` + `domain/model.ts` (`WorktreeMeta`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/worktree/paths.ts` | `backend/src/adapters/fs.ts` (path helpers) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/worktree/progress.ts` | `backend/src/services/worktree-creation-service.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/worktree/gc.ts` | `backend/src/services/auto-remove-service.ts` + `auto-pull-service.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/auto-name.ts` | `backend/src/services/auto-name-service.ts` (prompt, `normalizeGeneratedBranchName`, timeout fallback) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/auto-name.ts` (`generateFallbackBranchName`) | `backend/src/lib/branch-name.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/slug.ts` (`sanitizeBranchName`, `isValidBranchName`) | `backend/src/domain/policies.ts:8–24` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |

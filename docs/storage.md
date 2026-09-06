@@ -104,6 +104,21 @@ the agent's own process, and the ordinary race — a hook firing before the run'
 first snapshot has been committed — must not lose it. The outside world is the
 authority on what exists; this table records what was reported.
 
+### `worktrees`
+
+What each managed worktree is bound to: branch, path, base branch, agent,
+profile, runtime, the environment values it exports and the ports it owns.
+
+git is the authority on whether a worktree **exists**; this table is the
+authority on what it is **bound to**. A row whose directory git no longer lists
+is reported as `orphaned` and left alone — never recreated because a row says it
+should be there, never deleted because a directory is missing.
+
+Keyed by `(project_id, branch)`: a worktree is the branch it carries, and moving
+the directory does not make it a different one. `runtime.env` stays a file under
+the worktree's own git directory, because `bash` and the lifecycle hooks read it
+and neither can query a database.
+
 ## One issue directory
 
 Everything a single issue accumulates. Nothing here is created before something

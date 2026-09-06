@@ -290,3 +290,85 @@ Nenhum — não há unidade upstream nesta fase.
 **Orçamentos**
 Nenhum de §35 se aplica: o caminho quente é idêntico ao anterior — uma chamada de função a
 mais e nenhuma sintaxe de processo diferente.
+
+---
+
+### Worktree manager (Fase 5)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/git.ts` @ d8c9d5f — 483 linhas ·
+`services/lifecycle-service.ts` — 1.523 · `services/worktree-service.ts` — 287 ·
+`adapters/fs.ts` (helpers de path e env) — 364 · `services/worktree-creation-service.ts` — 40 ·
+`services/auto-remove-service.ts` + `auto-pull-service.ts` — ~200.
+Base canônica por `§45.1-E`: **WebMux** para as operações de worktree e para o merge com
+rollback (o Issue Flow não tinha nenhuma). `§45.1-F` e `§45.1-G`: **Issue Flow** para o
+chokepoint de shell e para a escrita de estado.
+
+**Comportamento existente**
+- `git worktree add -b <branch> <path> <base>` para `new`; `git worktree add <path> <branch>`
+  para `existing`, com `startPoint` quando a branch só existe no remoto.
+- Disponibilidade de branch com erros 4xx distintos: 409 já existe · 409 já tem worktree ·
+  404 não encontrada.
+- `filterLiveWorktreeEntries()` — git mantém o registro administrativo de um worktree cujo
+  diretório foi apagado à mão até alguém dar `prune`.
+- `removeGitWorktree()` só apaga o diretório depois de confirmar que o git **não** o lista
+  mais; apagar um diretório que o git ainda considera vivo corrompe a visão do repositório.
+- `mergeBranch()` restaura o checkout anterior **inclusive quando o merge falha**, e
+  concatena os erros de limpeza à causa original em vez de substituí-la. "MERGE_HEAD
+  missing" é ignorado porque significa que o merge nem começou.
+- `cleanupFailedCreate()` tenta todos os passos mesmo com falhas no meio.
+- Fallback de `aheadCount` e de `listUnpushedCommits` quando não há upstream configurado.
+- Casos especiais que NÃO podiam se perder: a lista **crua** de worktrees na checagem de
+  disponibilidade; a restauração do checkout após merge com conflito; a checagem antes do
+  fallback de `rm -rf`; o `fetch` que falha sem derrubar a listagem de branches remotas;
+  o filtro do ref simbólico `origin` ao listar remotas.
+
+**Implementação no Issue Flow**
+`src/runtime/worktree/{git,lifecycle,meta,paths,progress,gc,index}.ts` ·
+migration 11 (`worktrees`) e os repositórios em `src/storage/db/repository.ts`.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `Bun.spawnSync` → `run()` de `src/utils/shell.ts`, tudo assíncrono | `§45.1-F`: o chokepoint único do Issue Flow traz allowlist de git destrutivo e retry, que o `lib/shell.ts` do WebMux não tem. O chokepoint é assíncrono, e um segundo caminho síncrono seria responsabilidade duplicada |
+| `meta.json` por worktree → tabela `worktrees` (migration 11) | `§45.2-G`: o **modelo** é do WebMux, o **veículo** é do Issue Flow. Um segundo arquivo de estado ao lado do banco é uma segunda coisa que pode discordar dele |
+| `runtime.env` continua arquivo, gravado com `writeFileAtomic` | `bash` e os hooks de lifecycle leem esse arquivo e nenhum dos dois consulta banco. `Bun.write` do upstream não é atômico (§45.3) |
+| `<gitDir>/webmux/` → `<gitDir>/issue-flow/` | Invariante 17; e é o mesmo diretório onde os hooks da Fase 2 já vivem |
+| `LifecycleService` (classe, 1.523 LOC) → `createWorktreeManager()` + `WorktreeLifecycleHooks` | tmux, containers, portas e profiles pertencem às fases 6, 10 e 12. Portá-los aqui pela metade produziria uma segunda implementação mais fraca de cada um |
+| `list()` junta git com o banco e marca `orphaned` | ADR-08. O upstream reconstrói a projeção e remove o que não viu; aqui a divergência é **reportada**, nunca reparada |
+| Raiz do repositório reconhecida pelo path que o **git** reporta | No macOS os diretórios temporário e home são symlinks: o git responde `/private/var/…` onde o chamador passou `/var/…`, e comparar as strings faz o próprio repositório aparecer como mais um worktree gerenciado |
+| `saveWorktree()` faz upsert da linha de `projects` | É chave estrangeira, e um worktree pode ser a primeira coisa que um projeto registra. Mesmo padrão de `saveSessionEvent` |
+| Ordem de escrita determinística em `runtime.env` | O arquivo é lido por quem está depurando um worktree; um conjunto de variáveis que se reordena a cada escrita torna o diff inútil |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `hardReset()` e `forcePullMainBranch()` | `adapters/git.ts:480`, `auto-pull-service.ts:54` | Fazem `reset --hard`, descartando o estado local. `src/utils/AGENTS.md` é explícito: nada destrutivo roda automaticamente para consertar estado. O monitor periódico do upstream já usa só o `pullMainBranch` fast-forward; o que sai é a variante manual destrutiva, que nada no escopo chamava |
+| `allocateServicePorts()` | `domain/policies.ts:88` | Pertence a `src/runtime/services.ts` (Fase 10, §22). Aqui `allocatedPorts` é **entrada** do worktree, não cálculo dele |
+| `archiveState`, `setWorktreeArchived`, `setWorktreeLabel`, `tabs`, `forkCounter` | `lifecycle-service.ts`, `domain/model.ts` | São estado de UI do painel do WebMux. Entram, se entrarem, com o port do frontend (§48/§50), não com o gerenciador de worktree |
+| `buildCreateWorktreeTargets` / `prefixAgentBranch` (um worktree por agente) | `lifecycle-service.ts:122` | É multi-agente, que é a Fase 17. Portar agora criaria uma segunda convenção de branch (`<agent>-<branch>`) ao lado da de `src/conventions/git/`, que é a única permitida |
+| `openWorktree` / `materializeRuntimeSession` / `restoreWorktreeTabs` | `lifecycle-service.ts:257` | Dependem de tmux e de sessão de agente — fases 6 e 7 |
+| `resolveRepoRoot` varrendo filhos de um container | `adapters/git.ts` | **Portado** (está em `git.ts`), mas ainda não usado: quem vai consumi-lo é o `serve` multi-projeto |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/worktree/git.test.ts` | `__tests__/git-adapter.test.ts` (partes puras) + novos | 13 | ✅ |
+| `src/runtime/worktree/lifecycle.test.ts` | `__tests__/lifecycle-service.test.ts` (decisões, com dublê de gateway) | 22 | ✅ |
+| `src/runtime/worktree/meta.test.ts` | `__tests__/worktree-storage.test.ts` | 11 | ✅ |
+| `src/runtime/worktree/gc.test.ts` | `auto-remove-service` / `auto-pull-service` | 12 | ✅ |
+| `src/runtime/worktree/lifecycle.integration.test.ts` | `__tests__/git-adapter.test.ts` (casos com repositório real) + **C1** e **C12** de §34 | 13 | ✅ |
+| `src/storage/db/migrations.test.ts` | migration 11 em banco novo, existente, reaberto | 1 | ✅ |
+
+Total: **71 casos**. Os 105 casos upstream de `§22` cobrem também containers, portas,
+profiles, tabs e archive — deliberadamente fora desta fase (ver acima); os casos portados
+são os que exercitam o comportamento que esta fase de fato absorve.
+
+**Orçamentos**
+
+| Métrica | Baseline WebMux | Budget | Medido |
+|---|---|---|---|
+| `git worktree add` | 78 ms | ≤ 150 ms | **45–97 ms** (mediana de 5, `lifecycle.integration.test.ts`) |
