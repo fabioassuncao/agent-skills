@@ -13,6 +13,7 @@ installed.
 - [Database maintenance](#database-maintenance) — `db check`, `db backup`, `db vacuum`, `db export`, `db verify`, `db import`
 - [Issues](#issues) — `generate`
 - [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`, `bench`
+- [Shell completion](#shell-completion) — `complete` scripts, activation, removal, and protocol
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
 - [Exit codes](#exit-codes)
 
@@ -557,6 +558,163 @@ investigation escape and does not produce a publishable row. A campaign that
 hits a ceiling exits `2` with a partial report.
 
 See [`src/benchmark/AGENTS.md`](../packages/issue-flow/src/benchmark/AGENTS.md).
+
+## Shell completion
+
+### `complete` — generate and serve shell completion
+
+`complete` prints a completion script for zsh, bash, fish or PowerShell. It does
+not install the script or edit a shell configuration file. Every persistent
+example below makes the file writes explicit, so you remain in control of each
+change.
+
+The generated script calls `issue-flow complete -- ...` whenever completion is
+requested. The bare `issue-flow` executable must therefore be installed or
+linked on `PATH` both when the script is generated and in later shell sessions.
+A one-off invocation such as `npx issue-flow complete zsh` can print a script,
+but it does not provide equivalent direct `issue-flow <TAB>` completion after
+that `npx` process exits.
+
+After upgrading Issue Flow, rerun the generation command for your shell to
+refresh the saved script with the current command tree.
+
+#### zsh
+
+Activate completion only in the current shell:
+
+```zsh
+autoload -Uz compinit && compinit
+source <(issue-flow complete zsh)
+```
+
+Save the generated script, add an idempotent startup entry, and activate it now:
+
+```zsh
+completion_file="$HOME/.issue-flow-completion.zsh"
+issue-flow complete zsh > "$completion_file"
+grep -Fqx '# issue-flow shell completion (managed by user)' "$HOME/.zshrc" 2>/dev/null ||
+  printf '\n# issue-flow shell completion (managed by user)\nautoload -Uz compinit && compinit && source "$HOME/.issue-flow-completion.zsh"\n' >> "$HOME/.zshrc"
+autoload -Uz compinit && compinit
+source "$completion_file"
+```
+
+Remove the startup entry and saved script, then open a new shell:
+
+```zsh
+if [ -f "$HOME/.zshrc" ]; then
+  sed -i.bak '/^# issue-flow shell completion (managed by user)$/ { N; d; }' "$HOME/.zshrc"
+  rm -f "$HOME/.zshrc.bak"
+fi
+rm -f "$HOME/.issue-flow-completion.zsh"
+```
+
+#### bash
+
+Bash completion must be installed and loaded so that
+`_get_comp_words_by_ref` is available. Activate Issue Flow completion only in
+the current shell:
+
+```bash
+source <(issue-flow complete bash)
+```
+
+Save the generated script, add an idempotent startup entry, and activate it now:
+
+```bash
+completion_file="$HOME/.issue-flow-completion.bash"
+issue-flow complete bash > "$completion_file"
+grep -Fqx '# issue-flow shell completion (managed by user)' "$HOME/.bashrc" 2>/dev/null ||
+  printf '\n# issue-flow shell completion (managed by user)\nsource "$HOME/.issue-flow-completion.bash"\n' >> "$HOME/.bashrc"
+source "$completion_file"
+```
+
+Remove the startup entry and saved script, then open a new shell:
+
+```bash
+if [ -f "$HOME/.bashrc" ]; then
+  sed -i.bak '/^# issue-flow shell completion (managed by user)$/ { N; d; }' "$HOME/.bashrc"
+  rm -f "$HOME/.bashrc.bak"
+fi
+rm -f "$HOME/.issue-flow-completion.bash"
+```
+
+#### fish
+
+Activate completion only in the current shell:
+
+```fish
+issue-flow complete fish | source
+```
+
+Save the script in fish's per-user completion directory and activate it now:
+
+```fish
+mkdir -p "$HOME/.config/fish/completions"
+issue-flow complete fish > "$HOME/.config/fish/completions/issue-flow.fish"
+source "$HOME/.config/fish/completions/issue-flow.fish"
+```
+
+Remove the saved script and disable the registration in the current shell:
+
+```fish
+rm -f "$HOME/.config/fish/completions/issue-flow.fish"
+complete -c issue-flow -e
+```
+
+#### PowerShell
+
+Activate completion only in the current session:
+
+```powershell
+issue-flow complete powershell | Out-String | Invoke-Expression
+```
+
+Save the generated script, add an idempotent profile entry, and activate it now:
+
+```powershell
+$completionFile = Join-Path $HOME '.issue-flow-completion.ps1'
+$marker = '# issue-flow shell completion (managed by user)'
+$sourceLine = '. "$HOME/.issue-flow-completion.ps1"'
+issue-flow complete powershell | Set-Content -Encoding utf8 $completionFile
+New-Item -ItemType Directory -Force (Split-Path -Parent $PROFILE) | Out-Null
+if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force $PROFILE | Out-Null }
+if (-not (Select-String -LiteralPath $PROFILE -SimpleMatch $marker -Quiet)) {
+  Add-Content -LiteralPath $PROFILE -Value "`n$marker`n$sourceLine"
+}
+. $completionFile
+```
+
+Remove the profile entry and saved script, then open a new PowerShell session:
+
+```powershell
+$completionFile = Join-Path $HOME '.issue-flow-completion.ps1'
+$marker = '# issue-flow shell completion (managed by user)'
+$sourceLine = '. "$HOME/.issue-flow-completion.ps1"'
+if (Test-Path $PROFILE) {
+  $lines = Get-Content -LiteralPath $PROFILE |
+    Where-Object { $_ -ne $marker -and $_ -ne $sourceLine }
+  Set-Content -LiteralPath $PROFILE -Encoding utf8 -Value ($lines -join [Environment]::NewLine)
+}
+Remove-Item -LiteralPath $completionFile -ErrorAction SilentlyContinue
+```
+
+#### Completion protocol
+
+The generated scripts call the same command with `--` followed by the partial
+argument vector, excluding the executable name. Include an empty final argument
+when completion follows a space:
+
+```bash
+issue-flow complete -- run --agent ""
+issue-flow complete -- db ""
+```
+
+The response contains one suggestion per line as
+`value<TAB>description`, followed by a `:<directive>` line consumed by the
+generated shell script. Suggestions and descriptions come from the registered
+Commander command tree; hidden commands and options are omitted. This protocol
+path, like script generation, writes only to stdout and does not initialize
+Issue Flow storage, inspect Git, or contact an agent or GitHub.
 
 ## Web monitor
 

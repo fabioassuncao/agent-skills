@@ -81,7 +81,7 @@ export function phaseLabel(phase: string): string {
  * not by switching renderers — a TTY with NO_COLOR still benefits from the
  * default renderer's layout and spinners.
  */
-function selectRenderer(verbose: boolean): 'default' | 'verbose' | 'simple' {
+export function selectRenderer(verbose: boolean): 'default' | 'verbose' | 'simple' {
   const isTTY = !!process.stdout.isTTY;
   const isCI = !!process.env.CI;
 

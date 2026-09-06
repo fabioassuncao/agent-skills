@@ -1,5 +1,5 @@
 import { PassThrough, Writable } from 'node:stream';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PrDiscoveryError, type PrDiscoverySources, resolvePullRequest } from './discovery.js';
 
 /** Every source empty: each test opts into the one it exercises. */
@@ -13,19 +13,24 @@ function makeSources(overrides: Partial<PrDiscoverySources> = {}): Partial<PrDis
   };
 }
 
-/** Discards everything readline writes while prompting. */
-function sinkStream(): Writable {
-  return new Writable({
-    write(_chunk, _encoding, callback) {
+function outputStream(isTTY = true): { stdout: Writable; written: () => string } {
+  let output = '';
+  const stdout = new Writable({
+    write(chunk, _encoding, callback) {
+      output += String(chunk);
       callback();
     },
   });
+  Object.defineProperty(stdout, 'isTTY', { value: isTTY });
+  return { stdout, written: () => output };
 }
 
-/** A stdin that answers the confirmation with `answer`, then ends. */
-function answering(answer: string): PassThrough {
+/** A TTY stdin whose raw answer is buffered before prompt creation. */
+function answering(answer: string, isTTY = true): PassThrough {
   const stream = new PassThrough();
-  stream.end(`${answer}\n`);
+  Object.defineProperty(stream, 'isTTY', { value: isTTY });
+  Object.defineProperty(stream, 'setRawMode', { value: () => stream });
+  stream.write(answer);
   return stream;
 }
 
@@ -36,6 +41,10 @@ describe('resolvePullRequest', () => {
   beforeEach(() => {
     info = vi.fn();
     warn = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe('explicit argument (source 1)', () => {
@@ -260,12 +269,13 @@ describe('resolvePullRequest', () => {
       }),
     });
 
-    it('accepts an empty answer as yes and shows number, title and branch', async () => {
+    it('accepts the initially suggested yes with Enter and shows the discovered PR', async () => {
+      const { stdout } = outputStream();
       const resolved = await resolvePullRequest(undefined, {
         issue: '25',
         interactive: true,
-        stdin: answering(''),
-        stdout: sinkStream(),
+        stdin: answering('\r'),
+        stdout,
         sources: discovered,
         info,
         warn,
@@ -278,13 +288,29 @@ describe('resolvePullRequest', () => {
       expect(shown).toContain('issue/25-pr-review-phase');
     });
 
-    it('cancels when the user answers n', async () => {
+    it('accepts pre-buffered y input', async () => {
+      const { stdout } = outputStream();
+      await expect(
+        resolvePullRequest(undefined, {
+          issue: '25',
+          interactive: true,
+          stdin: answering('y'),
+          stdout,
+          sources: discovered,
+          info,
+          warn,
+        }),
+      ).resolves.toMatchObject({ number: 184 });
+    });
+
+    it('refuses pre-buffered n input', async () => {
+      const { stdout } = outputStream();
       await expect(
         resolvePullRequest(undefined, {
           issue: '25',
           interactive: true,
           stdin: answering('n'),
-          stdout: sinkStream(),
+          stdout,
           sources: discovered,
           info,
           warn,
@@ -292,29 +318,69 @@ describe('resolvePullRequest', () => {
       ).rejects.toThrow(/Cancelled/);
     });
 
-    it('re-asks on an invalid answer and cancels on EOF', async () => {
+    it('refuses EOF instead of accepting the suggested yes', async () => {
+      const stdin = answering('');
+      const { stdout } = outputStream();
+      const resolution = resolvePullRequest(undefined, {
+        issue: '25',
+        interactive: true,
+        stdin,
+        stdout,
+        sources: discovered,
+        info,
+        warn,
+      });
+      stdin.end();
+
+      await expect(resolution).rejects.toThrow(/Cancelled/);
+    });
+
+    it.each([
+      ['Esc', '\u001b'],
+      ['Ctrl+C', '\u0003'],
+    ])('refuses %s cancellation', async (_label, key) => {
+      const { stdout } = outputStream();
       await expect(
         resolvePullRequest(undefined, {
           issue: '25',
           interactive: true,
-          stdin: answering('maybe'),
-          stdout: sinkStream(),
+          stdin: answering(key),
+          stdout,
           sources: discovered,
           info,
           warn,
         }),
       ).rejects.toThrow(/Cancelled/);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Enter y or n'));
+    });
+
+    it('refuses an aborted confirmation', async () => {
+      const stdin = answering('');
+      const { stdout } = outputStream();
+      const controller = new AbortController();
+      const resolution = resolvePullRequest(undefined, {
+        issue: '25',
+        interactive: true,
+        stdin,
+        stdout,
+        signal: controller.signal,
+        sources: discovered,
+        info,
+        warn,
+      });
+      controller.abort();
+
+      await expect(resolution).rejects.toThrow(/Cancelled/);
     });
 
     it('is skipped with --yes, logging the discovered number instead', async () => {
       const stdin = answering('n');
+      const { stdout, written } = outputStream();
       const resolved = await resolvePullRequest(undefined, {
         issue: '25',
         yes: true,
         interactive: true,
         stdin,
-        stdout: sinkStream(),
+        stdout,
         sources: discovered,
         info,
         warn,
@@ -322,20 +388,46 @@ describe('resolvePullRequest', () => {
 
       expect(resolved.number).toBe(184);
       expect(info).toHaveBeenCalledWith(expect.stringContaining('#184'));
+      expect(written()).toBe('');
     });
 
     it('never prompts for an explicit argument', async () => {
+      const { stdout, written } = outputStream();
       const resolved = await resolvePullRequest('184', {
         issue: '25',
         interactive: true,
         stdin: answering('n'),
-        stdout: sinkStream(),
+        stdout,
         sources: discovered,
         info,
         warn,
       });
 
       expect(resolved.source).toBe('argument');
+      expect(written()).toBe('');
+    });
+
+    it.each([
+      ['CI=1', true, true, '1'],
+      ['non-TTY stdin', false, true, undefined],
+      ['non-TTY stdout', true, false, undefined],
+    ])('renders no prompt for %s and requires an explicit policy', async (_label, stdinTty, stdoutTty, ci) => {
+      if (ci !== undefined) vi.stubEnv('CI', ci);
+      else vi.stubEnv('CI', '');
+      const stdin = answering('y', stdinTty);
+      const { stdout, written } = outputStream(stdoutTty);
+
+      await expect(
+        resolvePullRequest(undefined, {
+          issue: '25',
+          stdin,
+          stdout,
+          sources: discovered,
+          info,
+          warn,
+        }),
+      ).rejects.toThrow(/--yes|specific Pull Request/);
+      expect(written()).toBe('');
     });
   });
 });

@@ -1,7 +1,8 @@
-import { createInterface } from 'node:readline';
+import type { Readable, Writable } from 'node:stream';
 import { resolveIssuePaths } from '../../storage/resolve.js';
 import type { PullRequestRef } from '../../types.js';
 import { printInfo, printWarning } from '../../ui/logger.js';
+import { isInteractive, promptConfirm } from '../../ui/prompts.js';
 import { getCurrentBranch } from '../../utils/git.js';
 import { listPullRequests } from '../session-git.js';
 import { getSessionPublisher } from '../session-publisher.js';
@@ -63,18 +64,17 @@ export interface ResolvePullRequestOptions {
    */
   interactive?: boolean;
   /** Input stream for the confirmation. Defaults to process.stdin. */
-  stdin?: NodeJS.ReadableStream;
+  stdin?: Readable;
   /** Output stream for the confirmation. Defaults to process.stdout. */
-  stdout?: NodeJS.WritableStream;
+  stdout?: Writable;
+  /** Abort the confirmation without accepting its suggested value. */
+  signal?: AbortSignal;
   /** Informational sink. Defaults to printInfo. */
   info?: (message: string) => void;
   /** Warning sink. Defaults to printWarning. */
   warn?: (message: string) => void;
   sources?: Partial<PrDiscoverySources>;
 }
-
-/** How many invalid answers are tolerated before the prompt gives up. */
-const MAX_PROMPT_ATTEMPTS = 3;
 
 const SOURCE_LABELS: Record<PullRequestSource, string> = {
   argument: 'the command argument',
@@ -133,91 +133,12 @@ function parsePrArgument(arg: string): number | null {
   return plain?.[1] === undefined ? null : Number(plain[1]);
 }
 
-function isInteractiveByDefault(): boolean {
-  const ci = process.env.CI;
-  const inCi = ci !== undefined && ci !== '' && ci !== '0' && ci.toLowerCase() !== 'false';
-  return Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !inCi;
-}
-
 /** Human-readable one-liner for logs and the confirmation prompt. */
 function describe(pr: ResolvedPullRequest): string {
   const parts = [`#${pr.number}`];
   if (pr.title !== null) parts.push(`"${pr.title}"`);
   if (pr.headBranch !== null) parts.push(`(${pr.headBranch})`);
   return parts.join(' ');
-}
-
-/**
- * Ask for confirmation, defaulting to yes on an empty answer.
- *
- * Lines are queued rather than read on demand for the same reason as
- * `issues/resolver.ts`: `rl.question` drops input that arrives before the
- * prompt is written, which silently loses a piped answer. EOF answers null,
- * which the caller treats as a refusal — never as consent.
- */
-async function confirm(
-  query: string,
-  stdin: NodeJS.ReadableStream,
-  stdout: NodeJS.WritableStream,
-  warn: (message: string) => void,
-): Promise<boolean> {
-  const rl = createInterface({ input: stdin, output: stdout });
-  const queued: string[] = [];
-  let pending: ((line: string | null) => void) | null = null;
-  let closed = false;
-
-  rl.on('line', (line: string) => {
-    if (pending !== null) {
-      const resolve = pending;
-      pending = null;
-      resolve(line);
-      return;
-    }
-    queued.push(line);
-  });
-  rl.on('close', () => {
-    closed = true;
-    if (pending !== null) {
-      const resolve = pending;
-      pending = null;
-      resolve(null);
-    }
-  });
-
-  const ask = (): Promise<string | null> =>
-    new Promise<string | null>((resolve) => {
-      const buffered = queued.shift();
-      if (buffered !== undefined) {
-        resolve(buffered);
-        return;
-      }
-      if (closed) {
-        resolve(null);
-        return;
-      }
-      stdout.write(query);
-      pending = resolve;
-    });
-
-  try {
-    for (let attempt = 0; attempt < MAX_PROMPT_ATTEMPTS; attempt++) {
-      const answer = await ask();
-      if (answer === null) {
-        return false;
-      }
-      const normalized = answer.trim().toLowerCase();
-      if (normalized === '' || normalized === 'y' || normalized === 'yes') {
-        return true;
-      }
-      if (normalized === 'n' || normalized === 'no') {
-        return false;
-      }
-      warn(`Invalid answer: '${answer.trim()}'. Enter y or n.`);
-    }
-    return false;
-  } finally {
-    rl.close();
-  }
 }
 
 /**
@@ -235,10 +156,10 @@ async function confirm(
  * authoritative record of what this pipeline opened, while the session may
  * still list older PRs for the same branch (`gh pr list --state all`).
  *
- * Sources 2–4 were discovered rather than requested, so an interactive
- * terminal is asked to confirm before a long (and paid) review runs against
- * the wrong Pull Request. Anywhere else — `--yes`, CI, a pipe or the `run`
- * command — the discovery is only logged.
+ * Sources 2–4 were discovered rather than requested, so they require either
+ * `--yes` or an explicit interactive confirmation before a long (and paid)
+ * review starts. CI and non-TTY callers fail closed without rendering a
+ * prompt; an explicit Pull Request argument remains prompt-free.
  */
 export async function resolvePullRequest(
   prArg?: string,
@@ -268,12 +189,21 @@ export async function resolvePullRequest(
     );
   }
 
-  const interactive = opts.yes === true ? false : (opts.interactive ?? isInteractiveByDefault());
-  if (!interactive) {
+  if (opts.yes === true) {
     info(
       `Reviewing Pull Request ${describe(discovered)}, found in ${SOURCE_LABELS[discovered.source]}.`,
     );
     return discovered;
+  }
+
+  const stdin = opts.stdin ?? process.stdin;
+  const stdout = opts.stdout ?? process.stdout;
+  const interactive = opts.interactive ?? isInteractive({ stdin, stdout, ci: process.env.CI });
+  if (!interactive) {
+    throw new PrDiscoveryError(
+      `Pull Request ${describe(discovered)} was discovered in ${SOURCE_LABELS[discovered.source]}, ` +
+        'but the terminal is not interactive. Re-run with --yes or pass a specific Pull Request.',
+    );
   }
 
   info(`Pull Request found in ${SOURCE_LABELS[discovered.source]}:`);
@@ -281,13 +211,14 @@ export async function resolvePullRequest(
   info(`  title:  ${discovered.title ?? '(unknown)'}`);
   info(`  branch: ${discovered.headBranch ?? '(unknown)'}`);
 
-  const accepted = await confirm(
-    `Review Pull Request #${discovered.number}? (Y/n): `,
-    opts.stdin ?? process.stdin,
-    opts.stdout ?? process.stdout,
-    warn,
-  );
-  if (!accepted) {
+  const result = await promptConfirm({
+    message: `Review Pull Request #${discovered.number}?`,
+    initialValue: true,
+    stdin,
+    stdout,
+    signal: opts.signal,
+  });
+  if (result.status === 'cancelled' || result.value !== true) {
     throw new PrDiscoveryError(
       `Cancelled: Pull Request #${discovered.number} was not confirmed. ` +
         'Run `issue-flow pr-review <number>` to review a specific Pull Request.',

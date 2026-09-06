@@ -42,6 +42,19 @@ jobs:
 
       - run: npm run typecheck
 
+      - name: Install completion parser runtimes
+        if: runner.os == 'Linux' && matrix.node-version == 22
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fish zsh
+          command -v pwsh
+
+      - name: Validate every generated shell completion script
+        if: runner.os == 'Linux' && matrix.node-version == 22
+        env:
+          ISSUE_FLOW_REQUIRE_ALL_COMPLETION_SHELLS: '1'
+        run: npm test -- src/completion.test.ts
+
       - run: npm test
 
       - run: npm run build

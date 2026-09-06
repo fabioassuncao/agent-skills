@@ -1,13 +1,14 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { createInterface } from 'node:readline';
-import { TASK_CLASSES, type TaskClass } from '../benchmark/corpus.js';
+import type { Readable, Writable } from 'node:stream';
+import { BENCH_MODES, type BenchMode, TASK_CLASSES, type TaskClass } from '../benchmark/corpus.js';
 import { createLiveRepeatRunner } from '../benchmark/live.js';
 import { type BenchCampaign, type RepeatRunner, runRealCorpus } from '../benchmark/real.js';
 import { renderCampaignMarkdown } from '../benchmark/report.js';
 import { runSyntheticCorpus } from '../benchmark/synthetic.js';
 import { collectHarnessVersion } from '../benchmark/tuple.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
+import { isInteractive, promptConfirm } from '../ui/prompts.js';
 
 /** p50 USD from the #79 before table — used only for the pre-flight estimate. */
 export const BASELINE_COST_P50_USD: Record<TaskClass, number> = {
@@ -26,7 +27,7 @@ export class BenchConfirmationError extends Error {
 }
 
 export interface BenchOptions {
-  mode?: 'synthetic' | 'real';
+  mode?: BenchMode;
   task?: string[];
   arm?: string[];
   repeats?: number;
@@ -37,8 +38,9 @@ export interface BenchOptions {
   repo?: string;
   json?: boolean;
   interactive?: boolean;
-  stdin?: NodeJS.ReadableStream;
-  stdout?: NodeJS.WritableStream;
+  stdin?: Readable;
+  stdout?: Writable;
+  signal?: AbortSignal;
   runPipeline?: (issue: string) => Promise<number>;
   runner?: RepeatRunner;
   harnessVersion?: string;
@@ -49,15 +51,9 @@ export function estimateCampaignUsd(tasks: TaskClass[], arms: number, repeats: n
   return perRepeat * arms * repeats;
 }
 
-function isInteractiveByDefault(): boolean {
-  const ci = process.env.CI;
-  const inCi = ci !== undefined && ci !== '' && ci !== '0' && ci.toLowerCase() !== 'false';
-  return Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !inCi;
-}
-
 export async function confirmRealCampaign(
   estimate: { cells: number; repeats: number; usd: number; maxCost?: number; maxDuration?: number },
-  options: Pick<BenchOptions, 'yes' | 'interactive' | 'stdin' | 'stdout'> = {},
+  options: Pick<BenchOptions, 'yes' | 'interactive' | 'stdin' | 'stdout' | 'signal'> = {},
 ): Promise<void> {
   printInfo(
     `Real campaign: ${estimate.cells} cells × ${estimate.repeats} repeats ≈ $${estimate.usd.toFixed(2)} (p50 of the #79 baseline).`,
@@ -72,24 +68,23 @@ export async function confirmRealCampaign(
     printInfo('--yes: starting the campaign.');
     return;
   }
-  const interactive = options.interactive ?? isInteractiveByDefault();
+  const stdin = options.stdin ?? process.stdin;
+  const stdout = options.stdout ?? process.stdout;
+  const interactive = options.interactive ?? isInteractive({ stdin, stdout, ci: process.env.CI });
   if (!interactive) {
     throw new BenchConfirmationError(
       'A real campaign spends money and the terminal is not interactive. Re-run with --yes.',
     );
   }
-  const stdin = options.stdin ?? process.stdin;
-  const stdout = options.stdout ?? process.stdout;
-  const rl = createInterface({ input: stdin, output: stdout });
-  try {
-    const answer = await new Promise<string>((resolve) => {
-      rl.question('Proceed with a paid campaign? [y/N] ', resolve);
-    });
-    if (!/^\s*y(es)?\s*$/i.test(answer)) {
-      throw new BenchConfirmationError('Cancelled: the campaign was not confirmed.');
-    }
-  } finally {
-    rl.close();
+  const result = await promptConfirm({
+    message: 'Proceed with a paid campaign?',
+    initialValue: false,
+    stdin,
+    stdout,
+    signal: options.signal,
+  });
+  if (result.status === 'cancelled' || result.value !== true) {
+    throw new BenchConfirmationError('Cancelled: the campaign was not confirmed.');
   }
 }
 
@@ -119,8 +114,8 @@ function printSynthetic(): void {
 
 export async function runBench(options: BenchOptions = {}): Promise<number> {
   const mode = options.mode ?? 'synthetic';
-  if (mode !== 'synthetic' && mode !== 'real') {
-    printError(`Unknown bench mode '${mode}'. Use synthetic or real.`);
+  if (!(BENCH_MODES as readonly string[]).includes(mode)) {
+    printError(`Unknown bench mode '${mode}'. Use one of: ${BENCH_MODES.join(', ')}.`);
     return 1;
   }
   if (mode === 'synthetic') {

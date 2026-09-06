@@ -54,8 +54,8 @@ function plan(issues: ExecutionPlanIssue[], overrides: Partial<ExecutionPlan> = 
   };
 }
 
-/** Prompt driver: feeds `answers` and captures everything written out. */
-function streams(answers: string[]): {
+/** Prompt driver: can buffer raw terminal bytes before the prompt exists. */
+function streams(input = ''): {
   stdin: PassThrough;
   stdout: PassThrough;
   written: () => string;
@@ -66,9 +66,7 @@ function streams(answers: string[]): {
   stdout.on('data', (chunk: Buffer) => {
     out += chunk.toString();
   });
-  for (const answer of answers) {
-    stdin.write(`${answer}\n`);
-  }
+  if (input !== '') stdin.write(input);
   return { stdin, stdout, written: () => out };
 }
 
@@ -129,7 +127,7 @@ describe('confirmQueue', () => {
   ]);
 
   it('runs the whole hierarchy with --yes, without prompting', async () => {
-    const { stdin, stdout } = streams([]);
+    const { stdin, stdout } = streams();
     const info = vi.fn();
 
     await expect(confirmQueue(twoIssues, 1, { yes: true, stdin, stdout, info })).resolves.toBe(
@@ -139,14 +137,14 @@ describe('confirmQueue', () => {
   });
 
   it('runs only the informed issues with --only, without prompting', async () => {
-    const { stdin, stdout } = streams([]);
+    const { stdin, stdout } = streams();
     await expect(confirmQueue(twoIssues, 1, { only: true, stdin, stdout })).resolves.toBe(
       'requested',
     );
   });
 
   it('fails explicitly in a non-interactive terminal with no flag', async () => {
-    const { stdin, stdout } = streams([]);
+    const { stdin, stdout } = streams();
 
     await expect(confirmQueue(twoIssues, 1, { interactive: false, stdin, stdout })).rejects.toThrow(
       QueueConfirmationError,
@@ -154,35 +152,55 @@ describe('confirmQueue', () => {
   });
 
   it('prints the summary before asking', async () => {
-    const { stdin, stdout, written } = streams(['2']);
+    const { stdin, stdout, written } = streams('\r');
     await confirmQueue(twoIssues, 1, { interactive: true, stdin, stdout });
 
     expect(written()).toContain('Total issues: 2');
     expect(written()).toContain('Which scope should run?');
   });
 
-  it('maps each answer to a scope', async () => {
-    for (const [answer, expected] of [
-      ['1', 'requested'],
-      ['2', 'all'],
-      ['3', 'cancel'],
-      ['', 'all'],
+  it('maps buffered arrow-key selections and Enter to every normal-queue scope', async () => {
+    for (const [input, expected] of [
+      ['\u001b[A\r', 'requested'],
+      ['\r', 'all'],
+      ['\u001b[B\r', 'cancel'],
+      ['\u001b', 'cancel'],
     ] as const) {
-      const { stdin, stdout } = streams([answer]);
+      const { stdin, stdout } = streams(input);
       await expect(confirmQueue(twoIssues, 1, { interactive: true, stdin, stdout })).resolves.toBe(
         expected,
       );
     }
   });
 
-  it('re-asks on an invalid answer and gives up after three tries', async () => {
-    const { stdin, stdout } = streams(['x', 'y', 'z']);
-    const warn = vi.fn();
+  it('offers every container scope and initially recommends cascade', async () => {
+    const container = plan([
+      entry('87', { position: 1, origin: 'requested', role: 'container' }),
+      entry('62', { position: 2, parent: '87' }),
+    ]);
+    for (const [input, expected] of [
+      ['\r', 'cascade'],
+      ['\u001b[B\r', 'all'],
+      ['\u001b[B\u001b[B\r', 'requested'],
+      ['\u001b[B\u001b[B\u001b[B\r', 'cancel'],
+    ] as const) {
+      const { stdin, stdout } = streams(input);
+      await expect(confirmQueue(container, 1, { interactive: true, stdin, stdout })).resolves.toBe(
+        expected,
+      );
+    }
+  });
 
-    await expect(
-      confirmQueue(twoIssues, 1, { interactive: true, stdin, stdout, warn }),
-    ).resolves.toBe('cancel');
-    expect(warn).toHaveBeenCalledTimes(3);
+  it('does not interpret numeric line input as a container selection', async () => {
+    const container = plan([
+      entry('87', { position: 1, origin: 'requested', role: 'container' }),
+      entry('62', { position: 2, parent: '87' }),
+    ]);
+    const { stdin, stdout } = streams('2\n');
+    const selection = confirmQueue(container, 1, { interactive: true, stdin, stdout });
+    setImmediate(() => stdin.write('\u001b'));
+
+    await expect(selection).resolves.not.toBe('all');
   });
 
   it('fails a non-interactive container without a flag instead of running it alone', async () => {
@@ -190,7 +208,7 @@ describe('confirmQueue', () => {
       entry('87', { position: 1, origin: 'requested', role: 'container' }),
       entry('62', { position: 2, parent: '87' }),
     ]);
-    const { stdin, stdout } = streams([]);
+    const { stdin, stdout } = streams();
     await expect(
       confirmQueue(container, 1, { interactive: false, singleRequest: true, stdin, stdout }),
     ).rejects.toThrow(/--cascade/);
@@ -201,16 +219,30 @@ describe('confirmQueue', () => {
       entry('87', { position: 1, origin: 'requested', role: 'container' }),
       entry('62', { position: 2, parent: '87' }),
     ]);
-    const { stdin, stdout } = streams([]);
+    const { stdin, stdout } = streams();
     await expect(confirmQueue(container, 1, { yes: true, stdin, stdout })).resolves.toBe('cascade');
   });
 
   it('treats an exhausted input as a cancellation, never as consent', async () => {
-    const { stdin, stdout } = streams([]);
+    const { stdin, stdout } = streams();
     stdin.end();
 
     await expect(confirmQueue(twoIssues, 1, { interactive: true, stdin, stdout })).resolves.toBe(
       'cancel',
     );
+  });
+
+  it('treats an aborted prompt as cancellation, never as the initial scope', async () => {
+    const { stdin, stdout } = streams();
+    const controller = new AbortController();
+    const confirmation = confirmQueue(twoIssues, 1, {
+      interactive: true,
+      stdin,
+      stdout,
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(confirmation).resolves.toBe('cancel');
   });
 });

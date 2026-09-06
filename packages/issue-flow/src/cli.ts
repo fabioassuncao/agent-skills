@@ -1,6 +1,12 @@
-import { Command, InvalidArgumentError, Option } from 'commander';
+import { Argument, Command, InvalidArgumentError, Option } from 'commander';
 import { parseAgentPhaseFlag } from './agents/resolve.js';
-import { type AgentCliOverrides, isAgentProviderId } from './agents/types.js';
+import {
+  AGENT_PHASES,
+  AGENT_PROVIDER_IDS,
+  type AgentCliOverrides,
+  isAgentProviderId,
+} from './agents/types.js';
+import { BENCH_MODES, TASK_CLASSES } from './benchmark/corpus.js';
 import {
   CliFlagError,
   resolveQueueScopeFlags,
@@ -8,6 +14,12 @@ import {
   resolveUserStoryNumberingFlags,
   resolveWebOverrides,
 } from './cli-options.js';
+import {
+  QUEUE_FAILURE_MODES,
+  type QueueFailureMode,
+  RUNNABLE_PHASES_WITH_PR_REVIEW,
+} from './commands/run/types.js';
+import { attachCompletion } from './completion.js';
 import {
   setAgentCliOverrides,
   setIssuesCliOverrides,
@@ -27,6 +39,7 @@ import type { IssueGenerateTarget } from './issues/types.js';
 import { resolveResilienceOverrides } from './resilience/cli-flags.js';
 import type { RoutingConfig } from './schemas.js';
 import { printError } from './ui/logger.js';
+import { VERIFICATION_LEVELS } from './verify/types.js';
 import { getPackageVersion } from './version.js';
 
 const version = getPackageVersion();
@@ -55,9 +68,11 @@ function collectString(value: string, previous: string[]): string[] {
 }
 
 /** Parse `--on-issue-failure <mode>`, rejecting anything but the three modes. */
-function parseQueueFailureMode(value: string): 'stop' | 'skip' | 'block' {
-  if (value === 'stop' || value === 'skip' || value === 'block') return value;
-  throw new InvalidArgumentError('Must be one of: stop, skip, block.');
+function parseQueueFailureMode(value: string): QueueFailureMode {
+  if ((QUEUE_FAILURE_MODES as readonly string[]).includes(value)) {
+    return value as (typeof QUEUE_FAILURE_MODES)[number];
+  }
+  throw new InvalidArgumentError(`Must be one of: ${QUEUE_FAILURE_MODES.join(', ')}.`);
 }
 
 /**
@@ -105,9 +120,11 @@ function withGlobalOptions(cmd: Command): Command {
         'Stop the agent after this many seconds with no output (0 = no watchdog)',
         parseInteger,
       )
-      .option(
-        '--agent <provider>',
-        'Run every phase on this agent (claude|codex|cursor|antigravity|opencode)',
+      .addOption(
+        new Option(
+          '--agent <provider>',
+          'Run every phase on this agent (claude|codex|cursor|antigravity|opencode)',
+        ).choices(AGENT_PROVIDER_IDS),
       )
       .option('--agent-model <model>', 'Override the model for every phase')
       .option(
@@ -116,7 +133,12 @@ function withGlobalOptions(cmd: Command): Command {
         collectAgentPhase,
         {} as AgentCliOverrides['phases'],
       )
-      .option('--verify-level <level>', 'Acceptance-contract level: L0 | L1 | L2 | L3 | L5')
+      .addOption(
+        new Option(
+          '--verify-level <level>',
+          'Acceptance-contract level: L0 | L1 | L2 | L3 | L5',
+        ).choices(VERIFICATION_LEVELS),
+      )
       .option('--no-cross-verify', 'Keep L2 off even when a trigger would fire')
       .option('--no-escalation', 'Keep routing.escalation.enabled off')
       .option('--max-cost <usd>', 'Issue cost ceiling in USD (Issue Flow enforces it)', parseUsd)
@@ -136,9 +158,7 @@ function resolveAgentOverrides(opts: Record<string, unknown>): AgentCliOverrides
   const overrides: AgentCliOverrides = {};
   if (typeof opts.agent === 'string') {
     if (!isAgentProviderId(opts.agent)) {
-      throw new InvalidArgumentError(
-        'Must be one of: claude, codex, cursor, antigravity, opencode.',
-      );
+      throw new InvalidArgumentError(`Must be one of: ${AGENT_PROVIDER_IDS.join(', ')}.`);
     }
     overrides.forceProvider = opts.agent;
   }
@@ -151,18 +171,16 @@ function resolveAgentOverrides(opts: Record<string, unknown>): AgentCliOverrides
   return overrides;
 }
 
-const VERIFY_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L5'] as const;
-
 function resolveVerifyOverrides(opts: Record<string, unknown>): {
-  level?: (typeof VERIFY_LEVELS)[number];
+  level?: (typeof VERIFICATION_LEVELS)[number];
   crossVerify?: boolean;
 } {
-  const overrides: { level?: (typeof VERIFY_LEVELS)[number]; crossVerify?: boolean } = {};
+  const overrides: { level?: (typeof VERIFICATION_LEVELS)[number]; crossVerify?: boolean } = {};
   if (typeof opts.verifyLevel === 'string') {
-    if (!VERIFY_LEVELS.includes(opts.verifyLevel as (typeof VERIFY_LEVELS)[number])) {
-      throw new InvalidArgumentError('Must be one of: L0, L1, L2, L3, L5.');
+    if (!VERIFICATION_LEVELS.includes(opts.verifyLevel as (typeof VERIFICATION_LEVELS)[number])) {
+      throw new InvalidArgumentError(`Must be one of: ${VERIFICATION_LEVELS.join(', ')}.`);
     }
-    overrides.level = opts.verifyLevel as (typeof VERIFY_LEVELS)[number];
+    overrides.level = opts.verifyLevel as (typeof VERIFICATION_LEVELS)[number];
   }
   if (opts.crossVerify === false) overrides.crossVerify = false;
   return overrides;
@@ -368,7 +386,11 @@ withUserStoryNumberingOptions(
             )
             .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
             .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
-            .option('--from <phase>', 'Resume from a specific phase')
+            .addOption(
+              new Option('--from <phase>', 'Resume from a specific phase').choices(
+                RUNNABLE_PHASES_WITH_PR_REVIEW,
+              ),
+            )
             .option(
               '--no-branch',
               'Run pipeline on current branch without creating a new branch or PR',
@@ -390,10 +412,13 @@ withUserStoryNumberingOptions(
             .option('--retry-forever', 'Retry transient Claude failures indefinitely')
             // What one failing issue does to the rest of a queue. `stop` is what
             // every release before this flag did, and stays the default.
-            .option(
-              '--on-issue-failure <mode>',
-              'In a queue, on a failing issue: stop | skip | block',
-              parseQueueFailureMode,
+            .addOption(
+              new Option(
+                '--on-issue-failure <mode>',
+                'In a queue, on a failing issue: stop | skip | block',
+              )
+                .choices(QUEUE_FAILURE_MODES)
+                .argParser(parseQueueFailureMode),
             )
             .option('-d, --background', 'Detach after confirmation and return the terminal')
             .addOption(new Option('--detached-child').hideHelp()),
@@ -972,11 +997,17 @@ agentCommand.action(async (options: { json?: boolean }) => {
 agentCommand
   .command('use')
   .description('Write an agent preference to config.json or .issue-flow.json')
-  .argument('<provider>', 'claude, codex, cursor, antigravity or opencode')
+  .addArgument(
+    new Argument('<provider>', 'claude, codex, cursor, antigravity or opencode').choices(
+      AGENT_PROVIDER_IDS,
+    ),
+  )
   .option('--model <model>', 'Model identifier for this preference')
   .option('--global', 'Write to ~/.issue-flow/config.json (default)')
   .option('--project', 'Write to .issue-flow.json in the repository')
-  .option('--phase <phase>', 'Write only the override for this phase')
+  .addOption(
+    new Option('--phase <phase>', 'Write only the override for this phase').choices(AGENT_PHASES),
+  )
   .action(
     async (
       provider: string,
@@ -1017,12 +1048,16 @@ withGlobalOptions(
   program
     .command('bench')
     .description('Measure the corpus: synthetic (CI) or real (paid, on demand)')
-    .option('--mode <mode>', 'synthetic (default, free) or real (fixtures + harness)')
-    .option(
-      '--task <class>',
-      'Corpus class (repeatable): trivial, small, medium, analysis',
-      collectString,
-      [],
+    .addOption(
+      new Option('--mode <mode>', 'synthetic (default, free) or real (fixtures + harness)').choices(
+        BENCH_MODES,
+      ),
+    )
+    .addOption(
+      new Option('--task <class>', 'Corpus class (repeatable): trivial, small, medium, analysis')
+        .choices(TASK_CLASSES)
+        .argParser(collectString)
+        .default([]),
     )
     .option('--arm <name>', 'Experiment arm (repeatable). Default: baseline', collectString, [])
     .option('--repeats <n>', 'Repetitions per cell (default 5)', parseInteger)
@@ -1046,7 +1081,7 @@ withGlobalOptions(
     .option('--json', 'Also emit the campaign JSON'),
 ).action(
   async (options: {
-    mode?: string;
+    mode?: (typeof BENCH_MODES)[number];
     task?: string[];
     arm?: string[];
     repeats?: number;
@@ -1057,8 +1092,8 @@ withGlobalOptions(
     repo?: string;
     json?: boolean;
   }) => {
-    if (options.mode !== undefined && options.mode !== 'synthetic' && options.mode !== 'real') {
-      printError("Unknown bench mode. Use 'synthetic' or 'real'.");
+    if (options.mode !== undefined && !(BENCH_MODES as readonly string[]).includes(options.mode)) {
+      printError(`Unknown bench mode. Use one of: ${BENCH_MODES.join(', ')}.`);
       process.exit(1);
     }
     const { runBench } = await import('./commands/bench.js');
@@ -1092,4 +1127,5 @@ program.action(async () => {
   process.exit(await runPs());
 });
 
+attachCompletion(program);
 program.parse();

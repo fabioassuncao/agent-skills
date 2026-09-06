@@ -1,7 +1,8 @@
-import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
+import type { Readable, Writable } from 'node:stream';
 import { loadIssuesConfig } from '../config.js';
 import { actionOf, type ClassifiedFailure, failureOf } from '../resilience/errors.js';
 import { printInfo, printWarning } from '../ui/logger.js';
+import { isInteractive, promptSelect } from '../ui/prompts.js';
 import { ensureProvidersRegistered } from './bootstrap.js';
 import type { ProviderAvailability } from './provider.js';
 import { getProvider, getRegisteredSources } from './registry.js';
@@ -46,17 +47,16 @@ export interface ResolveIssueOptions {
    */
   interactive?: boolean;
   /** Input stream for the conflict prompt. Defaults to process.stdin. */
-  stdin?: NodeJS.ReadableStream;
+  stdin?: Readable;
   /** Output stream for the conflict prompt. Defaults to process.stdout. */
-  stdout?: NodeJS.WritableStream;
+  stdout?: Writable;
+  /** Abort the conflict prompt without choosing an origin. */
+  signal?: AbortSignal;
   /** Informational sink. Defaults to printInfo. */
   info?: (message: string) => void;
   /** Warning sink. Defaults to printWarning. */
   warn?: (message: string) => void;
 }
-
-/** How many invalid answers are tolerated before the prompt gives up. */
-const MAX_PROMPT_ATTEMPTS = 3;
 
 /**
  * Labels shown to users for the built-in origins. An origin registered from
@@ -183,103 +183,35 @@ function listSources(candidates: FoundCandidate[]): string {
   return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
 
-/**
- * Turn a readline interface into an awaitable line reader.
- *
- * Lines are queued instead of read on demand: `rl.question` drops whatever
- * arrives between two questions, which silently loses a piped answer typed
- * ahead of the prompt. Resolves `null` once the input is exhausted, so EOF ends
- * the prompt instead of hanging the process.
- */
-function createLineReader(
-  rl: ReadlineInterface,
-  output: NodeJS.WritableStream,
-): (query: string) => Promise<string | null> {
-  const queued: string[] = [];
-  let pending: ((line: string | null) => void) | null = null;
-  let closed = false;
-
-  rl.on('line', (line: string) => {
-    if (pending !== null) {
-      const resolve = pending;
-      pending = null;
-      resolve(line);
-      return;
-    }
-    queued.push(line);
-  });
-  rl.on('close', () => {
-    closed = true;
-    if (pending !== null) {
-      const resolve = pending;
-      pending = null;
-      resolve(null);
-    }
-  });
-
-  return (query: string) =>
-    new Promise<string | null>((resolve) => {
-      const buffered = queued.shift();
-      if (buffered !== undefined) {
-        resolve(buffered);
-        return;
-      }
-      if (closed) {
-        resolve(null);
-        return;
-      }
-      output.write(query);
-      pending = resolve;
-    });
-}
+/** Outside the open string domain accepted by IssueSource, so no provider can collide with it. */
+const CANCEL_CHOICE = Symbol('issue-flow:cancel');
 
 /**
  * Interactive choice between the divergent versions.
  *
- * The options are numbered from the origins that actually answered, so a third
- * provider simply shows up as `[3] Memory` without this function knowing which
- * origins exist. Cancel is always the last option.
+ * The options come from the origins that actually answered, so a third provider
+ * simply shows up without this function knowing which origins exist. Cancel is
+ * always the last option.
  */
 async function promptChoice(
   sources: IssueSource[],
-  stdin: NodeJS.ReadableStream,
-  stdout: NodeJS.WritableStream,
-  warn: (message: string) => void,
-): Promise<IssueSource | 'cancel'> {
-  const options = sources.map((source, index) => `[${index + 1}] ${promptLabel(source)}`);
-  const cancelOption = sources.length + 1;
-  const query = `Which version should be used? ${options.join('  ')}  [${cancelOption}] Cancel: `;
-  const numbers = Array.from({ length: cancelOption }, (_, index) => String(index + 1));
-  const accepted = `${numbers.slice(0, -1).join(', ')} or ${numbers[numbers.length - 1]}`;
-
-  const rl = createInterface({ input: stdin, output: stdout });
-  const ask = createLineReader(rl, stdout);
-  try {
-    for (let attempt = 0; attempt < MAX_PROMPT_ATTEMPTS; attempt++) {
-      const answer = await ask(query);
-      if (answer === null) {
-        return 'cancel';
-      }
-      const choice = answer.trim();
-      const picked = sources[Number(choice) - 1];
-      if (choice.length > 0 && picked !== undefined) {
-        return picked;
-      }
-      if (choice === String(cancelOption)) {
-        return 'cancel';
-      }
-      warn(`Invalid choice: '${choice}'. Enter ${accepted}.`);
-    }
-    return 'cancel';
-  } finally {
-    rl.close();
-  }
-}
-
-function isInteractiveByDefault(): boolean {
-  const ci = process.env.CI;
-  const inCi = ci !== undefined && ci !== '' && ci !== '0' && ci.toLowerCase() !== 'false';
-  return Boolean(process.stdin.isTTY) && !inCi;
+  preferred: IssueSource,
+  stdin: Readable,
+  stdout: Writable,
+  signal?: AbortSignal,
+): Promise<IssueSource | typeof CANCEL_CHOICE> {
+  const result = await promptSelect<IssueSource | typeof CANCEL_CHOICE>({
+    message: 'Which version should be used?',
+    options: [
+      ...sources.map((source) => ({ value: source, label: promptLabel(source) })),
+      { value: CANCEL_CHOICE, label: 'Cancel' },
+    ],
+    initialValue: preferred,
+    stdin,
+    stdout,
+    signal,
+  });
+  return result.status === 'cancelled' ? CANCEL_CHOICE : result.value;
 }
 
 function buildResolved(
@@ -415,7 +347,9 @@ export async function resolveIssue(
     return build(preferred, true);
   }
 
-  const interactive = opts.interactive ?? isInteractiveByDefault();
+  const stdin = opts.stdin ?? process.stdin;
+  const stdout = opts.stdout ?? process.stdout;
+  const interactive = opts.interactive ?? isInteractive({ stdin, stdout, ci: process.env.CI });
   if (!interactive) {
     warn(
       `Divergent Issue '${id}' and conflict policy 'ask' in a non-interactive environment; ` +
@@ -426,11 +360,12 @@ export async function resolveIssue(
 
   const choice = await promptChoice(
     found.map((candidate) => candidate.source),
-    opts.stdin ?? process.stdin,
-    opts.stdout ?? process.stdout,
-    warn,
+    preferred.source,
+    stdin,
+    stdout,
+    opts.signal,
   );
-  if (choice === 'cancel') {
+  if (choice === CANCEL_CHOICE) {
     throw new IssueResolutionError(
       `Cancelled: Issue '${id}' diverges between ${listSources(found)}.`,
     );

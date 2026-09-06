@@ -1,13 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import type { Readable, Writable } from 'node:stream';
 import { execa } from 'execa';
 import { hasExplicitAgentSelection } from '../agents/resolve.js';
-import { AGENT_PHASES } from '../agents/types.js';
+import { AGENT_PHASES, type AgentProviderId } from '../agents/types.js';
 import { getAgentCliOverrides, loadAgentConfig, loadRoutingConfig } from '../config.js';
 import type { IssueSource } from '../issues/types.js';
 import type { ScaffoldActionKind, ScaffoldPlan } from '../scaffold/plan.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
+import { isInteractive, promptSelect } from '../ui/prompts.js';
 
 /** Stable identifier of a check, used to decide whether it blocks. */
 type CheckKey = 'claude' | 'codex' | 'gh' | 'git';
@@ -173,6 +175,13 @@ export interface InitOptions {
    * itself never passes this — its product is the full report.
    */
   compact?: boolean;
+  /** Injectable terminal streams used by the interactive first-run choice. */
+  stdin?: Readable;
+  stdout?: Writable;
+  /** Abort the first-agent prompt without persisting a fallback. */
+  signal?: AbortSignal;
+  /** Explicit interactivity override for embedders and tests. */
+  interactive?: boolean;
 }
 
 const ACTION_ICON: Record<ScaffoldActionKind, string> = {
@@ -453,12 +462,6 @@ async function warnEscalatingCodexConfig(): Promise<void> {
   }
 }
 
-function isInteractiveInit(): boolean {
-  const ci = process.env.CI;
-  const inCi = ci !== undefined && ci !== '' && ci !== '0' && ci.toLowerCase() !== 'false';
-  return Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !inCi;
-}
-
 /**
  * An active router owns the per-phase harness choice, so asking for one agent
  * at startup would immediately contradict the resolved configuration.
@@ -466,8 +469,15 @@ function isInteractiveInit(): boolean {
 export function shouldOfferAgentPrompt(
   hasExplicitSelection: boolean,
   routingMode: string,
+  options: { json?: boolean; noAgentPrompt?: boolean; interactive?: boolean } = {},
 ): boolean {
-  return !hasExplicitSelection && routingMode !== 'active';
+  return (
+    options.json !== true &&
+    options.noAgentPrompt !== true &&
+    options.interactive !== false &&
+    !hasExplicitSelection &&
+    routingMode !== 'active'
+  );
 }
 
 async function maybeOfferAgentChoice(
@@ -475,30 +485,65 @@ async function maybeOfferAgentChoice(
   agent: Awaited<ReturnType<typeof loadAgentConfig>>,
 ): Promise<void> {
   if (options.json === true || options.noAgentPrompt === true) return;
-  if (!isInteractiveInit()) return;
+  const stdin = options.stdin ?? process.stdin;
+  const stdout = options.stdout ?? process.stdout;
+  const interactive = options.interactive ?? isInteractive({ stdin, stdout, ci: process.env.CI });
+  if (!interactive) return;
   const routing = await loadRoutingConfig();
   if (
-    !shouldOfferAgentPrompt(hasExplicitAgentSelection(agent, getAgentCliOverrides()), routing.mode)
+    !shouldOfferAgentPrompt(
+      hasExplicitAgentSelection(agent, getAgentCliOverrides()),
+      routing.mode,
+      {
+        json: options.json,
+        noAgentPrompt: options.noAgentPrompt,
+        interactive,
+      },
+    )
   ) {
     return;
   }
 
-  const { createInterface } = await import('node:readline');
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await new Promise<string>((resolve) => {
-    rl.question('Agent [claude/codex] (default claude): ', resolve);
+  await promptInitialAgentChoice({ ...options, stdin, stdout });
+}
+
+interface InitialAgentChoiceOptions {
+  apply?: boolean;
+  stdin?: Readable;
+  stdout?: Writable;
+  signal?: AbortSignal;
+  persist?: (provider: AgentProviderId) => Promise<string>;
+  info?: (message: string) => void;
+  success?: (message: string) => void;
+}
+
+/** Run only the first-agent select after the caller has applied prompt policy. */
+export async function promptInitialAgentChoice(
+  options: InitialAgentChoiceOptions = {},
+): Promise<'claude' | 'codex' | null> {
+  const result = await promptSelect<'claude' | 'codex'>({
+    message: 'Which agent should Issue Flow use?',
+    options: [
+      { value: 'claude', label: 'Claude' },
+      { value: 'codex', label: 'Codex' },
+    ],
+    initialValue: 'claude',
+    stdin: options.stdin,
+    stdout: options.stdout,
+    signal: options.signal,
   });
-  rl.close();
-  const trimmed = answer.trim().toLowerCase();
-  const chosen = trimmed === 'codex' ? 'codex' : 'claude';
+  if (result.status === 'cancelled') return null;
+
+  const chosen = result.value;
 
   if (options.apply === true) {
-    const { persistFirstAgentChoice } = await import('./agent.js');
-    const path = await persistFirstAgentChoice(chosen);
-    printSuccess(`Saved agent '${chosen}' to ${path}`);
-    return;
+    const persist = options.persist ?? (await import('./agent.js')).persistFirstAgentChoice;
+    const path = await persist(chosen);
+    (options.success ?? printSuccess)(`Saved agent '${chosen}' to ${path}`);
+    return chosen;
   }
-  printInfo(
+  (options.info ?? printInfo)(
     `Using ${chosen} for this check. Persist with: issue-flow agent use ${chosen} --global`,
   );
+  return chosen;
 }

@@ -1,5 +1,6 @@
-import { createInterface } from 'node:readline';
+import type { Readable, Writable } from 'node:stream';
 import { printInfo, printWarning } from '../ui/logger.js';
+import { isInteractive, promptSelect } from '../ui/prompts.js';
 import type { ExecutionPlan, ExecutionPlanIssue } from './types.js';
 
 /**
@@ -13,9 +14,6 @@ import type { ExecutionPlan, ExecutionPlanIssue } from './types.js';
 
 /** What the user decided about the discovered hierarchy. */
 export type QueueChoice = 'requested' | 'all' | 'cascade' | 'cancel';
-
-/** How many invalid answers are tolerated before the prompt gives up. */
-const MAX_PROMPT_ATTEMPTS = 3;
 
 /** A confirmation that cannot be asked for and was not answered by a flag. */
 export class QueueConfirmationError extends Error {
@@ -47,16 +45,12 @@ export interface ConfirmQueueOptions {
    * implement something nobody approved.
    */
   singleRequest?: boolean;
-  stdin?: NodeJS.ReadableStream;
-  stdout?: NodeJS.WritableStream;
+  stdin?: Readable;
+  stdout?: Writable;
+  /** Abort the prompt without selecting a scope. */
+  signal?: AbortSignal;
   info?: (message: string) => void;
   warn?: (message: string) => void;
-}
-
-function isInteractiveByDefault(): boolean {
-  const ci = process.env.CI;
-  const inCi = ci !== undefined && ci !== '' && ci !== '0' && ci.toLowerCase() !== 'false';
-  return Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY) && !inCi;
 }
 
 /** `#50` for a numeric identifier, `auth-refactor` for anything else. */
@@ -167,10 +161,12 @@ export async function confirmQueue(
 ): Promise<QueueChoice> {
   const info = options.info ?? printInfo;
   const warn = options.warn ?? printWarning;
+  const stdin = options.stdin ?? process.stdin;
+  const stdout = options.stdout ?? process.stdout;
 
   info(`Issue ${plan.requested.map((id) => `#${id}`).join(', ')} is part of a larger structure:`);
   for (const line of buildQueueSummaryLines(plan)) {
-    (options.stdout ?? process.stdout).write(`${line}\n`);
+    stdout.write(`${line}\n`);
   }
 
   const container = requestedIsContainer(plan);
@@ -199,7 +195,7 @@ export async function confirmQueue(
     return 'all';
   }
 
-  const interactive = options.interactive ?? isInteractiveByDefault();
+  const interactive = options.interactive ?? isInteractive({ stdin, stdout, ci: process.env.CI });
   if (!interactive && container) {
     throw new QueueConfirmationError(
       `${plan.requested.map((id) => `#${id}`).join(', ')} is a container (umbrella) and the terminal is not interactive. ` +
@@ -224,99 +220,54 @@ export async function confirmQueue(
     );
   }
 
-  const query = container
-    ? `Which scope should run? [1] The hierarchy of #${plan.id} ` +
-      `(${plan.issues.filter((entry) => entry.role !== 'container').length} issues)  ` +
-      `[2] Include dependencies outside it  [3] Just #${plan.id} itself  [4] Cancel: `
-    : `Which scope should run? [1] Only the issues informed (${requestedOnlyCount})  ` +
-      `[2] The whole hierarchy (${plan.issues.length})  [3] Cancel: `;
-
-  const choice = await ask(
-    query,
-    options.stdin ?? process.stdin,
-    options.stdout ?? process.stdout,
-    warn,
-    container ? 'container' : 'plain',
+  const choice = await selectScope(
+    plan,
+    requestedOnlyCount,
+    stdin,
+    stdout,
+    container,
+    options.signal,
   );
   const summary = buildScopeSummaryLine(plan, choice);
   if (summary) info(summary);
   return choice;
 }
 
-/**
- * Numbered prompt, sharing the queued-lines discipline of `issues/resolver.ts`:
- * `rl.question` drops input that arrives before the prompt is written, which
- * silently loses a piped answer. EOF answers `cancel` — never consent.
- */
-async function ask(
-  query: string,
-  stdin: NodeJS.ReadableStream,
-  stdout: NodeJS.WritableStream,
-  warn: (message: string) => void,
-  mode: 'plain' | 'container' = 'plain',
+async function selectScope(
+  plan: ExecutionPlan,
+  requestedOnlyCount: number,
+  stdin: Readable,
+  stdout: Writable,
+  container: boolean,
+  signal?: AbortSignal,
 ): Promise<QueueChoice> {
-  const rl = createInterface({ input: stdin, output: stdout });
-  const queued: string[] = [];
-  let pending: ((line: string | null) => void) | null = null;
-  let closed = false;
+  const executableCount = plan.issues.filter((entry) => entry.role !== 'container').length;
+  const options: Array<{ value: QueueChoice; label: string }> = container
+    ? [
+        {
+          value: 'cascade',
+          label: `The hierarchy of #${plan.id} (${executableCount} executable issues)`,
+        },
+        { value: 'all', label: 'Include dependencies outside the container' },
+        { value: 'requested', label: `Just #${plan.id} itself` },
+        { value: 'cancel', label: 'Cancel' },
+      ]
+    : [
+        {
+          value: 'requested',
+          label: `Only the issues informed (${requestedOnlyCount})`,
+        },
+        { value: 'all', label: `The whole hierarchy (${plan.issues.length})` },
+        { value: 'cancel', label: 'Cancel' },
+      ];
 
-  rl.on('line', (line: string) => {
-    if (pending !== null) {
-      const resolve = pending;
-      pending = null;
-      resolve(line);
-      return;
-    }
-    queued.push(line);
+  const result = await promptSelect<QueueChoice>({
+    message: 'Which scope should run?',
+    options,
+    initialValue: container ? 'cascade' : 'all',
+    stdin,
+    stdout,
+    signal,
   });
-  rl.on('close', () => {
-    closed = true;
-    if (pending !== null) {
-      const resolve = pending;
-      pending = null;
-      resolve(null);
-    }
-  });
-
-  const read = (): Promise<string | null> =>
-    new Promise<string | null>((resolve) => {
-      const buffered = queued.shift();
-      if (buffered !== undefined) {
-        resolve(buffered);
-        return;
-      }
-      if (closed) {
-        resolve(null);
-        return;
-      }
-      stdout.write(query);
-      pending = resolve;
-    });
-
-  try {
-    for (let attempt = 0; attempt < MAX_PROMPT_ATTEMPTS; attempt++) {
-      const answer = await read();
-      if (answer === null) {
-        return 'cancel';
-      }
-      const choice = answer.trim();
-      if (mode === 'container') {
-        if (choice === '' || choice === '1') return 'cascade';
-        if (choice === '2') return 'all';
-        if (choice === '3') return 'requested';
-        if (choice === '4') return 'cancel';
-        warn(`Invalid choice: '${choice}'. Enter 1, 2, 3 or 4.`);
-        continue;
-      }
-      if (choice === '1') return 'requested';
-      // An empty answer accepts the suggestion, which is the whole point of
-      // having computed an order: the same convention as `pr-review`'s (Y/n).
-      if (choice === '' || choice === '2') return 'all';
-      if (choice === '3') return 'cancel';
-      warn(`Invalid choice: '${choice}'. Enter 1, 2 or 3.`);
-    }
-    return 'cancel';
-  } finally {
-    rl.close();
-  }
+  return result.status === 'cancelled' ? 'cancel' : result.value;
 }

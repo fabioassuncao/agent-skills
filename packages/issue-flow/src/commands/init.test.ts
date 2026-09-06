@@ -1,9 +1,15 @@
+import { PassThrough } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('execa', () => ({ execa: vi.fn() }));
 
 import { execa } from 'execa';
-import { runInit, shouldOfferAgentPrompt, summarizePreflight } from './init.js';
+import {
+  promptInitialAgentChoice,
+  runInit,
+  shouldOfferAgentPrompt,
+  summarizePreflight,
+} from './init.js';
 
 type GhState = 'ok' | 'missing' | 'failed' | 'unauthenticated';
 
@@ -207,6 +213,69 @@ describe('first-run agent prompt', () => {
 
   it('is suppressed by an explicit agent in every routing mode', () => {
     expect(shouldOfferAgentPrompt(true, 'shadow')).toBe(false);
+  });
+
+  it('is suppressed by flags and by a non-interactive terminal policy', () => {
+    expect(shouldOfferAgentPrompt(false, 'shadow', { json: true })).toBe(false);
+    expect(shouldOfferAgentPrompt(false, 'shadow', { noAgentPrompt: true })).toBe(false);
+    expect(shouldOfferAgentPrompt(false, 'shadow', { interactive: false })).toBe(false);
+  });
+
+  it('initially selects Claude and accepts a buffered arrow-key choice for Codex', async () => {
+    const first = new PassThrough();
+    const firstOutput = new PassThrough();
+    first.write('\r');
+    await expect(
+      promptInitialAgentChoice({ stdin: first, stdout: firstOutput, info: vi.fn() }),
+    ).resolves.toBe('claude');
+
+    const second = new PassThrough();
+    const secondOutput = new PassThrough();
+    second.write('\u001b[B\r');
+    await expect(
+      promptInitialAgentChoice({ stdin: second, stdout: secondOutput, info: vi.fn() }),
+    ).resolves.toBe('codex');
+  });
+
+  it('does not persist a fallback when the prompt is cancelled', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const persist = vi.fn(async () => '/unused/config.json');
+    stdin.write('\u001b');
+
+    await expect(
+      promptInitialAgentChoice({ apply: true, stdin, stdout, persist }),
+    ).resolves.toBeNull();
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('does not persist a fallback on EOF or AbortSignal', async () => {
+    const persist = vi.fn(async () => '/unused/config.json');
+    const eofInput = new PassThrough();
+    eofInput.end();
+
+    await expect(
+      promptInitialAgentChoice({
+        apply: true,
+        stdin: eofInput,
+        stdout: new PassThrough(),
+        persist,
+      }),
+    ).resolves.toBeNull();
+
+    const abortInput = new PassThrough();
+    const controller = new AbortController();
+    const choice = promptInitialAgentChoice({
+      apply: true,
+      stdin: abortInput,
+      stdout: new PassThrough(),
+      signal: controller.signal,
+      persist,
+    });
+    controller.abort();
+
+    await expect(choice).resolves.toBeNull();
+    expect(persist).not.toHaveBeenCalled();
   });
 });
 

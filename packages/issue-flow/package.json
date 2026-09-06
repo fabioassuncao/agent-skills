@@ -68,6 +68,8 @@
     "directory": "packages/issue-flow"
   },
   "dependencies": {
+    "@bomb.sh/tab": "^0.0.22",
+    "@clack/prompts": "^1.7.0",
     "chalk": "^5.4.1",
     "commander": "^13.1.0",
     "execa": "^9.5.2",

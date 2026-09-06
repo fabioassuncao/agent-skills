@@ -1,6 +1,8 @@
 export type VerdictStatus = 'passed' | 'failed' | 'unverified';
 
-export type VerificationLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L5';
+export const VERIFICATION_LEVELS = ['L0', 'L1', 'L2', 'L3', 'L5'] as const;
+
+export type VerificationLevel = (typeof VERIFICATION_LEVELS)[number];
 
 export type CheckStatus = 'passed' | 'failed' | 'skipped' | 'could-not-run';
 
