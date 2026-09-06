@@ -515,6 +515,80 @@ export const migrations: readonly Migration[] = [
         ALTER TABLE runs ADD COLUMN human_hold_reason TEXT;
       `),
   },
+  {
+    version: 17,
+    name: 'name a session that has no issue to name it',
+    // A free session (ADR-16) has no run, no phase and no story, so the three
+    // columns a workflow session is identified by are all empty. Without a
+    // label the only thing left to show a person is a uuid and a branch, and
+    // the branch of a session opened without `--branch` is generated.
+    //
+    // Nullable and unconstrained on purpose: it is a human caption, never an
+    // identity. Nothing looks a session up by it, and a workflow session that
+    // never sets one is not missing anything — its issue already names it.
+    up: (database) => database.exec('ALTER TABLE agent_sessions ADD COLUMN label TEXT'),
+  },
+  {
+    version: 18,
+    name: 'accept a free-form prompt as an issue of its own',
+    // §17 converges `webmux oneshot` into `issue-flow run`: a demand typed on
+    // the command line enters the pipeline as an Issue like any other, under
+    // the `inline` origin. It needs somewhere to live, because every phase
+    // after the first re-resolves the Issue by id, and so does `resume`.
+    //
+    // It is a table rather than a file for the reason the local provider is a
+    // file: the local origin's issues are *authored* (a person edits
+    // `issue.md`), while an inline one is *dictated once* and never edited.
+    // Storing it beside the run that owns it keeps the repository clean — a
+    // one-line demand must not leave a directory behind — and keeps the two
+    // origins from ever answering for the same identifier.
+    //
+    // The primary key is `(project_id, id)`, not `id`: the identifier is
+    // derived from the prompt's content, so the same demand typed in two
+    // repositories is two issues, exactly as it would be on GitHub.
+    up: (database) =>
+      database.exec(`
+        CREATE TABLE inline_issues (
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
+          content_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (project_id, id)
+        );
+      `),
+  },
+  {
+    version: 19,
+    name: 'hand structured context from one phase to the next',
+    // §29: agents do not talk over a terminal. What one phase learned reaches
+    // the next as a persisted, auditable row — written at the end of a phase
+    // and read at the start of the following one.
+    //
+    // `run_id` has no foreign key for the same reason `agent_events` has none:
+    // the row is evidence of something that happened, and losing it to an
+    // ordering race would defeat the point of writing it down.
+    up: (database) =>
+      database.exec(`
+        CREATE TABLE handoffs (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL,
+          from_session_id TEXT,
+          from_phase TEXT NOT NULL,
+          from_provider TEXT NOT NULL,
+          to_phase TEXT NOT NULL,
+          to_provider TEXT,
+          payload_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          consumed_at TEXT
+        );
+        CREATE INDEX handoffs_run_target_idx ON handoffs(run_id, to_phase, created_at);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

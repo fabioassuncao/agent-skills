@@ -1583,7 +1583,7 @@ export async function deleteWorktree(
 }
 
 const AGENT_SESSION_COLUMNS =
-  'id, run_id, phase, story_id, branch, worktree_id, provider, conversation_id, status, pane_target, created_at, updated_at, ended_at';
+  'id, run_id, phase, story_id, branch, worktree_id, provider, conversation_id, status, pane_target, label, created_at, updated_at, ended_at';
 
 interface AgentSessionRow {
   id: string;
@@ -1596,6 +1596,7 @@ interface AgentSessionRow {
   conversation_id: string | null;
   status: string;
   pane_target: string | null;
+  label: string | null;
   created_at: string;
   updated_at: string;
   ended_at: string | null;
@@ -1613,6 +1614,7 @@ function toStoredAgentSession(row: AgentSessionRow): StoredAgentSession {
     conversationId: row.conversation_id,
     status: row.status as StoredAgentSession['status'],
     paneTarget: row.pane_target,
+    label: row.label,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     endedAt: row.ended_at,
@@ -1631,6 +1633,8 @@ export interface StoredAgentSession {
   conversationId: string | null;
   status: 'starting' | 'running' | 'idle' | 'stopped' | 'orphaned';
   paneTarget: string | null;
+  /** Free caption for a session no issue names (ADR-16). */
+  label: string | null;
   createdAt: string;
   updatedAt: string;
   endedAt: string | null;
@@ -1655,8 +1659,8 @@ export async function saveAgentSession(
         .prepare(
           `INSERT INTO agent_sessions
              (project_id, id, run_id, phase, story_id, branch, worktree_id, provider,
-              conversation_id, status, pane_target, created_at, updated_at, ended_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              conversation_id, status, pane_target, label, created_at, updated_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              run_id = excluded.run_id,
              phase = excluded.phase,
@@ -1667,6 +1671,7 @@ export async function saveAgentSession(
              conversation_id = excluded.conversation_id,
              status = excluded.status,
              pane_target = excluded.pane_target,
+             label = excluded.label,
              updated_at = excluded.updated_at,
              ended_at = excluded.ended_at`,
         )
@@ -1682,6 +1687,7 @@ export async function saveAgentSession(
           session.conversationId,
           session.status,
           session.paneTarget,
+          session.label,
           session.createdAt,
           session.updatedAt,
           session.endedAt,
@@ -1737,6 +1743,30 @@ export async function deleteAgentSession(
     database
       .prepare('DELETE FROM agent_sessions WHERE project_id = ? AND id = ?')
       .run(context.projectId, id);
+  }, context.databaseOptions);
+}
+
+/**
+ * The most recent run recorded for an issue, or `null` when it has none.
+ *
+ * Read-only on purpose: `issue-flow session link` uses it to point a free
+ * session at an execution that already exists, and a link that found nothing
+ * has to say so rather than invent a run. Creating one here would fabricate the
+ * execution the person is about to be told they still have to start — and the
+ * outside world, not this table, is the authority on whether work is running
+ * (ADR-08).
+ */
+export async function findLatestRunIdForIssue(
+  context: PlanRepositoryContext,
+): Promise<string | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare(
+        `SELECT id FROM runs WHERE project_id = ? AND issue_id = ?
+          ORDER BY started_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get<{ id: string }>(context.projectId, context.issueId);
+    return row?.id ?? null;
   }, context.databaseOptions);
 }
 
@@ -1809,6 +1839,117 @@ export async function listHeldRuns(input: {
         })),
     input.databaseOptions,
   );
+}
+
+export interface StoredHandoff {
+  id: string;
+  runId: string;
+  fromSessionId: string | null;
+  fromPhase: string;
+  fromProvider: string;
+  toPhase: string;
+  toProvider: string | null;
+  payload: unknown;
+  createdAt: string;
+  consumedAt: string | null;
+}
+
+export async function saveStoredHandoff(
+  context: PlanRepositoryContext,
+  handoff: StoredHandoff,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      database
+        .prepare(
+          `INSERT INTO projects (id, root, remote_url, created_at, updated_at)
+           VALUES (?, ?, NULL, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+        )
+        .run(context.projectId, context.projectRoot, handoff.createdAt, handoff.createdAt);
+      database
+        .prepare(
+          `INSERT INTO handoffs
+             (id, project_id, run_id, from_session_id, from_phase, from_provider,
+              to_phase, to_provider, payload_json, created_at, consumed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             payload_json = excluded.payload_json,
+             consumed_at = excluded.consumed_at`,
+        )
+        .run(
+          handoff.id,
+          context.projectId,
+          handoff.runId,
+          handoff.fromSessionId,
+          handoff.fromPhase,
+          handoff.fromProvider,
+          handoff.toPhase,
+          handoff.toProvider,
+          JSON.stringify(handoff.payload),
+          handoff.createdAt,
+          handoff.consumedAt,
+        );
+    });
+  }, context.databaseOptions);
+}
+
+export async function listStoredHandoffs(
+  context: PlanRepositoryContext,
+  filter: { runId: string; toPhase?: string; pendingOnly?: boolean },
+): Promise<StoredHandoff[]> {
+  return withDatabase((database) => {
+    const clauses = ['project_id = ?', 'run_id = ?'];
+    const values: string[] = [context.projectId, filter.runId];
+    if (filter.toPhase !== undefined) {
+      clauses.push('to_phase = ?');
+      values.push(filter.toPhase);
+    }
+    if (filter.pendingOnly === true) clauses.push('consumed_at IS NULL');
+
+    return database
+      .prepare(
+        `SELECT id, run_id, from_session_id, from_phase, from_provider, to_phase, to_provider,
+                payload_json, created_at, consumed_at
+           FROM handoffs WHERE ${clauses.join(' AND ')} ORDER BY created_at, rowid`,
+      )
+      .all<{
+        id: string;
+        run_id: string;
+        from_session_id: string | null;
+        from_phase: string;
+        from_provider: string;
+        to_phase: string;
+        to_provider: string | null;
+        payload_json: string;
+        created_at: string;
+        consumed_at: string | null;
+      }>(...values)
+      .map((row) => ({
+        id: row.id,
+        runId: row.run_id,
+        fromSessionId: row.from_session_id,
+        fromPhase: row.from_phase,
+        fromProvider: row.from_provider,
+        toPhase: row.to_phase,
+        toProvider: row.to_provider,
+        payload: JSON.parse(row.payload_json) as unknown,
+        createdAt: row.created_at,
+        consumedAt: row.consumed_at,
+      }));
+  }, context.databaseOptions);
+}
+
+export async function consumeStoredHandoff(
+  context: PlanRepositoryContext,
+  id: string,
+  at: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare('UPDATE handoffs SET consumed_at = ? WHERE id = ? AND project_id = ?')
+      .run(at, id, context.projectId);
+  }, context.databaseOptions);
 }
 
 export async function loadExecution(

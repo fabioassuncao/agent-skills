@@ -122,6 +122,7 @@ the code, and was learned the hard way.
 | The Docker sandbox: the container per branch and its exact `docker run` args | [`packages/issue-flow/src/runtime/sandbox/AGENTS.md`](packages/issue-flow/src/runtime/sandbox/AGENTS.md) |
 | Getting text into an agent running as a TUI | [`packages/issue-flow/src/runtime/terminal/AGENTS.md`](packages/issue-flow/src/runtime/terminal/AGENTS.md) |
 | The link between a conversation and what it is for | [`packages/issue-flow/src/agents/session/AGENTS.md`](packages/issue-flow/src/agents/session/AGENTS.md) |
+| What one phase hands to the next | [`packages/issue-flow/src/agents/handoff/AGENTS.md`](packages/issue-flow/src/agents/handoff/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
 | Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |

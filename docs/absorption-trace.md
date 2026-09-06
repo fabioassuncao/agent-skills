@@ -1242,3 +1242,68 @@ ninguém está segurando o run.
 **Orçamentos**
 Nenhum de §35 se aplica. O custo acrescentado ao caminho quente é uma leitura de booleano
 em memória por tick do watchdog, com o refresh de banco atrás de um intervalo de 1 s.
+
+---
+
+### Paralelismo (Fase 16, fundação) e multi-agente com handoffs (Fase 17)
+
+**WebMux original**
+Nenhuma unidade portada. §31.1 é uma **constatação sobre o upstream**, não código a
+traduzir: o WebMux roda N tarefas bem porque **não tem lock global** — todo o estado é por
+worktree (diretório, `runtime.env`, portas, janela tmux, container), então não há estado
+mutável compartilhado de onde excluir alguém. As duas únicas primitivas de exclusão que
+existem lá já foram absorvidas nas fases anteriores: o `inFlight` da reconciliação (Fase 11)
+e o `WorktreeCreationTracker` (Fase 5).
+
+§28 e §29 especificam funcionalidade **nova**, que o WebMux não tem: ele não tem fases, não
+tem revisor independente e não tem contrato de handoff.
+
+**Comportamento existente do Issue Flow que não podia se perder**
+- `run.lock` por projeto, fila serial. **É o default e continua sendo** — nada vira paralelo
+  por atualizar de versão.
+- A independência de `review`/`verify`/`pr-review` (ADR-07), que a Fase 7 já defende em
+  `agents/session/reuse.ts`.
+
+**Implementação no Issue Flow**
+`src/runtime/concurrency.ts` · `src/storage/paths.ts` (`getUnitRunLockPath`) ·
+`src/config/runtime.ts` (`maxConcurrent`) · `src/agents/handoff/{types,store}.ts` ·
+migration 19 (`handoffs`).
+
+**Decisões de projeto**
+
+| O quê | Por quê |
+|---|---|
+| `maxConcurrent` default **1** | §31.3. 1 é literalmente a fila serial de hoje, com o `run.lock` de projeto; acima de 1 o lock desce para a **unidade** de execução |
+| Lock por unidade é **exato**; o teto é **throttle** | Contar locks vivos e então reivindicar não é atômico. Dois processos começando no mesmo instante podem ver espaço e passar o teto por um, transitoriamente. Tornar isso exato exigiria um lock sobre a contagem, que serializaria exatamente o que a fase existe para paralelizar; ficar um acima por alguns segundos custa uma máquina mais ocupada, não um run corrompido. **A exclusão que importa — um run por unidade — é exata** |
+| Contagem numa passada só pelo diretório de locks | ADR-13. Sondar por entidade é o que transforma custo constante em linear |
+| Lock com dono morto ou sem heartbeat **não conta** | Senão um crash faria o projeto recusar trabalho em nome de um processo que não existe |
+| `handoffs` é tabela, não mensagem por terminal | §29 é explícito: `tmux send-keys` não é barramento. Uma linha persistida torna a troca auditável depois |
+| `HANDOFF_DATA_NOTICE` + cerca `<handoff>` | Regra de segurança de §29. O conteúdo é texto **escrito por um agente** entregue a outro que roda com permissão ampla; tratá-lo como instrução seria injeção de prompt com o atacante já dentro da pipeline. A cerca importa tanto quanto o aviso: um agente que não sabe onde o dado começa é um agente para quem o aviso não faz nada |
+| `digest` por artefato | A fase seguinte consegue distinguir "o plano que me entregaram" de "o que estiver naquele caminho agora" |
+| Consumo **separado** da leitura | Uma fase que morreu entre as duas vê o handoff de novo, em vez de começar sem o contexto que recebeu |
+| Escrever handoff **nunca** derruba a fase | É registro; falhar o trabalho por causa dele trocaria trabalho pronto por uma anotação perdida |
+| `PHASE_SESSION_GROUP` é conveniência, **não** a garantia | ADR-07 mora em `agents/session/reuse.ts` e é afirmado lá; uma tabela que ninguém é obrigado a consultar não é invariante |
+
+**Comportamento deliberadamente NÃO portado**
+Nenhum — não há unidade upstream nestas fases.
+
+**Testes**
+
+| Teste | Casos | Estado |
+|---|---|---|
+| `src/runtime/concurrency.test.ts` | 15 | ✅ |
+| `src/agents/handoff/handoff.test.ts` | 13 | ✅ |
+
+**Orçamentos**
+
+| Métrica | Baseline WebMux | Budget | Medido |
+|---|---|---|---|
+| Custo marginal por sessão adicional | 15 ms | ≤ 30 ms | **8 ms** (tmux, Fase 6) e **< 1 ms** (slot de execução, 5 simultâneos) |
+
+**Pendência conhecida**
+A fundação de paralelismo está pronta e testada, mas `src/execution/` e `src/commands/run.ts`
+ainda adquirem o `run.lock` de projeto diretamente. Trocar essa chamada por
+`acquireExecutionSlot()` é a última ligação da Fase 16, e ficou pendente porque
+`src/commands/run.ts` estava sendo alterado em paralelo pela Fase 15. Com `maxConcurrent: 1`
+— o default — as duas rotas são **idênticas**, então nenhum comportamento atual depende
+dessa ligação.
