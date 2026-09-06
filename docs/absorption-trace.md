@@ -1451,7 +1451,7 @@ Diff conceitual dos args de `docker run` (upstream → Issue Flow):
 | `--userns=remap` / rootless | — | Mudaria a propriedade dos arquivos criados no worktree, que é exatamente o que `--user <hostUid>` existe para preservar. É uma decisão de arquitetura do modo sandbox, não um flag de endurecimento |
 | Bloquear (em vez de reportar) `envPassthrough` com cara de segredo | §14 | §14 pede "validar e logar", não recusar. Recusar quebraria o lançamento que a allowlist existe para permitir, e um falso positivo custaria a chave da API do agente |
 | Remover as montagens implícitas de credencial | §39, `DEPRECATE: mounts implícitos` | `DEPRECATE`, não `DELETE`. Sem elas, todo agente dentro do sandbox deixa de autenticar. O que foi deprecado é a *implicitude*: cada lançamento nomeia os diretórios do usuário em que tocou, e `security.implicitMounts: false` desliga |
-| Fazer o parser de profiles ler `security` | §16/§19, Fase 10 | **Fora do escopo desta fase por instrução explícita.** `src/runtime/profiles.ts` descarta chaves que não conhece, então `runtime.profiles.*.security` ainda não chega até aqui. Os defaults — que são o conjunto endurecido — valem de qualquer forma; o que falta é a escotilha de escape. Registrado em `docs/sandbox-security.md` e no relatório da fase |
+| ~~Fazer o parser de profiles ler `security`~~ | §16/§19, Fase 10 | **Resolvido depois desta ficha.** Ficou fora por instrução explícita (o arquivo era da Fase 10), e o efeito era pior que uma ausência: `docs/configuration.md` documentava `security.*` como configurável enquanto `src/runtime/profiles.ts` descartava a chave. `parseProfileSecurity` fecha a costura, e `src/runtime/profiles.security.test.ts` percorre o caminho inteiro — do valor cru no `.issue-flow.json` até o argumento que o `docker run` recebe — porque uma ligação quebrada aqui é invisível: os defaults endurecidos continuariam valendo e a escotilha simplesmente não existiria |
 | `entrypoint.sh` reconhecer `package-lock.json` / `pnpm-lock.yaml` | `sandbox-image/entrypoint.sh` | Continua fora: não é item do threat model de §14 |
 
 **Testes de paridade**
@@ -1660,3 +1660,185 @@ subcomandos `add` / `open` / `list` / `send` / `close`.
 | T0→T4 (worktree pronta + agente iniciado) | ≤ 600 ms | **181 ms** (mediana de 3, `open.integration.test.ts`) |
 | `git worktree add` | ≤ 150 ms | coberto pelo T0→T4 acima; nenhuma chamada nova foi acrescentada ao caminho |
 | Boot da CLI | ≤ 250 ms | inalterado — `commands/session.ts` entra por `await import()` no `cli.ts`, como todo comando |
+
+---
+
+### Contrato HTTP tipado — `packages/issue-flow-contract` (Fase 8B)
+
+**WebMux original**
+`.references/webmux-main/packages/api-contract/` @ d8c9d5f — 1.487 linhas
+(`schemas.ts` 776, `contract.ts` 527, `client.ts` 107, `client.test.ts` 74).
+`@ts-rest/core` + `zod`: um roteador declarativo do qual o cliente do frontend é
+derivado, com `strictStatusCodes` ligado.
+
+**Comportamento existente**
+- O contrato é a **única** fonte de tipos do frontend: `types.ts` só reexporta.
+- `createApi()` embrulha o cliente do ts-rest e **desembrulha** a resposta:
+  2xx devolve o corpo, o resto vira `Error` com a mensagem do servidor.
+- Casos especiais que **não** podem se perder:
+  - **`withEncodedPathParams`.** O ts-rest interpola parâmetros de rota
+    literalmente. Uma branch chamada `feature/search` produziria um segmento a
+    mais na URL e cairia noutra rota. A codificação acontece **uma vez**, na
+    fronteira, e não em cada chamada.
+  - **`errorMessageFromResponse` recursivo sobre corpo `string`.** Um servidor
+    (ou um proxy) que responde `text/plain` com JSON dentro é caso real; sem a
+    recursão o usuário vê o JSON cru em vez da mensagem que está dentro dele.
+  - **`throwOnUnknownStatus: true`.** Um status fora do contrato é erro, não um
+    corpo silenciosamente aceito.
+
+**Implementação no Issue Flow**
+`packages/issue-flow-contract/src/{schemas,contract,client,capabilities}.ts` —
+estratégia: PORT (o `capabilities.ts` é NEW).
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Pacote irmão com `package-lock.json` próprio | O `@ts-rest/core@3` tem peer em `zod@^3`; a CLI roda em `zod@4`. Manter as duas instalações separadas é o que impede uma de arrastar o major da outra. O bundle do painel resolve o contrato por alias do Vite, então nada disso chega ao runtime da CLI |
+| Todo schema `Linear*` removido | ADR-14. Removidos, não mantidos como tipo morto |
+| `InstanceSummary` / `MigrateProjects*` removidos | Eram o sensor do `MigrationBanner`, que é migração interna do WebMux (§48.1) |
+| `BuiltInAgentIdSchema` com 5 providers | O upstream tem 2; a camada de agentes do Issue Flow é a base canônica (§45.2-L) |
+| `ProjectSummary` com `id`/`root`/`served`, `prefix` nulável | §47.2: a chave é o `projectId` derivado do remote, nunca o path; e um projeto registrado sem execução nenhuma — o caso que §47 criou — não tem prefixo |
+| `ProjectWorktreeSnapshot` ganha `executionId` e `issueRef` | §48.3: a mesma linha da sidebar é sessão livre (ambos nulos, ADR-16) ou workspace de uma execução |
+| `streamTerminal` = `/ws/terminal` com token | ADR-10. O `WS /<prefix>/ws/:branch` sem autenticação do upstream não é portável como está |
+| `SessionSnapshotSchema` = `z.record(z.unknown())` | A autoridade do snapshot é `sessionSnapshotSchema` em `src/schemas.ts`, versionado pela pipeline. Um painel que recusasse renderizar um snapshot que não conseguiu validar inteiro seria pior que um que renderiza o que reconhece |
+| `SERVED_TODAY` + `capabilities.ts` | Metade do contrato foi portada **antes** do backend dela (fases 5–7, 10, 14). Sem esse gate a interface chamaria rotas que dão 404 e o usuário veria uma falha em vez de "não disponível neste monitor" |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| Rotas `*/linear/*` e schemas associados | ADR-14 — se voltar, volta como Issue Provider |
+| `/api/instances`, `/api/projects/migrate` | Sensor e ação de uma migração que é do WebMux, não do Issue Flow (§48.1, §50.8) |
+| `POST /api/worktrees/:name/upload` | Não existe rota equivalente no Issue Flow e este porte não inventa backend. `uploadFiles()` recusa com mensagem honesta |
+| `OneshotConfig.postToLinearOnDone` | Parte Linear do oneshot (ADR-14); `autoCloseOnDone` foi mantido |
+| `linearCreateTicketOption`, `linearAutoCreateWorktrees` em `AppConfig` | Idem |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `packages/issue-flow-contract/src/client.test.ts` | `packages/api-contract/src/client.test.ts` | 4 | ✅ |
+
+---
+
+### Frontend Svelte — `packages/issue-flow/web/` (Fase 8B)
+
+**WebMux original**
+`.references/webmux-main/frontend/` @ d8c9d5f — 39 componentes `.svelte`
+(9.075 linhas), 9 módulos `.ts` de produção e 19 arquivos de teste com
+**148 casos** (4.624 linhas). Svelte 5 com runes, Tailwind 4, Vite 6, xterm.js,
+`diff2html`; sem biblioteca de estado e sem router.
+
+**Comportamento existente**
+- **Estado global em runes dentro do `App.svelte`.** Não há store nem router: a
+  "rota" é o **primeiro segmento do path**, que é o prefixo do projeto, e trocar
+  de projeto é uma navegação de página inteira para `/<prefix>/`. Dois clientes:
+  `api` (prefixado) e `hubApi` (global).
+- **Superfície mobile de primeira classe:** `matchMedia("(max-width: 768px)")`,
+  sidebar como overlay, `PaneBar`, scroll manual de toque no terminal e
+  `safe-area-inset`.
+- Casos especiais que **não** podem se perder:
+  - **`Terminal.svelte`:** reconexão em `visibilitychange`/`focus`/`online`;
+    `canRetryVisibleClose` (uma única retentativa automática, ou uma conexão que
+    o servidor recusa vira laço infinito); OSC 52 → clipboard; auto-copy na
+    seleção; Shift+Enter como CSI u via `sendKeys` (xterm manda `\r` para os
+    dois, e é preciso bloquear os três tipos de evento ou o `keypress` ainda
+    emite `\r`); scroll manual de toque só quando o tmux está capturando o mouse.
+  - **`worktree-conversation.ts`:** a mensagem otimista do usuário é casada por
+    `turnId`, não por id — o servidor devolve id diferente e casar por id
+    duplicaria a mensagem na tela. É a mesma classe de problema que a identidade
+    de bloco `${messageId}:${blockIndex}` do parser canônico resolve (§45.2-A).
+  - **`MobileChatSurface.svelte`:** **um** stream por conversa, fechado só quando
+    a conversa muda — reabrir por turno faz o servidor resemear a ordenação e os
+    turnos se intercalam na tela; `lastStreamRevision` descarta evento fora de
+    ordem; o polling de fallback assina o progresso e assenta, em vez de rodar
+    para sempre; um turno iniciado no terminal não é run do backend, então é
+    polido (não streamado) enquanto o agente está ocupado.
+  - **`BranchSelector.svelte`:** `preventDefault` no `mousedown` de cada opção —
+    sem isso o foco sai do campo de busca, o `focusout` fecha o dropdown e o
+    clique nunca chega na opção.
+  - **`WorktreeList.svelte`:** as barras de overflow medem a própria altura para
+    calcular o `rootMargin` do `IntersectionObserver`; sem isso uma linha
+    escondida atrás da barra é contada como visível.
+  - **`BaseDialog.svelte`:** o clique só fecha quando o *pressionar* começou no
+    backdrop — senão selecionar texto e soltar fora descarta o que o usuário
+    estava fazendo.
+  - **`CommentReviewDialog.svelte`:** a lista é ordenada por data para exibir,
+    mas a seleção guarda o `originalIndex`; ordenar a seleção junto mandaria os
+    comentários errados na primeira atualização.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/web/{index.html,vite.config.ts,vitest.config.ts,svelte.config.js,tsconfig.json}`
+e `packages/issue-flow/web/src/**` — estratégia: PORT integral (ADR-15), com
+ADAPT em rotas, contrato, idioma e paleta.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Interface inteira em pt-BR | §50.4, opção A: o glossário fechado do painel atual é decisão de produto já tomada e documentada |
+| `@theme inline` alimentado pelos tokens de papel do Issue Flow; nenhuma cor literal em classe utilitária | ADR-19. `inline` é obrigatório: sem ele o Tailwind copia a *declaração* para o próprio `:root`, congela os valores claros e o tema escuro vira no-op — falha silenciosa |
+| `tokens.css` é cópia literal da camada de paleta de `web/public/app.css`, com teste de deriva | Enquanto os dois painéis convivem (ADR-18), nada mais impede a deriva, e uma deriva é invisível: os 18 pares medidos simplesmente deixam de descrever a tela |
+| `themes.ts`: as 5 paletas viram os 3 modos do painel (`system`/`light`/`dark`) | 5 paletas alternativas seriam 5 tabelas de contraste que ninguém mediu. O tema do terminal passa a ser **derivado** dos tokens resolvidos na página (`getComputedStyle`), não duplicado ao lado deles |
+| `Terminal.svelte`: URL autenticada, chaveada por sessão, quadros `o<offset>\n` / `s<offset>\n`, `lastOffset` na reconexão, aviso de `truncated` | ADR-10 e as duas adições de §15. O upstream repete 1 MB inteiro a cada `visibilitychange` — trocar de aba duas vezes custava dois megabytes |
+| Polling do `App.svelte` (5 s / 1 s) → assinatura de `/api/stream` | §35: teto duro de 250 ms p95 em output→tela. O intervalo sobrevive só como rede de segurança de 15 s, pausada em aba oculta |
+| Todo acesso a `localStorage` em `try`/`catch`, com chaves `issue-flow:` | O painel atual já aprendeu que armazenamento bloqueado **lança**; o upstream chama direto. Armazenamento bloqueado significa "a preferência não sobrevive ao reload", nunca "o painel não carrega" |
+| `text-white` → `text-accent-text` em todo preenchimento sólido | Branco sobre os preenchimentos claros do tema escuro dá 2,98:1 |
+| Toda superfície de worktree/sessão/agente atrás de capability | Este monitor pode ser o que uma execução da pipeline subiu inline, que serve execuções e nada mais. Uma lista vazia leria como defeito |
+| `publicDir: false` no Vite | `web/public/` aqui é o **painel antigo**, não os estáticos deste app; o default copiaria os dois para dentro de `dist/` |
+| `files` do `package.json` restrito a `web/public` + `web/dist`, com `.npmignore` em `web/` | Com `files: ["web"]` o tarball levava `web/src/**` e o cache do Vite, e **não** levava `web/dist` (o `.gitignore` de `web/` o excluía) — ou seja, o pacote publicado não teria o painel novo |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| `MigrationBanner.svelte` (46 linhas) | Avisa sobre instâncias antigas do **WebMux**; a migração é dele (§48.1, §50.8) |
+| `LinearPanel` · `LinearBadge` · `LinearDetailDialog` · `LinearPostDialog` (314 linhas) | ADR-14. Junto saem o painel na sidebar, o badge no header e na linha, e as duas rotas de "postar conversa" |
+| As 5 paletas de `themes.ts` | Ver adaptações: são 5 tabelas de contraste não medidas contra a decisão de produto de §50.0 |
+| `Notification` do navegador (permissão + notificação nativa) | Depende do canal de notificações do WebMux, que não existe aqui. Os toasts permanecem; a notificação de SO volta com o canal que a alimentaria |
+| Upload de imagem por drag/paste (a *chamada*) | A UI foi portada inteira; só a rota não existe. `uploadFiles()` recusa com mensagem honesta e o terminal escreve `[Erro no envio: …]` |
+| ~~`sendKeys` / `selectPane` como operação de servidor~~ | **Resolvido depois desta ficha.** O cliente já os mandava; o backend respondia `not available yet`. `src/web/terminal-ws.ts` passou a encaminhá-los ao gateway tmux (`sendHexKeys` / `selectPane`), que já os tinha — nenhum dos dois pode passar pelo pty do espectador, que é *leitor* do pane. Ver o commit `feat(web): let the terminal send a key sequence and pick a pane` |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `web/src/App.test.ts` | `frontend/src/App.test.ts` | 26 portados + 3 | ✅ |
+| `web/src/lib/worktree-conversation.test.ts` | idem upstream | 15 | ✅ |
+| `web/src/lib/WorktreeConversationPanel.test.ts` | idem upstream | 14 | ✅ |
+| `web/src/lib/worktree-list.test.ts` | idem upstream | 12 portados + 1 | ✅ |
+| `web/src/lib/MobileChatSurface.test.ts` | idem upstream | 11 | ✅ |
+| `web/src/lib/utils.test.ts` | idem upstream | 8 portados + 2 | ✅ |
+| `web/src/lib/ask-user-question.test.ts` | idem upstream | 8 | ✅ |
+| `web/src/lib/WorktreeList.test.ts` | idem upstream | 7 portados + 1 | ✅ |
+| `web/src/lib/TopBar.test.ts` | idem upstream | 6 | ✅ |
+| `web/src/lib/api.test.ts` | idem upstream | 6 portados + 3 | ✅ |
+| `web/src/lib/Terminal.test.ts` | idem upstream | 5 portados + 4 | ✅ |
+| `web/src/lib/WorktreeLabelDialog.test.ts` | idem upstream | 5 | ✅ |
+| `web/src/lib/AskUserQuestionCard.test.ts` | idem upstream | 5 | ✅ |
+| `web/src/lib/ToastStack.test.ts` | idem upstream | 4 | ✅ |
+| `web/src/lib/SettingsDialog.test.ts` | idem upstream | 4 portados + 1 | ✅ |
+| `web/src/lib/BranchSelector.test.ts` | idem upstream | 4 | ✅ |
+| `web/src/lib/PrStatusGroup.test.ts` | idem upstream | 3 | ✅ |
+| `web/src/lib/AgentStatusIcon.test.ts` | idem upstream | 3 portados + 1 | ✅ |
+| `web/src/lib/DiffDialog.test.ts` | idem upstream | 2 portados + 1 | ✅ |
+| `web/src/tokens.test.ts` | novo — guarda de deriva da paleta (ADR-19) | 3 | ✅ |
+
+**Total: 148 casos portados dos 148 do upstream, mais 20 acrescentados.**
+Seis casos do `App.test.ts` eram de Linear (ADR-14); em vez de sumirem da
+contagem foram **substituídos** por seis que cobrem o que ocupou o lugar deles —
+o gate de capability, o vínculo opcional com a issue (ADR-16/ADR-17), o socket
+autenticado por sessão (ADR-10) e o canal de push que substituiu o polling
+(§35). O `TopBar.test.ts` faz o mesmo com o caso do badge do Linear.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| Bundle do painel (gzip, sem xterm) | — | 88,5 KB (`index`) + 7,7 KB de CSS |
+| xterm, em chunk separado | — | 73,9 KB gzip, carregado com o terminal |
+| `DiffDialog` + `diff2html`, sob demanda | — | 14,7 KB gzip, importado só ao abrir o diff |
+| Build do painel (`vite build`) | — | 1,35 s |
+| Suíte do painel (20 arquivos, 168 casos) | — | 2,7 s |
+| Latência output → tela | ≤ 250 ms p95 | não medido aqui — o transporte é o de `src/web/` (Fase 1/8), e este porte só troca polling por assinatura de `/api/stream` |

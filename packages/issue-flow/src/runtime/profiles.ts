@@ -52,6 +52,38 @@ export interface MountSpec {
   writable?: boolean;
 }
 
+/**
+ * The sandbox hardening a docker profile may soften.
+ *
+ * Every field is optional and every default is the hardened one, so a profile
+ * that declares nothing gets the whole §14 posture. This exists to be the
+ * *escape hatch*: a repository whose build genuinely needs a capability, a
+ * network mode or the SSH agent says so here, once, in the open.
+ *
+ * The shape is declared here rather than imported from `runtime/sandbox/`
+ * for the same reason `PaneTemplate` arrives as a type-only import: the config
+ * loader pulls this module in on every CLI boot, and a value import would drag
+ * the docker gateway and `execa` along with it. `SandboxSecurityConfig` in
+ * `runtime/sandbox/docker.ts` is the structural counterpart, and the two are
+ * kept assignable by `profiles.security.test.ts`.
+ */
+export interface ProfileSecurity {
+  /** `--network`. `none` also drops published ports. */
+  network?: 'none' | 'bridge';
+  /** `--pids-limit`; `0` omits the flag. */
+  pidsLimit?: number;
+  /** `--memory` as a docker size string (`'4g'`); `'0'` omits the flag. */
+  memory?: string;
+  /** Capabilities granted back on top of `--cap-drop=ALL`. */
+  capAdd?: string[];
+  /** `--security-opt no-new-privileges`. Read `docs/sandbox-security.md` before disabling. */
+  noNewPrivileges?: boolean;
+  /** Forward the host's `SSH_AUTH_SOCK`. Off unless a profile asks. */
+  sshAgent?: boolean;
+  /** The implicit agent-config and credential mounts. */
+  implicitMounts?: boolean;
+}
+
 export interface RuntimeProfile {
   runtime: ProfileRuntimeKind;
   /** Required by `runtime: 'docker'`; a docker profile without one is not usable. */
@@ -66,6 +98,8 @@ export interface RuntimeProfile {
   /** `${VAR}` placeholders are expanded against the runtime env at launch. */
   systemPrompt?: string;
   mounts?: MountSpec[];
+  /** Sandbox hardening overrides. `runtime: 'docker'` only; absent means every default. */
+  security?: ProfileSecurity;
   panes: PaneTemplate[];
 }
 
@@ -103,6 +137,14 @@ export function cloneProfile(profile: RuntimeProfile): RuntimeProfile {
     envPassthrough: [...profile.envPassthrough],
     panes: clonePanes(profile.panes),
     ...(profile.mounts ? { mounts: cloneMounts(profile.mounts) } : {}),
+    ...(profile.security
+      ? {
+          security: {
+            ...profile.security,
+            ...(profile.security.capAdd ? { capAdd: [...profile.security.capAdd] } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -201,6 +243,36 @@ function parseMounts(raw: unknown): MountSpec[] | undefined {
 }
 
 /**
+ * Read the hardening overrides a profile declares.
+ *
+ * Tolerant like every other parser here: a value of the wrong type is dropped
+ * rather than coerced, and a `security` that is not an object reads as absent.
+ * A dropped field falls back to its hardened default, which is the direction a
+ * typo has to fail in — the alternative is a configuration mistake quietly
+ * turning the sandbox off.
+ *
+ * `undefined` when nothing valid was declared, so `security` never appears on a
+ * profile as an empty object that reads like a deliberate declaration.
+ */
+export function parseProfileSecurity(raw: unknown): ProfileSecurity | undefined {
+  if (!isRecord(raw)) return undefined;
+
+  const security: ProfileSecurity = {};
+  if (raw.network === 'none' || raw.network === 'bridge') security.network = raw.network;
+  if (typeof raw.pidsLimit === 'number' && Number.isInteger(raw.pidsLimit) && raw.pidsLimit >= 0) {
+    security.pidsLimit = raw.pidsLimit;
+  }
+  const memory = nonEmptyString(raw.memory);
+  if (memory !== undefined) security.memory = memory;
+  if (isStringArray(raw.capAdd) && raw.capAdd.length > 0) security.capAdd = [...raw.capAdd];
+  if (typeof raw.noNewPrivileges === 'boolean') security.noNewPrivileges = raw.noNewPrivileges;
+  if (typeof raw.sshAgent === 'boolean') security.sshAgent = raw.sshAgent;
+  if (typeof raw.implicitMounts === 'boolean') security.implicitMounts = raw.implicitMounts;
+
+  return Object.keys(security).length > 0 ? security : undefined;
+}
+
+/**
  * Resolve the profile's permission from the two accepted spellings.
  *
  * `permission` is Issue Flow's own and wins. `yolo: true` is the upstream's and
@@ -232,6 +304,7 @@ export function parseRuntimeProfile(
   const permission = parseProfilePermission(raw);
   const image = nonEmptyString(raw.image);
   const mounts = parseMounts(raw.mounts);
+  const security = parseProfileSecurity(raw.security);
 
   return {
     runtime,
@@ -243,6 +316,7 @@ export function parseRuntimeProfile(
       : {}),
     ...(image === undefined ? {} : { image }),
     ...(mounts ? { mounts } : {}),
+    ...(security ? { security } : {}),
   };
 }
 
