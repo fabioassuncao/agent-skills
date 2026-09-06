@@ -42,6 +42,8 @@ those live in the documents referenced below, which are the source of truth.
   the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
 - [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and
   Pull Request titles; provider-independent by construction
+- [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — how a person uses the
+  Skills from an agent, and what each one expects
 - [`docs/skills.md`](docs/skills.md) — Skill sources, artifacts, sync and validation
 - [`docs/skills-compatibility.md`](docs/skills-compatibility.md) — official host support
 - [`docs/skills-evals.md`](docs/skills-evals.md) — behavioral scenarios and evidence
