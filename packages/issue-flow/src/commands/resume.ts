@@ -1,17 +1,19 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { loadRuntimeConfig } from '../config/runtime.js';
 import { parseJournal } from '../core/journal.js';
 import { PIPELINE_PHASES, PipelineManager, type PipelinePhase } from '../core/pipeline.js';
 import { loadTaskPlan } from '../core/state-manager.js';
 import { loadExecutionPlan, nextQueueIssue, queueNeedsFinalization } from '../execution/plan.js';
 import { resolveCommandIssue } from '../issues/context.js';
+import { acquireExecutionSlot, describeSlotRefusal } from '../runtime/concurrency.js';
 import {
   listStoredIssueEvents,
   listStoredIssueIds,
   listStoredQueues,
 } from '../storage/db/queries.js';
 import { listHeldRuns, saveRunHumanHold } from '../storage/db/repository.js';
-import { acquireRunLock, describeRunLockOwner, type RunLockHandle } from '../storage/lock.js';
+import { describeRunLockOwner, type RunLockHandle } from '../storage/lock.js';
 import { getIssuePaths, QUEUES_DIR_NAME } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import type { TaskPlan } from '../types.js';
@@ -84,11 +86,25 @@ export async function runResume(issue?: string, options: ResumeOptions = {}): Pr
 
   // 1. Ownership, before reading anything else: a resume that runs beside a
   // live owner is the collision this whole layer exists to prevent.
-  const acquisition = await acquireRunLock(project.runLockFile, { target: issue ?? 'resume' });
+  //
+  // It goes through the same slot `run` takes, and for the same reason: above
+  // the default ceiling a run holds a lock on its *unit*, so a resume taking the
+  // project lock would exclude nothing and let two processes work the same issue.
+  //
+  // With no issue named, the ceiling is forced back to 1. A bare `resume` may
+  // touch several issues and every pending queue, and there is no single unit it
+  // could name — so it takes the project lock and excludes everything, which is
+  // the conservative answer rather than a guess at scope.
+  const { maxConcurrent } = await loadRuntimeConfig();
+  const acquisition = await acquireExecutionSlot({
+    projectDir: project.projectDir,
+    projectRunLockFile: project.runLockFile,
+    unitId: issue ?? 'resume',
+    target: issue ?? 'resume',
+    maxConcurrent: issue === undefined ? 1 : maxConcurrent,
+  });
   if (!acquisition.ok) {
-    printError(
-      `Another issue-flow run owns this project: ${describeRunLockOwner(acquisition.owner)}.`,
-    );
+    printError(describeSlotRefusal(acquisition));
     printInfo('Wait for it to finish, or stop that process before resuming.');
     return 1;
   }
