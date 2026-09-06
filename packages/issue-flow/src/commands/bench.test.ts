@@ -1,8 +1,8 @@
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable, Writable } from 'node:stream';
-import { describe, expect, it, vi } from 'vitest';
+import { PassThrough, Writable } from 'node:stream';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BASELINE_COST_P50_USD,
   BenchConfirmationError,
@@ -10,6 +10,30 @@ import {
   estimateCampaignUsd,
   runBench,
 } from './bench.js';
+
+function promptInput(value = '', isTTY = true): PassThrough {
+  const stdin = new PassThrough();
+  Object.defineProperty(stdin, 'isTTY', { value: isTTY });
+  Object.defineProperty(stdin, 'setRawMode', { value: () => stdin });
+  if (value !== '') stdin.write(value);
+  return stdin;
+}
+
+function promptOutput(isTTY = true): { stdout: Writable; written: () => string } {
+  let output = '';
+  const stdout = new Writable({
+    write(chunk, _encoding, callback) {
+      output += String(chunk);
+      callback();
+    },
+  });
+  Object.defineProperty(stdout, 'isTTY', { value: isTTY });
+  return { stdout, written: () => output };
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('bench command', () => {
   it('runs the synthetic corpus without invoking a harness', async () => {
@@ -83,7 +107,7 @@ describe('bench command', () => {
       maxCost: 1,
       yes: true,
       harnessVersion: 'test',
-      stdout: stdout as unknown as NodeJS.WritableStream,
+      stdout,
       runner: async () => ({
         records: [],
         verdict: 'passed',
@@ -100,15 +124,107 @@ describe('bench command', () => {
 });
 
 describe('confirmRealCampaign prompt', () => {
-  it('cancels on a non-yes answer', async () => {
-    const stdin = Readable.from(['n\n']);
-    const stdout = new Writable({
-      write(_c, _e, cb) {
-        cb();
-      },
-    });
+  it('accepts pre-buffered y input', async () => {
+    const { stdout } = promptOutput();
     await expect(
-      confirmRealCampaign({ cells: 1, repeats: 1, usd: 1 }, { interactive: true, stdin, stdout }),
+      confirmRealCampaign(
+        { cells: 1, repeats: 1, usd: 1 },
+        { interactive: true, stdin: promptInput('y'), stdout },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('refuses pre-buffered n input', async () => {
+    const { stdout } = promptOutput();
+    await expect(
+      confirmRealCampaign(
+        { cells: 1, repeats: 1, usd: 1 },
+        { interactive: true, stdin: promptInput('n'), stdout },
+      ),
     ).rejects.toBeInstanceOf(BenchConfirmationError);
+  });
+
+  it('refuses the initially suggested no when Enter is pressed', async () => {
+    const { stdout } = promptOutput();
+    await expect(
+      confirmRealCampaign(
+        { cells: 1, repeats: 1, usd: 1 },
+        { interactive: true, stdin: promptInput('\r'), stdout },
+      ),
+    ).rejects.toBeInstanceOf(BenchConfirmationError);
+  });
+
+  it('refuses EOF without consent', async () => {
+    const stdin = promptInput();
+    const { stdout } = promptOutput();
+    const confirmation = confirmRealCampaign(
+      { cells: 1, repeats: 1, usd: 1 },
+      { interactive: true, stdin, stdout },
+    );
+    stdin.end();
+
+    await expect(confirmation).rejects.toBeInstanceOf(BenchConfirmationError);
+  });
+
+  it.each([
+    ['Esc', '\u001b'],
+    ['Ctrl+C', '\u0003'],
+  ])('refuses %s cancellation', async (_label, key) => {
+    const { stdout } = promptOutput();
+    await expect(
+      confirmRealCampaign(
+        { cells: 1, repeats: 1, usd: 1 },
+        { interactive: true, stdin: promptInput(key), stdout },
+      ),
+    ).rejects.toBeInstanceOf(BenchConfirmationError);
+  });
+
+  it('refuses an aborted confirmation', async () => {
+    const stdin = promptInput();
+    const { stdout } = promptOutput();
+    const controller = new AbortController();
+    const confirmation = confirmRealCampaign(
+      { cells: 1, repeats: 1, usd: 1 },
+      { interactive: true, stdin, stdout, signal: controller.signal },
+    );
+    controller.abort();
+
+    await expect(confirmation).rejects.toBeInstanceOf(BenchConfirmationError);
+  });
+
+  it.each([
+    ['CI=1', true, true, '1'],
+    ['non-TTY stdin', false, true, undefined],
+    ['non-TTY stdout', true, false, undefined],
+  ])('renders no prompt for %s and requires --yes', async (_label, stdinTty, stdoutTty, ci) => {
+    if (ci !== undefined) vi.stubEnv('CI', ci);
+    else vi.stubEnv('CI', '');
+    const { stdout, written } = promptOutput(stdoutTty);
+
+    await expect(
+      confirmRealCampaign(
+        { cells: 1, repeats: 1, usd: 1 },
+        { stdin: promptInput('y', stdinTty), stdout },
+      ),
+    ).rejects.toThrow(/--yes/);
+    expect(written()).toBe('');
+  });
+
+  it('does not start the paid runner after refused consent', async () => {
+    const runner = vi.fn();
+    const { stdout } = promptOutput();
+    const code = await runBench({
+      mode: 'real',
+      task: ['trivial'],
+      repeats: 1,
+      interactive: true,
+      stdin: promptInput('n'),
+      stdout,
+      harnessVersion: 'test',
+      runner,
+    });
+
+    expect(code).toBe(1);
+    expect(runner).not.toHaveBeenCalled();
   });
 });
