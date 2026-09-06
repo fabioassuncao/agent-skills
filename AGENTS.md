@@ -61,6 +61,9 @@ decisions — never a source of truth for behaviour.
 - [`docs/research/2026-09-05-shared-workflow-contracts.md`](docs/research/2026-09-05-shared-workflow-contracts.md)
   — Skills/CLI audit, external comparisons, shared contracts and benchmark
 
+- [`docs/research/2026-09-05-context-engineering.md`](docs/research/2026-09-05-context-engineering.md)
+  — prompt/context audit, correction-state fixes, measurements and behavioral limits
+
 ## Developing
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment, issue-to-PR contribution
