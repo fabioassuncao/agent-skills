@@ -4,6 +4,7 @@ import {
   loadAgentConfig,
   loadRoutingConfig,
 } from '../config.js';
+import { startAwaitingInputWatch } from '../core/awaiting-input.js';
 import { startHumanHoldWatch } from '../core/human-hold.js';
 import { getSessionPublisher } from '../core/session-publisher.js';
 import { isoNow } from '../core/state-manager.js';
@@ -402,6 +403,14 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
   const holdWatch =
     holdContext !== null && runId !== null ? startHumanHoldWatch(holdContext, runId) : null;
 
+  // The other half of §32: an `awaiting-input` nobody answers has to escalate,
+  // and it has to do so **headless** (ADR-03) — a run with no dashboard open is
+  // exactly the one that most needs to be told. It hangs here, on the single
+  // chokepoint every invocation goes through, so none of the five runners had
+  // to change and no mode is left uncovered. Unlike the hold watch it needs no
+  // storage: the state it reads is the publisher's, in this process.
+  const awaitingInputWatch = startAwaitingInputWatch({ publisher });
+
   let run: AgentRunResult;
   const startedMs = Date.now();
   try {
@@ -470,6 +479,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     // that throws may not leave them pointing at an endpoint that is gone.
     await hooks?.close();
     holdWatch?.stop();
+    awaitingInputWatch.stop();
     await runtime.dispose(runtimeContext);
   }
   issueSpend.executions += 1;

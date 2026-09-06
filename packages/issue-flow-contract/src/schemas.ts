@@ -679,6 +679,23 @@ export const SessionSummarySchema = z.object({
   lastActivityAt: z.string().nullable().default(null),
   agentLifecycle: z.string().nullable().default(null),
   awaitingInputCount: z.number().nullable().default(null),
+  /**
+   * §32's escalation, decided by the pipeline and only displayed here.
+   *
+   * A card needs to tell "the agent just asked something" from "the agent asked
+   * and nobody came" — the second is the one that has stopped making progress.
+   * It is never computed in the browser: a headless run with no dashboard open
+   * has to escalate too (ADR-03).
+   */
+  awaitingInputEscalatedAt: z.string().nullable().default(null),
+  /**
+   * A person is driving this run (§32). While it is set the watchdog is paused
+   * and no phase advances, so the run looks idle and is not.
+   */
+  humanHold: z
+    .object({ since: z.string(), reason: z.string() })
+    .nullable()
+    .default(null),
   statusUrl: z.string(),
   eventsUrl: z.string(),
 });

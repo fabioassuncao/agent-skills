@@ -43,6 +43,7 @@ export type {
   BuiltInAgentId,
   CapabilityName,
   CiCheck,
+  ConfigWriteResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   DiagnosticsResponse,

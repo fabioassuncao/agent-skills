@@ -350,6 +350,10 @@ function sessionListPayload(source: SessionSource, projectId?: string | null): u
       // because only one of the two is waiting for the person reading it.
       agentLifecycle: snapshot.agent.lifecycle,
       awaitingInputCount: snapshot.agent.awaitingInputCount,
+      // §32's last row, decided in the pipeline (`core/awaiting-input.ts`) and
+      // only rendered here: a card has to distinguish "the agent just asked"
+      // from "the agent asked and nobody came".
+      awaitingInputEscalatedAt: snapshot.agent.awaitingInputEscalatedAt,
       // A card has to be able to say "somebody is driving this one": while a
       // run is held the watchdog is paused and no phase advances, so it looks
       // idle and is not (§32).

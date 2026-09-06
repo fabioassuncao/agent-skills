@@ -168,6 +168,26 @@ export type SessionEvent =
     }
   | {
       /**
+       * Nobody answered the agent (§32, last row of its table).
+       *
+       * This is **not** a human hold. A hold means somebody took the run over
+       * and is thinking; this means the agent asked and *nobody came*. Reading
+       * `heldForMs` for this would escalate during a legitimate takeover, which
+       * is precisely what §32 forbids — so the two conditions stay apart, and
+       * an escalation is suppressed while a hold exists.
+       *
+       * The decision is the pipeline's, never the dashboard's: a headless run
+       * with no UI at all still has to escalate (ADR-03). The interface only
+       * displays what this event put in the snapshot.
+       */
+      type: 'agent:awaiting-input-escalated';
+      at: string;
+      phase: string;
+      /** How long the agent had been waiting when the threshold was crossed. */
+      waitedMs: number;
+    }
+  | {
+      /**
        * A pull request the agent opened by itself, seen by the `PostToolUse`
        * hook rather than reported by the `pr` phase. It folds into the same
        * `pullRequests` list the phase writes — one concept, two producers.

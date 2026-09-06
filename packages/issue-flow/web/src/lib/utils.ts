@@ -48,22 +48,38 @@ export function writeStored(key: string, value: string | null): void {
   }
 }
 
+/**
+ * A pull request as the badges read it.
+ *
+ * `state: null` is a pull request whose state is **not known** — the one the
+ * execution snapshot carries, which records that a PR was opened and nothing
+ * about what happened to it since. It is deliberately not defaulted to `open`:
+ * a PR painted green because nobody asked GitHub is the same class of lie U21
+ * forbids for verification. §50.3 puts the WebMux badge on the panel's PR list,
+ * and this is what lets one badge serve both without inventing a state.
+ */
+export type PrBadgeInput = Pick<PrEntry, 'repo' | 'number'> & {
+  state: PrEntry['state'] | null;
+  isDraft: boolean;
+};
+
 export function prLabel(pr: Pick<PrEntry, 'repo' | 'number'>): string {
   return pr.repo ? `${pr.repo} #${pr.number}` : `PR #${pr.number}`;
 }
 
-export function isDraftPr(pr: Pick<PrEntry, 'state' | 'isDraft'>): boolean {
+export function isDraftPr(pr: Pick<PrBadgeInput, 'state' | 'isDraft'>): boolean {
   return pr.state === 'open' && pr.isDraft;
 }
 
-export function prStateTextClass(pr: Pick<PrEntry, 'state' | 'isDraft'>): string {
+export function prStateTextClass(pr: Pick<PrBadgeInput, 'state' | 'isDraft'>): string {
   if (pr.state === 'merged') return 'text-merged';
   if (pr.state === 'closed') return 'text-danger';
   if (isDraftPr(pr)) return 'text-muted';
+  if (pr.state === null) return 'text-muted';
   return 'text-primary';
 }
 
-export function prBadgeClass(pr: Pick<PrEntry, 'state' | 'isDraft'>): string {
+export function prBadgeClass(pr: Pick<PrBadgeInput, 'state' | 'isDraft'>): string {
   if (pr.state === 'merged') return 'bg-merged/20 text-merged';
   if (pr.state === 'closed') return 'bg-danger/20 text-danger';
   if (isDraftPr(pr)) return 'bg-muted/20 text-muted';

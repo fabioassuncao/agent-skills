@@ -627,6 +627,11 @@ export const sessionSnapshotSchema = z.object({
       since: z.string().nullable().default(null),
       phase: z.string().nullable().default(null),
       awaitingInputCount: z.number().int().nonnegative().default(0),
+      // Additive within the additive section: a session.json written before
+      // the §32 escalation existed parses as "never escalated" rather than
+      // failing, so schemaVersion stays 1.
+      awaitingInputEscalatedAt: z.string().nullable().default(null),
+      awaitingInputWaitedMs: z.number().nonnegative().nullable().default(null),
       humanHold: z
         .object({ since: z.string(), reason: z.enum(['takeover', 'requested']) })
         .nullable()
@@ -637,6 +642,8 @@ export const sessionSnapshotSchema = z.object({
       since: null,
       phase: null,
       awaitingInputCount: 0,
+      awaitingInputEscalatedAt: null,
+      awaitingInputWaitedMs: null,
       humanHold: null,
     }),
   pullRequests: z.array(z.object({ number: z.number(), url: z.string(), title: z.string() })),

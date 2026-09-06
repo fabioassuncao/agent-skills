@@ -152,6 +152,25 @@ vi.mock('./lib/api', () => ({
   deleteWorktreeTab: vi.fn(),
   subscribeSessions: vi.fn(),
   fetchSessions: vi.fn(async (): Promise<SessionSummary[]> => []),
+  // The execution surface (Fase 8C).
+  fetchExecutionStatus: vi.fn(async () => ({ kind: 'not-modified' as const })),
+  fetchExecutionEvents: vi.fn(async () => []),
+  fetchExecutionDiagnostics: vi.fn(async () => []),
+  fetchEffectiveConfig: vi.fn(async () => ({
+    effective: null,
+    capturedForSession: null,
+    routing: null,
+    catalog: [],
+    writable: true,
+    writeScope: 'global preferences for future executions',
+  })),
+  saveAgentPreference: vi.fn(async () => ({ ok: true })),
+  saveRoutingPreference: vi.fn(async () => ({ ok: true })),
+  loadCapabilities: vi.fn(async () => null),
+  knownHealth: vi.fn(() => null),
+  watchInstanceIdentity: vi.fn(),
+  observeInstance: vi.fn(() => false),
+  resetInstanceIdentity: vi.fn(),
   terminalSocketUrl: vi.fn(
     async (target: { sessionId?: string | null; branch?: string | null }) =>
       `ws://localhost/ws/terminal?token=t0ken&session=${target.sessionId ?? ''}&branch=${

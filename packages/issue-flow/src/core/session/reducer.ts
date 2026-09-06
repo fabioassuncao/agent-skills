@@ -93,6 +93,7 @@ function applyEvent(
 
     case 'agent:busy':
     case 'agent:awaiting-input':
+    case 'agent:awaiting-input-escalated':
     case 'pr:opened':
     case 'human:hold':
     case 'human:resume':

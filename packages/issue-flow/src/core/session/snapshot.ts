@@ -238,6 +238,18 @@ export interface SessionSnapshot {
     /** How many times this run has blocked on a human. */
     awaitingInputCount: number;
     /**
+     * When nobody answered the agent for longer than the escalation threshold
+     * (§32). `null` while the agent is not waiting, while somebody is holding
+     * the run, and until the threshold is actually crossed.
+     *
+     * The policy that sets this lives in `core/awaiting-input.ts` and runs in
+     * the pipeline process, so a headless run escalates with no UI in sight
+     * (ADR-03). The dashboard renders this field; it never computes it.
+     */
+    awaitingInputEscalatedAt: string | null;
+    /** How long the agent had waited when the escalation fired. */
+    awaitingInputWaitedMs: number | null;
+    /**
      * A person is in control (§32). While this is set the watchdog does not
      * kill the agent and the pipeline does not advance a phase.
      */
@@ -344,7 +356,15 @@ export function createInitialSnapshot(): SessionSnapshot {
       commits: [],
     },
     repository: { name: null, remoteUrl: null, branch: null, headCommit: null, root: null },
-    agent: { lifecycle: null, since: null, phase: null, awaitingInputCount: 0, humanHold: null },
+    agent: {
+      lifecycle: null,
+      since: null,
+      phase: null,
+      awaitingInputCount: 0,
+      awaitingInputEscalatedAt: null,
+      awaitingInputWaitedMs: null,
+      humanHold: null,
+    },
     pullRequests: [],
     logs: [],
     errors: [],

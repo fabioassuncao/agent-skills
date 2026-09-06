@@ -37,6 +37,12 @@ The old panel is **not** removed until the three checklists of §50.7 are green
 (ADR-18); until then it is also the rollback path. Both read the same colour
 tokens, and a test fails if the two copies drift.
 
+**The Svelte panel now carries the whole execution surface**: the executions
+dashboard, the execution header, the alert card, the three tabs with their four
+blocks, the Kanban, the journal and the details drawer. Everything described in
+the sections below is true of both panels, and the screenshots are of the
+current one until the Svelte panel replaces it in the gallery.
+
 The new panel asks `GET /api/health` before it renders anything and offers only
 the surfaces the answer announces. That is what lets one build serve both a
 monitor a pipeline run bound inline — which serves executions and nothing else —
@@ -310,7 +316,8 @@ While a run is held:
   kill the agent — the silence is a person reading, not a stall;
 - the pipeline does not advance to the next phase;
 - the snapshot carries `agent.humanHold` with when it started and why, and the
-  dashboard cards carry the same field.
+  dashboard cards carry the same field — the card says **em controle humano**,
+  because a held run looks idle and is not.
 
 Control comes back only when it is asked for, with
 [`issue-flow resume`](commands.md#resume--continue-an-interrupted-pipeline).
@@ -322,6 +329,30 @@ The hold lives in the database rather than in memory for two reasons: it is
 *intent*, which is what SQLite is the authority over, and it has to cross a
 process boundary, because the person types in the monitor while the watchdog
 runs in the pipeline.
+
+### When nobody comes
+
+A takeover is somebody arriving. The opposite case — the agent asked a question
+and **nobody answered** — is a different condition, and it escalates.
+
+Five minutes after an `awaiting-input` that nothing has answered, the run
+reports an escalation: a `warn` log line (which reaches the snapshot's
+`warnings`, the panel's alert card and `session.json`), a diagnostic in
+`~/.issue-flow/logs`, and `agent.awaitingInputEscalatedAt` in the snapshot. The
+panel renders it as its own alert — *"Ninguém respondeu ao agente"* — distinct
+from the *"aguardando você"* badge, which only says the agent asked.
+
+Two things about it are deliberate:
+
+- **It is not the human hold.** `heldForMs` measures how long somebody has been
+  *in control*; this measures how long **nobody** has come. Folding the two
+  together would fire an alarm in the middle of a legitimate takeover, so an
+  escalation is suppressed while a hold exists — and starting a hold clears one,
+  because a takeover *is* somebody coming.
+- **The decision is the pipeline's, never the dashboard's.** A headless run with
+  no interface open is exactly the one that most needs to be told, so the policy
+  lives in `src/core/awaiting-input.ts` and runs on the invocation chokepoint
+  (ADR-03). The panel displays the field; it never computes it.
 
 ## HTTP API
 

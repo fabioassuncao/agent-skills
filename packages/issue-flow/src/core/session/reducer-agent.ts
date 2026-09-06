@@ -3,7 +3,15 @@ import type { SessionSnapshot } from './snapshot.js';
 
 export type AgentLifecycleEvent = Extract<
   SessionEvent,
-  { type: 'agent:busy' | 'agent:awaiting-input' | 'pr:opened' | 'human:hold' | 'human:resume' }
+  {
+    type:
+      | 'agent:busy'
+      | 'agent:awaiting-input'
+      | 'agent:awaiting-input-escalated'
+      | 'pr:opened'
+      | 'human:hold'
+      | 'human:resume';
+  }
 >;
 
 /**
@@ -28,6 +36,11 @@ export function applyAgentLifecycleEvent(
           lifecycle: 'busy',
           since: event.at,
           phase: event.phase,
+          // Somebody answered — the agent is producing output again. Leaving
+          // the escalation set would keep a resolved alarm on the screen for
+          // the rest of the run.
+          awaitingInputEscalatedAt: null,
+          awaitingInputWaitedMs: null,
         },
       };
 
@@ -46,6 +59,29 @@ export function applyAgentLifecycleEvent(
             snapshot.agent.lifecycle === 'awaiting-input'
               ? snapshot.agent.awaitingInputCount
               : snapshot.agent.awaitingInputCount + 1,
+          // A fresh question restarts the clock: the escalation belongs to the
+          // wait that produced it, not to the run.
+          awaitingInputEscalatedAt:
+            snapshot.agent.lifecycle === 'awaiting-input'
+              ? snapshot.agent.awaitingInputEscalatedAt
+              : null,
+          awaitingInputWaitedMs:
+            snapshot.agent.lifecycle === 'awaiting-input'
+              ? snapshot.agent.awaitingInputWaitedMs
+              : null,
+        },
+      };
+
+    case 'agent:awaiting-input-escalated':
+      return {
+        ...snapshot,
+        agent: {
+          ...snapshot.agent,
+          // Idempotent for the same reason `human:hold` is: the watch may see
+          // the threshold crossed on several ticks, and moving the timestamp
+          // would erase how long the run has actually been stuck.
+          awaitingInputEscalatedAt: snapshot.agent.awaitingInputEscalatedAt ?? event.at,
+          awaitingInputWaitedMs: snapshot.agent.awaitingInputWaitedMs ?? event.waitedMs,
         },
       };
 
@@ -57,6 +93,11 @@ export function applyAgentLifecycleEvent(
           // Idempotent: a person typing produces one of these per burst, and
           // moving `since` would erase how long they have been in control.
           humanHold: snapshot.agent.humanHold ?? { since: event.at, reason: event.reason },
+          // A takeover *is* somebody coming. The two conditions are distinct
+          // (§32), and the one that means "nobody answered" stops being true
+          // the moment a person is in control.
+          awaitingInputEscalatedAt: null,
+          awaitingInputWaitedMs: null,
         },
       };
 

@@ -13,8 +13,12 @@ import type {
   AgentsUiSendMessageRequest,
   AgentsUiSendMessageResponse,
   AgentsUiWorktreeConversationResponse,
+  ConfigWriteResponse,
+  DiagnosticsResponse,
+  EffectiveConfigResponse,
   FileUploadResult,
   HealthResponse,
+  JournalResponse,
   ProjectInitPhase,
   ProjectInitState,
   ProjectSummary,
@@ -76,6 +80,7 @@ const hubApi = createApi('');
 
 let capabilities: readonly string[] = [];
 let capabilitiesLoaded = false;
+let health: HealthResponse | null = null;
 
 /**
  * Ask the monitor what it can do, once, before anything else runs.
@@ -86,15 +91,37 @@ let capabilitiesLoaded = false;
  */
 export async function loadCapabilities(): Promise<HealthResponse | null> {
   try {
-    const health = await hubApi.health();
-    capabilities = health.capabilities;
+    // Through `fetch` rather than the typed client for one reason: this is the
+    // **first** response of the page, and it is where the serving process's
+    // identity is recorded (U17). The typed client returns only the body, so a
+    // page that started here would have no baseline to compare against later.
+    const response = await fetch(apiPaths.health, { cache: 'no-store' });
+    observeInstance(response.headers);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const answer = (await response.json()) as HealthResponse;
+    capabilities = Array.isArray(answer.capabilities) ? answer.capabilities : [];
     capabilitiesLoaded = true;
-    return health;
+    health = answer;
+    return answer;
   } catch {
     capabilities = [];
     capabilitiesLoaded = true;
+    health = null;
     return null;
   }
+}
+
+/**
+ * The health answer from the boot request, without asking again.
+ *
+ * `main.ts` calls `loadCapabilities()` **before** mounting anything, because
+ * every gated surface asks `canCall(...)` while it is being constructed. The
+ * shell needs two more fields from that same answer — the monitor's version for
+ * the header chip, and the server's suggested refresh interval — and a second
+ * `/api/health` on every page load would be a request that changes nothing.
+ */
+export function knownHealth(): HealthResponse | null {
+  return health;
 }
 
 export function knownCapabilities(): readonly string[] {
@@ -482,6 +509,135 @@ export async function ensureProjectPrefix(): Promise<ProjectBootstrap> {
 
 export function fetchSessions(): Promise<SessionSummary[]> {
   return api.fetchSessions();
+}
+
+/* -------------------------------------------------------------------------- *
+ * The two header-driven behaviours
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Instance identity and conditional revalidation, the two things the typed
+ * client cannot express.
+ *
+ * `createApi`'s `unwrapResponse` returns **only the body** — deliberately, so a
+ * caller never has to think about transport. Two of the panel's behaviours are
+ * *about* the transport and cannot be expressed through it:
+ *
+ * - `X-Issue-Flow-Instance` (U17): the identity of the process that served the
+ *   assets. A change means `--restart-web` put new code behind the same origin
+ *   and the page has to reload. It is a **response header**.
+ * - `If-None-Match` / `304` (the ETag path): a status the contract deliberately
+ *   does not declare, because a 304 has no body to type. Teaching the typed
+ *   client about a bodiless status, only for this one route, would put the
+ *   exception in the shared layer instead of at the one call site that needs it.
+ *
+ * So these two use `fetch` directly — but the **paths come from the contract**
+ * (`apiPaths`) and so do the response types, so the contract stays the single
+ * source of both. Components still never call `fetch`: this module remains the
+ * boundary.
+ */
+
+let observedInstanceId: string | null = null;
+let onInstanceChanged: (() => void) | null = null;
+
+/** Test seam and reset path. */
+export function resetInstanceIdentity(): void {
+  observedInstanceId = null;
+}
+
+/**
+ * Register what to do when the serving process is replaced.
+ *
+ * The panel reloads. This is the asset handoff after `--restart-web`, not a
+ * session state — a page whose bundle came from a process that no longer exists
+ * is showing code the server has stopped agreeing with.
+ */
+export function watchInstanceIdentity(onChange: () => void): void {
+  onInstanceChanged = onChange;
+}
+
+/**
+ * Record the identity of the process that answered.
+ *
+ * Returns true when it *changed* — the first observation is not a change, and a
+ * server old enough not to send the header is not one either.
+ */
+export function observeInstance(headers: Headers): boolean {
+  const instanceId = headers.get('X-Issue-Flow-Instance');
+  if (instanceId === null) return false;
+  if (observedInstanceId === null) {
+    observedInstanceId = instanceId;
+    return false;
+  }
+  if (observedInstanceId === instanceId) return false;
+  observedInstanceId = instanceId;
+  onInstanceChanged?.();
+  return true;
+}
+
+function sessionQuery(sessionId: string | null): string {
+  return sessionId === null ? '' : `?session=${encodeURIComponent(sessionId)}`;
+}
+
+export type StatusResult =
+  | { kind: 'not-modified' }
+  | { kind: 'snapshot'; snapshot: unknown; etag: string | null };
+
+/**
+ * `GET /api/status`, revalidated.
+ *
+ * A `304` is the normal answer while nothing changed, and it is why the
+ * fallback interval costs almost nothing: the server hashes the serialized
+ * snapshot, so an unchanged run re-sends no body at all.
+ */
+export async function fetchExecutionStatus(
+  sessionId: string | null,
+  etag: string | null,
+): Promise<StatusResult> {
+  const headers: Record<string, string> = {};
+  if (etag !== null) headers['If-None-Match'] = etag;
+  const response = await fetch(`${apiBase}${apiPaths.fetchStatus}${sessionQuery(sessionId)}`, {
+    headers,
+    cache: 'no-store',
+  });
+  if (observeInstance(response.headers)) return { kind: 'not-modified' };
+  if (response.status === 304) return { kind: 'not-modified' };
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return {
+    kind: 'snapshot',
+    snapshot: await response.json(),
+    etag: response.headers.get('ETag'),
+  };
+}
+
+export function fetchExecutionEvents(sessionId: string | null): Promise<JournalResponse> {
+  return api.fetchEvents({ query: sessionId === null ? {} : { session: sessionId } });
+}
+
+export function fetchExecutionDiagnostics(sessionId: string | null): Promise<DiagnosticsResponse> {
+  return api.fetchDiagnostics({ query: sessionId === null ? {} : { session: sessionId } });
+}
+
+export function fetchEffectiveConfig(sessionId: string | null): Promise<EffectiveConfigResponse> {
+  return api.fetchEffectiveConfig({ query: sessionId === null ? {} : { session: sessionId } });
+}
+
+/**
+ * The two write routes, and the only two (ADR-10).
+ *
+ * Both are gated by a capability rather than by a version, and both save a
+ * preference for **future** executions — the state of a running one stays
+ * read-only. `requireRoute` is what turns "this monitor is not on loopback"
+ * into an honest message instead of a 403 the user has to decode.
+ */
+export function saveAgentPreference(body: Record<string, unknown>): Promise<ConfigWriteResponse> {
+  requireRoute('writeAgentPreference');
+  return api.writeAgentPreference({ body });
+}
+
+export function saveRoutingPreference(body: Record<string, unknown>): Promise<ConfigWriteResponse> {
+  requireRoute('writeRoutingPreference');
+  return api.writeRoutingPreference({ body });
 }
 
 /**

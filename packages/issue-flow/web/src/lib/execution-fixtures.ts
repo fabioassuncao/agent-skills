@@ -1,0 +1,196 @@
+import { type ExecutionSnapshot, readSnapshot } from './snapshot';
+
+/**
+ * A snapshot rich enough to exercise every block, built through `readSnapshot`
+ * rather than hand-typed — so a fixture can never assert a shape the reader
+ * does not actually produce.
+ */
+export function createExecutionSnapshot(
+  overrides: Record<string, unknown> = {},
+): ExecutionSnapshot {
+  return readSnapshot({
+    sessionId: 'run-1',
+    readOnly: true,
+    status: 'running',
+    startedAt: '2026-09-06T10:00:00.000Z',
+    updatedAt: '2026-09-06T10:05:00.000Z',
+    endedAt: null,
+    elapsedSeconds: 300,
+    estimatedRemainingSeconds: 600,
+    issue: {
+      number: 42,
+      url: 'https://github.com/owner/repo/issues/42',
+      title: 'Absorver o painel',
+      description: 'Uma descrição da issue.',
+      labels: ['enhancement', 'web'],
+      state: 'open',
+    },
+    progress: {
+      percent: 40,
+      phasesCompleted: 2,
+      phasesTotal: 5,
+      storiesCompleted: 1,
+      storiesTotal: 3,
+    },
+    currentPhase: 'execute',
+    currentActivity: {
+      story: 'US-2',
+      tool: 'Edit',
+      detail: 'src/app.ts',
+      since: '2026-09-06T10:04:00.000Z',
+    },
+    phases: [
+      {
+        name: 'analyze',
+        status: 'completed',
+        startedAt: '2026-09-06T10:00:00.000Z',
+        endedAt: '2026-09-06T10:01:00.000Z',
+        durationSeconds: 60,
+        error: null,
+        inputTokens: 1000,
+        outputTokens: 200,
+        costUsd: 0.05,
+      },
+      {
+        name: 'execute',
+        status: 'running',
+        startedAt: '2026-09-06T10:01:00.000Z',
+        endedAt: null,
+        durationSeconds: null,
+        error: null,
+      },
+    ],
+    stories: [
+      {
+        id: 'US-1',
+        title: 'Primeira story',
+        passes: true,
+        status: 'done',
+        stage: 'done',
+        description: 'Descrição da primeira story.',
+        acceptanceCriteria: ['Critério A'],
+        dependencies: [],
+        durationSeconds: 120,
+        completedAt: '2026-09-06T10:03:00.000Z',
+      },
+      {
+        id: 'US-2',
+        title: 'Segunda story',
+        passes: false,
+        status: 'in_progress',
+        stage: 'executing',
+        stageSince: '2026-09-06T10:04:00.000Z',
+        description: '',
+        acceptanceCriteria: [],
+        dependencies: ['US-1'],
+      },
+      {
+        id: 'US-3',
+        title: 'Terceira story',
+        passes: false,
+        status: 'backlog',
+        stage: 'pending',
+      },
+    ],
+    metrics: {
+      totalInputTokens: 12_400,
+      totalOutputTokens: 3100,
+      totalCacheReadTokens: 80_000,
+      totalCacheCreationTokens: 8000,
+      totalCostUsd: 0.42,
+    },
+    execution: { iteration: 1, retries: 0, correctionCycle: 0, maxCorrectionCycles: 3 },
+    executions: [
+      {
+        id: 'exec-1',
+        purpose: 'execute',
+        attempt: 1,
+        trigger: 'initial',
+        status: 'completed',
+        storyIds: ['US-1'],
+        startedAt: '2026-09-06T10:01:00.000Z',
+        finishedAt: '2026-09-06T10:03:00.000Z',
+        durationMs: 120_000,
+        usage: { inputTokens: 500, outputTokens: 100 },
+        cost: { status: 'reported', amount: 0.02, reason: null },
+        agent: { harness: 'claude', model: { resolved: 'sonnet' } },
+        verdict: { status: 'passed' },
+        failure: null,
+      },
+    ],
+    processLogs: [
+      {
+        at: '2026-09-06T10:02:00.000Z',
+        phase: 'execute',
+        executionId: 'exec-1',
+        message: 'saída sanitizada',
+      },
+    ],
+    configuration: {
+      defaultProvider: { value: 'claude', source: 'global' },
+      defaultModel: { value: '', source: 'default' },
+      fallbacks: ['codex'],
+      precedence: ['cli', 'env', 'project', 'global'],
+      phases: [
+        {
+          phase: 'execute',
+          provider: { value: 'claude', source: 'project' },
+          model: { value: 'sonnet', source: 'cli' },
+        },
+      ],
+    },
+    resilience: {
+      attempt: 1,
+      provider: 'claude',
+      model: 'sonnet',
+      lastFailureKind: null,
+      cooldownUntil: null,
+      lastActivityAt: '2026-09-06T10:04:30.000Z',
+    },
+    git: {
+      branch: 'feat/42-painel',
+      baseBranch: 'main',
+      branchCreated: true,
+      commits: [
+        {
+          hash: 'abc1234',
+          subject: 'feat: primeiro commit',
+          committedAt: '2026-09-06T10:03:00.000Z',
+          storyId: 'US-1',
+        },
+      ],
+    },
+    repository: {
+      name: 'owner/repo',
+      branch: 'feat/42-painel',
+      headCommit: 'abc1234',
+      root: '/tmp/repo',
+    },
+    pullRequests: [{ number: 7, url: 'https://github.com/owner/repo/pull/7', title: 'Um PR' }],
+    logs: [
+      { at: '2026-09-06T10:02:00.000Z', level: 'info', message: 'tudo bem' },
+      { at: '2026-09-06T10:02:30.000Z', level: 'warn', message: 'cuidado aqui' },
+      { at: '2026-09-06T10:02:40.000Z', level: 'error', message: 'algo quebrou' },
+    ],
+    lastError: { message: 'algo quebrou', at: '2026-09-06T10:02:40.000Z' },
+    nextSteps: ['Concluir US-2'],
+    environment: {
+      node: 'v22.13.0',
+      platform: 'darwin',
+      agent: 'claude',
+      model: 'sonnet',
+      cliVersion: '0.20.0',
+    },
+    agent: {
+      lifecycle: 'busy',
+      since: '2026-09-06T10:04:00.000Z',
+      phase: 'execute',
+      awaitingInputCount: 0,
+      awaitingInputEscalatedAt: null,
+      awaitingInputWaitedMs: null,
+      humanHold: null,
+    },
+    verification: { verdict: 'unverified', level: 'contract', independence: 'independent' },
+    ...overrides,
+  });
+}

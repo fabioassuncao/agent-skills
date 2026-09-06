@@ -4,7 +4,7 @@ Esta pasta tem **dois** painéis e **uma** paleta.
 
 | Onde | O quê | Servido em |
 | --- | --- | --- |
-| `src/` + `index.html` | O painel novo: Svelte 5, Tailwind 4, Vite 6, xterm.js, `diff2html`, contrato tipado. Portado do frontend do WebMux (ADR-15) | `/` |
+| `src/` + `index.html` | O painel novo: Svelte 5, Tailwind 4, Vite 6, xterm.js, `diff2html`, contrato tipado. Portado do frontend do WebMux (ADR-15) **e do painel atual** (ADR-18) | `/` |
 | `public/` | O painel atual: `index.html` + `app.js` + `app.css`, sem build | `/legacy/` |
 | `src/tokens.css` | A camada de paleta, **cópia literal** de `public/app.css` | ambos |
 
@@ -12,6 +12,12 @@ Esta pasta tem **dois** painéis e **uma** paleta.
 só sai quando as três listas de §50.7 estiverem verdes — o que acontece na
 Fase 8D, não antes. Até lá o painel antigo é o caminho de rollback, e nenhuma
 mudança aqui pode quebrá-lo.
+
+O bloco 2 de §50.7 (U1–U21) **está verde**: o painel novo carrega a superfície
+de execução inteira — dashboard, header, cartão de alertas, as três abas com os
+quatro blocos, Kanban, histórico e drawer. O que falta para remover o antigo é o
+bloco 3 (features integradas, I1–I7) e a navegação unificada de §50.5, que são
+da Fase 8D.
 
 **Quem serve o quê.** `src/web/server.ts` carrega os dois diretórios no boot e
 sobrepõe o do painel novo ao do antigo: onde existe build, `/` é o painel novo e
@@ -42,6 +48,29 @@ npm run check:web    # svelte-check
 `vitest.config.ts` daqui é **separado** do da CLI de propósito: aquela suíte roda
 em Node contra `src/**`, esta roda num DOM contra `web/src/**`, e juntá-las
 faria a suíte de Node pagar por um ambiente de navegador que ela nunca usa.
+
+### O que o `happy-dom` não mede — e a bancada que mede
+
+`happy-dom` **não tem cascata de CSS nem layout**: `getComputedStyle` devolve
+string vazia para toda custom property e `getBoundingClientRect()` devolve
+zeros. Três critérios de §50.7 dependem exatamente disso — U6 ("Estado agora"
+sem rolagem em 1440×900), U19 (os 19 pares de contraste **na página**) e U20
+(sem rolagem horizontal em 360/768/1440).
+
+`measure.html` + `src/measure.ts` são a bancada: montam a superfície de execução
+com a mesma fixture das suítes, sem servidor e sem API, e expõem
+`window.measureNowBlock()`, `window.measureHorizontalOverflow()` e
+`window.measureContrastPairs(tema)`.
+
+```bash
+npm run dev:web      # e abra http://127.0.0.1:4319/measure.html
+```
+
+Não vai para o pacote: o `vite build` tem `index.html` como única entrada, e o
+`files` do `package.json` publica `web/dist`, não `web/`. As suítes
+`lib/contrast.test.ts` e `lib/responsive.test.ts` são os **guardas de
+regressão** dos mesmos critérios — a primeira recalcula os 19 pares a partir de
+`tokens.css`/`app.css`, a segunda verifica o contrato de CSS que produz U20.
 
 `publicDir: false` no `vite.config.ts` **é obrigatório**: `public/` aqui é o
 painel antigo, não os estáticos deste app, e o default do Vite copiaria os dois
@@ -112,6 +141,57 @@ obrigatórias e nenhuma delas é do upstream:
 `bytes: N` é backpressure (a saída passou a tela), `bytes: -1` é o offset pedido
 ter caído fora do ring.
 
+### A superfície de execução (`lib/Execution*`, `lib/{format,vocabulary,snapshot,executions}.ts`)
+
+O painel atual, portado para componentes. A divisão é deliberada:
+
+| Camada | O quê |
+| --- | --- |
+| `lib/format.ts` | durações, relógios e métricas. `formatUsage` **espelha** `formatTokens()` de `src/core/metrics.ts`; mudou lá, muda aqui |
+| `lib/vocabulary.ts` | o glossário fechado, num lugar só. Um valor desconhecido do backend cai **dentro** do vocabulário, nunca vaza para um badge |
+| `lib/snapshot.ts` | `readSnapshot()` — a leitura defensiva do `/api/status`, campo a campo. **É o guarda de U18** |
+| `lib/executions.ts` | as regras puras: dashboard × detalhe, filtro de projeto, agrupamento, filtros de log e histórico |
+| `lib/Execution*.svelte` | a apresentação, sem lógica de leitura |
+
+**`readSnapshot()` é obrigatório.** O contrato tipa `/api/status` como
+`Record<string, unknown>` de propósito: o `sessionSnapshotSchema` da CLI é a
+autoridade, ele é versionado pela pipeline, e um monitor que recusasse um
+snapshot que não entende seria pior do que um que renderiza o que reconhece. Um
+componente que leia o snapshot cru repete a checagem de ausência e, mais cedo ou
+mais tarde, deixa um `NaN` chegar à tela.
+
+`undefined` ≠ `null` ≠ `0`: os dois primeiros significam "não informado" e
+nenhum pode virar `0` ou `NaN`. Prefira `x !== null && x !== undefined` a `!x` —
+zero é um valor legítimo. O único número com piso é `progress.percent`, porque
+uma barra de progresso precisa desenhar alguma coisa.
+
+**Uma seleção, um painel.** A sidebar tem dois grupos — `Execuções` e `Sessões`
+— e o painel principal mostra o que está selecionado; nunca os dois. Escolher
+uma execução limpa o worktree selecionado e vice-versa. `mainView` começa em
+`'worktree'` quando a capability `worktrees` existe, porque §48.6 é explícito de
+que o Roteiro B não pode impedir o Roteiro A: um monitor com worktrees abre onde
+sempre abriu.
+
+**Os três painéis de aba são renderizados sempre**, não trocados. Uma aba
+inativa não pode ficar defasada, e é o mesmo motivo pelo qual o drawer guarda o
+`{kind,id}` e se reidrata a cada atualização em vez de congelar o que havia
+quando abriu.
+
+**A escalada de §32 é exibida, nunca decidida aqui.** `agent.awaitingInputEscalatedAt`
+vem do backend (`src/core/awaiting-input.ts`), porque um run headless sem
+interface nenhuma também precisa escalar (ADR-03). Ela é distinta de
+`agent.humanHold`: hold é "alguém assumiu"; escalada é "ninguém veio".
+
+### As sobreposições de §50.3, e onde cada uma foi parar
+
+| Sobreposição | Onde ficou |
+| --- | --- |
+| `AgentStatusIcon` × badge de status | **`AgentStatusIcon`**, com `executionStatusToAgentStatus()` e o vocabulário fechado. `working` usa o papel `run`, não o `ok` |
+| `SettingsDialog` × "Configuração efetiva" | A **leitura** fica no bloco "Contexto" (descreve a execução na tela); as **duas escritas** ficam em `PreferenceForms`, dentro do `SettingsDialog` — uma superfície de configuração no produto |
+| `DiffDialog` × lista de commits | O commit abre o `DiffDialog`, onde a capability existe; sem ela, continua sendo o link para o commit |
+| `PrBadge` × lista de pull requests | O `PrBadge` do WebMux, com `state: null`. O snapshot registra que um PR foi aberto e nada sobre o que houve depois — pintá-lo de "aberto" seria inventar um estado |
+| toast × `#alerts` | **Os dois.** Toast = feedback de uma ação sua, some; cartão de erros = estado persistente da execução, fica |
+
 ### Detalhes que parecem ruído e não são
 
 Cada um destes existe por uma falha específica. Ao mexer no componente, mantenha:
@@ -135,6 +215,23 @@ Cada um destes existe por uma falha específica. Ao mexer no componente, mantenh
   atualização.
 - **`Terminal`** bloqueia os três tipos de evento no Shift+Enter — só o
   `keydown` deixaria o `keypress` ainda emitir `\r`.
+- **`ExecutionPanel`** precisa de `.if-panel[hidden] { display: none !important }`:
+  o `display: grid` da regra base vence o atributo `hidden` sem isso.
+- **`ExecutionDrawer`** fica em `z-index` 20/21 para cobrir o banner de
+  desconexão, e fecha sozinho quando a story sai do plano em vez de mostrar um
+  fantasma.
+- **Card do dashboard e card do Kanban** são `<button>` com **só phrasing
+  content**. `<p>` ou `<div>` dentro de um botão é HTML inválido, e o conserto do
+  navegador quebra o alvo de clique.
+- **`readSnapshot`** deriva `errors`/`warnings` de `logs` quando o arquivo é
+  antigo demais para tê-los: eles são fatias derivadas que o reducer recalcula,
+  e um `session.json` anterior a isso não os carrega.
+- **A revalidação por ETag e a identidade de instância usam `fetch` direto**,
+  dentro do `lib/api.ts`. O cliente tipado devolve só o corpo, e as duas coisas
+  *são* cabeçalhos — `X-Issue-Flow-Instance` na resposta e o `304`, que o
+  contrato deliberadamente não declara porque não tem corpo para tipar. Os
+  caminhos e os tipos continuam vindo do contrato; componente nenhum chama
+  `fetch`.
 
 ### Comentários em `.svelte`
 
@@ -233,6 +330,10 @@ correspondente** — a maior parte da paleta clara passa com pouca folga.
 | `--focus-ring`  | `--surface-sunken`       | 3:1    | 5,08  | 4,65   |
 | `--accent-text` | `--accent`               | 4,5:1  | 6,29  | 6,29   |
 | `--accent-text` | `--state-error`          | 4,5:1  | 6,47  | 6,78   |
+
+Os 38 valores foram **remedidos na página** na Fase 8C, com
+`measureContrast(documentTokenReader())` num Chrome real sobre `measure.html`, e
+conferem dígito a dígito. `lib/contrast.test.ts` é o guarda de regressão.
 
 São **19 pares**: os 18 do painel atual mais `--state-merged`, o papel que o
 painel novo precisou e a paleta não tinha. Um pull request integrado não é um

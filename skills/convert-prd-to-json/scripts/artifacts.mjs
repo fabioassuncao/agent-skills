@@ -15118,12 +15118,19 @@ var sessionSnapshotSchema = external_exports.object({
     since: external_exports.string().nullable().default(null),
     phase: external_exports.string().nullable().default(null),
     awaitingInputCount: external_exports.number().int().nonnegative().default(0),
+    // Additive within the additive section: a session.json written before
+    // the §32 escalation existed parses as "never escalated" rather than
+    // failing, so schemaVersion stays 1.
+    awaitingInputEscalatedAt: external_exports.string().nullable().default(null),
+    awaitingInputWaitedMs: external_exports.number().nonnegative().nullable().default(null),
     humanHold: external_exports.object({ since: external_exports.string(), reason: external_exports.enum(["takeover", "requested"]) }).nullable().default(null)
   }).default({
     lifecycle: null,
     since: null,
     phase: null,
     awaitingInputCount: 0,
+    awaitingInputEscalatedAt: null,
+    awaitingInputWaitedMs: null,
     humanHold: null
   }),
   pullRequests: external_exports.array(external_exports.object({ number: external_exports.number(), url: external_exports.string(), title: external_exports.string() })),

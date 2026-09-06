@@ -32,6 +32,28 @@
   export function agentStatusLabel(status: string): string {
     return AGENT_STATUS_LABELS[status] ?? AGENT_STATUS_LABELS.idle;
   }
+
+  /**
+   * The other half of §50.3's merge: an *execution*'s status, expressed in this
+   * component's states.
+   *
+   * The panel used to draw its own badge for `idle`/`running`/`completed`/
+   * `failed`. It does not any more — there is one status component, and this is
+   * how the execution vocabulary reaches it. An unknown status maps to `idle`,
+   * which is how the closed vocabulary stays closed (ADR-20).
+   */
+  export function executionStatusToAgentStatus(status: string | null | undefined): string {
+    switch (status) {
+      case 'running':
+        return 'working';
+      case 'completed':
+        return 'done';
+      case 'failed':
+        return 'error';
+      default:
+        return 'idle';
+    }
+  }
 </script>
 
 <script lang="ts">
@@ -44,11 +66,19 @@
     unread = false,
   }: { status: string; size?: number; pill?: boolean; unread?: boolean } = $props();
 
+  /**
+   * One role token per state, from the Issue Flow palette.
+   *
+   * `working` is the `run` role and `done` the `ok` role. The upstream painted
+   * both green, which is the confusion the closed vocabulary exists to prevent:
+   * something still running is not something that passed. The panel already had
+   * a role for exactly this (`--state-run`) and the merge adopts it.
+   */
   function pillClass(s: string): string {
-    if (s === 'working') return 'bg-success/15 text-success';
-    if (s === 'waiting') return 'bg-warning/15 text-warning';
-    if (s === 'done') return 'bg-success/15 text-success';
-    if (s === 'error') return 'bg-danger/15 text-danger';
+    if (s === 'working') return 'bg-run-surface text-run';
+    if (s === 'waiting') return 'bg-warning-surface text-warning';
+    if (s === 'done') return 'bg-success-surface text-success';
+    if (s === 'error') return 'bg-danger-surface text-danger';
     return 'bg-hover text-muted';
   }
 </script>
@@ -56,7 +86,7 @@
 {#snippet icon()}
   {#if status === 'working'}
     <svg
-      class="text-success working-dots"
+      class="text-run working-dots"
       xmlns="http://www.w3.org/2000/svg"
       width={size}
       height={size}

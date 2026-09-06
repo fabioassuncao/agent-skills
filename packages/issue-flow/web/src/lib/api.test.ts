@@ -182,3 +182,111 @@ describe('setUpProject', () => {
     await expect(api.setUpProject('/repo/z', () => {})).rejects.toThrow('não é um repositório git');
   });
 });
+
+/**
+ * **U17** — the identity of the process that served this page.
+ *
+ * `--restart-web` puts new code behind the same origin. A page whose bundle
+ * came out of a process that no longer exists is showing code the server has
+ * stopped agreeing with, so it reloads. This is the asset handoff, not a
+ * session state — and a server old enough not to send the header is not a
+ * change either.
+ */
+describe('instance identity (U17)', () => {
+  function withInstance(instanceId: string | null, body: unknown = {}): Response {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (instanceId !== null) headers['X-Issue-Flow-Instance'] = instanceId;
+    return new Response(JSON.stringify(body), { status: 200, headers });
+  }
+
+  it('treats the first observation as a baseline, never as a change', async () => {
+    const api = await loadApiAt('/');
+    const onChange = vi.fn();
+    api.resetInstanceIdentity();
+    api.watchInstanceIdentity(onChange);
+
+    expect(api.observeInstance(withInstance('a').headers)).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('reports a change once the serving process is replaced', async () => {
+    const api = await loadApiAt('/');
+    const onChange = vi.fn();
+    api.resetInstanceIdentity();
+    api.watchInstanceIdentity(onChange);
+
+    api.observeInstance(withInstance('a').headers);
+    expect(api.observeInstance(withInstance('a').headers)).toBe(false);
+    expect(api.observeInstance(withInstance('b').headers)).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing about a server that does not send the header', async () => {
+    const api = await loadApiAt('/');
+    const onChange = vi.fn();
+    api.resetInstanceIdentity();
+    api.watchInstanceIdentity(onChange);
+
+    expect(api.observeInstance(withInstance(null).headers)).toBe(false);
+    expect(api.observeInstance(withInstance(null).headers)).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('records the identity from the very first response of the page', async () => {
+    // `loadCapabilities` is the first call the bundle makes; starting anywhere
+    // later would leave the page with no baseline to compare against.
+    const fetchMock = vi.fn(async () =>
+      withInstance('boot', { ok: true, capabilities: ['stream:sessions'], version: '0.20.0' }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = await loadApiAt('/');
+    const onChange = vi.fn();
+    api.watchInstanceIdentity(onChange);
+    await api.loadCapabilities();
+
+    expect(api.hasCapability('stream:sessions')).toBe(true);
+    expect(api.observeInstance(withInstance('boot').headers)).toBe(false);
+    expect(api.observeInstance(withInstance('other').headers)).toBe(true);
+  });
+});
+
+/**
+ * The revalidated status read. A `304` is the normal answer while nothing
+ * changed, which is what keeps the fallback interval cheap.
+ */
+describe('fetchExecutionStatus', () => {
+  it('sends If-None-Match and reports a 304 as unchanged', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 304 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = await loadApiAt('/proj/');
+    const result = await api.fetchExecutionStatus('run-1', 'W/"abc"');
+
+    expect(result).toEqual({ kind: 'not-modified' });
+    const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(call[0]).toBe('/proj/api/status?session=run-1');
+    expect((call[1].headers as Record<string, string>)['If-None-Match']).toBe('W/"abc"');
+  });
+
+  it('returns the snapshot and its ETag when the run moved', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ sessionId: 'run-1' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json', ETag: 'W/"def"' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = await loadApiAt('/');
+    const result = await api.fetchExecutionStatus(null, null);
+
+    expect(result).toEqual({
+      kind: 'snapshot',
+      snapshot: { sessionId: 'run-1' },
+      etag: 'W/"def"',
+    });
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe('/api/status');
+  });
+});

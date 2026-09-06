@@ -1227,7 +1227,7 @@ sinal.**
 | O quê | Origem | Por quê |
 |---|---|---|
 | Auto-close da sessão ao desarmar | `oneshot-watcher-service.ts` | É da convergência do oneshot (Fase 15), que é quem decide o que acontece com a sessão depois |
-| Escalada por `awaiting_input` sem resposta por N minutos | §32, última linha da tabela | O dado existe (`heldForMs` e `agent.awaitingInputCount` da Fase 2) e está exposto; **a política de notificação** ainda não tem consumidor — entra com a interface (§50) ou com a Fase 15. Registrado como pendência explícita |
+| ~~Escalada por `awaiting_input` sem resposta por N minutos~~ | §32, última linha da tabela | **Resolvido na Fase 8C.** A política vive em `src/core/awaiting-input.ts`, roda no chokepoint `agents/invoke.ts` (portanto **headless**, ADR-03), publica `agent:awaiting-input-escalated` + um `log` de nível `warn` e um diagnóstico em `~/.issue-flow/logs`, e a interface **exibe** `agent.awaitingInputEscalatedAt` sem decidir nada. `heldForMs` deliberadamente **não** é o número que ela lê: hold humano e `awaiting_input` são condições opostas, e confundi-las escalaria durante um takeover legítimo — exatamente o que §32 proíbe |
 | `postToLinearOnDone` | `meta.oneshot` | ADR-14 — Linear não é absorvido |
 
 **Testes de paridade**
@@ -2159,3 +2159,186 @@ comandos de pane são do upstream; a forma é o contrato `Runtime` da Fase 3).
 | Latência output → tela | ≤ 250 ms p95 | **54 ms p95** — o caminho é o de `src/web/` (Fase 1/8); os eventos de ciclo de vida deste modo são um caminho separado, cujo teto é o poll de 250 ms de `DEFAULT_LIFECYCLE_POLL_MS` |
 | Boot da CLI | ≤ 250 ms | inalterado — `createRuntime` não toca em repositório; os dois modos resolvem a fiação no primeiro `prepare()` |
 | Contexto re-ingerido por story | 0 | inalterado — o reaproveitamento de conversa continua sendo de `reuse.ts` |
+
+---
+
+### Painel do Issue Flow sobre a casca Svelte — `packages/issue-flow/web/` (Fase 8C)
+
+**Painel original**
+`packages/issue-flow/web/public/{index.html,app.js,app.css}` — 277 + 2.421 + 1.528 =
+**4.226 linhas**, JS puro sem framework, mais as 542 linhas de `web/AGENTS.md` que são a
+especificação de produto dele. Não há contraparte no WebMux: o upstream não tem execução,
+fase, user story, Kanban, drawer, verificação nem `session.json` retrocompatível. Esta ficha
+é, portanto, um porte **do Issue Flow para dentro do Issue Flow** — a base estrutural é a
+casca portada na Fase 8B (ADR-18, ADR-15).
+
+**Comportamento existente**
+- **Dashboard de execuções** (`renderDashboard`): um card por execução; **uma** abre direto
+  no detalhe; **duas ou mais** listam cards; com mais de um projeto conhecido a tela vira a
+  visão consolidada "Trabalho ativo", com um bloco por projeto — **incluindo os que não têm
+  execução nenhuma**, que é o caso que não existia antes do registry.
+- **Header da execução**: o `h1` é a execução (`#N` linkado + título), nunca a marca; branch,
+  chip de versão do **monitor**, status, tempo decorrido e estimativa ao redor.
+- **Quatro blocos, nesta ordem, e a ordem é a hierarquia**: Estado agora · Contexto ·
+  Andamento · Saída. Cada assunto é uma `.block-part` com `<h3>`, sem borda própria.
+- **Abas com ARIA completo**: setas, Home/End, roving `tabindex`, e os três painéis
+  renderizados **incondicionalmente** — uma aba inativa nunca fica defasada.
+- **Drawer único** para fase e story, reidratado de `{kind,id}` a cada atualização.
+- **Métricas** espelhando `src/core/metrics.ts`, e `metric()` como guarda de `undefined` ≠
+  `null` ≠ `0`.
+- Casos especiais que **não** podiam se perder:
+  - `metric()` normaliza qualquer coisa que não seja número finito para `null` — um
+    `session.json` de release anterior não tem os campos, e nada pode virar `0` ou `NaN`.
+  - Acesso a story só por `getStoryById`/`getStories`, que normalizam num lugar só o que
+    pode faltar (`status` → `backlog`, `stage` → `pending`, listas → `[]`).
+  - O drawer guarda o **id**, nunca o nó: o Kanban é recriado a cada render, e o foco volta
+    por `[data-story-id]`.
+  - Card do dashboard e card do Kanban são `<button>` com **só phrasing content** — `<p>` ou
+    `<div>` dentro de um botão é HTML inválido que o navegador "conserta" quebrando o alvo.
+  - `.tab-panel[hidden]` precisa de `display: none` explícito, senão o `display: grid` da
+    regra base vence o atributo.
+  - `'system'` **remove** o `data-theme` em vez de gravar `'system'`, e o listener do SO fica
+    anexado **só** no modo sistema.
+  - Escrita limitada a duas rotas, em loopback, atrás de capability anunciada — nunca
+    inferida da versão.
+  - `.header-side` **precisa** poder encolher; fixado em `flex: 0 0 auto` os timers estouram
+    360px. O `h1` é fluxo inline, ou um título longo empurra o `#N` para uma linha sozinha.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/web/src/lib/{format,vocabulary,snapshot,executions,contrast}.ts` ·
+`.../lib/{ExecutionsDashboard,ExecutionCard,ExecutionPanel,ExecutionHeader,ExecutionAlerts,ExecutionTabs,NowBlock,ContextBlock,ProgressBlock,OutputBlock,KanbanBoard,HistoryList,ExecutionDrawer,ExecutionSidebarList,RefreshSelect,VerificationVerdictCard,PreferenceForms}.svelte`
+· `.../src/App.svelte` (estado e navegação) · `.../src/app.css` (a camada `.if-*`) ·
+`.../src/lib/api.ts` (identidade de instância, revalidação por ETag, as duas escritas)
+— estratégia: **PORT** do painel atual, **MERGE** onde §50.3 manda.
+
+Backend de §32: `src/core/awaiting-input.ts` (novo) · `src/core/session/{events,snapshot,reducer-agent,reducer}.ts`
+· `src/schemas.ts` · `src/agents/invoke.ts` · `src/web/server.ts` (`sessionListPayload`) ·
+`packages/issue-flow-contract/src/schemas.ts` (`SessionSummarySchema`).
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `render*()` imperativo sobre `document.getElementById` → componentes Svelte com runes | É a casca da Fase 8B. O estado global continua no `App.svelte`, sem store e sem router (§48.3): introduzir um contradiria uma decisão documentada |
+| `metric()`/`getStoryById()` → `lib/snapshot.ts` com `readSnapshot()`, que narra o snapshot inteiro campo a campo | O contrato tipa `/api/status` como `Record<string, unknown>` **de propósito** (o `sessionSnapshotSchema` da CLI é a autoridade, e um monitor que recusasse um snapshot que não entende seria pior do que um que renderiza o que reconhece). O estreitamento passa a ser um lugar só, testável, em vez de espalhado por doze componentes |
+| Badge de status próprio → `AgentStatusIcon` com `executionStatusToAgentStatus()` | §50.3: **um** componente de estado, com o vocabulário fechado do glossário. `working` passou a usar o papel `run` e não o `ok` — o upstream pintava "executando" e "concluído" da mesma cor, que é a confusão que o vocabulário fechado existe para evitar |
+| Os dois formulários de preferência saíram de "Contexto" e entraram no `SettingsDialog` | §50.3: **uma** superfície de configuração no produto. O que fica no bloco é a *leitura* da configuração efetiva, que descreve a execução na tela; o que se pode mudar fica onde se muda configuração, e o bloco linka para lá |
+| Lista de commits abre o `DiffDialog` | §50.3: **um** renderizador de diff. O botão só existe onde a capability `worktrees` existe; sem ela a linha continua sendo o link para o commit |
+| Lista de PRs usa o `PrBadge` do WebMux, com `state: null` | §50.3: **um** badge de PR. O snapshot registra que um PR foi aberto e nada sobre o que aconteceu depois — pintá-lo de "aberto" seria um estado que ninguém observou, a mesma classe de mentira que U21 proíbe para verificação. `PrBadgeInput` acrescenta o estado desconhecido em vez de um segundo badge |
+| Toast e `#alerts` continuam os dois | §50.3, linha "ambos, com papéis distintos": toast é feedback de uma ação sua e some; o cartão de erros é **estado persistente** da execução e fica |
+| Uma sidebar com dois grupos: "Execuções" e "Sessões" | §50.3: as duas listas viram uma. Uma seleção conduz um painel; nunca as duas ao mesmo tempo |
+| `mainView` começa em `'worktree'` quando a capability `worktrees` existe | §48.6: "o Roteiro B **não pode** impedir o Roteiro A". Um monitor com worktrees abre onde sempre abriu; as execuções ficam a um clique na sidebar. Um monitor que a pipeline subiu inline não anuncia a capability e só tem a superfície de execução |
+| Polling de 3–8 s → assinatura de `/api/stream`, com o seletor como rede de segurança | §35: teto duro de 250 ms p95. O seletor **não** virou enfeite: ele governa o intervalo do fallback, e `pausar` para o timer de verdade |
+| Relógio de 1 s no `App.svelte`, propagado como `now` | Tempo decorrido, estimativa e "há quanto tempo" são relógios, não resultados de poll. Um componente por timer seria N timers para o mesmo segundo |
+| Identidade de instância e revalidação por ETag através de `fetch` direto, dentro do `lib/api.ts` | O cliente tipado devolve **só o corpo** (`unwrapResponse`), e as duas coisas *são* cabeçalhos: `X-Issue-Flow-Instance` é resposta, e `304` é um status que o contrato deliberadamente não declara (não tem corpo para tipar). Ensinar a camada compartilhada sobre um status sem corpo, por causa de uma rota, poria a exceção no lugar errado. Os **caminhos** e os **tipos** continuam vindo do contrato (`apiPaths`, `JournalResponse`, …), e componente nenhum chama `fetch` |
+| `SessionSummarySchema` ganhou `humanHold` e `awaitingInputEscalatedAt` | O servidor já mandava o primeiro; o contrato não o declarava. O segundo é §32 |
+| A camada `.if-*` em `app.css`, sobre tokens, em vez de classes utilitárias repetidas | ADR-19. Um `<style>` com escopo **não** alcança `--color-*` (com `@theme inline` o Tailwind não os registra como custom property), mas alcança os tokens de papel. Nenhuma cor literal em lugar nenhum — há teste |
+| §32: a política no backend, a exibição na interface | ADR-03. Um run headless que trava esperando input é justamente o que mais precisa escalar; se o limiar morasse no navegador, só escalariam os runs que alguém já estava olhando |
+| §32: `heldForMs` **não** é o número lido | Hold humano é "alguém assumiu e está pensando"; `awaiting_input` é "o agente perguntou e ninguém veio". São condições opostas, e fundi-las escalaria durante um takeover legítimo. Enquanto há hold, a escalada é suprimida — e um `human:hold` limpa uma escalada existente, porque um takeover **é** alguém vindo |
+| §32: o watch é um **timer**, no chokepoint `agents/invoke.ts` | O que se detecta é a **ausência** de um evento; a única forma de observar que nada aconteceu por cinco minutos é olhar de novo em cinco minutos. Mesma forma do `core/watchdog.ts`, e o chokepoint cobre os cinco runners e os três modos de runtime sem tocar em nenhum deles |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| `web/public/{index.html,app.js,app.css}` | **Permanecem intactos** (ADR-18). Saem na Fase 8D, e só quando os três blocos de §50.7 estiverem verdes. Até lá são o caminho de rollback, servidos em `/legacy/` |
+| O `<noscript>` apontando para `status.json` | §50.8 manda **preservar**; o `index.html` do painel novo já o tem desde a Fase 8B, apontando para a mesma rota |
+| Navegação unificada de §50.5 (`Tasks` / `Sessions` como uma árvore, Task **contendo** worktrees, serviços e PR/CI) | É a Fase 8D — §50.6 lista `CONSOLIDAR UX` depois de `PORTAR ISSUE FLOW`. O que esta fase entrega é uma sidebar com os dois grupos e um painel por seleção; a hierarquia Task→sessões é I1 do bloco 3, não do bloco 2 |
+| Limiar de escalada configurável (`.issue-flow.json`) | Uma constante documentada de 5 minutos, injetável em teste. Acrescentar uma seção de configuração numa fase de interface seria endurecer durante o porte (invariante 4) e mexer em `config/` sem que a fase exigisse (invariante 7). Fica registrado como melhoria separada |
+| Notificação nativa do SO para a escalada | Mesma razão que a Fase 8B registrou para os toasts: depende de um canal de notificação que não existe aqui. A escalada chega por `warn` no snapshot (cartão de erros, `session.json`) e por diagnóstico em `~/.issue-flow/logs` — os dois lugares onde alguém sem painel aberto realmente olha |
+
+**Testes de paridade**
+
+| # | Capacidade | Teste que a defende | Estado |
+|---|---|---|---|
+| U1 | Dashboard de execuções | `lib/executions.test.ts` (`resolveExecutionView`, 6 casos) · `lib/ExecutionsDashboard.test.ts` (10) · `App.executions.test.ts` ("opens straight into the detail", "lists cards with two") | ✅ |
+| U2 | Header da execução | `lib/ExecutionPanel.test.ts` › "the execution header (U2)" (2) | ✅ |
+| U3 | Banner de desconexão | `App.executions.test.ts` › "the disconnection banner (U3)" (2) | ✅ |
+| U4 | Erros e avisos | `lib/ExecutionPanel.test.ts` › "errors and warnings (U4)" (3), incluindo a ordem no documento e a escalada de §32 | ✅ |
+| U5 | Abas com ARIA | `lib/ExecutionPanel.test.ts` › "the tablist (U5)" (4) | ✅ |
+| U6 | Estado agora | `lib/ExecutionPanel.test.ts` › `"Estado agora" (U6)` (2) + **medição em navegador** (abaixo) | ✅ |
+| U7 | Contexto | `lib/ExecutionPanel.test.ts` › `"Contexto" (U7)` (4) | ✅ |
+| U8 | Preferências | `lib/PreferenceForms.test.ts` (8) · `lib/ExecutionPanel.test.ts` (o link e a ausência dele) | ✅ |
+| U9 | Andamento | `lib/ExecutionPanel.test.ts` › `"Andamento" (U9)` (1) | ✅ |
+| U10 | Kanban | `lib/ExecutionPanel.test.ts` › "the Kanban (U10)" (1), incluindo `<button>` e phrasing content | ✅ |
+| U11 | Histórico | `lib/executions.test.ts` (`filterHistory`) · `lib/vocabulary.test.ts` (`historyMessage`, 3) · `lib/ExecutionPanel.test.ts` › "the journal (U11)" | ✅ |
+| U12 | Drawer | `lib/ExecutionPanel.test.ts` › "the drawer (U12)" (4) · `lib/snapshot.test.ts` (`executionsFor`) | ✅ |
+| U13 | Métricas | `lib/format.test.ts` (14) · `lib/ExecutionPanel.test.ts` (o agregado na tela) | ✅ |
+| U14 | Saída | `lib/ExecutionPanel.test.ts` › `"Saída" (U14, U21)` (6) · `lib/executions.test.ts` (`filterLogs`) | ✅ |
+| U15 | Tema | `App.executions.test.ts` › "the theme (U15)" (3) · `src/tokens.test.ts` (3, já existente) | ✅ |
+| U16 | Atualização | `App.executions.test.ts` › "the refresh interval (U16)" (2) · `lib/executions.test.ts` (`refreshOptions`) · `lib/ExecutionPanel.test.ts` (as cinco opções) | ✅ |
+| U17 | Identidade da instância | `lib/api.test.ts` › "instance identity (U17)" (4) · `App.executions.test.ts` (1) | ✅ |
+| U18 | Retrocompatibilidade | `lib/snapshot.test.ts` (13) · `lib/format.test.ts` (`metric`, e "never renders a missing count as zero") | ✅ |
+| U19 | Contraste | `lib/contrast.test.ts` (6, os 19 pares recalculados nos dois temas) + **medição na página** (abaixo) | ✅ |
+| U20 | Responsivo | `lib/responsive.test.ts` (49, o contrato de CSS) + **medição na página** (abaixo) | ✅ |
+| U21 | Verificação | `lib/snapshot.test.ts` › "verification (U21)" (3) · `lib/vocabulary.test.ts` (3) · `lib/ExecutionPanel.test.ts` (3) | ✅ |
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `web/src/lib/ExecutionPanel.test.ts` | novo — U2, U4–U7, U9–U14, U16, U21 | 30 | ✅ |
+| `web/src/lib/responsive.test.ts` | novo — o contrato de CSS de U20 e ADR-19 | 49 | ✅ |
+| `web/src/lib/executions.test.ts` | novo — U1, U11, U14, U16 | 14 | ✅ |
+| `web/src/lib/format.test.ts` | novo — U13 e metade de U18 | 14 | ✅ |
+| `web/src/lib/snapshot.test.ts` | novo — U18 e U21 | 13 | ✅ |
+| `web/src/lib/vocabulary.test.ts` | novo — o vocabulário fechado (ADR-20) | 12 | ✅ |
+| `web/src/App.executions.test.ts` | novo — U1, U3, U15, U16, U17 | 11 | ✅ |
+| `web/src/lib/ExecutionsDashboard.test.ts` | novo — U1 | 10 | ✅ |
+| `web/src/lib/PreferenceForms.test.ts` | novo — U8 | 8 | ✅ |
+| `web/src/lib/contrast.test.ts` | novo — U19 | 6 | ✅ |
+| `web/src/lib/api.test.ts` | ampliado — U17 e a revalidação por ETag | 6 novos (15 no total) | ✅ |
+| `web/src/lib/SettingsDialog.test.ts` | atualizado — o mock cobre a metade de configuração que §50.3 trouxe para o diálogo | 4 atualizados | ✅ |
+| `web/src/App.test.ts` | atualizado — o mock cobre a superfície de execução | 29 atualizados | ✅ |
+| `src/core/awaiting-input.test.ts` | novo — a política de §32 | 11 | ✅ |
+
+**Suíte do painel: 168 → 342 casos.** Nenhum teste existente foi removido ou marcado
+`skip`; os dois atualizados foram os que mockam `./lib/api` por inteiro e precisavam
+conhecer as funções novas.
+
+**Medições em navegador (U6, U19, U20)**
+
+`happy-dom` **não tem cascata de CSS nem layout** — `getComputedStyle` devolve string vazia
+para toda custom property e `getBoundingClientRect()` devolve zeros (verificado antes de
+escrever as suítes). Três critérios, portanto, não podem ser medidos no vitest, e são
+medidos numa bancada: `web/measure.html` + `web/src/measure.ts` montam a superfície de
+execução com a mesma fixture das suítes, sem servidor e sem API. Reproduzir:
+
+```bash
+npm run dev:web        # e abra http://127.0.0.1:4319/measure.html
+# no console:
+window.measureNowBlock(); window.measureHorizontalOverflow();
+window.measureContrastPairs('light'); window.measureContrastPairs('dark');
+```
+
+| Critério | Medido | Resultado |
+|---|---|---|
+| U6 — "Estado agora" sem rolagem em 1440×900, com o cartão de erros aberto | `getBoundingClientRect().bottom` = **764** px, `innerHeight` = 900 (tema claro e escuro) | ✅ 136 px de folga |
+| U20 — sem rolagem horizontal em 1440 | `scrollWidth` 1440 = `clientWidth` 1440; zero elementos além da borda | ✅ |
+| U20 — sem rolagem horizontal em 768 | `scrollWidth` 768 = `clientWidth` 768 | ✅ |
+| U20 — sem rolagem horizontal em 360 (emulação móvel) | `scrollWidth` 360 = `clientWidth` 360; **zero** elementos fora de um `.if-scroll-x` ultrapassam a borda; a grade de fases rola dentro da própria caixa (borda direita em 327 px) | ✅ |
+| U19 — 19 pares, tema claro | `measureContrast(documentTokenReader())`: 15,17 · 16,55 · 13,36 · 6,93 · 7,56 · 6,10 · 5,24 · 5,72 · 4,62 · 4,57 · 5,49 · 4,51 · 5,30 · 5,98 · 5,76 · 6,29 · 5,08 · 6,29 · 6,47 | ✅ **0 falhas** |
+| U19 — 19 pares, tema escuro | 15,40 · 14,04 · 11,38 · 7,21 · 6,58 · 5,33 · 6,37 · 5,81 · 4,71 · 8,19 · 5,68 · 8,05 · 5,63 · 8,18 · 6,29 · 5,73 · 4,65 · 6,29 · 6,78 | ✅ **0 falhas** |
+
+Os 38 valores conferem, dígito a dígito, com a tabela de `web/AGENTS.md` — que continua
+sendo a tabela **medida**, não a estimada. `lib/contrast.test.ts` é o guarda de regressão:
+recalcula os mesmos 19 pares a partir de `tokens.css` e `app.css`, nunca da tabela.
+
+**Risco inverso (§45.3)**
+Conferido. `writeFileAtomic` intacto (nada nesta fase escreve arquivo fora dele); nenhum
+`spawn` novo — a fase não executa processo; nenhuma string de shell; taxonomia de falha,
+watchdog e permissão semântica não tocados; autoridade de estado preservada (a interface
+lê e não deriva); **auth**: as duas únicas escritas continuam atrás de capability + loopback,
+e `PreferenceForms` não renderiza nada sem as duas; isolamento de `review`/`verify`
+inalterado; a escalada de §32 passa pelo `writeDiagnostic`, que já faz redaction.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| Bundle do painel (gzip, sem xterm) | — | 110,4 KB (`index`, era 88,5) + 10,7 KB de CSS (era 7,7) |
+| xterm, em chunk separado | — | 73,9 KB gzip — inalterado |
+| `DiffDialog` + `diff2html`, sob demanda | — | 14,7 KB gzip — inalterado |
+| Build do painel (`vite build`) | — | 1,40 s (era 1,35 s) |
+| Suíte do painel (30 arquivos, 342 casos) | — | 3,2 s |
+| Suíte da CLI (250 arquivos, 3.425 casos) | — | 16,5 s |
+| Latência output → tela | ≤ 250 ms p95 | **51 ms mediana, 52 ms p95** (`stream-latency.integration.test.ts`) — o transporte não mudou nesta fase |
+| Custo por tick da política de §32 | — | uma leitura do snapshot em memória a cada 30 s, num timer `unref`'d por invocação |

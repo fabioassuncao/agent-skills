@@ -4,6 +4,9 @@
   import CommentReviewDialog from './lib/CommentReviewDialog.svelte';
   import ConfirmDialog from './lib/ConfirmDialog.svelte';
   import CreateWorktreeDialog from './lib/CreateWorktreeDialog.svelte';
+  import ExecutionPanel from './lib/ExecutionPanel.svelte';
+  import ExecutionSidebarList from './lib/ExecutionSidebarList.svelte';
+  import ExecutionsDashboard from './lib/ExecutionsDashboard.svelte';
   import MobileChatSurface from './lib/MobileChatSurface.svelte';
   import PaneBar from './lib/PaneBar.svelte';
   import ProjectSwitcher from './lib/ProjectSwitcher.svelte';
@@ -23,15 +26,36 @@
     canCall,
     createWorktreeTab,
     deleteWorktreeTab,
+    fetchEffectiveConfig,
+    fetchExecutionDiagnostics,
+    fetchExecutionEvents,
+    fetchExecutionStatus,
+    fetchProjects,
+    fetchSessions,
     fetchWorktrees,
     hasCapability,
+    knownHealth,
     refreshWorktreeAgentTerminal,
     selectWorktreeTab,
     setWorktreeLabel,
     setWorktreeProfile,
     subscribeSessions,
+    watchInstanceIdentity,
     activePrefix,
   } from './lib/api';
+  import type { DrawerSelection } from './lib/ExecutionDrawer.svelte';
+  import {
+    ALL_PROJECTS,
+    PROJECT_STORAGE_KEY,
+    REFRESH_PAUSED,
+    REFRESH_STORAGE_KEY,
+    resolveExecutionView,
+    visibleSessions,
+    type HistoryFilter,
+    type JournalEntryView,
+    type LogFilter,
+  } from './lib/executions';
+  import { readSnapshot, type ExecutionSnapshot } from './lib/snapshot';
   import { terminalThemeFromTokens, type ThemeKey } from './lib/themes';
   import { setToastController } from './lib/toast-context';
   import type {
@@ -39,7 +63,10 @@
     AvailableBranch,
     CreateWorktreeRequest,
     DiffDialogProps,
+    EffectiveConfigResponse,
     PrEntry,
+    ProjectSummary,
+    SessionSummary,
     ToastInput,
     ToastItem,
     UiToastItem,
@@ -55,6 +82,7 @@
     loadUseWebChatUi,
     makeCursorUrl,
     readStored,
+    writeStored,
     resolveSelectedBranch,
     saveSelectedWorktree,
     saveSidebarWidth,
@@ -120,6 +148,9 @@
   }
 
   const worktreesAvailable = hasCapability(CAPABILITY.worktrees);
+  const preferencesWritable =
+    hasCapability(CAPABILITY.configAgentWrite) && hasCapability(CAPABILITY.configRoutingWrite);
+
 
   let config = $state<AppConfig>(createDefaultConfig());
   let worktrees = $state<WorktreeInfo[]>([]);
@@ -158,7 +189,7 @@
   let useWebChatUi = $state(loadUseWebChatUi());
   let terminalTheme = $state(terminalThemeFromTokens());
   let disconnected = $state(false);
-  let applyPollInterval: ((intervalMs: number) => void) | null = null;
+  let applyPollInterval: ((intervalMs: number, paused: boolean) => void) | null = null;
   let pendingCreateBranchHint = $state<string | null>(null);
   let availableBranches = $state<AvailableBranch[]>([]);
   let availableBranchesLoading = $state(false);
@@ -177,6 +208,14 @@
   let baseBranchCache: AvailableBranch[] | null = null;
   let baseBranchRequest: Promise<AvailableBranch[]> | null = null;
   let diffDialogLoad: Promise<void> | null = null;
+
+  /**
+   * The user's refresh interval (U16). Declared here because the safety net's
+   * period derives from it, and both headers bind to this one value — which is
+   * what makes "synchronised between the headers" true by construction rather
+   * than by a synchronisation step somebody has to remember.
+   */
+  let refreshSeconds = $state<number>(readStoredRefresh() ?? 5);
 
   const DEFAULT_POLL_INTERVAL_MS = 15000;
   const ACTIVE_CREATE_POLL_INTERVAL_MS = 1000;
@@ -417,8 +456,20 @@
       ? `${selectedBranch}:${selectedSessionId ?? ''}:${terminalSessionRevisions[selectedBranch] ?? 0}`
       : '',
   );
+  /**
+   * The safety net's period.
+   *
+   * Three inputs, in this order: a worktree being created wants the tighter
+   * beat the upstream used; otherwise the user's own choice from the refresh
+   * control (U16); otherwise the 15 s default. `pausar` is handled separately —
+   * it stops the timer rather than lengthening it.
+   */
   let pollIntervalMs = $derived(
-    hasCreatingWorktrees ? ACTIVE_CREATE_POLL_INTERVAL_MS : DEFAULT_POLL_INTERVAL_MS,
+    hasCreatingWorktrees
+      ? ACTIVE_CREATE_POLL_INTERVAL_MS
+      : refreshSeconds === REFRESH_PAUSED
+        ? DEFAULT_POLL_INTERVAL_MS
+        : refreshSeconds * 1000,
   );
   let worktreeListEmptyMessage = $derived(
     !worktreesAvailable
@@ -431,6 +482,210 @@
           ? 'Nenhum worktree ativo.'
           : 'Nenhum worktree encontrado.',
   );
+
+  /* ------------------------------------------------------------------ *
+   * Executions (Fase 8C)
+   *
+   * The panel's half of the shell, in the same runes the rest of the state
+   * lives in — there is no store and no router here, and that is a decision
+   * (§48.3), not an omission.
+   *
+   * One selection drives the main panel: an execution, or a worktree, never
+   * both. That is what keeps §50.3's "one experience where the two overlap"
+   * true instead of two screens sharing a sidebar.
+   * ------------------------------------------------------------------ */
+
+  let sessions = $state<SessionSummary[]>([]);
+  let projects = $state<ProjectSummary[]>([]);
+  let selectedExecutionId = $state<string | null>(null);
+  let selectedProjectId = $state<string>(readStored(PROJECT_STORAGE_KEY) ?? ALL_PROJECTS);
+  let snapshot = $state<ExecutionSnapshot | null>(null);
+  /** Which session the snapshot on screen belongs to; guards against a flash. */
+  let snapshotSessionId = $state<string | null>(null);
+  let snapshotEtag: string | null = null;
+  let executionEvents = $state<JournalEntryView[]>([]);
+  let executionDiagnostics = $state<Record<string, unknown>[]>([]);
+  let effectiveConfig = $state<EffectiveConfigResponse | null>(null);
+  let monitorVersion = $state<string | null>(null);
+  let activeTab = $state('execution');
+  let logFilter = $state<LogFilter>('all');
+  let historyFilter = $state<HistoryFilter>('all');
+  let drawer = $state<DrawerSelection | null>(null);
+  /** Ticks once a second so elapsed, estimate and "há quanto tempo" stay live. */
+  let now = $state(Date.now());
+  let executionsBusy = false;
+  let executionsAgain = false;
+
+  function readStoredRefresh(): number | null {
+    const raw = readStored(REFRESH_STORAGE_KEY);
+    if (raw === null) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+
+  let filteredSessions = $derived(visibleSessions(sessions, selectedProjectId));
+
+  let executionView = $derived(
+    resolveExecutionView({
+      sessions,
+      selectedSessionId: selectedExecutionId,
+      selectedProjectId,
+      projectCount: projects.length,
+    }),
+  );
+
+  /**
+   * Which of the two the main area shows.
+   *
+   * One selection drives one panel: picking an execution shows the execution,
+   * picking a worktree shows its terminal or chat. The sidebar holds both
+   * groups (§50.3) and this is what keeps them from being two screens.
+   *
+   * A monitor a pipeline run bound inline announces no `worktrees` capability,
+   * so it only ever has the execution surface — which is what keeps a plain
+   * `issue-flow run` unchanged (ADR-03).
+   */
+  let mainView = $state<'executions' | 'worktree'>(
+    // Deterministic, and it is the acceptance invariant of §48.6: Roteiro B must
+    // not get in Roteiro A's way. A monitor that serves worktrees lands where it
+    // always did — on the selected worktree — and the executions are one click
+    // away in the sidebar. A monitor that does not (the one a pipeline run binds
+    // inline) has only the execution surface, and lands on it.
+    worktreesAvailable ? 'worktree' : 'executions',
+  );
+  let showExecutions = $derived(!worktreesAvailable || mainView === 'executions');
+
+  function clearExecutionDetail(): void {
+    snapshot = null;
+    snapshotSessionId = null;
+    snapshotEtag = null;
+    executionEvents = [];
+    executionDiagnostics = [];
+  }
+
+  function selectExecution(sessionId: string | null): void {
+    if (selectedExecutionId !== sessionId) clearExecutionDetail();
+    selectedExecutionId = sessionId;
+    mainView = 'executions';
+    if (isMobile) sidebarOpen = false;
+    void refreshExecutions();
+  }
+
+  /**
+   * The drawer holds the story **id**, never the card.
+   *
+   * The board is rebuilt on every update, so a node captured when the drawer
+   * opened would be outside the document by the time it closes — which is also
+   * why focus goes back through `[data-story-id]`.
+   */
+  function closeDrawer(): void {
+    const selection = drawer;
+    drawer = null;
+    if (selection?.kind !== 'story') return;
+    queueMicrotask(() => {
+      const card = document.querySelector<HTMLElement>(
+        `[data-story-id="${selection.id.replace(/"/g, '')}"]`,
+      );
+      card?.focus();
+    });
+  }
+
+  function selectProject(projectId: string): void {
+    selectedProjectId = projectId;
+    writeStored(PROJECT_STORAGE_KEY, projectId === ALL_PROJECTS ? null : projectId);
+    // A different project invalidates the open execution: it may not even
+    // belong to the project now chosen.
+    selectExecution(null);
+  }
+
+  function setRefreshSeconds(seconds: number): void {
+    refreshSeconds = seconds;
+    writeStored(REFRESH_STORAGE_KEY, String(seconds));
+  }
+
+  /**
+   * One pass over the execution surface.
+   *
+   * Re-entrancy is handled the way the current panel handles it: a call that
+   * arrives mid-flight is **remembered**, not dropped, so clicking a card while
+   * a refresh is running still lands.
+   */
+  async function refreshExecutions(): Promise<void> {
+    if (executionsBusy) {
+      executionsAgain = true;
+      return;
+    }
+    executionsBusy = true;
+    executionsAgain = false;
+    try {
+      projects = await fetchProjects().catch((): ProjectSummary[] => []);
+      sessions = await fetchSessions();
+      disconnected = false;
+
+      const view = resolveExecutionView({
+        sessions,
+        selectedSessionId: selectedExecutionId,
+        selectedProjectId,
+        projectCount: projects.length,
+      });
+      if (view.selectedSessionId !== selectedExecutionId) {
+        selectedExecutionId = view.selectedSessionId;
+      }
+
+      if (view.mode === 'dashboard' || view.session === null) {
+        clearExecutionDetail();
+        return;
+      }
+
+      const sessionId = view.session.sessionId;
+      if (snapshotSessionId !== sessionId) {
+        clearExecutionDetail();
+        snapshotSessionId = sessionId;
+      }
+
+      const status = await fetchExecutionStatus(sessionId, snapshotEtag);
+      if (status.kind === 'snapshot') {
+        snapshot = readSnapshot(status.snapshot);
+        snapshotEtag = status.etag;
+      }
+
+      const [events, diagnostics, config] = await Promise.all([
+        fetchExecutionEvents(sessionId).catch((): JournalEntryView[] => []),
+        fetchExecutionDiagnostics(sessionId).catch((): Record<string, unknown>[] => []),
+        fetchEffectiveConfig(sessionId).catch((): EffectiveConfigResponse | null => null),
+      ]);
+      executionEvents = events as JournalEntryView[];
+      executionDiagnostics = diagnostics as Record<string, unknown>[];
+      if (config !== null) effectiveConfig = config;
+    } catch {
+      disconnected = true;
+    } finally {
+      executionsBusy = false;
+      if (executionsAgain) {
+        executionsAgain = false;
+        void refreshExecutions();
+      }
+    }
+  }
+
+  $effect(() => {
+    // The document title carries the brand; the heading carries the execution.
+    if (!showExecutions) return;
+    if (snapshot === null) {
+      document.title = config.name ? `${config.name} · issue-flow` : 'issue-flow';
+      return;
+    }
+    const issue = snapshot.issue.number === null ? '' : `#${snapshot.issue.number}`;
+    const prefix =
+      snapshot.status === 'running'
+        ? `${snapshot.progress.percent}% · `
+        : snapshot.status === 'completed'
+          ? '✓ '
+          : snapshot.status === 'failed'
+            ? '✗ '
+            : '';
+    document.title = `${prefix}${issue} · issue-flow`.replace(/^ · /, '');
+  });
 
   $effect(() => {
     const nextSelectedBranch = resolveSelectedBranch(
@@ -468,7 +723,7 @@
   });
 
   $effect(() => {
-    applyPollInterval?.(pollIntervalMs);
+    applyPollInterval?.(pollIntervalMs, refreshSeconds === REFRESH_PAUSED);
   });
 
   $effect(() => {
@@ -540,12 +795,6 @@
         if (fetchId !== nextBaseBranchFetchId) return;
         baseBranchesLoading = false;
       });
-  });
-
-  $effect(() => {
-    // The brand lives in the document title, never in the heading — the same
-    // rule the current panel follows.
-    document.title = config.name ? `${config.name} · issue-flow` : 'issue-flow';
   });
 
   let paneBarPanes = $derived.by(() => {
@@ -655,6 +904,7 @@
   function handleSelectWorktree(branch: string): void {
     revealWorktreeInFilters(branch);
     selectedBranch = branch;
+    mainView = 'worktree';
     notifiedBranches = new Set(
       [...notifiedBranches].filter((candidate) => candidate !== branch),
     );
@@ -1022,6 +1272,36 @@
         .catch(() => {});
     }
     void refresh();
+    void refreshExecutions();
+
+    // U17: the process that served these assets is identified on every
+    // response; a different one means `--restart-web` put new code behind the
+    // same origin, and the page has to reload to stop showing code the server
+    // no longer agrees with. This is the asset handoff, not a session state.
+    watchInstanceIdentity(() => window.location.reload());
+
+    // The version chip is the **monitor's**, not the CLI's: these assets come
+    // out of that process's memory, so it is the one that explains what is on
+    // screen. The two appear side by side in "Contexto" when they differ.
+    //
+    // Read from the boot answer rather than asked again: `main.ts` already
+    // fetched `/api/health` before anything mounted, and a second request on
+    // every page load would change nothing.
+    const health = knownHealth();
+    if (health !== null) {
+      monitorVersion = health.version;
+      // The server's suggestion is the default; a stored choice outranks it.
+      if (readStoredRefresh() === null && Number.isFinite(health.refreshSeconds)) {
+        if (health.refreshSeconds > 0) refreshSeconds = health.refreshSeconds;
+      }
+    }
+
+    // Elapsed, estimate and "há quanto tempo" are clocks, not poll results:
+    // waiting for the next refresh to move them is what made the panel look
+    // frozen during a long phase.
+    const clock = setInterval(() => {
+      now = Date.now();
+    }, 1000);
 
     let intervalMs = pollIntervalMs;
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -1033,6 +1313,11 @@
       onSessions: () => {
         disconnected = false;
         void refresh();
+        void refreshExecutions();
+      },
+      onStatus: () => {
+        disconnected = false;
+        void refreshExecutions();
       },
       onError: () => {
         disconnected = true;
@@ -1044,15 +1329,25 @@
     let idleTimer: ReturnType<typeof setTimeout>;
     let idle = false;
 
+    function tick(): void {
+      void refresh();
+      void refreshExecutions();
+    }
+
     function startPolling(): void {
       if (interval) clearInterval(interval);
       if (document.hidden || idle) return;
-      interval = setInterval(refresh, intervalMs);
+      // "pausar" pauses for real: the interval is the safety net, and a user who
+      // turned it off must not keep being refreshed by it.
+      if (refreshSeconds === REFRESH_PAUSED) return;
+      interval = setInterval(tick, intervalMs);
     }
 
-    applyPollInterval = (nextIntervalMs: number): void => {
-      if (intervalMs === nextIntervalMs) return;
+    let paused = refreshSeconds === REFRESH_PAUSED;
+    applyPollInterval = (nextIntervalMs: number, nextPaused: boolean): void => {
+      if (intervalMs === nextIntervalMs && paused === nextPaused) return;
       intervalMs = nextIntervalMs;
+      paused = nextPaused;
       startPolling();
     };
     startPolling();
@@ -1106,6 +1401,7 @@
 
     return () => {
       if (interval) clearInterval(interval);
+      clearInterval(clock);
       applyPollInterval = null;
       clearTimeout(idleTimer);
       document.removeEventListener('click', resetIdleTimer);
@@ -1215,6 +1511,19 @@
           </div>
         </div>
       </div>
+      <!--
+        One sidebar, two groups (§50.3). "Execuções" is the panel's list of runs
+        of the workflow; "Sessões" is the worktree list the port brought. The
+        two words are not synonyms and never become one (§50.4, ADR-20).
+      -->
+      <ExecutionSidebarList
+        sessions={filteredSessions}
+        selected={selectedExecutionId}
+        onselect={selectExecution}
+      />
+      {#if worktreesAvailable}
+        <p class="px-3 pt-2 text-[10px] uppercase tracking-[0.06em] text-muted">Sessões</p>
+      {/if}
       <WorktreeList
         rows={visibleWorktreeRows}
         selected={selectedBranch}
@@ -1326,7 +1635,64 @@
       archiving={isSelectedArchiving}
     />
 
-    {#if showWebChat}
+    {#if showExecutions}
+      <!--
+        The execution surface. It is what the main area shows unless a worktree
+        is selected — and on a monitor a pipeline run bound inline, which serves
+        executions and nothing else, it is all there ever is (ADR-03).
+      -->
+      <div class="flex-1 min-w-0 overflow-y-auto">
+        {#if executionView.mode === 'dashboard'}
+          <div class="if-surface">
+            <ExecutionsDashboard
+              sessions={filteredSessions}
+              {projects}
+              {selectedProjectId}
+              {refreshSeconds}
+              {now}
+              onselect={selectExecution}
+              onprojectchange={selectProject}
+              onrefreshchange={setRefreshSeconds}
+            />
+          </div>
+        {:else if snapshot !== null}
+          <ExecutionPanel
+            {snapshot}
+            {now}
+            events={executionEvents}
+            diagnostics={executionDiagnostics}
+            config={effectiveConfig}
+            {monitorVersion}
+            canEditPreferences={preferencesWritable}
+            {refreshSeconds}
+            {activeTab}
+            {logFilter}
+            {historyFilter}
+            {drawer}
+            canDiff={canCall('fetchWorktreeDiff') && selectedWorktree !== undefined}
+            onrefreshchange={setRefreshSeconds}
+            ontabchange={(id) => (activeTab = id)}
+            onlogfilterchange={(filter) => (logFilter = filter)}
+            onhistoryfilterchange={(filter) => (historyFilter = filter)}
+            onopendrawer={(selection) => (drawer = selection)}
+            onclosedrawer={closeDrawer}
+            onopensettings={() => (showSettingsDialog = true)}
+            onopendiff={openDiffDialog}
+            onback={sessions.length > 1 || projects.length > 1
+              ? () => selectExecution(null)
+              : null}
+          />
+        {:else}
+          <div class="if-surface">
+            <p class="if-empty">
+              Nenhuma execução ativa.{worktreesAvailable
+                ? ''
+                : ' Worktrees, sessões e terminal aparecem quando o servidor os anuncia.'}
+            </p>
+          </div>
+        {/if}
+      </div>
+    {:else if showWebChat}
       {#key selectedBranch}
         <MobileChatSurface
           worktree={selectedWorktree as WorktreeInfo}

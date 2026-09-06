@@ -32,6 +32,18 @@ vi.mock('./api', () => ({
   updateAgent: vi.fn(),
   deleteAgent: vi.fn(),
   validateAgent: vi.fn(),
+  // §50.3 merged the panel's two preference forms into this dialog, so the
+  // dialog now reaches the execution-configuration half of the API too.
+  fetchEffectiveConfig: vi.fn(async () => ({
+    effective: null,
+    capturedForSession: null,
+    routing: null,
+    catalog: [],
+    writable: true,
+    writeScope: 'global preferences for future executions',
+  })),
+  saveAgentPreference: vi.fn(async () => ({ ok: true })),
+  saveRoutingPreference: vi.fn(async () => ({ ok: true })),
 }));
 
 import {

@@ -3,6 +3,7 @@
   import BaseDialog from './BaseDialog.svelte';
   import Btn from './Btn.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import PreferenceForms from './PreferenceForms.svelte';
   import Toggle from './Toggle.svelte';
   import {
     CAPABILITY,
@@ -32,6 +33,12 @@
    *   enforces: a control that mutates configuration appears only when
    *   `/api/health.capabilities` announces it, never inferred from a version,
    *   and the writes themselves are refused off loopback (ADR-10).
+   *
+   * §50.3 merges the panel's "Configuração efetiva" into this dialog: the two
+   * preference forms live here (`PreferenceForms`), so the product has one
+   * settings surface rather than two. What stays in the "Contexto" block is the
+   * *reading* of the effective configuration, which describes the execution on
+   * screen rather than a preference anybody can change.
    */
 
   interface AgentEditorState {
@@ -268,6 +275,8 @@
         />
       </div>
     </div>
+
+    <PreferenceForms />
 
     <div class="mb-5">
       <span class="block text-xs text-muted mb-2">Agentes</span>
