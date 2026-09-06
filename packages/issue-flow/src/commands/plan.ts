@@ -85,9 +85,8 @@ export async function runPlan(
   const policy = await loadRepositoryPolicy();
   const change = resolveChangeType({
     labels: resolution.resolved.issue.labels,
-    title: resolution.resolved.issue.title,
-    titleConvention: policy.issues.titleConvention,
     typeMap: policy.git.typeMap,
+    allowedTypes: policy.git.allowedTypes,
   });
   const numericIssue = /^\d+$/.test(issueNumber) ? Number(issueNumber) : null;
   const computedBranch = branchName({

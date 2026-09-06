@@ -275,3 +275,39 @@ resolution applies. Dual/remote delivery keeps remote discovery. Direct provider
 APIs retain their legacy allocation behavior unless `localOnly` is requested.
 
 Issue closure is an explicit execution choice; see [command contract](commands.md#explicit-issue-closure).
+
+## Pull Requests, CI and review comments
+
+Issues are one side of GitHub; Pull Requests are the other. Everything the CLI
+**reads** from GitHub about a Pull Request lives in one place —
+`src/issues/github/` — and nothing else in the tree shells out to `gh pr list`,
+`gh pr view` or `gh run view`. Pull Request **creation** is not part of it: that
+belongs to the `pr` phase, which builds the deterministic `Closes` / `Refs` body
+([command contract](commands.md)).
+
+What it reads:
+
+| Question | Answer |
+|---|---|
+| Which Pull Requests target this branch? | `number`, `url`, `title` — what the session snapshot reports |
+| Is a Pull Request open, closed, merged, draft? | Refreshed per Pull Request, `isDraft` included |
+| Did CI pass? | The `statusCheckRollup`, collapsed to one verdict per check |
+| Why did it fail? | The failed steps of the GitHub Actions run |
+| What did reviewers say inline? | Review comments, anchored to file and line |
+| And in the sibling repositories? | The same, for every repository under [`github.linkedRepos`](configuration.md#github) |
+
+Three rules make repeated reading affordable and honest:
+
+- **A failed query is never an empty answer.** A list that could not be fetched
+  is reported as a failure, not as "no Pull Request" — the difference between a
+  view that is temporarily incomplete and a conclusion that is wrong.
+- **Conditional requests.** Review comments are re-read with `If-None-Match`; a
+  `304 Not Modified` costs no GitHub rate limit. A Pull Request whose
+  `updatedAt` has not moved is not re-read at all.
+- **Nothing is polled while nobody is watching.** The periodic refresh is
+  activity-gated: with the view closed it makes no `gh` call. A maintenance
+  sweep that has to run regardless simply does not pass the gate.
+
+A cancelled CI run is treated as *superseded*, not as a failure, and a re-run
+wins over the run it replaced — otherwise a Pull Request whose workflow was
+re-triggered would report as permanently failed.
