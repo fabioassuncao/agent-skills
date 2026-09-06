@@ -336,6 +336,7 @@ migration 11 (`worktrees`) e os repositórios em `src/storage/db/repository.ts`.
 | `runtime.env` continua arquivo, gravado com `writeFileAtomic` | `bash` e os hooks de lifecycle leem esse arquivo e nenhum dos dois consulta banco. `Bun.write` do upstream não é atômico (§45.3) |
 | `<gitDir>/webmux/` → `<gitDir>/issue-flow/` | Invariante 17; e é o mesmo diretório onde os hooks da Fase 2 já vivem |
 | `LifecycleService` (classe, 1.523 LOC) → `createWorktreeManager()` + `WorktreeLifecycleHooks` | tmux, containers, portas e profiles pertencem às fases 6, 10 e 12. Portá-los aqui pela metade produziria uma segunda implementação mais fraca de cada um |
+| `postCreate`/`preRemove` ficam em `worktree/lifecycle.ts`, **não** em `src/runtime/hooks.ts` como §36 e §45.1 (linha 28) previam | Um hook de lifecycle de worktree só existe em relação ao worktree que o dispara, e é `createWorktreeManager()` quem o chama (`lifecycle.ts:375` e `:411`). Um módulo à parte teria o tipo de um lado e a única invocação do outro. A árvore de §36 é indicativa; quem procurar `runtime/hooks.ts` acha a responsabilidade aqui |
 | `list()` junta git com o banco e marca `orphaned` | ADR-08. O upstream reconstrói a projeção e remove o que não viu; aqui a divergência é **reportada**, nunca reparada |
 | Raiz do repositório reconhecida pelo path que o **git** reporta | No macOS os diretórios temporário e home são symlinks: o git responde `/private/var/…` onde o chamador passou `/var/…`, e comparar as strings faz o próprio repositório aparecer como mais um worktree gerenciado |
 | `saveWorktree()` faz upsert da linha de `projects` | É chave estrangeira, e um worktree pode ser a primeira coisa que um projeto registra. Mesmo padrão de `saveSessionEvent` |
@@ -2104,6 +2105,7 @@ comandos de pane são do upstream; a forma é o contrato `Runtime` da Fase 3).
 | `ensureSessionWorktree` passou a responder com o caminho que o **git** reporta | Achado pelo teste de integração do sandbox: no macOS `/var` é symlink de `/private/var`, o container era montado numa grafia e o pane fazia `cd` na outra — e o docker responde a isso criando um diretório vazio em vez de falhar. Todo consumidor posterior resolve o worktree por `list()`, então essa é a grafia canônica |
 | `WorktreeManager.remove` ganhou `keepBranch` | `dispose({ removeWorktree, keepBranch })` faz parte do contrato de `§26`. Depois que o diretório some, o branch é a única coisa que ainda segura o trabalho |
 | `SANDBOX_PATH_ENTRIES` tem 2 entradas, não as 4 do upstream | Ver "não portado" |
+| `requireDockerProfile` repassa `profile.security` ao container | Enquanto `RuntimeProfile` não tinha o campo, o adaptador projetava só `image`/`envPassthrough`/`mounts`. A costura foi fechada uma camada abaixo (`profiles.ts` ganhou `ProfileSecurity` e `parseProfileSecurity`) e o adaptador tinha de parar de descartar o campo: como **todo** default de hardening é o seguro, um `security` perdido não parece defeito nenhum — só faz `sshAgent`, `network` e `capAdd`, documentados como configuráveis em `docs/sandbox-security.md`, nunca chegarem ao `docker run`. `ProfileSecurity` é estruturalmente atribuível a `SandboxSecurityConfig` de propósito, para `profiles.ts` não importar valor de `sandbox/` e arrastar o gateway docker (e o `execa` atrás dele) para todo boot de CLI |
 | `vitest.integration.config.ts` passou a `fileParallelism: false` | Os orçamentos de `§35` são medianas de wall clock. Em paralelo eles mediam os vizinhos: o mesmo `ensureSessionLayout` mediu 89 ms sozinho e 473 ms ao lado de uma suíte subindo containers. E não é mais lento — 28 s serial contra 38 s paralelo na mesma máquina |
 
 **Comportamento deliberadamente NÃO portado**
@@ -2111,7 +2113,6 @@ comandos de pane são do upstream; a forma é o contrato `Runtime` da Fase 3).
 | O quê | Por quê |
 |---|---|
 | `/root/.bun/bin` e `/root/.cargo/bin` no `PATH` do sandbox | Bun não é adotado (ADR-01) e nada em `sandbox/Dockerfile.sandbox` instala binário de cargo — verificável no Dockerfile. Uma entrada de `PATH` para um diretório que a imagem nunca cria é ruído em todo shell dentro do container |
-
 | `oneshot.systemPrompt` concatenado ao systemPrompt do profile (`buildSessionLayout:1180`) | É a convergência do one-shot, que é a Fase 15 e já tem ficha própria. O adaptador só repassa o `systemPrompt` já resolvido |
 | `creationPrompt` × `followUpPrompt` como dois campos separados (defesa do PR #116 do upstream) | `openAgentSession` já resolve o mesmo problema por outro caminho e com teste: no `reattach` o argv não é reexecutado, então o prompt é entregue por paste; no `fresh`/`resume` ele viaja no argv. Dois campos aqui seriam uma segunda defesa para um bug que a decisão de `layout.mode` já não permite |
 | Custom agents por template no pane (`buildCustomAgentInvocation`) | `agents/custom.ts` já existe (Fase 7) e `buildTtyAgentArgv` recusa provider sem forma TTY com mensagem explícita. Ligar os dois é trabalho da camada de agentes, não do runtime |
@@ -2122,13 +2123,13 @@ comandos de pane são do upstream; a forma é o contrato `Runtime` da Fase 3).
 | Teste | Origem | Casos | Estado |
 |---|---|---|---|
 | `src/runtime/interactive.test.ts` | novo (critério da fase) | 18 | ✅ |
-| `src/runtime/sandbox.test.ts` | novo (critério da fase) | 9 | ✅ |
+| `src/runtime/sandbox.test.ts` | novo (critério da fase), incluindo a metade superior da costura de `security`: `profiles.security.test.ts` vai do valor cru ao argumento do `docker run`; este vai do valor cru **pelo runtime** — perfil narrado, container pedido — até o mesmo argumento | 10 | ✅ |
 | `src/runtime/event-queue.test.ts` | novo — as duas ordens que a fila existe para acertar | 3 | ✅ |
 | `src/agents/tty.test.ts` (bloco novo) | `__tests__/agent-service.test.ts` — "builds docker commands that exec inside the container", inclusive a afirmação **negativa** | 5 | ✅ |
 | `src/runtime/interactive.integration.test.ts` | novo — git e tmux reais | 5 | ✅ |
 | `src/runtime/sandbox.integration.test.ts` | novo — daemon real | 2 | ✅ |
 | `src/runtime/headless.test.ts` | atualizado, não removido: o `throw` de `createRuntime` virou "os dois modos existem e nenhum responde com o runtime headless" | 11 | ✅ |
-| Suíte inteira | gate "100% verde, sem teste removido nem em skip" | 3.421 unitários + 115 de integração | ✅ |
+| Suíte inteira | gate "100% verde, sem teste removido nem em skip" | 3.422 unitários + 115 de integração | ✅ |
 
 **Risco inverso (`§45.3`) — conferido**
 
