@@ -64,6 +64,8 @@ const CONTRACT_FIELDS = [
   'git.typeMap',
   'git.allowedTypes',
   'git.scopes',
+  'git.commitTemplate',
+  'git.declared',
   'docs',
   'codeowners',
   'schemaVersion',
@@ -220,8 +222,23 @@ describe('both paths decide from the same resolved policy', () => {
   });
 });
 
+/**
+ * Every git subcommand that can reach the network. Local-only discovery reads
+ * the repository — `git config`, `git log`, `git for-each-ref` — but must never
+ * touch a remote, and must never invoke `gh` at all.
+ */
+const REMOTE_GIT_SUBCOMMANDS = ['fetch', 'pull', 'push', 'ls-remote', 'clone', 'remote'];
+
 it('local-only policy discovery does not call gh or remote git commands', async () => {
   const exec = vi.fn<PolicyExec>(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
   await loadRepositoryPolicy({ root, exec, remote: false, cache: false, warn });
-  expect(exec.mock.calls).toEqual([]);
+
+  for (const [command, args] of exec.mock.calls) {
+    expect(command, 'gh is a remote round-trip').not.toBe('gh');
+    expect(command).toBe('git');
+    expect(REMOTE_GIT_SUBCOMMANDS).not.toContain(args[0]);
+    expect(args.join(' '), 'refs/remotes is what origin/HEAD discovery reads').not.toContain(
+      'refs/remotes',
+    );
+  }
 });

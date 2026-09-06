@@ -1,11 +1,11 @@
 import {
-  type ChangeType,
+  type ChangeTypeLike,
   type IssueRefInput,
   isForbiddenProviderToken,
   type PrTitleInput,
 } from './types.js';
 
-const IMPACT: readonly ChangeType[] = ['feat', 'fix'];
+const IMPACT: readonly ChangeTypeLike[] = ['feat', 'fix'];
 
 function sanitizeScope(scope: string | null | undefined): string | undefined {
   if (scope === undefined || scope === null) return undefined;
@@ -14,7 +14,7 @@ function sanitizeScope(scope: string | null | undefined): string | undefined {
   return trimmed;
 }
 
-function highestImpact(types: readonly ChangeType[]): ChangeType {
+function highestImpact(types: readonly ChangeTypeLike[]): ChangeTypeLike {
   for (const type of IMPACT) {
     if (types.includes(type)) return type;
   }
@@ -28,8 +28,13 @@ function scopesAgree(scopes: readonly (string | null | undefined)[]): string | u
   return unique.length === 1 ? unique[0] : undefined;
 }
 
-/** `<type>(<scope>): <subject>` — what makes a GitHub squash-merge a Conventional Commit. */
+/**
+ * `<type>(<scope>): <subject>` — what makes a GitHub squash-merge a Conventional
+ * Commit. `format: 'free'` returns the subject untouched, for a repository that
+ * declared a title convention of its own.
+ */
 export function pullRequestTitle(input: PrTitleInput): string {
+  if (input.format === 'free') return input.subject;
   const type =
     input.types !== undefined && input.types.length > 0 ? highestImpact(input.types) : input.type;
   const scope =

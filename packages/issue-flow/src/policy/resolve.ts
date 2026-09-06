@@ -94,6 +94,8 @@ function emptyPolicy(
       typeMap: null,
       allowedTypes: null,
       scopes: null,
+      commitTemplate: null,
+      declared: false,
     },
     docs: [],
     codeowners: null,
@@ -170,7 +172,7 @@ async function resolvePolicy(
       toggles.codeowners
         ? discoverCodeowners(root)
         : Promise.resolve({ content: null, sources: [disabledSource('codeowners')] }),
-      discoverGitConventions(root),
+      discoverGitConventions(root, options.exec),
     ],
   );
 
@@ -249,6 +251,12 @@ async function resolvePolicy(
   if (gitConventions.scopes !== null) {
     discoveredGit.scopes = gitConventions.scopes;
   }
+  if (gitConventions.branchConvention !== null) {
+    discoveredGit.branchConvention = gitConventions.branchConvention;
+  }
+  if (gitConventions.commitTemplate !== null) {
+    discoveredGit.commitTemplate = gitConventions.commitTemplate;
+  }
 
   const git = mergeConfigLayers<PolicyGit>({
     defaults: {
@@ -259,6 +267,8 @@ async function resolvePolicy(
       typeMap: null,
       allowedTypes: null,
       scopes: null,
+      commitTemplate: null,
+      declared: false,
     },
     discovered: discoveredGit,
     project: config.git,
@@ -301,6 +311,10 @@ async function resolvePolicy(
       typeMap: git.typeMap ?? null,
       allowedTypes: git.allowedTypes ?? gitConventions.allowedTypes,
       scopes: git.scopes ?? gitConventions.scopes,
+      commitTemplate: git.commitTemplate ?? gitConventions.commitTemplate,
+      // A key written in `.issue-flow.json` is the most explicit declaration
+      // there is, so it counts alongside the files the repository ships.
+      declared: gitConventions.declared || Object.keys(config.git).length > 0,
     },
     docs: documents.documents,
     codeowners: codeowners.content,

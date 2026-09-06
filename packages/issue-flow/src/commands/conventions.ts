@@ -2,9 +2,10 @@ import {
   branchName,
   commitMessage,
   DEFAULT_BRANCH_CONVENTION,
-  isChangeType,
+  isAllowedType,
   pullRequestTitle,
   resolveChangeType,
+  resolveGitConvention,
 } from '../conventions/git/index.js';
 import { resolveIssue } from '../issues/resolver.js';
 import { loadRepositoryPolicy } from '../policy/index.js';
@@ -21,7 +22,6 @@ export interface ConventionsCommitOptions {
   scope?: string;
   subject: string;
   issue?: string;
-  story?: string;
   breaking?: string;
   json?: boolean;
 }
@@ -39,8 +39,8 @@ async function resolveIssueInput(
   number: number | null;
   title: string;
   labels: string[];
-  titleConvention: string | null;
   typeMap: Record<string, string> | null;
+  allowedTypes: string[] | null;
   convention: string;
 } | null> {
   const policy = await loadRepositoryPolicy();
@@ -50,8 +50,8 @@ async function resolveIssueInput(
       number: null,
       title: titleFlag,
       labels: [],
-      titleConvention: policy.issues.titleConvention,
       typeMap: policy.git.typeMap,
+      allowedTypes: policy.git.allowedTypes,
       convention: policy.git.branchConvention ?? DEFAULT_BRANCH_CONVENTION,
     };
   }
@@ -63,8 +63,8 @@ async function resolveIssueInput(
       number: resolved.issue.number ?? (/^\d+$/.test(id) ? Number(id) : null),
       title: titleFlag === undefined || titleFlag === '' ? resolved.issue.title : titleFlag,
       labels: resolved.issue.labels,
-      titleConvention: policy.issues.titleConvention,
       typeMap: policy.git.typeMap,
+      allowedTypes: policy.git.allowedTypes,
       convention: policy.git.branchConvention ?? DEFAULT_BRANCH_CONVENTION,
     };
   } catch {
@@ -73,8 +73,8 @@ async function resolveIssueInput(
       number: /^\d+$/.test(id) ? Number(id) : null,
       title: titleFlag,
       labels: [],
-      titleConvention: policy.issues.titleConvention,
       typeMap: policy.git.typeMap,
+      allowedTypes: policy.git.allowedTypes,
       convention: policy.git.branchConvention ?? DEFAULT_BRANCH_CONVENTION,
     };
   }
@@ -88,9 +88,8 @@ export async function runConventionsBranch(options: ConventionsBranchOptions): P
   }
   const change = resolveChangeType({
     labels: input.labels,
-    title: input.title,
-    titleConvention: input.titleConvention,
     typeMap: input.typeMap,
+    allowedTypes: input.allowedTypes,
   });
   const name = branchName({
     type: change.type,
@@ -109,7 +108,9 @@ export async function runConventionsBranch(options: ConventionsBranchOptions): P
 }
 
 export async function runConventionsCommit(options: ConventionsCommitOptions): Promise<number> {
-  if (!isChangeType(options.type)) {
+  const policy = await loadRepositoryPolicy();
+  const convention = resolveGitConvention({ ...policy.git });
+  if (!isAllowedType(options.type, convention.commit.types)) {
     printError(`Unknown type "${options.type}".`);
     return 1;
   }
@@ -118,11 +119,11 @@ export async function runConventionsCommit(options: ConventionsCommitOptions): P
       ? Number(options.issue.replace(/^#/, ''))
       : undefined;
   const message = commitMessage({
+    format: convention.commit.format,
     type: options.type,
     scope: options.scope,
     subject: options.subject,
     issueNumber,
-    storyId: options.story,
     breaking: options.breaking,
   });
   if (options.json === true) {
@@ -141,9 +142,8 @@ export async function runConventionsPrTitle(options: ConventionsPrTitleOptions):
   }
   const change = resolveChangeType({
     labels: input.labels,
-    title: input.title,
-    titleConvention: input.titleConvention,
     typeMap: input.typeMap,
+    allowedTypes: input.allowedTypes,
   });
   const title = pullRequestTitle({
     type: change.type,

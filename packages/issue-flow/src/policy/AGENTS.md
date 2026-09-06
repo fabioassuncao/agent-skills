@@ -155,10 +155,30 @@ reaching it, silently.
 a `git rev-parse`. Pass `projectRoot` wherever one is already in hand — `engine.ts`
 does, from `resolvePaths()`.
 
-Git conventions (`commitlint`, release-please, semantic-release, Changesets,
-`action-semantic-pull-request`, husky) are discovered as text. A `.js`/`.ts`
-commitlint file is never `import()`ed. The canonical implementation lives in
-`src/conventions/git/` — this layer only *finds* what the repository declared.
+## Declared versus inferred
+
+Git conventions carry a third status beyond `found`, and the distinction is what
+makes it safe for `src/conventions/git/` to stop imposing a default.
+
+`declared` is a rule the repository wrote down: `commitlint` (config file or
+`package.json`), release-please, semantic-release, Changesets,
+`action-semantic-pull-request`, a CI job running `commitlint`, `.husky/commit-msg`,
+and the repository's `commit.template` (`.gitmessage`, or wherever
+`git config commit.template` points). A declaration turns the fallback off.
+
+`inferred` is a pattern read out of history — recent commit subjects, existing
+branch names. It is reported and changes nothing: guessing a convention from a
+handful of commits is not a mandate, and pinning `allowedTypes` from it would
+reject a legitimate type on the next commit. That is why history inference never
+sets `allowedTypes`, only `commitConvention` / `branchConvention`.
+
+`PolicyGit.declared` collapses the answer for consumers, and
+`resolveGitConvention()` is the only place that acts on it. History is consulted
+last and can never overrule a file.
+
+All of these are read as text. A `.js`/`.ts` commitlint file is never
+`import()`ed. The canonical implementation lives in `src/conventions/git/` —
+this layer only *finds* what the repository declared.
 
 `issue-flow policy --json` is an optional bridge for Agent Skills. They also
 support direct repository discovery, and their pure helpers are bundled from

@@ -9,6 +9,16 @@ import { readFileSync } from "node:fs";
 // packages/issue-flow/src/conventions/git/types.ts
 var DEFAULT_BRANCH_CONVENTION = "{type}/{N}-{slug}";
 
+// packages/issue-flow/src/conventions/git/auto-name.ts
+var AUTO_NAME_MAX_LENGTH = 40;
+var DEFAULT_AUTO_NAME_SYSTEM_PROMPT = [
+  "Generate a concise git branch name from the task description.",
+  "Return only the branch name.",
+  "Use lowercase kebab-case.",
+  `Maximum ${AUTO_NAME_MAX_LENGTH} characters.`,
+  "Do not include quotes, code fences, or prefixes like feature/ or fix/."
+].join(" ");
+
 // packages/issue-flow/src/conventions/defaults.ts
 var DEFAULT_ISSUE_TYPES = [
   {

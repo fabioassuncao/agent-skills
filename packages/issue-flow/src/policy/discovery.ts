@@ -1,12 +1,15 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { run } from '../utils/shell.js';
 import { classifyDocument, extractReferencedDocuments } from './parsers/docs.js';
 import {
   COMMITLINT_FILE_NAMES,
   type DiscoveredGitConventions,
+  parseBranchHistory,
   parseChangesetConfig,
+  parseCommitHistory,
   parseCommitlintText,
+  parseCommitTemplate,
   parseHuskyCommitMsg,
   parsePackageJsonCommitlint,
   parseReleasePlease,
@@ -429,30 +432,46 @@ export async function discoverDocuments(
 export interface GitConventionDiscovery {
   commitConvention: string | null;
   pullRequestTitleConvention: string | null;
+  branchConvention: string | null;
+  commitTemplate: string | null;
   allowedTypes: string[] | null;
   scopes: string[] | null;
+  /** True when at least one source was `declared` rather than `inferred` (§11). */
+  declared: boolean;
   sources: PolicySource[];
 }
 
 function asPolicySources(discovered: DiscoveredGitConventions): PolicySource[] {
   return discovered.sources.map((entry) => ({
     kind: 'git-conventions' as const,
-    origin: 'filesystem' as const,
+    origin: entry.confidence === 'inferred' ? ('git' as const) : ('filesystem' as const),
     path: entry.path,
-    status: 'found' as const,
+    status: entry.confidence,
     detail: entry.detail,
   }));
 }
 
 /**
- * Discover commit/PR conventions the repository already declares.
+ * Discover the commit, Pull Request and branch conventions of the repository.
+ *
+ * Two tiers, and the boundary between them is what makes it safe to stop
+ * imposing a default. Files the repository ships — commitlint, release-please,
+ * semantic-release, changesets, a husky hook, a CI job, `commit.template` — are
+ * `declared`, and a declaration turns the Issue Flow fallback off. History —
+ * recent commit subjects, existing branch names — is `inferred`, and only ever
+ * informs the report.
  *
  * Declarative files are parsed; `.js`/`.ts` configs are read as text only.
  */
-export async function discoverGitConventions(root: string): Promise<GitConventionDiscovery> {
+export async function discoverGitConventions(
+  root: string,
+  exec: PolicyExec = defaultExec,
+): Promise<GitConventionDiscovery> {
   let merged: DiscoveredGitConventions = {
     commitConvention: null,
     pullRequestTitleConvention: null,
+    branchConvention: null,
+    commitTemplate: null,
     allowedTypes: null,
     scopes: null,
     sources: [],
@@ -464,6 +483,8 @@ export async function discoverGitConventions(root: string): Promise<GitConventio
       commitConvention: merged.commitConvention ?? extra.commitConvention,
       pullRequestTitleConvention:
         merged.pullRequestTitleConvention ?? extra.pullRequestTitleConvention,
+      branchConvention: merged.branchConvention ?? extra.branchConvention,
+      commitTemplate: merged.commitTemplate ?? extra.commitTemplate,
       allowedTypes: merged.allowedTypes ?? extra.allowedTypes,
       scopes: merged.scopes ?? extra.scopes,
       sources: [...merged.sources, ...extra.sources],
@@ -521,13 +542,102 @@ export async function discoverGitConventions(root: string): Promise<GitConventio
     take(parseSemanticPullRequestWorkflow(file.content, `.github/workflows/${name}`));
   }
 
+  const template = await readCommitTemplate(root, exec);
+  if (template !== null) {
+    take(parseCommitTemplate(template.content, template.path));
+  }
+
+  // History is consulted last and never overrules a file: `take()` keeps the
+  // first answer, and every declaration was already offered above.
+  take(parseCommitHistory(await readRecentSubjects(root, exec), 'git log'));
+  take(parseBranchHistory(await readLocalBranches(root, exec), 'git for-each-ref refs/heads'));
+
   return {
     commitConvention: merged.commitConvention,
     pullRequestTitleConvention: merged.pullRequestTitleConvention,
+    branchConvention: merged.branchConvention,
+    commitTemplate: merged.commitTemplate,
     allowedTypes: merged.allowedTypes,
     scopes: merged.scopes,
+    declared: merged.sources.some((entry) => entry.confidence === 'declared'),
     sources: asPolicySources(merged),
   };
+}
+
+/** How many commits the history inference looks at. Enough to be stable, cheap to read. */
+const COMMIT_HISTORY_SAMPLE = 30;
+
+/** How many branches the branch inference looks at. */
+const BRANCH_HISTORY_SAMPLE = 30;
+
+/**
+ * The repository's `commit.template`.
+ *
+ * `git config` is asked first because that is where the setting actually lives;
+ * `.gitmessage` at the root is the convention almost everyone uses to ship it,
+ * and is read directly so the discovery still works without a git binary.
+ */
+async function readCommitTemplate(
+  root: string,
+  exec: PolicyExec,
+): Promise<{ content: string; path: string } | null> {
+  try {
+    const configured = await exec('git', ['config', '--get', 'commit.template'], {
+      cwd: root,
+      timeout: DISCOVERY_TIMEOUT_MS,
+    });
+    const declared = configured.exitCode === 0 ? configured.stdout.trim() : '';
+    if (declared !== '') {
+      const file = await readCapped(isAbsolute(declared) ? declared : join(root, declared));
+      if (file !== null) return { content: file.content, path: declared };
+    }
+  } catch {
+    // No git, or a repository git refuses to answer for: fall through to the file.
+  }
+
+  for (const name of ['.gitmessage', '.gitmessage.txt']) {
+    const found = await findFile(root, [name]);
+    if (found === null) continue;
+    const file = await readCapped(join(root, found));
+    if (file !== null) return { content: file.content, path: found };
+  }
+  return null;
+}
+
+/** Recent commit subjects, or [] when git cannot answer. */
+async function readRecentSubjects(root: string, exec: PolicyExec): Promise<string[]> {
+  try {
+    const result = await exec(
+      'git',
+      ['log', `-n${COMMIT_HISTORY_SAMPLE}`, '--no-merges', '--format=%s'],
+      { cwd: root, timeout: DISCOVERY_TIMEOUT_MS },
+    );
+    if (result.exitCode !== 0) return [];
+    return result.stdout.split('\n');
+  } catch {
+    return [];
+  }
+}
+
+/** Local branch names, or [] when git cannot answer. */
+async function readLocalBranches(root: string, exec: PolicyExec): Promise<string[]> {
+  try {
+    const result = await exec(
+      'git',
+      [
+        'for-each-ref',
+        `--count=${BRANCH_HISTORY_SAMPLE}`,
+        '--sort=-committerdate',
+        '--format=%(refname:short)',
+        'refs/heads',
+      ],
+      { cwd: root, timeout: DISCOVERY_TIMEOUT_MS },
+    );
+    if (result.exitCode !== 0) return [];
+    return result.stdout.split('\n');
+  } catch {
+    return [];
+  }
 }
 
 export interface BaseBranchDiscovery {

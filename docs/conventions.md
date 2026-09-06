@@ -71,7 +71,8 @@ original the moment either side is edited.
 | Agent instructions | `AGENTS.md` and `CLAUDE.md`, from the root down to the scope |
 | Governance | `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CODEOWNERS` |
 | Referenced documents | the markdown links of `AGENTS.md` and `CLAUDE.md`, followed one level |
-| Git conventions | `commitlint`, `release-please`, `semantic-release`, Changesets, `action-semantic-pull-request`, `.husky/commit-msg` — see [`docs/git-conventions.md`](git-conventions.md) |
+| Git conventions (declared) | `commitlint` (config or `package.json`), `release-please`, `semantic-release`, Changesets, `action-semantic-pull-request`, `commitlint` in CI, `.husky/commit-msg`, `commit.template` / `.gitmessage` |
+| Git conventions (inferred) | recent commit subjects and existing branch names — reported, never binding; see [`docs/git-conventions.md`](git-conventions.md) |
 
 Everything is best-effort. A repository declaring none of it resolves to an empty
 policy, **without an error and without a warning**, and every flow keeps the

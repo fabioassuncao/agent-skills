@@ -15,14 +15,12 @@ import type { ChangeType } from './types.js';
 
 describe('resolveChangeType', () => {
   it.each([
-    [{ issueType: 'Bug' }, 'fix', 'issue-type'],
-    [{ issueType: 'Feature' }, 'feat', 'issue-type'],
-    [{ issueType: 'Task', labels: ['docs'] }, 'docs', 'label'],
+    [{ labels: ['bug'] }, 'fix', 'label'],
+    [{ labels: ['docs'] }, 'docs', 'label'],
     [{ labels: ['refactor'] }, 'refactor', 'label'],
     [{ labels: ['tech-debt'] }, 'refactor', 'label'],
     [{ labels: ['infra'] }, 'ci', 'label'],
     [{ labels: ['enhancement', 'architecture'] }, 'feat', 'label'],
-    [{ title: '[Bug] timeout on headless' }, 'fix', 'title'],
     [{ labels: ['monitoring'], typeMap: { monitoring: 'perf' } }, 'perf', 'label'],
     [{}, 'feat', 'fallback'],
   ] as const)('%j → %s (%s)', (input, type, source) => {
@@ -31,19 +29,35 @@ describe('resolveChangeType', () => {
     expect(result.source).toBe(source);
   });
 
-  it('lets Issue Type win a conflict with labels and records the divergence', () => {
-    const result = resolveChangeType({ issueType: 'Bug', labels: ['docs'] });
-    expect(result).toEqual({
-      type: 'fix',
-      source: 'issue-type',
-      conflict: { issueType: 'fix', label: 'docs' },
+  it('lets a declared type beat the label map', () => {
+    expect(resolveChangeType({ declaredType: 'docs', labels: ['bug'] })).toEqual({
+      type: 'docs',
+      source: 'declared',
     });
   });
 
-  it('lets a declared type beat everything else', () => {
-    expect(resolveChangeType({ declaredType: 'docs', issueType: 'Bug', labels: ['feat'] })).toEqual(
-      { type: 'docs', source: 'declared' },
-    );
+  it('no longer infers a type from an Issue Type name or a title prefix', () => {
+    // Both rungs were removed with the translation tables behind them: they
+    // produced a confident answer nobody could check and changed nothing
+    // observable. A repository that wants the mapping declares it in `typeMap`.
+    expect(resolveChangeType({ labels: [] })).toEqual({ type: 'feat', source: 'fallback' });
+    expect(resolveChangeType({ labels: ['type:bug'] })).toEqual({ type: 'fix', source: 'label' });
+  });
+
+  it('accepts a type outside the default vocabulary when the repository declares one', () => {
+    expect(
+      resolveChangeType({
+        labels: ['release'],
+        typeMap: { release: 'deps' },
+        allowedTypes: 'any',
+      }),
+    ).toEqual({ type: 'deps', source: 'label' });
+
+    // Without the declaration, the default vocabulary still filters the overlay.
+    expect(resolveChangeType({ labels: ['release'], typeMap: { release: 'deps' } })).toEqual({
+      type: 'feat',
+      source: 'fallback',
+    });
   });
 });
 
@@ -176,16 +190,18 @@ describe('archiveFolderName', () => {
 });
 
 describe('commitMessage', () => {
-  it('formats a story commit with Refs and the Story trailer', () => {
+  it('formats a commit with the Refs trailer and nothing else', () => {
+    // The `Story: US-NNN` trailer was removed: the link lives in the `stories`
+    // table, and duplicating it in the message made it a second truth that
+    // nobody reconciled.
     expect(
       commitMessage({
         type: 'feat',
         scope: 'core',
         subject: 'add failover probe',
         issueNumber: 63,
-        storyId: 'US-010',
       }),
-    ).toBe('feat(core): add failover probe\n\nRefs #63\nStory: US-010');
+    ).toBe('feat(core): add failover probe\n\nRefs #63');
   });
 
   it('marks a breaking change in the header and the footer', () => {

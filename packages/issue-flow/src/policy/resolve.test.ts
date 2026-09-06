@@ -213,6 +213,8 @@ describe('loadRepositoryPolicy', () => {
         typeMap: null,
         allowedTypes: null,
         scopes: null,
+        commitTemplate: null,
+        declared: true,
       });
       expect(policy.pullRequests.titleConvention).toBe('type(scope): subject');
       expect(policy.sources).toEqual(
