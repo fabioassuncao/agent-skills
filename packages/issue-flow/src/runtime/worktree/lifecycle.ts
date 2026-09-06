@@ -1,5 +1,9 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+// The single validator for what git accepts as a ref name. Keeping a second
+// opinion here is how a name passes one check and fails the other halfway
+// through creating a worktree (invariant 13).
+import { isValidBranchName } from '../../conventions/git/slug.js';
 import {
   deleteWorktree as deleteStoredWorktree,
   listWorktrees as listStoredWorktrees,
@@ -121,41 +125,6 @@ export interface ManagedWorktree {
   binding: StoredWorktree | null;
   /** `orphaned` when the database has a binding git no longer backs. */
   state: 'managed' | 'unmanaged' | 'orphaned';
-}
-
-/** Characters git refuses in a ref name, plus whitespace. */
-const INVALID_BRANCH_CHARACTERS = new Set([
-  ' ',
-  '\t',
-  '\n',
-  '\r',
-  '~',
-  '^',
-  ':',
-  '?',
-  '*',
-  '[',
-  '\\',
-]);
-
-/**
- * Branch names git accepts and this project is willing to create.
- *
- * Deliberately stricter than the shell would need: a name with `..`, a leading
- * dash or a space is refused *before* it reaches a command line rather than
- * being quoted around, so a rejected name never becomes a confusing git error
- * halfway through a creation. Ported from the upstream's `isValidBranchName`.
- */
-export function isValidBranchName(name: string): boolean {
-  if (name.length === 0 || name.length > 255) return false;
-  if (name.startsWith('-') || name.startsWith('/') || name.endsWith('/')) return false;
-  if (name.endsWith('.lock') || name.endsWith('.')) return false;
-  if (name.includes('..') || name.includes('//') || name.includes('@{')) return false;
-  for (const character of name) {
-    if (INVALID_BRANCH_CHARACTERS.has(character)) return false;
-    if (character.codePointAt(0)! < 0x20) return false;
-  }
-  return true;
 }
 
 interface BranchAvailability {

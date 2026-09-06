@@ -29,9 +29,25 @@ export function sanitizeBranchName(raw: string): string {
     .replace(/\.lock$/i, '');
 }
 
-/** A name is valid exactly when sanitizing it changes nothing. */
+/**
+ * Longest ref name this project will create.
+ *
+ * git's own limit is a filesystem path component, which is 255 bytes on every
+ * platform that matters. A name past it fails inside `git worktree add`, where
+ * the error names a path nobody recognises.
+ */
+export const BRANCH_NAME_MAX_LENGTH = 255;
+
+/**
+ * A name is valid exactly when sanitizing it changes nothing — and fits.
+ *
+ * The single validator for the whole project: `src/runtime/worktree/` asks this
+ * one rather than keeping a second opinion about what git accepts, because two
+ * validators disagreeing is how a name passes one check and fails the other
+ * halfway through creating a worktree.
+ */
 export function isValidBranchName(raw: string): boolean {
-  return raw.length > 0 && sanitizeBranchName(raw) === raw;
+  return raw.length > 0 && raw.length <= BRANCH_NAME_MAX_LENGTH && sanitizeBranchName(raw) === raw;
 }
 
 /**

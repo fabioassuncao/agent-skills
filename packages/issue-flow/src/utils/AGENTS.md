@@ -6,7 +6,11 @@ repo" rule.
 
 ## Invariants
 
-- **`run()` is the only shell path.** execa, `reject: false`, no shell.
+- **`run()` is the only shell path**, with exactly one documented exception:
+  `src/runtime/terminal/pty.ts` needs a *pseudo-terminal* and `run()` gives a
+  pipe, behind which an agent TUI does not draw. Everything around it — the tmux
+  commands of the attach included — still goes through here.
+  Original rule: execa, `reject: false`, no shell.
   Default: no retry (byte-identical to pre-retry behaviour). Opt-in
   `retry` only when a non-zero exit means failure.
 - **Destructive git is never retried**, even if the caller asked.

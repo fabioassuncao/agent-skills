@@ -73,6 +73,18 @@ does on the machine this was ported on (`posix_spawnp failed`). The `script` /
 macOS uses `python3` unconditionally rather than probing, because its `script`
 has a different, incompatible interface.
 
+## The one exception to `run()`
+
+`src/utils/AGENTS.md` says `run()` is the only shell path, and it is — for
+commands whose *output* this project reads. `pty.ts` is the exception, and it
+has to be: what it needs is a **pseudo-terminal**, and `run()` (execa with
+pipes) gives a pipe. An agent TUI behind a pipe does not draw, does not report a
+size and does not answer a keypress.
+
+So `pty.ts` spawns directly, and everything that is not the pty itself — every
+tmux command it issues around the attach — still goes through `run()` and keeps
+the allowlist and the retry policy with it.
+
 ## `scrollback.ts`: numbered bytes
 
 The ring is the upstream's (1 MB). The **offsets are not**: §15 adds them so a

@@ -45,6 +45,26 @@ written, are this project's.
   root as a string makes the repository itself show up as one more managed
   worktree.
 
+## Where the boundary with `src/utils/git.ts` runs
+
+Both files shell out to git, and §22 specifies the split. The line is the
+caller, not the command:
+
+- `src/utils/git.ts` answers questions about **the repository the pipeline is
+  running in**. It takes no cwd by default and its errors are written for
+  someone running `issue-flow` in the wrong directory.
+- `src/runtime/worktree/git.ts` answers questions about **a directory it was
+  handed**. Every function takes a cwd, and its errors name the git command.
+
+`resolveWorktreeRoot(cwd)` and `getProjectRoot()` do run the same git command.
+They are not merged because merging them would mean giving one of the two the
+other's error contract, and the message a user reads is the point of both.
+
+Branch-name validity is **not** split: `isValidBranchName` lives in
+`src/conventions/git/slug.ts` and this module asks it. Two validators
+disagreeing is how a name passes one check and fails the other halfway through
+creating a worktree.
+
 ## Deliberately not here
 
 Tmux windows, containers, port allocation and profiles enter through

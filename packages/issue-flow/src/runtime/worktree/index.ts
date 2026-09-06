@@ -19,7 +19,6 @@ export {
   type CreatedWorktree,
   type CreateWorktreeInput,
   createWorktreeManager,
-  isValidBranchName,
   type ManagedWorktree,
   WorktreeError,
   type WorktreeLifecycleHooks,

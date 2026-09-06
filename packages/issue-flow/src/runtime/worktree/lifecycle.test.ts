@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { isValidBranchName } from '../../conventions/git/slug.js';
 import type {
   CreateWorktreeOptions,
   GitCommandResult,
@@ -10,12 +11,7 @@ import type {
   RemoveWorktreeOptions,
   WorktreeStatus,
 } from './git.js';
-import {
-  createWorktreeManager,
-  isValidBranchName,
-  WorktreeError,
-  type WorktreeManagerOptions,
-} from './lifecycle.js';
+import { createWorktreeManager, WorktreeError, type WorktreeManagerOptions } from './lifecycle.js';
 
 /**
  * The behaviour of `lifecycle-service.ts` that survives the narrowing, driven
@@ -79,7 +75,10 @@ function entry(path: string, branch: string | null): GitWorktreeEntry {
   return { path, branch, head: 'abc', detached: false, bare: false };
 }
 
-describe('isValidBranchName', () => {
+// The validator lives in `src/conventions/git/slug.ts` — one opinion about what
+// git accepts, for the whole project. These cases pin down what the worktree
+// manager relies on it for.
+describe('isValidBranchName, as the worktree manager needs it', () => {
   it('accepts the names this project actually generates', () => {
     expect(isValidBranchName('feat/63-execucao-autonoma')).toBe(true);
     expect(isValidBranchName('fix/72-timeout')).toBe(true);
