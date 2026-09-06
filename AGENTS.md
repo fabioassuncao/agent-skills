@@ -116,6 +116,7 @@ the code, and was learned the hard way.
 | Plan-then-apply repository scaffold | [`packages/issue-flow/src/scaffold/AGENTS.md`](packages/issue-flow/src/scaffold/AGENTS.md) |
 | Global storage and artifact paths | [`packages/issue-flow/src/storage/AGENTS.md`](packages/issue-flow/src/storage/AGENTS.md) |
 | Shared process / git / fs primitives | [`packages/issue-flow/src/utils/AGENTS.md`](packages/issue-flow/src/utils/AGENTS.md) |
+| Runtime modes (headless / interactive / sandbox) | [`packages/issue-flow/src/runtime/AGENTS.md`](packages/issue-flow/src/runtime/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
 | Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |

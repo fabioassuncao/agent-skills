@@ -10,6 +10,7 @@ import { type ClassifiedFailure, classify, type FailureKind } from '../resilienc
 import { analyzeTask } from '../routing/analyze.js';
 import { evaluateCeilings } from '../routing/budget.js';
 import { decideRouting } from '../routing/decide.js';
+import { createRuntime } from '../runtime/index.js';
 import { bindDiagnosticContext, writeDiagnostic } from '../storage/diagnostics.js';
 import type { ProviderHealthRecord } from '../storage/schemas.js';
 import { beginExecution, endExecution } from '../telemetry/recorder.js';
@@ -366,10 +367,21 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     hooks = null;
   }
 
+  // Every invocation goes through the runtime contract, whose default mode is
+  // `headless` (ADR-03). In this mode `prepare`/`dispose` touch nothing and
+  // `launch` calls the same registered runner the pipeline always called — the
+  // seam exists so `interactive` and `sandbox` change *where* an agent runs
+  // without changing *what* runs (ADR-02).
+  const runtime = createRuntime('headless');
+  const runtimeContext = await runtime.prepare({
+    projectRoot: invocation.workingDirectory ?? process.cwd(),
+  });
+
   let run: AgentRunResult;
   const startedMs = Date.now();
   try {
-    run = await runner.run(
+    const handle = await runtime.launch(
+      runtimeContext,
       {
         ...invocation,
         onLine: (line) => {
@@ -405,6 +417,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       },
       selection.settings,
     );
+    run = await handle.result();
   } catch (err) {
     writeDiagnostic({
       level: 'error',
@@ -431,6 +444,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     // Always: the hook files live in the user's working tree, so an invocation
     // that throws may not leave them pointing at an endpoint that is gone.
     await hooks?.close();
+    await runtime.dispose(runtimeContext);
   }
   issueSpend.executions += 1;
   issueSpend.durationMs += Math.max(0, Date.now() - startedMs);

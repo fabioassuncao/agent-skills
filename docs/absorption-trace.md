@@ -246,3 +246,47 @@ testes de subprocesso na suíte de integração. Acrescentados: **28 casos**.
 Nenhum orçamento de §35 se aplica a esta fase. O custo acrescentado ao caminho quente é
 uma escrita de dois arquivos JSON pequenos e um `listen()` em porta efêmera por invocação,
 ambos fora do caminho de latência output→tela medido na Fase 1.
+
+---
+
+### Contrato de runtime — três modos (Fase 3)
+
+**WebMux original**
+Nenhum. `§45.1-C` (orquestração de invocação: timeout, watchdog, shutdown, usage) dá a
+base canônica ao **Issue Flow**, e o WebMux não tem equivalente. Esta fase não absorve
+código: ela cria a costura onde as fases 6 (tmux) e 12 (sandbox) vão encaixar os outros
+dois modos sem tocar em `AgentInvocation`/`AgentRunResult`.
+
+**Comportamento existente**
+- `invokeSelectedAgent()` chamava `runnerFor(provider).run(invocation, settings)` direto.
+- Casos especiais que NÃO podiam se perder: o `spawn` do runner **não** recebia `cwd`
+  quando a invocação não declarava `workingDirectory`; o `onEvent` do chamador continua
+  sendo chamado; failover, watchdog, telemetria e o reducer de sessão dependem das formas
+  de `AgentInvocation`/`AgentRunResult` (ADR-02).
+
+**Implementação no Issue Flow**
+`src/runtime/types.ts`, `src/runtime/headless.ts`, `src/runtime/index.ts` — estratégia:
+**novo** (contrato nativo, base canônica Issue Flow).
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `launch(ctx, inv)` de `§26` ganhou um terceiro parâmetro `settings` | O runner exige `ResolvedAgentSettings`; sem ele o contrato não é executável |
+| `Runtime.capabilities` acrescentado ao contrato de `§26` | `send`/`interrupt` são no-op em `headless`. Um `Promise<void>` silencioso não permite ao chamador saber disso antes de tentar; a capability segue o padrão que `AgentCapabilities` já usa em `src/agents/` |
+| `headless.launch()` **não** fixa `workingDirectory` no `context.workdir` | Fixá-lo colocaria um `cwd` explícito num spawn que nunca teve um — valor equivalente, comportamento diferente. Detectado por `src/core/executor.test.ts`, que é exatamente o gate de "sem mudança de comportamento" |
+| `createRuntime()` **lança** para `interactive`/`sandbox` | Um fallback silencioso para `headless` reportaria um isolamento que não foi entregue, e isolamento é a única razão para pedir outro modo |
+
+**Comportamento deliberadamente NÃO portado**
+Nenhum — não há unidade upstream nesta fase.
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/headless.test.ts` | novo (critério da Fase 3) | 10 | ✅ |
+| Suíte existente inteira | gate "100% verde, sem mudança de comportamento" | 2.476 | ✅ |
+
+**Orçamentos**
+Nenhum de §35 se aplica: o caminho quente é idêntico ao anterior — uma chamada de função a
+mais e nenhuma sintaxe de processo diferente.

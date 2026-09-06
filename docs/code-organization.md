@@ -92,6 +92,7 @@ tests must exercise these protocols rather than writing artifacts from a stub.
 | `policy/` | Discovery of conventions in the **target** repository |
 | `resilience/` | Failure taxonomy, retry, failover, watchdog |
 | `routing/` | Shadow / active model-aware selection and escalation |
+| `runtime/` | Where an agent runs: the `headless` / `interactive` / `sandbox` contract. `headless` is the default and never depends on tmux, docker or a worktree |
 | `scaffold/` | Plan-then-apply initialization that fills gaps, never overwrites |
 | `storage/` | Global tree (`~/.issue-flow`), artifact paths, legacy migration |
 | `telemetry/` | Execution history written to canonical SQLite storage and materialized into compatibility projections |
