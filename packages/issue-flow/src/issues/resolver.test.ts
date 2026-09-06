@@ -316,18 +316,18 @@ describe('resolveIssue', () => {
         expect(resolved.divergent).toBe(true);
       });
 
-      it('Enter selects the initially preferred GitHub version', async () => {
+      it('Enter selects the initially preferred local version', async () => {
         const resolved = await resolveIssue('23', {
           config: makeConfig({ conflictPolicy: 'ask', preferredProvider: 'local' }),
           sources: BOTH,
           interactive: true,
-          stdin: answer('\u001b[B\r'),
+          stdin: answer('\r'),
           stdout: sinkStream(),
           info,
           warn,
         });
 
-        expect(resolved.source).toBe('github');
+        expect(resolved.source).toBe('local');
       });
 
       it('the explicit cancel option exits with a non-zero code', async () => {
@@ -474,6 +474,28 @@ describe('resolveIssue', () => {
       expect(resolved.source).toBe('memory');
       expect(asked.join('')).toContain('Memory');
       expect(asked.join('')).toContain('Cancel');
+    });
+
+    it('can select an external provider named cancel without cancelling', async () => {
+      const sources: IssueSource[] = ['local', 'github', 'cancel'];
+      registerProvider(fakeProvider('local', { issue: makeIssue('local', 'Local', 'A') }));
+      registerProvider(fakeProvider('github', { issue: makeIssue('github', 'Remote', 'B') }));
+      registerProvider(fakeProvider('cancel', { issue: makeIssue('cancel', 'External', 'C') }));
+      const stdin = new PassThrough();
+      stdin.write('\u001b[B\r');
+
+      const resolved = await resolveIssue('23', {
+        config: makeConfig({ conflictPolicy: 'ask' }),
+        sources,
+        interactive: true,
+        stdin,
+        stdout: sinkStream(),
+        info,
+        warn,
+      });
+
+      expect(resolved.source).toBe('cancel');
+      expect(resolved.issue.title).toBe('External');
     });
 
     it('warns when the conflict policy names an origin that has no version', async () => {

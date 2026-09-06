@@ -1,140 +1,153 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Argument, Command, Option } from 'commander';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AGENT_PROVIDER_IDS } from './agents/types.js';
 import { BENCH_MODES, TASK_CLASSES } from './benchmark/corpus.js';
 import { QUEUE_FAILURE_MODES, RUNNABLE_PHASES_WITH_PR_REVIEW } from './commands/run/types.js';
-import { attachCompletion } from './completion.js';
 import { VERIFICATION_LEVELS } from './verify/types.js';
 
-let program: Command;
-let originalCwd: string;
+const packageRoot = fileURLToPath(new URL('..', import.meta.url));
+const requireAllShells = process.env.ISSUE_FLOW_REQUIRE_ALL_COMPLETION_SHELLS === '1';
+const shellParsers = {
+  zsh: { executable: 'zsh', args: ['-n'] },
+  bash: { executable: 'bash', args: ['-n'] },
+  fish: { executable: 'fish', args: ['-n'] },
+  powershell: {
+    executable: 'pwsh',
+    args: [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      '$tokens = $null; $errors = $null; ' +
+        '[System.Management.Automation.Language.Parser]::ParseInput(' +
+        '[Console]::In.ReadToEnd(), [ref]$tokens, [ref]$errors) | Out-Null; ' +
+        'if ($errors.Count -gt 0) { ' +
+        '$errors | ForEach-Object { [Console]::Error.WriteLine($_.Message) }; exit 1 }',
+    ],
+  },
+} as const;
+
+let buildDirectory: string;
+let cliPath: string;
 let sandbox: string;
+const generatedScripts = new Map<string, string>();
 
-function protocol(...args: string[]): string[] {
-  const lines: string[] = [];
-  const log = vi.spyOn(console, 'log').mockImplementation((value?: unknown) => {
-    lines.push(String(value ?? ''));
-  });
-
-  program.parse(['node', 'issue-flow', 'complete', '--', ...args]);
-  log.mockRestore();
-  return lines;
+function executableAvailable(executable: string): boolean {
+  return spawnSync(executable, ['--version'], { stdio: 'ignore' }).error === undefined;
 }
 
-function script(shell: string): string {
-  const lines: string[] = [];
-  const log = vi.spyOn(console, 'log').mockImplementation((value?: unknown) => {
-    lines.push(String(value ?? ''));
-  });
+function runCli(args: string[]): string {
+  expect(readdirSync(sandbox)).toEqual([]);
 
-  program.parse(['node', 'issue-flow', 'complete', shell]);
-  log.mockRestore();
-  return lines.join('\n');
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CI: '1',
+    HOME: join(sandbox, 'home'),
+    ISSUE_FLOW_HOME: join(sandbox, 'store'),
+    PATH: '',
+  };
+  for (const key of [
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'CODEX_API_KEY',
+    'GH_TOKEN',
+    'GITHUB_TOKEN',
+    'OPENAI_API_KEY',
+  ]) {
+    delete env[key];
+  }
+
+  const result = spawnSync(process.execPath, [cliPath, ...args], {
+    cwd: sandbox,
+    env,
+    encoding: 'utf8',
+  });
+  if (result.error !== undefined) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`CLI exited ${result.status}: ${result.stderr}`);
+  }
+
+  expect(result.stderr).toBe('');
+  expect(readdirSync(sandbox)).toEqual([]);
+  expect(existsSync(join(sandbox, 'store'))).toBe(false);
+  return result.stdout;
+}
+
+function protocol(...args: string[]): string[] {
+  return runCli(['complete', '--', ...args])
+    .trimEnd()
+    .split('\n');
+}
+
+function generatedScript(shell: string): string {
+  const cached = generatedScripts.get(shell);
+  if (cached !== undefined) return cached;
+  const script = runCli(['complete', shell]);
+  generatedScripts.set(shell, script);
+  return script;
 }
 
 beforeAll(() => {
-  originalCwd = process.cwd();
-  sandbox = mkdtempSync(join(tmpdir(), 'issue-flow-completion-'));
-  process.chdir(sandbox);
+  buildDirectory = mkdtempSync(join(packageRoot, 'node_modules/.completion-build-'));
+  sandbox = mkdtempSync(join(tmpdir(), 'issue-flow-completion-run-'));
 
-  program = new Command('issue-flow');
-  program
-    .command('run')
-    .description('Execute the full pipeline')
-    .addOption(
-      new Option('--agent <provider>', 'Run every phase on this agent').choices(AGENT_PROVIDER_IDS),
-    )
-    .addOption(
-      new Option('--from <phase>', 'Resume from a specific phase').choices(
-        RUNNABLE_PHASES_WITH_PR_REVIEW,
-      ),
-    )
-    .addOption(
-      new Option('--verify-level <level>', 'Acceptance-contract level').choices(
-        VERIFICATION_LEVELS,
-      ),
-    )
-    .addOption(
-      new Option('--on-issue-failure <mode>', 'Handle a failing queue issue').choices(
-        QUEUE_FAILURE_MODES,
-      ),
-    )
-    .addOption(new Option('--detached-child', 'Internal child marker').hideHelp());
+  const tsup = join(
+    packageRoot,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'tsup.cmd' : 'tsup',
+  );
+  const build = spawnSync(
+    tsup,
+    ['src/cli.ts', '--out-dir', buildDirectory, '--clean', '--silent'],
+    { cwd: packageRoot, encoding: 'utf8' },
+  );
+  if (build.error !== undefined) throw build.error;
+  if (build.status !== 0) throw new Error(`Test CLI build failed: ${build.stderr}`);
 
-  program
-    .command('bench')
-    .description('Measure the corpus')
-    .addOption(new Option('--mode <mode>', 'Benchmark mode').choices(BENCH_MODES))
-    .addOption(new Option('--task <class>', 'Corpus class').choices(TASK_CLASSES));
-
-  program.command('runs').description('History of project runs');
-  program.command('logs').description('Read a run execution journal');
-
-  for (const [parent, child, description] of [
-    ['db', 'export', 'Export structured SQLite state'],
-    ['web', 'serve', 'Run the web monitor server'],
-    ['routing', 'use', 'Enable an embedded routing policy'],
-  ] as const) {
-    const command =
-      program.commands.find((candidate) => candidate.name() === parent) ?? program.command(parent);
-    command.command(child).description(description);
-  }
-
-  program
-    .command('agent')
-    .description('Inspect agent configuration')
-    .command('use')
-    .addArgument(new Argument('<provider>', 'Agent provider').choices(AGENT_PROVIDER_IDS));
-  program.command('internal', { hidden: true }).description('Not user-facing');
-
-  attachCompletion(program);
+  cliPath = join(buildDirectory, 'cli.js');
+  if (!existsSync(cliPath)) throw new Error(`Test CLI build did not create ${cliPath}`);
 });
 
 afterAll(() => {
-  process.chdir(originalCwd);
+  rmSync(buildDirectory, { recursive: true, force: true });
   rmSync(sandbox, { recursive: true, force: true });
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
 describe('Commander completion integration', () => {
-  it.each([
-    'zsh',
-    'bash',
-    'fish',
-    'powershell',
-  ])('emits a %s script without changing files', (shell) => {
-    const output = script(shell);
-    expect(output).toContain('issue-flow');
-    expect(output).toContain('complete');
-    expect(readdirSync(sandbox)).toEqual([]);
+  it('launches the actual CLI tree without Git, tools, authentication, or initialized storage', () => {
+    const output = protocol('');
+
+    expect(output).toContain(
+      'run\tExecute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
+    );
+    expect(output).toContain('runs\tHistory of the runs of this project, with how each ended');
+    expect(output).toContain(
+      'logs\tRead the execution journal (events.jsonl), filtered and readable',
+    );
+    expect(output.at(-1)).toBe(':4');
   });
 
-  it('derives root and nested suggestions with descriptions from the Commander tree', () => {
-    expect(protocol('')).toEqual(
-      expect.arrayContaining([
-        'db\t',
-        'runs\tHistory of project runs',
-        'logs\tRead a run execution journal',
-        'web\t',
-        'routing\t',
-        'run\tExecute the full pipeline',
-      ]),
+  it('derives root and nested suggestions with descriptions from the registered tree', () => {
+    expect(protocol('db', '')).toContain('export\tExport structured SQLite state as readable JSON');
+    expect(protocol('web', '')).toContain(
+      'serve\tRun the web monitor server in the foreground (internal — spawned detached by --web)',
     );
-    expect(protocol('db', '')).toContain('export\tExport structured SQLite state');
-    expect(protocol('web', '')).toContain('serve\tRun the web monitor server');
     expect(protocol('routing', '')).toContain('use\tEnable an embedded routing policy');
-    expect(protocol('run', '--a')).toContain('--agent\tRun every phase on this agent');
+    expect(protocol('run', '--a')).toContain(
+      '--agent\tRun every phase on this agent (claude|codex|cursor|antigravity|opencode)',
+    );
   });
 
   it('omits hidden commands and options', () => {
-    expect(protocol('')).not.toContain('internal\tNot user-facing');
-    expect(protocol('run', '--')).not.toContain('--detached-child\tInternal child marker');
+    expect(protocol('').join('\n')).not.toContain('Generate completion suggestions');
+    expect(protocol('run', '--')).not.toContain(
+      '--detached-child\tInternal: this process owns one queue item',
+    );
   });
 
   it.each([
@@ -151,10 +164,42 @@ describe('Commander completion integration', () => {
     }
   });
 
-  it('completes positional values from Commander choices', () => {
+  it('completes positional values from the registered Commander choices', () => {
     const output = protocol('agent', 'use', '');
     for (const provider of AGENT_PROVIDER_IDS) {
       expect(output).toContain(`${provider}\t`);
     }
   });
+
+  const unavailableShells = Object.entries(shellParsers)
+    .filter(([, parser]) => !executableAvailable(parser.executable))
+    .map(([shell]) => shell);
+
+  it.runIf(requireAllShells)('has every shell parser required by the CI validation job', () => {
+    expect(unavailableShells).toEqual([]);
+  });
+
+  it.each(
+    Object.keys(shellParsers),
+  )('emits a non-empty %s script without creating files or storage', (shell) => {
+    expect(generatedScript(shell).length).toBeGreaterThan(500);
+  });
+
+  for (const [shell, parser] of Object.entries(shellParsers)) {
+    it.skipIf(!executableAvailable(parser.executable))(
+      `emits a ${shell} script accepted by the native parser`,
+      () => {
+        const script = generatedScript(shell);
+
+        const validation = spawnSync(parser.executable, parser.args, {
+          input: script,
+          encoding: 'utf8',
+        });
+        if (validation.error !== undefined) throw validation.error;
+        if (validation.status !== 0) {
+          throw new Error(`${shell} rejected its generated script: ${validation.stderr}`);
+        }
+      },
+    );
+  }
 });

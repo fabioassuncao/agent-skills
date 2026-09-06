@@ -58,11 +58,14 @@ are equal when the text is equal, regardless of line-ending formatting.
 | Both, different `contentHash` | reports the divergence (title, size, `updatedAt`, hash of each side) and applies `conflictPolicy` |
 | Neither | fails with exit code `1`, listing what each origin answered |
 
-With `conflictPolicy: "ask"` **and** an interactive terminal, the versions are
-listed and you choose: `[1] Local  [2] GitHub  [3] Cancel` (cancelling exits
-non-zero). In CI or any non-TTY environment the prompt is never shown — the
-preferred provider is used and a warning is printed, so an automated run can
-never hang. `prefer-local` and `prefer-github` never prompt.
+With `conflictPolicy: "ask"` **and** an interactive terminal, the versions and
+an explicit **Cancel** option appear in an arrow-key menu. The configured
+preferred provider is selected initially; use ↑/↓ to move and Enter to submit.
+Selecting **Cancel**, pressing Esc/Ctrl+C, or closing the input exits non-zero.
+Numeric line input such as `1`, `2`, or `3` is not supported. In CI or any
+non-TTY environment the prompt is never shown — the preferred provider is used
+and a warning is printed, so an automated run can never hang. `prefer-local`
+and `prefer-github` never prompt.
 
 ## Local issue format
 
@@ -187,11 +190,14 @@ Issue #50 is part of a larger structure:
     2. #51 Multiple issues as input (after #50)
     3. #52 Sequential multi-issue execution (after #51, high)
     4. #53 One consolidated Pull Request (after #52)
-Which scope should run? [1] Only the issues informed (1)  [2] The whole hierarchy (4)  [3] Cancel:
 ```
 
-Answering `2` (or pressing Enter) runs the whole thing; `1` trims it to what you
-typed; `3` cancels without executing anything.
+The scope appears as an arrow-key menu with **Only the issues informed**, **The
+whole hierarchy**, and **Cancel**. For a normal queue, **The whole hierarchy**
+is selected initially; for a container, the initial selection is the cascade of
+its children. Use ↑/↓ to move and Enter to submit. Selecting **Cancel** or using
+Esc/Ctrl+C exits before any phase starts. Numeric line input such as `1`, `2`,
+or `3` is not supported.
 
 **Outside a TTY** (CI, a pipe) the answer must come from a flag: `--yes` runs the
 whole hierarchy, `--cascade` runs the children of a container, `--only` runs just

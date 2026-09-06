@@ -183,6 +183,9 @@ function listSources(candidates: FoundCandidate[]): string {
   return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
 }
 
+/** Outside the open string domain accepted by IssueSource, so no provider can collide with it. */
+const CANCEL_CHOICE = Symbol('issue-flow:cancel');
+
 /**
  * Interactive choice between the divergent versions.
  *
@@ -196,19 +199,19 @@ async function promptChoice(
   stdin: Readable,
   stdout: Writable,
   signal?: AbortSignal,
-): Promise<IssueSource | 'cancel'> {
-  const result = await promptSelect<IssueSource | 'cancel'>({
+): Promise<IssueSource | typeof CANCEL_CHOICE> {
+  const result = await promptSelect<IssueSource | typeof CANCEL_CHOICE>({
     message: 'Which version should be used?',
     options: [
       ...sources.map((source) => ({ value: source, label: promptLabel(source) })),
-      { value: 'cancel', label: 'Cancel' },
+      { value: CANCEL_CHOICE, label: 'Cancel' },
     ],
     initialValue: preferred,
     stdin,
     stdout,
     signal,
   });
-  return result.status === 'cancelled' ? 'cancel' : result.value;
+  return result.status === 'cancelled' ? CANCEL_CHOICE : result.value;
 }
 
 function buildResolved(
@@ -362,7 +365,7 @@ export async function resolveIssue(
     stdout,
     opts.signal,
   );
-  if (choice === 'cancel') {
+  if (choice === CANCEL_CHOICE) {
     throw new IssueResolutionError(
       `Cancelled: Issue '${id}' diverges between ${listSources(found)}.`,
     );
