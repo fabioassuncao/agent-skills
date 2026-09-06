@@ -106,6 +106,8 @@ the code, and was learned the hard way.
 | The agent layer (Claude / Codex / Cursor / Antigravity, selection by phase) | [`packages/issue-flow/src/agents/AGENTS.md`](packages/issue-flow/src/agents/AGENTS.md) |
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
+| The session event contract, its reducers and the snapshot | [`packages/issue-flow/src/core/session/AGENTS.md`](packages/issue-flow/src/core/session/AGENTS.md) |
+| Configuration loading, one file per domain | [`packages/issue-flow/src/config/AGENTS.md`](packages/issue-flow/src/config/AGENTS.md) |
 | Default taxonomy and git naming (branch / commit / PR) | [`packages/issue-flow/src/conventions/AGENTS.md`](packages/issue-flow/src/conventions/AGENTS.md) |
 | Multi-issue queue plan, confirm and order | [`packages/issue-flow/src/execution/AGENTS.md`](packages/issue-flow/src/execution/AGENTS.md) |
 | Issue model, providers, resolver, relation graph, and GitHub Pull Request / CI reading | [`packages/issue-flow/src/issues/AGENTS.md`](packages/issue-flow/src/issues/AGENTS.md) |
