@@ -2,6 +2,7 @@ import type { AgentProviderId } from '../agents/types.js';
 import type { FailureKind } from '../resilience/errors.js';
 import type { CheckResult } from '../verify/types.js';
 import type { ModelEntry, ModelTier } from './models.js';
+import { isOpenCodeGoModel, nextOpenCodeGoModel, openCodeGoEntry } from './opencode-go.js';
 
 export type FailureClass = 'availability' | 'non-convergence' | 'environment';
 
@@ -201,4 +202,21 @@ export function nextModelTier(
     if (entry !== undefined) return entry;
   }
   return null;
+}
+
+/** OpenCode climbs the Go ladder; every other harness stays on catalog tiers. */
+export function nextEscalationModel(input: {
+  harness?: string;
+  currentModel?: string | null;
+  current: ModelTier;
+  tried: readonly ModelTier[];
+  triedModels?: readonly string[];
+  catalog: readonly ModelEntry[];
+}): ModelEntry | null {
+  if (input.harness === 'opencode-cli' || isOpenCodeGoModel(input.currentModel)) {
+    const next = nextOpenCodeGoModel(input.currentModel, input.triedModels ?? []);
+    if (next === null) return null;
+    return openCodeGoEntry(next) ?? input.catalog.find((entry) => entry.id === next) ?? null;
+  }
+  return nextModelTier(input.current, input.tried, input.catalog);
 }

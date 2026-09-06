@@ -57,7 +57,7 @@ is not a sandbox: it only approves permissions that the run's explicit
 `edit` and mutating `bash` patterns. Requested `addDirs` become
 `external_directory` allows limited to those paths. The runner never writes
 the user's `opencode.json`. Model ids are `provider/model`
-(`--agent-phase review=opencode:anthropic/claude-sonnet-4-5`). Tokens are
+(`--agent-phase review=opencode:opencode-go/qwen3.8-flash`). Tokens are
 reported only when `step_finish` includes them; USD is not. `authProbe` is
 textual: a listed provider is confirmed, an empty list is not. Listing
 credentials does not prove the configured model is usable. Minimum version:
@@ -154,7 +154,7 @@ npx issue-flow agent --json
 npx issue-flow agent use codex --model gpt-5.6 --global
 npx issue-flow agent use claude --project
 npx issue-flow agent use codex --phase execute --project
-npx issue-flow agent use opencode --model anthropic/claude-sonnet-4-5 --global
+npx issue-flow agent use opencode --model opencode-go/qwen3.8-flash --global
 ```
 
 `--json` is a published contract (`schemaVersion` in the payload).
@@ -202,7 +202,7 @@ npx issue-flow run 42 \
   --agent-phase execute=codex:gpt-5.6
 
 # OpenCode with an explicit provider/model
-npx issue-flow run 42 --agent opencode --agent-model anthropic/claude-sonnet-4-5
+npx issue-flow run 42 --agent opencode --agent-model opencode-go/qwen3.8-flash
 
 # CI: isolate user config
 ISSUE_FLOW_CODEX_IGNORE_USER_CONFIG=1 npx issue-flow run 42 --agent codex
@@ -235,6 +235,22 @@ so a large PRD cannot hit `ARG_MAX`.
 This table is executable policy in `src/routing/policy.ts`, backed by the
 versioned model catalog in `src/routing/models.ts`. Affinity per phase is a
 soft prior — never a hard pin that eliminates other installed harnesses.
+
+When the harness is OpenCode, the catalog is the [OpenCode Go](https://opencode.ai/docs/pt-br/go/)
+subscription — not Anthropic. `--agent opencode` without `--agent-model`
+fills a Go model per phase so the run does not inherit `opencode.json`'s
+Anthropic default. Intra-OpenCode choice lives in `src/routing/opencode-go.ts`:
+
+| Role | Model | Phases |
+|------|--------|--------|
+| Cheap | `opencode-go/mimo-v2.5` | `analyze`; simple `generate` / economy `plan` |
+| Default | `opencode-go/qwen3.8-flash` | `generate`, `prd`, `plan`, `execute`, first `review` |
+| Coding cheap | `opencode-go/deepseek-v4-flash` | small `execute` / `pr` (`bugfix`, `test`); review fixes |
+| Escalate | `opencode-go/gpt-5.6-luna` | high-risk `prd` / `plan` / `execute`; `pr-review` |
+| Specialist | `opencode-go/kimi-k2.7-code` | only after Qwen/Luna fail (escalation or 4th correction) |
+
+An explicit `agent.model` / `--agent-model` still wins. Kimi K3, Qwen Max and
+other high-quota Go models stay pin-only.
 When `routing.mode` is `recommend` or `active`, the router receives a readiness
 inventory from `src/agents/availability.ts` (installed vs authentication vs
 model access, with confidence and TTL) and ranks only what this machine can
@@ -301,7 +317,7 @@ are ignored by Codex; `--sandbox` is ignored by Claude.
 | Execute loop dies at 5 minutes on `agy` | `--print-timeout` omitted | Issue Flow always passes it; `timeout: 0` uses `executeTimeout` (default 4h) |
 | `opencode` not installed | missing binary | fails as `configuration`, names the install URL |
 | OpenCode hung on a permission prompt | `--auto` missing or `question` not denied | Issue Flow always passes both |
-| OpenCode model rejected | bare alias such as `sonnet` | use `provider/model` |
+| OpenCode model rejected | bare alias such as `sonnet` | use `provider/model` (`opencode-go/qwen3.8-flash`) |
 | OpenCode writes outside the workspace | user `opencode.json` enlarged `external_directory` | the run policy denies `*`; report a bug if a write still lands |
 
 `item.type === 'error'` in the Codex stream is a **warning**, not a failure.

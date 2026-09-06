@@ -7,6 +7,8 @@ export const PRIORS_VERSION = '3';
 /**
  * Cold-start priors. Provenance: author judgement on 2026-08-30 from the
  * #79 baseline and the #76 capability matrix — not measured affinity.
+ * `opencode-cli` stays conservative: intra-OpenCode model choice lives in
+ * `opencode-go.ts`, not in these harness priors.
  */
 type HarnessPriors = Record<string, Record<ModelTier, number>>;
 

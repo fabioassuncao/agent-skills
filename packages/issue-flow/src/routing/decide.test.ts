@@ -148,4 +148,37 @@ describe('decideRouting', () => {
     const codex = decision?.candidates.find((c) => c.harness === 'codex-cli' && c.eligible);
     expect(codex?.score ?? 0).toBeGreaterThan(claude?.score ?? 0);
   });
+
+  it('refines an OpenCode win with the Go policy, not Anthropic ids', () => {
+    const readiness = readinessFixture({
+      claude: { installed: false, authentication: 'failed', state: 'unavailable' },
+      codex: { installed: false, authentication: 'failed', state: 'unavailable' },
+      cursor: { installed: false, authentication: 'failed', state: 'unavailable' },
+      antigravity: { installed: false, authentication: 'failed', state: 'unavailable' },
+      opencode: { installed: true, authentication: 'confirmed', state: 'ready' },
+    });
+    const execute = decideRouting({
+      phase: 'execute',
+      actualHarness: 'opencode-cli',
+      actualProvider: 'opencode',
+      mode: 'active',
+      signals: { title: 'Fix crash on empty input' },
+      readiness,
+    });
+    expect(execute?.selected.harness).toBe('opencode-cli');
+    expect(execute?.selected.model).toBe('opencode-go/deepseek-v4-flash');
+    expect(execute?.reasonCodes).toContain('OPENCODE_GO_POLICY');
+    expect(execute?.candidates.some((candidate) => candidate.model?.startsWith('anthropic/'))).toBe(
+      false,
+    );
+
+    const review = decideRouting({
+      phase: 'pr-review',
+      actualHarness: 'opencode-cli',
+      actualProvider: 'opencode',
+      mode: 'active',
+      readiness,
+    });
+    expect(review?.selected.model).toBe('opencode-go/gpt-5.6-luna');
+  });
 });

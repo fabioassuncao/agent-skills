@@ -23,6 +23,14 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
+### Changed
+
+- **OpenCode routing uses the Go catalog, not Anthropic.** The `opencode-cli`
+  model catalog is `opencode-go/mimo-v2.5` / `qwen3.8-flash` / `gpt-5.6-luna`.
+  When OpenCode is selected without an explicit model, a phase policy fills a
+  Go id (DeepSeek V4 Flash for cheap coding, Luna for merge readiness, Kimi
+  K2.7 Code only on escalation). Claude remains the CLI default.
+
 ### Added
 
 - **OpenCode CLI as a fifth agent provider (#117).** `opencode` is selectable

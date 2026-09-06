@@ -25,6 +25,14 @@ describe('MODEL_CATALOG', () => {
         'strong',
       ]);
     }
+    expect(
+      MODEL_CATALOG['opencode-cli']?.every((entry) => !entry.id?.startsWith('anthropic/')),
+    ).toBe(true);
+    expect(MODEL_CATALOG['opencode-cli']?.map((entry) => entry.id)).toEqual([
+      'opencode-go/mimo-v2.5',
+      'opencode-go/qwen3.8-flash',
+      'opencode-go/gpt-5.6-luna',
+    ]);
   });
 
   it('collapses the model axis when selection is unsupported', () => {

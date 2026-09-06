@@ -224,7 +224,7 @@ export function buildOpenCodeArgv(
   if (settings.model && !settings.model.includes('/')) {
     return {
       error:
-        'configuration: OpenCode model must be provider/model (for example anthropic/claude-sonnet-4-5).',
+        'configuration: OpenCode model must be provider/model (for example opencode-go/qwen3.8-flash).',
     };
   }
 

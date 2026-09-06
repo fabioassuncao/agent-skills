@@ -16,6 +16,7 @@ describe('routing purity', () => {
       'budget.ts',
       'escalation.ts',
       'models.ts',
+      'opencode-go.ts',
       'policy.ts',
     ];
     for (const file of files) {
