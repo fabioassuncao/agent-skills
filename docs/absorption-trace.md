@@ -1331,3 +1331,137 @@ funcionalmente pelo caso de 64 KB de `src/agents/tty.integration.test.ts`, que p
 bloco inteiro chega. **Contexto re-ingerido por story após a 1ª invocação** continua sendo
 invariante de arquitetura (a conversa é reaproveitada via `--resume`, exceto onde ADR-07
 proíbe) e não uma métrica de tempo.
+
+---
+
+### Sandbox Docker — hardening (Fase 13)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/docker.ts` @ d8c9d5f — 384 linhas
+`.references/webmux-main/sandbox-image/` @ d8c9d5f — 2 arquivos, ~80 linhas
+
+Esta fase **não porta nada**. Ela endurece o que a Fase 12 portou, contra o threat model
+de §14 etapa 2. O upstream não tem contrapartida para nenhum item abaixo — é exatamente
+por isso que a lista existe.
+
+**Comportamento existente** (o que a Fase 12 deixou, e que esta fase preserva)
+
+- `buildDockerRunArgs()` continua **função pura**: todo estado de host chega pelo
+  `DockerRunArgsContext`. A Fase 13 acrescenta um campo (`hostTotalMemoryBytes`) e não
+  abre nenhuma leitura de `process`, relógio ou filesystem de dentro da função.
+- Portas publicadas **apenas** em `127.0.0.1`; `--user <hostUid>:<hostGid>`;
+  `reservedKeys` inviolável; `GIT_CONFIG_COUNT=2` para os dois diretórios; `--mount
+  type=bind` para o socket SSH; montagens explícitas do perfil vencem as de credencial;
+  idempotência por branch; `run()` como único caminho de shell. Nada disso foi tocado.
+- Casos especiais que NÃO podiam se perder e não se perderam: todos os da ficha da
+  Fase 12, mais dois que o endurecimento poderia ter quebrado sem que ninguém notasse —
+  a escrita no worktree montado (que depende de `--user`, não de capabilities) e a
+  publicação de portas de serviço (que `--network none` tornaria uma falha de subida).
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/runtime/sandbox/docker.ts` — estratégia: **NEW** (sem origem upstream)
+`packages/issue-flow/sandbox/Dockerfile.sandbox` — estratégia: **ADAPT** (imagem mínima)
+`packages/issue-flow/sandbox/Dockerfile.sandbox.full` — a imagem da Fase 12, renomeada
+`docs/sandbox-security.md` — o modelo de segurança, escrito nesta fase
+
+**O threat model de §14, item a item**
+
+| Ameaça (§14) | Endurecimento | Onde | Teste |
+|---|---|---|---|
+| Container roda como usuário do host, com o worktree montado | **Mantido, e documentado como não sendo isolamento contra código malicioso** | `docs/sandbox-security.md` ("What the sandbox is not"), cabeçalho de `docker.ts`, `AGENTS.md` do módulo | `hardening — capabilities > still runs as the host user, so the mounted worktree stays writable` |
+| `SSH_AUTH_SOCK` montado | **Opt-in explícito por profile** (`security.sshAgent`), default `false`. O upstream encaminha sempre que o socket existe | `docker.ts`, gate na função pura **e** em `launchContainer` (que nem chega a `stat` o socket sem opt-in) | `SSH agent forwarding > is not forwarded by default…`, `> is not forwarded when the profile opts out explicitly`, `> signing still works for the profile that asks`; integração: `SSH_AUTH_SOCK is not in the container unless the profile asked for it` |
+| `envPassthrough` com credenciais | **Validação contra padrões de segredo + log do que foi passado**, por nome. Reporta, nunca recusa — a allowlist é decisão humana e recusar quebraria o lançamento que ela existe para permitir | `isSecretLikeEnvKey()` + dois `onWarn` em `buildDockerRunArgs` | `hardening — envPassthrough is reported, never silently forwarded` (6 casos, incluindo `never puts a value in a warning` e `reports rather than refuses`) |
+| Sem `--read-only`, sem `--cap-drop`, sem limites | **`--cap-drop=ALL` + `--security-opt no-new-privileges:true` + `--pids-limit 2048` + `--memory` (75% da RAM do host)**. `--read-only` **não** adotado — ver "NÃO portado" | bloco emitido logo após `--user` | `hardening — capabilities`, `hardening — no-new-privileges`, `hardening — resource limits` (9 casos puros); integração: `the hardened argument list is one docker accepts`, `no-new-privileges is set in the kernel` (`NoNewPrivs: 1` em `/proc/self/status`), `the agent can still write to its worktree under cap-drop=ALL`, `the agent can still spawn the processes a build needs`, `the pids limit actually stops a runaway` |
+| Sem restrição de rede | **`security.network: none \| bridge`, default `bridge`, escrito explicitamente** para não depender de como o daemon do host está configurado | `resolveNetworkMode()` | `hardening — network policy` (5 casos); integração: `network=none leaves the container with nothing but loopback`, `network=none with declared services still launches, without published ports`, `the default network still publishes a service port, on loopback only` |
+| Socket do Docker | **Proibição explícita**: uma montagem de perfil apontando para `docker.sock` / `containerd.sock` / `podman.sock` é recusada com warning, sob qualquer `guestPath` | `isDockerSocketPath()` | `hardening — the docker socket stays forbidden, explicitly` (3 casos, incluindo `an ordinary application socket is still mountable`) |
+| Imagem com Rust+Playwright+AWS | **Imagem mínima como default** (`Dockerfile.sandbox`), a atual como **`full`** (`Dockerfile.sandbox.full`) | `packages/issue-flow/sandbox/` | `image.test.ts` — 31 casos: o default instala o que o pipeline usa e não instala os toolchains pesados; o `full` continua com tudo |
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `hostTotalMemoryBytes` entra no `DockerRunArgsContext` em vez de `os.totalmem()` dentro da função | Mesma razão de `hostEnv` na Fase 12: no instante em que a função lê estado de processo, C7 deixa de ser comparação literal e o baseline endurecido deixa de ser reproduzível |
+| `--memory` default é **fração da RAM do host**, não um número fixo | Um valor fixo está errado em toda máquina menos uma: `4g` mata um run de Chromium numa workstation de 64 GB e superaloca um laptop de 8 GB. A ameaça real é "o container derruba a máquina", não "o container usa muita memória". Uma fração nunca fica abaixo do que um build que cabe na máquina precisa |
+| `--pids-limit` default 2048 | Um `npm ci` com módulos nativos ou um run de Chromium tem pico na casa das centenas. 2048 é folgado para o legítimo e é parede para uma fork bomb |
+| `--network none` **descarta as portas publicadas**, com warning | Docker recusa `--network none` junto de `-p` ("conflicting options: port publishing and the container type network mode"). Sem isso, um profile isolado que declarasse um serviço simplesmente não subiria — o endurecimento viraria uma falha |
+| Segredo em `envPassthrough` é **reportado**, não bloqueado | A allowlist é decisão humana; recusar uma entrada quebra o lançamento que ela existe para permitir. §14 pede "validar contra padrões de segredo e logar o que foi passado" — as duas coisas são relato |
+| Warnings carregam **nomes, nunca valores** | §45.3: "telemetria com redaction" é garantia do Issue Flow; um valor num log seria a forma degradada |
+| A imagem mínima não instala `sudo` | `no-new-privileges` torna todo binário setuid inerte. Uma entrada de sudoers que não pode funcionar transforma uma falha clara em uma confusa. A imagem `full` mantém a do upstream, e lá também é inerte |
+| `build-essential` fica nas duas imagens | Tirar quebraria `npm ci` em qualquer repositório com dependência nativa. Compilador não é privilégio — seria endurecimento que na verdade é regressão |
+| C7 passa a comparar contra o baseline **deste projeto** | Ver abaixo |
+
+**C7: divergência deliberada em relação ao upstream**
+
+Até a Fase 12, C7 comparava a lista de argumentos literalmente contra
+`.references/webmux-main/backend/src/adapters/docker.ts`. A Fase 13 é, por definição, uma
+lista de coisas que o upstream não faz. O teste **não foi removido nem enfraquecido** —
+continua um `toEqual` da lista inteira, agora com dois baselines completos (lançamento
+cheio e mínimo) — e ganhou um caso irmão,
+`docker run args differ from the upstream in exactly the §14 hardenings`, que enumera cada
+diferença. O que não está nessa enumeração continua sendo literalmente o do upstream, e
+uma divergência nova que não apareça lá é bug.
+
+Diff conceitual dos args de `docker run` (upstream → Issue Flow):
+
+```diff
+  docker run -d --name <nome> -w <worktreeDir>
+    --add-host host.docker.internal:host-gateway
+    --user <hostUid>:<hostGid>
++   --cap-drop ALL
++   [--cap-add <CAP> ...]                  ← só se o profile nomear
++   --security-opt no-new-privileges:true  ← salvo opt-out explícito
++   --pids-limit 2048                      ← configurável; 0 omite
++   --memory <75% da RAM do host>          ← configurável; "0" omite
++   --network bridge|none                  ← default bridge, sempre escrito
+-   -p 127.0.0.1:<porta>:<porta>           ← descartada quando network=none
++   -p 127.0.0.1:<porta>:<porta>           ← inalterada quando network=bridge
+    -e HOME=/root -e TERM=… -e IS_SANDBOX=1
+    -e GIT_CONFIG_COUNT=2 -e GIT_CONFIG_{KEY,VALUE}_{0,1}=…
+    -e <passthrough...>                    ← inalterado; agora reportado por nome
+    -e <runtimeEnv...>                     ← inalterado
+    -v <worktree>, <mainRepo>/.git, <mainRepo>:ro
+-   -v ~/.claude, ~/.claude.json, ~/.codex, ~/.gitconfig:ro, ~/.ssh:ro, ~/.config/gh:ro
++   (idem, mas reportados a cada lançamento e desligáveis por security.implicitMounts)
+-   --mount type=bind,source=$SSH_AUTH_SOCK,…   ← sempre que o socket existia
++   --mount type=bind,source=$SSH_AUTH_SOCK,…   ← só com security.sshAgent: true
+    --mount/-v <mounts do profile>
++   (uma montagem de docker.sock/containerd.sock/podman.sock é recusada)
+    <image> sleep infinity
+```
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `--read-only` | §14, coluna "Estado no WebMux" | §14 o nomeia na coluna do problema e **o deixa de fora** da coluna do endurecimento proposto, corretamente. O agente escreve em `/tmp`, em caches de gerenciador de pacotes e na própria configuração; um rootfs read-only exigiria um `tmpfs` para cada um, e o primeiro esquecido vira uma falha que parece agente quebrado, não política |
+| `--memory-swap` | — | Sem ele, o docker permite swap até 2× o `--memory`, o que enfraquece o teto. Igualá-lo a `--memory` desliga o swap e faz um build pesado legítimo morrer de OOM onde hoje ele apenas fica lento. Fica registrado como melhoria a medir, não como endurecimento a aplicar às cegas |
+| `--cpus` | — | Não está em §14. Um teto de CPU não impede nada que os outros limites já não impeçam, e o custo (build mais lento sem aviso) é imediato |
+| `--userns=remap` / rootless | — | Mudaria a propriedade dos arquivos criados no worktree, que é exatamente o que `--user <hostUid>` existe para preservar. É uma decisão de arquitetura do modo sandbox, não um flag de endurecimento |
+| Bloquear (em vez de reportar) `envPassthrough` com cara de segredo | §14 | §14 pede "validar e logar", não recusar. Recusar quebraria o lançamento que a allowlist existe para permitir, e um falso positivo custaria a chave da API do agente |
+| Remover as montagens implícitas de credencial | §39, `DEPRECATE: mounts implícitos` | `DEPRECATE`, não `DELETE`. Sem elas, todo agente dentro do sandbox deixa de autenticar. O que foi deprecado é a *implicitude*: cada lançamento nomeia os diretórios do usuário em que tocou, e `security.implicitMounts: false` desliga |
+| Fazer o parser de profiles ler `security` | §16/§19, Fase 10 | **Fora do escopo desta fase por instrução explícita.** `src/runtime/profiles.ts` descarta chaves que não conhece, então `runtime.profiles.*.security` ainda não chega até aqui. Os defaults — que são o conjunto endurecido — valem de qualquer forma; o que falta é a escotilha de escape. Registrado em `docs/sandbox-security.md` e no relatório da fase |
+| `entrypoint.sh` reconhecer `package-lock.json` / `pnpm-lock.yaml` | `sandbox-image/entrypoint.sh` | Continua fora: não é item do threat model de §14 |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/sandbox/docker.test.ts` | os 45 da Fase 12 + 36 da Fase 13 | 81 | ✅ |
+| `src/runtime/sandbox/image.test.ts` | novo — o split de imagem de §14 | 31 | ✅ |
+| `src/runtime/sandbox/docker.integration.test.ts` | os 8 da Fase 12 + 9 da Fase 13, daemon real (Docker 29.4.0) | 17 | ✅ |
+| characterization **C7** | §34 — agora contra o baseline endurecido | — | ✅ |
+
+Cada endurecimento tem **dois** testes: o argumento novo está na lista, e a operação
+legítima que ele poderia quebrar continua funcionando. Os pares, na ordem do threat model:
+`cap-drop` ↔ escrita no worktree; `no-new-privileges` ↔ o resto do bloco continua de pé;
+`pids-limit` ↔ 50 processos concorrentes; `memory` ↔ a fração cresce com a máquina;
+`network` ↔ portas ainda publicadas em `bridge`; socket proibido ↔ socket comum de
+aplicação ainda montável; imagem mínima ↔ git, `gh`, Node, toolchain C e as CLIs de agente
+ainda instalados.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| `buildDockerRunArgs` | — (função pura) | **0,00287 ms** (mediana de 5 × 1000: 0,00261 / 0,00270 / 0,00287 / 0,00329 / 0,00392) — 5 flags a mais que a Fase 12, mesma ordem de grandeza |
+| `launchContainer` com imagem quente (`alpine:latest`), hardening completo | — (§35 não orça o sandbox; T0→T4 ≤ 600 ms é o teto vizinho) | **204 ms** (mediana de 3: 145 / 204 / 282), Docker 29.4.0 |

@@ -1,5 +1,19 @@
 FROM debian:bookworm-slim
 
+# The `full` sandbox image — the upstream's, verbatim (phase 12 parity), kept for
+# the repositories that need what it carries: a Rust toolchain, asciinema, Bun,
+# Playwright with Chromium, the AWS CLI and the Mermaid CLI.
+#
+# Since phase 13 it is **not** the default. `Dockerfile.sandbox` is, and it holds
+# only what an agent needs to take an issue to a Pull Request (§14, stage 2:
+# "minimal image as the default, the current one as `full`"). Name whichever one
+# you built in the docker profile's `image`.
+#
+# Note that the `sudo` grant below is inert under the launch flags this project
+# now uses: `--security-opt no-new-privileges` stops every setuid binary from
+# raising privileges. It is kept because this file is the upstream's image and
+# parity is what it is for. Install what you need into the image.
+
 # ── System packages ───────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates git unzip openssh-client build-essential sudo \

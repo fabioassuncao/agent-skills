@@ -1,0 +1,61 @@
+FROM debian:bookworm-slim
+
+# The default sandbox image (phase 13, §14 stage 2).
+#
+# What an agent needs to take an issue to a Pull Request and nothing else: a
+# shell, git, the GitHub CLI, Node.js, a C toolchain for native npm modules, and
+# the two agent CLIs. The upstream image — Rust, asciinema, Bun,
+# Playwright/Chromium, the AWS CLI and the Mermaid CLI on top of this — is kept
+# verbatim as `Dockerfile.sandbox.full` for the repositories that need it.
+#
+# The threat this addresses is surface, not privilege: every extra runtime,
+# package manager and download endpoint in the image is another thing whose
+# compromise reaches the mounted worktree. A compiler is not a privilege, so
+# `build-essential` stays — dropping it would break `npm ci` on any repository
+# with a native dependency, which is the kind of "hardening" that is really a
+# regression.
+#
+# `sudo` is deliberately absent, unlike the full image: the container is launched
+# with `--security-opt no-new-privileges`, which makes every setuid binary inert.
+# A sudoers entry that cannot work is worse than no sudo at all — it turns a
+# clear failure into a confusing one. Install tools into the image, do not
+# install them at runtime.
+
+# ── System packages ───────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates git unzip openssh-client build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Node.js 22 ────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── GitHub CLI ────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Claude Code ───────────────────────────────────────────────────────────────
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:$PATH"
+
+# ── npm globals (install to /usr/local so bins land on PATH for all users) ────
+ENV NPM_CONFIG_PREFIX=/usr/local
+
+# ── Codex ─────────────────────────────────────────────────────────────────────
+RUN npm i -g @openai/codex
+
+# ── Allow non-root UID (--user) to access tools installed in /root ───────────
+# The container runs as the host user so files created in the mounted worktree
+# are owned by the right UID/GID. Give UID 1000 a passwd entry and access to
+# /root. No privilege escalation is configured: see the note at the top.
+RUN chmod -R 777 /root \
+    && useradd -u 1000 -g 100 -d /root -s /bin/bash -M agent
+
+# ── Entrypoint (run explicitly via docker exec, not on container start) ──────
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh

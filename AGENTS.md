@@ -35,6 +35,9 @@ those live in the documents referenced below, which are the source of truth.
   failover, watchdog, journal and decomposition
 - [`docs/verification.md`](docs/verification.md) — the acceptance contract, the
   independent reviewer, shadow routing and escalation
+- [`docs/sandbox-security.md`](docs/sandbox-security.md) — what the `sandbox` mode
+  protects against and what it does not, the launch flags, credential handling and
+  the two images
 - [`docs/conventions.md`](docs/conventions.md) — how conventions are discovered,
   the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
 - [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and

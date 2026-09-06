@@ -4,7 +4,9 @@ export type {
   DockerRunArgsContext,
   LaunchContainerOpts,
   SandboxMountConfig,
+  SandboxNetworkMode,
   SandboxProfileConfig,
+  SandboxSecurityConfig,
   SandboxServiceConfig,
 } from './docker.js';
 export {
@@ -13,9 +15,18 @@ export {
   containerName,
   containerNamePrefix,
   createDockerGateway,
+  DEFAULT_MEMORY_FRACTION,
+  DEFAULT_NETWORK_MODE,
+  DEFAULT_PIDS_LIMIT,
   DOCKER_RUN_TIMEOUT_MS,
+  isDockerSocketPath,
+  isSecretLikeEnvKey,
   isValidEnvKey,
   isValidPort,
+  resolveCapAdd,
+  resolveMemoryLimit,
+  resolveNetworkMode,
+  resolvePidsLimit,
   sanitizeBranchForName,
   selectBranchContainers,
 } from './docker.js';

@@ -6,11 +6,10 @@ started detached, driven by `docker exec` from a tmux pane.
 Ported from WebMux `adapters/docker.ts` and `sandbox-image/`. The image itself
 lives in [`packages/issue-flow/sandbox/`](../../../sandbox/README.md).
 
-This is the **parity** half of the absorption (phase 12). Hardening — `--cap-drop`,
-`no-new-privileges`, `--pids-limit`, `--memory`, a network policy and an opt-in
-`SSH_AUTH_SOCK` — is phase 13, and ADR-12 forbids doing both in one change. A
-test asserts that none of those flags is present, so adding one here fails
-loudly rather than quietly changing what "parity" means.
+Phase 12 ported it for parity; phase 13 hardened it against the threat model of
+§14. Both are done, and the security model they produced is documented in
+[`docs/sandbox-security.md`](../../../../../docs/sandbox-security.md) — read that
+before changing any flag below.
 
 ## Invariants
 
@@ -65,6 +64,61 @@ loudly rather than quietly changing what "parity" means.
   reported; the rest still run. Aborting would strand every remaining container
   of that branch for good.
 
+## Security invariants (phase 13)
+
+These are additions. Nothing above them was relaxed to make room.
+
+- **The container is not a boundary against malicious code, and no flag here
+  makes it one.** It runs as the host user with the worktree and `.git` mounted
+  read-write; anything inside already has the user's access to them. What the
+  flags below shrink is what a *runaway or compromised* process can do to the
+  machine. Never describe this directory as isolation from the host.
+- **Every launch carries the hardening, whether or not a profile asks.**
+  `--cap-drop=ALL`, `--security-opt no-new-privileges:true`, `--pids-limit`,
+  `--memory` and an explicit `--network`, emitted as one block right after
+  `--user`. A profile can widen a specific one; nothing turns the block off.
+- **`--cap-drop=ALL` costs the sandbox nothing.** The container is already an
+  unprivileged uid, so the capability set was never what made writes to the
+  worktree work — `--user` is. Anything claiming to need a capability names it
+  in `security.capAdd`, and the name is validated before it becomes a flag.
+- **`no-new-privileges` is what makes `--cap-drop` hold**, and it is why the
+  default image ships no `sudo`. An agent cannot install a tool at runtime; the
+  tool goes in the image. Do not "fix" this by re-adding sudo.
+- **`--memory` is a share of the host, never a fixed number.** A constant is
+  wrong on every machine but one, and a limit below what a legitimate build
+  needs is a regression wearing a security flag.
+- **`--network none` drops published ports.** Docker refuses `--network none`
+  together with `-p`, so an isolated profile that declared a service would fail
+  to launch at all. The ports go, with a warning; the isolation stays.
+- **`SSH_AUTH_SOCK` is opt-in.** The socket signs for every repository and host
+  the key reaches, not just this worktree. The upstream forwards it whenever it
+  exists; this project requires `security.sshAgent: true`.
+- **The implicit credential mounts are deprecated, not removed.** They still
+  happen by default — without them agents in the sandbox stop authenticating —
+  but every launch names the host directories it reached into, and a profile can
+  decline them. Do not delete them; do not make them quiet again.
+- **A profile mount of a container runtime socket is refused**, whatever guest
+  path it asks for. `docker.sock`, `containerd.sock`, `podman.sock`.
+- **`envPassthrough` is reported, never refused.** The list is an allowlist a
+  human wrote, and dropping an entry breaks the launch it exists for. Names go
+  to `onWarn`, with the credential-shaped ones called out separately. **A value
+  never goes into a message** — that is the redaction guarantee of §45.3.
+- **Every hardening has two tests: the flag is there, and the operation it could
+  break still works.** A `cap-drop` that stopped the agent writing to its
+  worktree would be a regression, not a hardening. `docker.test.ts` proves the
+  first half purely; `docker.integration.test.ts` proves the second against a
+  real daemon, down to `NoNewPrivs` in `/proc/self/status`.
+
+## C7 no longer matches the upstream, deliberately
+
+Through phase 12, C7 compared the argument list literally against
+`.references/webmux-main/backend/src/adapters/docker.ts`. Phase 13 is a list of
+things the upstream does not do, so the baseline is now this project's. The test
+was not weakened — it is still a literal `toEqual` of the whole list — and the
+case `docker run args differ from the upstream in exactly the §14 hardenings`
+enumerates every difference. Anything not on that list is still literally the
+upstream's, and a new divergence that does not appear there is a bug.
+
 ## The container does not know tmux exists
 
 A pane runs `docker exec -it -w <worktree> <container> …`, and the web terminal
@@ -75,10 +129,14 @@ from either.
 ## Never
 
 - Never call `docker` outside `run()`.
-- Never add a hardening flag here. It belongs to phase 13, where it arrives with
-  its threat model and its own tests.
+- Never add a flag here without both halves of its test: that it is in the
+  argument list, and that the legitimate operation it could break still works.
 - Never publish a port on anything but `127.0.0.1`.
-- Never mount the docker socket into the container. The upstream does not, and
-  that is correct: it would hand the agent control of the host daemon.
-- Never let `buildDockerRunArgs` read `process.env`, the clock, the filesystem or
-  the uid. The moment it does, C7 stops being a literal comparison.
+- Never mount the docker socket into the container — not from here, and not from
+  a profile. It would hand the agent control of the host daemon and make every
+  other flag in this file decorative.
+- Never let `buildDockerRunArgs` read `process.env`, `os.totalmem()`, the clock,
+  the filesystem or the uid. The moment it does, C7 stops being a literal
+  comparison and the hardened baseline stops being reproducible.
+- Never put an environment *value* in a warning. Names only.
+- Never describe this directory as isolation from the host.
