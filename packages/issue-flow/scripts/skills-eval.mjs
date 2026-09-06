@@ -8,6 +8,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { artifactRoot, contained, files, packageRoot, repoRoot } from './skills-build.mjs';
 import { frontmatter } from './skills-check.mjs';
+import {
+  gitSnapshot,
+  gradeGit,
+  prepareGitFixture,
+  validateFixturePath,
+  validateGitAssertion,
+  validateGitFixture,
+} from './skills-eval-git.mjs';
 
 export const corpusPath = join(repoRoot, 'evals/skills/scenarios.json');
 export function observeLine(line, evidence) {
@@ -44,11 +52,15 @@ export function validateCorpus(corpus, names) {
     assert.ok(['positive', 'negative', 'behavior'].includes(scenario.kind));
     assert.ok(scenario.prompt?.trim());
     assert.ok(scenario.rubric?.length);
-    for (const path of Object.keys(scenario.fixture ?? {}))
-      assert.ok(contained('/fixture', resolve('/fixture', path)), `Escaping fixture ${path}`);
+    for (const path of Object.keys(scenario.fixture ?? {})) validateFixturePath(path);
+    validateGitFixture(scenario.git);
     if (scenario.kind === 'behavior') {
       assert.ok(scenario.assertions?.length);
       for (const rule of scenario.assertions) {
+        if (rule.target === 'git') {
+          validateGitAssertion(rule);
+          continue;
+        }
         assert.ok(rule.path || ['answer', 'actions'].includes(rule.target));
         if (rule.path) assert.ok(contained('/fixture', resolve('/fixture', rule.path)));
         if (rule.check === 'issue') {
@@ -69,7 +81,7 @@ export function validateCorpus(corpus, names) {
 }
 
 // Grades only final answers, recorded tool actions and filesystem artifacts. Never reasoning.
-export async function grade(scenario, result, root, actions) {
+export async function grade(scenario, result, root, actions, baseline = null) {
   const failures = [];
   if (scenario.kind !== 'behavior') {
     let selection;
@@ -91,6 +103,10 @@ export async function grade(scenario, result, root, actions) {
     return failures;
   }
   for (const rule of scenario.assertions) {
+    if (rule.target === 'git') {
+      failures.push(...gradeGit(root, rule, baseline));
+      continue;
+    }
     const path = rule.path ? resolve(root, rule.path) : null;
     if (path && !contained(root, path)) throw new Error(`Escaping assertion ${rule.path}`);
     const value =
@@ -112,7 +128,10 @@ export async function grade(scenario, result, root, actions) {
         failures.push(`${rule.path}: invalid JSON`);
       }
     }
-    if (rule.unchanged && value !== scenario.fixture?.[rule.path])
+    if (
+      rule.unchanged &&
+      value !== (scenario.git?.dirty?.[rule.path] ?? scenario.fixture?.[rule.path])
+    )
       failures.push(`${rule.path}: changed`);
     if (rule.check && value === null) {
       failures.push(`${rule.path}: required artifact missing`);
@@ -258,11 +277,7 @@ async function main() {
           digest.update(file).update(await readFile(join(installed, name, file)));
         hashes[name] = digest.digest('hex');
       }
-      for (const [path, content] of Object.entries(scenario.fixture ?? {})) {
-        await mkdir(dirname(join(root, path)), { recursive: true });
-        await writeFile(join(root, path), content);
-      }
-      execFileSync('git', ['init', '-q', root]);
+      const gitBefore = await prepareGitFixture(root, scenario);
       const prompt =
         scenario.kind === 'behavior'
           ? `Read ${join(installed, scenario.skill, 'SKILL.md')} and perform the following task in this disposable fixture repository. Use only this installed Skill, not personal copies or sibling skills. The Issue Flow CLI is unavailable for this scenario. Do not contact external services or mutate anything outside this repository.\n\n${scenario.prompt}`
@@ -295,7 +310,9 @@ async function main() {
       );
       const recordedActions = observed.actions.length ? observed.actions : actions;
       stage = 'verifier';
-      const failures = run.success ? await grade(scenario, run.result, root, recordedActions) : [];
+      const failures = run.success
+        ? await grade(scenario, run.result, root, recordedActions, gitBefore)
+        : [];
       const artifacts = {};
       for (const rule of scenario.assertions ?? [])
         if (rule.path)
@@ -314,6 +331,7 @@ async function main() {
         answer: run.result,
         actions: recordedActions,
         artifacts,
+        git: { before: gitBefore, after: gitSnapshot(root) },
         rubric: scenario.rubric,
         manualReview: scenario.manualReview ?? false,
       });

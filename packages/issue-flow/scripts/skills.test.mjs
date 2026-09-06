@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cp, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +7,13 @@ import { test } from 'node:test';
 import { artifactRoot, assemble, compare, files, repoRoot, sourceRoot } from './skills-build.mjs';
 import { frontmatter, validateSkill } from './skills-check.mjs';
 import { corpusPath, grade, observeLine, validateCorpus } from './skills-eval.mjs';
+import {
+  gradeGit,
+  prepareGitFixture,
+  validateFixturePath,
+  validateGitAssertion,
+  validateGitFixture,
+} from './skills-eval-git.mjs';
 
 async function temporary(fn) {
   const root = await mkdtemp(join(tmpdir(), 'issue-flow skill test '));
@@ -345,3 +352,82 @@ test('isolated helper follows naming precedence and never closes via commit', ()
   assert.match(commit, /Refs #42/);
   assert.doesNotMatch(commit, /Closes/);
 });
+
+test('Git fixture setup rejects escaping paths, internal files, commands and invalid refs', () => {
+  for (const path of ['../outside', '.git/config', 'sub/.git/hooks/post-checkout'])
+    assert.throws(() => validateFixturePath(path));
+  assert.throws(() => validateGitFixture({ commands: ['touch /outside'] }));
+  assert.throws(() => validateGitFixture({ history: 'not an array' }));
+  assert.throws(() => validateGitFixture({ branches: 'main' }));
+  assert.throws(() => validateGitFixture({ initialBranch: '--orphan' }));
+  assert.throws(() => validateGitFixture({ branches: ['bad name'] }));
+  assert.throws(() => validateGitFixture({ dirty: { '../outside': 'bad' } }));
+  assert.throws(() => validateGitAssertion({ target: 'git' }));
+  assert.throws(() => validateGitAssertion({ target: 'git', commitCount: -1 }));
+  assert.throws(() => validateGitAssertion({ target: 'git', commitPattern: '[' }));
+});
+
+test('Git assertions reject claimed success and inspect real branch/commit outcomes', async () =>
+  temporary(async (root) => {
+    const scenario = {
+      kind: 'behavior',
+      fixture: { 'source.txt': 'original' },
+      git: { branches: ['fix/task'], dirty: { 'notes.txt': 'user notes' } },
+      assertions: [
+        {
+          target: 'git',
+          branch: 'fix/task',
+          branches: ['main', 'fix/task'],
+          commitCount: 1,
+          commitPattern: '^BUG: repair$',
+          unchangedRefs: ['main'],
+          commitsOnBranch: 'fix/task',
+        },
+        { path: 'notes.txt', unchanged: true },
+      ],
+    };
+    const baseline = await prepareGitFixture(root, scenario);
+    assert.ok((await grade(scenario, 'Done; committed on fix/task', root, [], baseline)).length);
+    const git = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+    git(['switch', '-q', 'fix/task']);
+    await writeFile(join(root, 'source.txt'), 'repaired');
+    git(['add', 'source.txt']);
+    git(['commit', '-qm', 'BUG: repair']);
+    assert.deepEqual(await grade(scenario, 'done', root, [], baseline), []);
+    assert.ok(gradeGit(root, { commitPattern: '^fix:' }, baseline).length);
+    git(['switch', '-q', 'main']);
+    git(['commit', '-q', '--allow-empty', '-m', 'BUG: misplaced']);
+    const failures = await grade(scenario, 'still correct', root, [], baseline);
+    assert.ok(failures.some((f) => f.includes('ref changed: main')));
+    assert.ok(failures.some((f) => f.includes('outside fix/task')));
+    await writeFile(join(root, 'notes.txt'), 'overwritten');
+    assert.ok(
+      (await grade(scenario, 'preserved', root, [], baseline)).some(
+        (f) => f === 'notes.txt: changed',
+      ),
+    );
+  }));
+
+test('Git fixtures preserve detached HEAD and exclude existing history from new commits', async () =>
+  temporary(async (root) => {
+    const baseline = await prepareGitFixture(root, {
+      fixture: { 'file.txt': 'baseline' },
+      git: {
+        initialBranch: 'develop',
+        history: ['BUG: previous', 'DOC: previous'],
+        detached: true,
+      },
+    });
+    assert.equal(baseline.branch, '');
+    assert.deepEqual(
+      gradeGit(
+        root,
+        { branch: '', branches: ['develop'], commitCount: 0, unchangedRefs: ['develop'] },
+        baseline,
+      ),
+      [],
+    );
+    assert.ok(gradeGit(root, { branch: 'develop' }, baseline).length);
+    assert.ok(gradeGit(root, { commitPattern: 'BUG' }, baseline).length);
+    assert.deepEqual(gradeGit(root, { commitCount: 0 }, null), ['Git baseline missing']);
+  }));
