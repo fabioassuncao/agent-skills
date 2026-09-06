@@ -1,8 +1,14 @@
-# Configuration
+# CLI configuration
 
-Issue Flow reads configuration from four layers. Nothing is mandatory: with no
+[CLI guide](cli.md) · [Project overview](../README.md)
+
+The Issue Flow CLI resolves configuration through the layers below. Nothing is mandatory: with no
 configuration at all, every default reproduces the behaviour of a plain
 `issue-flow run 42` against a GitHub issue on Claude Code.
+
+These settings configure the CLI runtime. Agent Skills use their current host's
+configuration and repository instructions; they do not require `.issue-flow.json`
+or a global CLI configuration. See [optional CLI enrichment](../skills/README.md#optional-cli-enrichment).
 
 - [The precedence ladder](#the-precedence-ladder)
 - [`.issue-flow.json`](#issue-flowjson) — per project
@@ -22,12 +28,11 @@ Settings resolve from the highest-priority source that provides them:
 | 4 | `~/.issue-flow/config.json` | `{ "web": { "port": 4000 } }` |
 | 5 (lowest) | Built-in default | `3737` |
 
-The merge is per key and shallow: a layer only participates with the keys it
-actually carries, so a global `config.json` that sets `web.host` but not
-`web.port` leaves a project-level `web.port` untouched. Nested objects are
-replaced whole rather than field by field.
+Only declared keys participate in merging. An absent setting does not erase a
+value from another layer. Do not assume nested objects merge recursively; the
+domain-specific rules below describe the exceptions.
 
-Four keys deviate, deliberately:
+These domains have specific precedence or merge behavior:
 
 - **`resilience`** climbs all five rungs and merges `retry` one level deeper —
   per failure kind *and* per field, because that table is two levels deep by
@@ -40,6 +45,8 @@ Four keys deviate, deliberately:
 - **`policy`** replaces the "machine" rung with *what the repository declares
   about itself*: defaults < discovered conventions < `.issue-flow.json` <
   `ISSUE_FLOW_POLICY_*` < CLI. See [Conventions](conventions.md).
+- **`web`** does not read the global file. See the actual layers in
+  [monitor configuration](web-monitor.md#configuration).
 
 A missing file is silent — it is the common case. Invalid JSON, a non-object
 root, an unreadable path or an invalid key each degrade to "no preference" with
@@ -355,9 +362,13 @@ A repository can adjust any packaged prompt without forking:
 `append` is recommended because replacing a whole prompt makes the repository
 inherit its maintenance: improvements shipped by later releases stop reaching it,
 silently. With both present the replacement wins, with a warning. With neither,
-the prompt is exactly the packaged one — a repository that declares no policy
-renders every prompt byte for byte as it did before this layer existed, pinned by
-a test over every file in `prompts/`.
+the prompt is exactly the packaged one. Empty repository policy removes its
+conditional sections without leaving headings or unresolved placeholders;
+tests cover every packaged prompt. Shared contracts still evolve with releases.
 
 The available `<name>` values are the packaged prompt files: `analyze`,
 `execute`, `generate`, `plan`, `pr`, `pr-review`, `prd`, `review`.
+
+These overrides apply to CLI prompts, not to installed Skills. Issue Flow
+contributors edit `packages/issue-flow/prompts-src/` and synchronize packaged
+prompts from the [canonical sources](skills.md#source-and-distribution).

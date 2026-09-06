@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-05",
+  "node": "22.22.1",
+  "baseCommit": "557bcec",
+  "skills": 11,
+  "structuralAndHelperTests": 34,
+  "unitTests": 2202,
+  "unitFiles": 171,
+  "packedCliSmokeAssertions": 53,
+  "corpusScenarios": 36,
+  "candidateClaudeCases": 37,
+  "candidateCodexCases": 13,
+  "baselineConversion": "FAIL: issueUrl null violates canonical schema; candidate PASS",
+  "nativeDiscoveryCertification": false,
+  "githubUpdateAfterPublication": "NOT_RUN",
+  "fileGitUpdate": "Installer update failed; add refreshed revision successfully"
+}

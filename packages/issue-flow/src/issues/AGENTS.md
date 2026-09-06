@@ -5,6 +5,8 @@ the only place commands may talk to GitHub or local issues. Built-in
 providers live under `providers/`.
 
 User-facing behaviour: [`docs/issues.md`](../../../../docs/issues.md).
+Pure Markdown parsing, hashing and schema distribution to standalone Skills:
+[`docs/skills.md`](../../../../docs/skills.md#source-and-distribution).
 
 ## Invariants
 

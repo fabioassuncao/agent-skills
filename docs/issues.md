@@ -1,4 +1,6 @@
-# Issue sources, hierarchies and queues
+# CLI issue sources, hierarchies and queues
+
+[CLI guide](cli.md) · [Project overview](../README.md)
 
 The demand reaches the pipeline through an **issue provider**, so every phase
 works the same way regardless of where the issue lives.
@@ -7,6 +9,10 @@ works the same way regardless of where the issue lives.
 |----------|--------|----------|
 | `github` (default) | GitHub issues, read through `gh` | `gh` installed and authenticated |
 | `local` | `issue.md` + `metadata.json` under `~/.issue-flow/…/issues/<n>/` | nothing beyond git — works offline, in a repo with no remote, or on a demand that is not public yet |
+
+This page describes CLI providers. Standalone Skills read the selected issue
+directly, using files or an authenticated GitHub capability; see
+[Skill inputs and artifacts](../skills/README.md#artifacts-resumption-and-limits).
 
 The issue content is fetched **in the CLI** and injected into every prompt
 (`analyze`, `prd`, `plan`, `review`, `pr`). The agent never runs

@@ -337,6 +337,7 @@ run_cli() { # repo args...
     SMOKE_PROMPT_DIR="$repo/.smoke/prompts" \
     SMOKE_GH_FIXTURES="$repo/.smoke/fixtures" \
     SMOKE_GH_LOG="$repo/.smoke/gh.log" \
+    ISSUE_FLOW_HOME="$repo/.smoke/state" \
     NO_COLOR=1 \
       node "$CLI" "$@" </dev/null
   )
@@ -345,6 +346,14 @@ run_cli() { # repo args...
 reset_capture() { # repo
   rm -rf "$1/.smoke/prompts" "$1/.smoke/gh.log"
   mkdir -p "$1/.smoke/prompts"
+}
+
+# A workspace owns one global storage project. Assertions inspect its projections;
+# the legacy input tree is deliberately never treated as the current write target.
+artifact_path() { # repo issue filename
+  local projects
+  projects=("$1"/.smoke/state/projects/*)
+  printf '%s/issues/%s/%s' "${projects[0]}" "$2" "$3"
 }
 
 # ── scenario A: GitHub only, no flags, no .issue-flow.json ──────────────────
@@ -373,16 +382,17 @@ scenario_github_only() {
   expect_contains "$repo/.smoke/gh.log" "issue view 42" "the provider fetched the issue via gh"
   expect_contains "$repo/.smoke/gh.log" "issue close 42" "the GitHub provider closed the issue"
 
-  expect_contains "$out" "Pipeline complete" "the pipeline reports completion"
+  expect_contains "$out" "Pipeline finished" "the pipeline reports completion"
+  expect_contains "$out" "unverified" "an empty verification contract is not reported green"
   expect_contains "$out" "Branch:" "summary keeps Branch"
   expect_contains "$out" "Stories:" "summary keeps Stories"
   expect_contains "$out" "Duration:" "summary keeps Duration"
   expect_contains "$out" "PR:" "summary keeps PR"
 
-  expect_file "$repo/issues/42/prd.md" "prd.md was produced"
-  expect_contains "$repo/issues/42/tasks.json" '"prCreated": true' "pipeline state records the PR"
-  expect_no_file "$repo/issues/42/metadata.json" "a GitHub-only run writes no local metadata"
-  expect_no_file "$repo/issues/42/issue.md" "a GitHub-only run writes no local issue.md"
+  expect_file "$(artifact_path "$repo" 42 prd.md)" "prd.md was produced"
+  expect_contains "$(artifact_path "$repo" 42 tasks.json)" '"prCreated": true' "pipeline state records the PR"
+  expect_no_file "$(artifact_path "$repo" 42 metadata.json)" "a GitHub-only run writes no local metadata"
+  expect_no_file "$(artifact_path "$repo" 42 issue.md)" "a GitHub-only run writes no local issue.md"
   expect_no_file "$repo/.issue-flow.json" "the run did not create a config file"
 }
 
@@ -417,8 +427,9 @@ scenario_local_only() {
   expect_missing "$prompts" "gh issue view" "no prompt tells the agent to fetch the issue"
 
   expect_missing "$repo/.smoke/gh.log" "issue view" "an unauthenticated gh is never asked for the issue"
-  expect_contains "$repo/issues/7/metadata.json" '"state": "closed"' "the local provider closed the issue"
-  expect_contains "$out" "Pipeline complete" "the pipeline reports completion"
+  expect_contains "$(artifact_path "$repo" 7 metadata.json)" '"state": "closed"' "the local provider closed the issue"
+  expect_contains "$out" "Pipeline finished" "the pipeline reports completion"
+  expect_contains "$out" "unverified" "an empty verification contract is not reported green"
   expect_missing "$out" "PR:" "--no-branch prints no PR line"
 }
 
@@ -432,11 +443,12 @@ scenario_both_divergent() {
   write_github_fixture "$repo/.smoke/fixtures" 42 "Add dark mode" "Remote body: toggle in the settings page."
   write_local_issue "$repo" 42 "Add dark mode" "Local body: toggle plus an OS-level preference."
 
-  analysis="$repo/issues/42/analysis.md"
+  analysis=""
 
   reset_capture "$repo"
   run_cli "$repo" analyze 42 >"$repo/.smoke/ask.log" 2>&1
   expect_code "$?" 0 "analyze resolves a divergent issue without blocking"
+  analysis="$(artifact_path "$repo" 42 analysis.md)"
   expect_contains "$repo/.smoke/ask.log" "differs between origins" "the divergence is reported"
   expect_contains "$repo/.smoke/ask.log" "non-interactive environment" "ask degrades outside a TTY"
   expect_contains "$analysis" "Remote body" "the default preference (github) wins"
@@ -457,7 +469,7 @@ scenario_both_divergent() {
   # Same content on both sides: equivalence, no divergence warning.
   reset_capture "$repo"
   rm -f "$analysis"
-  write_local_issue "$repo" 42 "Add dark mode" "Remote body: toggle in the settings page."
+  write_github_fixture "$repo/.smoke/fixtures" 42 "Add dark mode" "Local body: toggle plus an OS-level preference."
   run_cli "$repo" analyze 42 >"$repo/.smoke/identical.log" 2>&1
   expect_code "$?" 0 "identical content resolves"
   expect_contains "$repo/.smoke/identical.log" "has identical content" "equivalence is reported"
@@ -472,7 +484,7 @@ scenario_both_divergent() {
   expect_missing "$repo/.smoke/generate.log" "gh issue create" "generate no longer shells out from the prompt"
 
   local mirror
-  mirror="$(ls -d "$repo"/issues/1*/ 2>/dev/null | head -n 1)"
+  mirror="$(ls -d "$repo"/.smoke/state/projects/*/issues/1*/ 2>/dev/null | head -n 1)"
   if [ -n "$mirror" ]; then
     expect_contains "${mirror}metadata.json" '"syncedContentHash"' "the mirror records the sync hash"
     expect_contains "${mirror}metadata.json" "https://github.com/acme/demo/issues/" "the mirror records the remote ref"

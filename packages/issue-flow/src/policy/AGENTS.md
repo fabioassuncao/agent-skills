@@ -130,17 +130,18 @@ rules there are load-bearing:
 warns: no git checkout, no `gh`, a discovery that fails — all yield the empty
 projection and the command behaves exactly as before.
 
-## Byte-identity is the contract
+## Empty policy and packaged prompts
 
-A repository that declares no policy must get a prompt that is **byte for byte**
-the one it got before this layer existed. That is why the policy section of each
-packaged prompt is wrapped in `<!-- if:__REPO_POLICY__ -->` … `<!-- /if -->` and
+A repository that declares no policy must not receive empty policy headings or
+unresolved placeholders. The policy section of each packaged prompt is wrapped
+in `<!-- if:__REPO_POLICY__ -->` … `<!-- /if -->` and
 stripped by `applyConditionalSections()` (`core/prompt-resolver.ts`) — including
 the blank line before it. `core/prompt-override.test.ts` pins this against every
-file in `prompts/`, so adding a prompt does not require remembering the rule.
+file in `prompts/`. With no repository override, `loadPrompt()` returns the
+packaged file unchanged. This does not freeze prompt content across releases.
 
-An empty "Repository policy" heading would not just break byte-identity; it
-would invite the agent to wonder what was supposed to be there.
+Prompt source ownership and generation are defined in
+[Skill and prompt architecture](../../../../docs/skills.md#source-and-distribution).
 
 ## Prompt overrides
 
@@ -159,7 +160,8 @@ Git conventions (`commitlint`, release-please, semantic-release, Changesets,
 commitlint file is never `import()`ed. The canonical implementation lives in
 `src/conventions/git/` — this layer only *finds* what the repository declared.
 
-`issue-flow policy --json` is the bridge for the Agent Skills: they are markdown
-and cannot import TypeScript, so a versioned JSON document on stdout is the only
-interface available to them. `schemaVersion` therefore belongs to the payload,
-not to the CLI, and is bumped only when a reader would have to change.
+`issue-flow policy --json` is an optional bridge for Agent Skills. They also
+support direct repository discovery, and their pure helpers are bundled from
+canonical source during development. The JSON remains a published versioned
+contract: `schemaVersion` belongs to the payload and changes only when a reader
+would have to change. See [Skill architecture](../../../../docs/skills.md).

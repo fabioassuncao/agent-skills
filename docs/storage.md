@@ -1,9 +1,16 @@
-# Storage and artifacts
+# CLI storage and artifacts
 
-Issue Flow keeps every artifact in a machine-wide storage layer rooted at
-`~/.issue-flow`. Nothing is written inside your repository, so a run leaves the
-working tree untouched: no artifact to ignore, no artifact to commit, no diff
-noise. The trade-off is that the artifacts are machine-local.
+[CLI guide](cli.md) · [Project overview](../README.md)
+
+The Issue Flow CLI keeps pipeline artifacts in a machine-wide storage layer
+rooted at `~/.issue-flow`. Plans, sessions and telemetry are machine-local and
+do not need to be committed or ignored in the consumer repository. Implementation
+phases still edit and commit the project's code.
+
+Agent Skills use a separate [artifact layout](../skills/README.md#artifacts-resumption-and-limits)
+under the consumer project's `issues/<id>/` by default. The database, sessions,
+telemetry and migration described here belong to the CLI; they are not Skill
+runtime requirements or a supported way to transfer a Skill run to the CLI.
 
 - [Directory tree](#directory-tree)
 - [SQLite database](#sqlite-database)
@@ -665,9 +672,14 @@ An existing global directory always wins. The check also runs **per issue**, not
 only per project: an issue that appears under `<projectRoot>/issues/` after the
 project was migrated is picked up the first time it is resolved.
 
+These consequences concern legacy CLI artifacts. A Skill using the same default
+`issues/` path still owns its local files. The migration can copy files from
+that path too; a successful copy does not establish supported cross-surface
+resumption or keep the two execution states synchronized.
+
 Two consequences are worth knowing:
 
-- **Artifacts are no longer shareable through git.** If your project used to
+- **CLI artifacts are no longer shareable through git.** If your project used to
   commit `issues/` to review `prd.md` or `tasks.json`, those files now live under
   `~/.issue-flow` on the machine that ran the pipeline. The committed copies stay
   valid as a historical record, but stop being updated.

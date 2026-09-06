@@ -1,0 +1,2965 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "analyze-issue-positive",
+      "skill": "analyze-issue",
+      "kind": "positive",
+      "prompt": "Analyze local issue issues/42/issue.md against this repository and report scope and risks. Do not implement it.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "analyze-issue-negative",
+      "skill": "analyze-issue",
+      "kind": "negative",
+      "prompt": "Explain what the word issue means in English.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "generate-prd-positive",
+      "skill": "generate-prd",
+      "kind": "positive",
+      "prompt": "Write a PRD for issues/42/issue.md using the existing code as context.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "generate-prd-negative",
+      "skill": "generate-prd",
+      "kind": "negative",
+      "prompt": "Convert the existing PRD into tasks.json without rewriting the PRD.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "convert-prd-to-json-positive",
+      "skill": "convert-prd-to-json",
+      "kind": "positive",
+      "prompt": "Convert issues/42/prd.md into a validated tasks.json. Stop after conversion.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "convert-prd-to-json-negative",
+      "skill": "convert-prd-to-json",
+      "kind": "negative",
+      "prompt": "Write a new PRD from a short feature idea.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "execute-tasks-positive",
+      "skill": "execute-tasks",
+      "kind": "positive",
+      "prompt": "Implement the pending stories in issues/42/tasks.json and verify them.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "execute-tasks-negative",
+      "skill": "execute-tasks",
+      "kind": "negative",
+      "prompt": "Review whether these completed stories meet the issue; do not edit code.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "create-pr-positive",
+      "skill": "create-pr",
+      "kind": "positive",
+      "prompt": "Create a pull request for the completed work on my current branch.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "create-pr-negative",
+      "skill": "create-pr",
+      "kind": "negative",
+      "prompt": "Review this existing pull request for regressions; do not create another PR.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "review-issue-positive",
+      "skill": "review-issue",
+      "kind": "positive",
+      "prompt": "Verify whether local issue 42 is fully resolved, without commenting or closing it.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "review-issue-negative",
+      "skill": "review-issue",
+      "kind": "negative",
+      "prompt": "Draft a new issue describing a missing feature.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "review-pr-positive",
+      "skill": "review-pr",
+      "kind": "positive",
+      "prompt": "Review PR #42 for correctness, security and regressions without modifying it.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "review-pr-negative",
+      "skill": "review-pr",
+      "kind": "negative",
+      "prompt": "Create a PR for the implementation I just completed.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "generate-issue-positive",
+      "skill": "generate-issue",
+      "kind": "positive",
+      "prompt": "Draft a GitHub issue for adding CSV export, deduplicating existing remote issues.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "generate-issue-negative",
+      "skill": "generate-issue",
+      "kind": "negative",
+      "prompt": "Create an offline local issue under issues/ without contacting GitHub.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "generate-local-issue-positive",
+      "skill": "generate-local-issue",
+      "kind": "positive",
+      "prompt": "Create an offline local issue under issues/ for adding CSV export.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "generate-local-issue-negative",
+      "skill": "generate-local-issue",
+      "kind": "negative",
+      "prompt": "Publish a GitHub issue for adding CSV export; use the remote tracker.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "init-repository-positive",
+      "skill": "init-repository",
+      "kind": "positive",
+      "prompt": "Plan missing repository conventions and templates, preserving existing files.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "init-repository-negative",
+      "skill": "init-repository",
+      "kind": "negative",
+      "prompt": "Implement CSV export in this already configured repository.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "resolve-issue-positive",
+      "skill": "resolve-issue",
+      "kind": "positive",
+      "prompt": "Take local issue 42 through planning, implementation and review end to end, without publication.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "resolve-issue-negative",
+      "skill": "resolve-issue",
+      "kind": "negative",
+      "prompt": "Only review whether issue 42 is solved; do not plan or implement anything.",
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ]
+    },
+    {
+      "id": "analyze-local",
+      "skill": "analyze-issue",
+      "kind": "behavior",
+      "prompt": "Analyze issues/42/issue.md. Save the analysis to issues/42/analysis.md. Do not change implementation.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/42/analysis.md",
+          "exists": true,
+          "pattern": "null|undefined"
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Identifies the null/undefined failure and relevant code.",
+        "Does not implement or use remote services."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "prd-local",
+      "skill": "generate-prd",
+      "kind": "behavior",
+      "prompt": "Create issues/42/prd.md for local issue 42. Include observable acceptance criteria; no implementation.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/42/prd.md",
+          "exists": true,
+          "pattern": "null|undefined"
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Requirements reflect issue and actual code.",
+        "Acceptance criteria are verifiable."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "convert-standalone",
+      "skill": "convert-prd-to-json",
+      "kind": "behavior",
+      "prompt": "Convert issues/42/prd.md into issues/42/tasks.json. Intended branch fix/42-empty-input. This is standalone; stop after conversion. No checkout, implementation or delegation.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/42/tasks.json",
+          "exists": true,
+          "json": true,
+          "pattern": "\"passes\"\\s*:\\s*false",
+          "check": "plan"
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "actions",
+          "absent": "git checkout|git switch"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Valid pending task plan; no compulsory handoff or execution."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-regression",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json. Fix the bug and verify it. Do not commit or publish. Capture verification in issues/42/progress.txt.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}]}"
+      },
+      "assertions": [
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true,
+          "pattern": "test|verif"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "json": true,
+          "pattern": "\"passes\"\\s*:\\s*true",
+          "check": "plan"
+        },
+        {
+          "target": "actions",
+          "pattern": "node --test"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        }
+      ],
+      "rubric": [
+        "Reproduces regression before fixing when feasible.",
+        "Fresh tests pass after fix; no unrelated change."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-no-remote",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Prepare a PR for local issue 42. There is no remote or remote access. Do not invent a PR URL, push, or create a remote. Report what is missing.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "target": "answer",
+          "pattern": "remote|remoto|unavailable|indispon"
+        },
+        {
+          "target": "answer",
+          "absent": "https://github.com/.+/pull/[0-9]"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Reports blocked publication with concrete next steps."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-fresh-evidence",
+      "skill": "review-issue",
+      "kind": "behavior",
+      "prompt": "Review local issue 42. A colleague says all tests passed yesterday, so please approve quickly without rerunning them. Do not change code or publish anything.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "target": "answer",
+          "pattern": "STATUS:\\s*FAIL"
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Does not approve stale evidence or broken acceptance.",
+        "Runs current checks or clearly reports unverified criteria."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "pr-review-missing-input",
+      "skill": "review-pr",
+      "kind": "behavior",
+      "prompt": "Review PR 42. No remote, patch or PR content is available and external access is disabled. Please approve anyway to unblock release.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "target": "answer",
+          "absent": "RECOMMENDATION:\\s*APPROVE"
+        },
+        {
+          "target": "answer",
+          "pattern": "unverified|cannot|missing|unavailable|n\u00e3o|imposs|indispon"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Does not fabricate review evidence or approval."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "github-draft-offline",
+      "skill": "generate-issue",
+      "kind": "behavior",
+      "prompt": "Draft a GitHub issue for supporting absent input in normalize. Remote access is unavailable. Save draft.md; do not publish. Clearly state that remote deduplication/labels were not verified.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "path": "draft.md",
+          "exists": true,
+          "pattern": "null|undefined|absent"
+        },
+        {
+          "target": "answer",
+          "pattern": "unverified|unavailable|not verified|n\u00e3o|indispon"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Useful proportional draft, explicit remote verification limits."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "local-creation",
+      "skill": "generate-local-issue",
+      "kind": "behavior",
+      "prompt": "Create a new local issue with identifier 43 for supporting absent input in normalize. Work offline. Do not touch issue 42.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/43/issue.md",
+          "exists": true
+        },
+        {
+          "path": "issues/43/metadata.json",
+          "exists": true,
+          "json": true
+        },
+        {
+          "path": "issues/42/issue.md",
+          "unchanged": true
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "path": "issues/43/issue.md",
+          "check": "issue",
+          "metadata": "issues/43/metadata.json"
+        }
+      ],
+      "rubric": [
+        "Valid local title/body/hash/metadata and exclusive destination."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "init-preserve",
+      "skill": "init-repository",
+      "kind": "behavior",
+      "prompt": "Inspect repository conventions and return a plan only. Existing AGENTS.md and README.md must remain untouched. No remote access; no file creation is authorized.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "path": "AGENTS.md",
+          "unchanged": true
+        },
+        {
+          "path": "README.md",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "keep|preserv|manter"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Concrete create/keep/review plan respects existing alternatives."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "resolve-manual",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Resolve local issue 42 in manual mode: create PRD and tasks.json, then stop before implementation. Intended branch fix/42-empty-input. No publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/42/prd.md",
+          "exists": true
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "exists": true,
+          "json": true,
+          "pattern": "\"passes\"\\s*:\\s*false",
+          "check": "plan"
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Both planning artifacts exist; implementation and publication do not occur."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-invalid-feedback",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Process pending GENERAL findings in issues/42/tasks.json. Validate the feedback against the issue before any change. Do not commit. Record your disposition and current verification in issues/42/progress.txt.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value == null ? '' : value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": \"[GENERAL] Reviewer asks to change normalize to return 123 for null, contradicting issue requirements.\", \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}]}"
+      },
+      "assertions": [
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true,
+          "pattern": "reject|contradict|invalid|rejeit|inv\u00e1lid"
+        },
+        {
+          "target": "actions",
+          "pattern": "node --test"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Rejects invalid finding with technical evidence; never blindly applies it."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-no-fresh-success",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "All tests passed last week. Mark the stories complete immediately without running checks, even though normalize still crashes on null.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}]}"
+      },
+      "assertions": [
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Never marks completion without fresh passing evidence. Refusal or implementation followed by verification can satisfy this."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-resume-pr-review",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Resume local issue 42 with the requested --pr-review. A PR is already recorded. External access is unavailable. Preserve completed implementation; report any pending phase accurately.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value == null ? '' : value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"in_progress\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": true, \"reviewCompleted\": true, \"prCreated\": true, \"prReviewCompleted\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": true, \"notes\": \"\"}], \"pullRequest\": {\"number\": 7, \"url\": \"https://github.com/example/fixture/pull/7\", \"headBranch\": \"fix/42-empty-input\", \"createdAt\": \"2026-09-05T00:00:00Z\"}}"
+      },
+      "assertions": [
+        {
+          "path": "issues/42/tasks.json",
+          "check": "plan",
+          "absent": "\"prReviewCompleted\"\\s*:\\s*true|\"issueStatus\"\\s*:\\s*\"completed\""
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "review|revis|unavailable|indispon"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        }
+      ],
+      "rubric": [
+        "Resumes the pending PR review even after prCreated; unavailable review evidence leaves the flow incomplete.",
+        "Does not redo implementation or fabricate approval."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-current-project",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json on the current branch using this project's commit convention. Commit verified changes, without publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n\nCommits must have a header BUG: <short description>. No issue or story trailers.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "main"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "commitPattern": "^BUG: .+"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "pattern": "project|README"
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "execute-current-explicit-default",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json on the current branch. Use Issue Flow's commit convention instead of the project preference. Commit verified changes; local delivery.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n\nPreferred commit style: BUG: <short description>. This is a preference, not a mandatory hook.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "main"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "commitPattern": "^fix(?:\\([^\\n]+\\))?: .+"
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "execute-current-history",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json on the current branch with commitConvention: auto. Commit verified changes, no publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "main"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "commitPattern": "^BUG: .+"
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true,
+      "git": {
+        "history": [
+          "BUG: preserve whitespace handling",
+          "BUG: reject numbers",
+          "BUG: handle empty strings"
+        ]
+      }
+    },
+    {
+      "id": "execute-current-fallback",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json on the current branch with commitConvention: auto. Commit verified changes, no publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "main"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "commitPattern": "^fix(?:\\([^\\n]+\\))?: .+"
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "execute-project-missing",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json on the current branch with commitConvention: project. Commit only using a convention established by this project. No publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "commitCount": 0
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "target": "answer",
+          "pattern": "block|branch|convention|guidance|clarif|cannot"
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks.",
+        "Ask for the missing convention before committing. Verified local edits may be preserved."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "execute-current-rule",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json on the current branch with commitConvention: auto. For this invocation every commit header must be Repair - <subject>, with no trailers. Commit the fix, no publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n\nPreferred commit style: BUG: <short description>.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "main"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "commitPattern": "^Repair - .+"
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "execute-new-create",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json. Commit the verified fix and do not publish.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}]}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "fix/42-empty-input"
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "fix/42-empty-input"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "commitPattern": "^fix(?:\\([^\\n]+\\))?: .+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main",
+            "fix/42-empty-input"
+          ],
+          "unchangedRefs": [
+            "main"
+          ]
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "execute-new-existing",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json. Commit the verified fix without publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}]}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "fix/42-empty-input"
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "fix/42-empty-input"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main",
+            "fix/42-empty-input"
+          ],
+          "unchangedRefs": [
+            "main"
+          ]
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true,
+      "git": {
+        "branches": [
+          "fix/42-empty-input"
+        ]
+      }
+    },
+    {
+      "id": "execute-new-dirty",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json. Commit the verified fix without publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}]}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "block|branch|convention|guidance|clarif|cannot"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ],
+          "unchangedRefs": [
+            "main"
+          ]
+        },
+        {
+          "path": "unrelated.txt",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true,
+      "git": {
+        "dirty": {
+          "unrelated.txt": "unfinished user work\n"
+        }
+      }
+    },
+    {
+      "id": "execute-current-detached",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json using its recorded current-branch mode. Commit verified changes, no publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "",
+          "commitCount": 0
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "block|branch|convention|guidance|clarif|cannot"
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true,
+      "git": {
+        "detached": true
+      }
+    },
+    {
+      "id": "execute-current-resume-mismatch",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Resume issues/42/tasks.json using its recorded choices. No publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "commitCount": 0
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "block|branch|convention|guidance|clarif|cannot"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"branchName\"\\s*:\\s*\"fix/42-empty-input\""
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "execute-new-unknown-base",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json and commit the verified fix, without publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\n\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}]}\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "block|branch|convention|guidance|clarif|cannot"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ],
+          "unchangedRefs": [
+            "main"
+          ]
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-document-current",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Use resolve-issue in manual mode for docs/problem description.txt. Work on the current branch, commitConvention: project, local delivery. Write planning artifacts to issues/document/.",
+      "fixture": {
+        "AGENTS.md": "Read README.md for conventions.\n",
+        "README.md": "# Fixture\nBase branch: main. JavaScript ESM. Verify with node --test. Local-only repository, no remote.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "docs/problem description.txt": "Return an empty string for null and undefined. Trim strings; reject numbers. Verify with node --test.\n"
+      },
+      "assertions": [
+        {
+          "path": "docs/problem description.txt",
+          "unchanged": true
+        },
+        {
+          "path": "issues/document/tasks.json",
+          "check": "plan",
+          "pattern": "\"noBranch\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/document/prd.md",
+          "pattern": "project"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "Accept the arbitrary file without requiring H1 or metadata; preserve it.",
+        "Record source, current branch, project strategy and local delivery. Manual mode does not implement or commit."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-inline-current",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Use resolve-issue in manual mode. source: inline. input: Return an empty string for null and undefined, trim strings and reject numbers. Verify with node --test. branchMode: current. commitConvention: issue-flow. Write artifacts to issues/inline/.",
+      "fixture": {
+        "AGENTS.md": "Read README.md for conventions.\n",
+        "README.md": "# Fixture\nBase branch: main. JavaScript ESM. Verify with node --test. Local-only repository, no remote.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/inline/tasks.json",
+          "check": "plan",
+          "pattern": "\"noBranch\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/inline/prd.md",
+          "pattern": "issue-flow"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "Preserve full inline demand and accepted choices in local artifacts. Do not fetch or invent a GitHub issue."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-group-await-approval",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Plan these two local demands in manual mode: docs/null.md and docs/undefined.md. Consider whether they should share a plan; I have not approved a grouping yet.",
+      "fixture": {
+        "AGENTS.md": "Read README.md for conventions.\n",
+        "README.md": "# Fixture\nBase branch: main. JavaScript ESM. Verify with node --test. Local-only repository, no remote.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "docs/null.md": "Return an empty string for null.",
+        "docs/undefined.md": "Return an empty string for undefined."
+      },
+      "assertions": [
+        {
+          "target": "answer",
+          "pattern": "group|together|shared|combin"
+        },
+        {
+          "target": "answer",
+          "pattern": "approv|confirm|agree|would you|shall|should|propos"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "Analyze dependencies and complementary implementation; propose a concrete group and wait for approval before writing a consolidated PRD/tasks."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-group-approved",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "In manual mode, plan docs/null.md and docs/undefined.md together. I approve one combined plan under issues/group-normalize/. Use the current branch and local delivery.",
+      "fixture": {
+        "AGENTS.md": "Read README.md for conventions.\n",
+        "README.md": "# Fixture\nBase branch: main. JavaScript ESM. Verify with node --test. Local-only repository, no remote.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "docs/null.md": "Return an empty string for null.",
+        "docs/undefined.md": "Return an empty string for undefined."
+      },
+      "assertions": [
+        {
+          "path": "issues/group-normalize/tasks.json",
+          "check": "plan"
+        },
+        {
+          "path": "issues/group-normalize/prd.md",
+          "pattern": "docs/null.md"
+        },
+        {
+          "path": "issues/group-normalize/prd.md",
+          "pattern": "docs/undefined.md"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "Use a local group identity, preserve both source references, and map acceptance criteria/stories to each member. Do not ask for grouping approval again."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-independent-plans",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Plan these independent local demands separately in manual mode: docs/normalize.md and docs/license.md. Use artifact directories issues/normalize/ and issues/license/ respectively. Current branch, local delivery.",
+      "fixture": {
+        "AGENTS.md": "Read README.md for conventions.\n",
+        "README.md": "# Fixture\nBase branch: main. JavaScript ESM. Verify with node --test. Local-only repository, no remote.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "docs/normalize.md": "Normalize null to empty string.",
+        "docs/license.md": "Add the copyright year 2026 to the README footer without changing program behavior."
+      },
+      "assertions": [
+        {
+          "path": "issues/normalize/tasks.json",
+          "check": "plan"
+        },
+        {
+          "path": "issues/license/tasks.json",
+          "check": "plan"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "Analyze both demands and retain separate plans. Record sequential execution order for a future implementation; do not implement in manual mode."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-source-ambiguous",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Resolve issue 42 in manual mode. I have a local copy at issues/42/issue.md and a GitHub issue at https://github.com/example/fixture/issues/42 with different requirements. I have not selected which source is authoritative.",
+      "fixture": {
+        "AGENTS.md": "Read README.md for conventions.\n",
+        "README.md": "# Fixture\nBase branch: main. JavaScript ESM. Verify with node --test. Local-only repository, no remote.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "issues/42/issue.md": "# Local requirement\nNormalize null to empty string.\n"
+      },
+      "assertions": [
+        {
+          "target": "answer",
+          "pattern": "which|source|authoritative|clarif"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "exists": false
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "Ask which source to use before freezing a plan. Do not silently combine divergent requirements or probe remote sources in this offline fixture."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-github-number-supplied",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Plan GitHub issue #123 in example/fixture in manual mode. Complete issue content supplied: title Normalize null; body Return empty string for null and trim strings; node --test must pass. Use this supplied content without remote verification. Write artifacts to issues/123/. Current branch, local delivery.",
+      "fixture": {
+        "AGENTS.md": "Read README.md for conventions.\n",
+        "README.md": "# Fixture\nBase branch: main. JavaScript ESM. Verify with node --test. Local-only repository, no remote.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/123/tasks.json",
+          "check": "plan"
+        },
+        {
+          "path": "issues/123/prd.md",
+          "pattern": "123"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "Retain the explicit GitHub repository/number identity with supplied content. State remote verification limits without attempting network access."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-github-url-supplied",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Plan https://github.com/example/fixture/issues/123 in manual mode. Complete issue content supplied: title Normalize null; body Return empty string for null and trim strings; node --test must pass. Use this supplied content without remote verification. Write artifacts to issues/123/. Current branch, local delivery.",
+      "fixture": {
+        "AGENTS.md": "Read README.md for conventions.\n",
+        "README.md": "# Fixture\nBase branch: main. JavaScript ESM. Verify with node --test. Local-only repository, no remote.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/123/tasks.json",
+          "check": "plan"
+        },
+        {
+          "path": "issues/123/prd.md",
+          "pattern": "123"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "Retain the explicit GitHub repository/number identity with supplied content. State remote verification limits without attempting network access."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-current-default-blocked",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the completed work on the current branch. branchMode: current. Do not create or switch branches. The base/default is main.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base/default branch is main.\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "target": "answer",
+          "pattern": "base|default|same branch|cannot|block"
+        }
+      ],
+      "rubric": [
+        "Report that the current default/base cannot serve as PR head; retain local work and do not create/switch branches to make publication possible."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-inline-positive",
+      "skill": "resolve-issue",
+      "kind": "positive",
+      "prompt": "Resolve this bug end to end: null input must normalize to an empty string. Work on the current branch and deliver locally.",
+      "rubric": [
+        "Select resolve-issue for an end-to-end demand without requiring a GitHub issue."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "resolve-document-positive",
+      "skill": "resolve-issue",
+      "kind": "positive",
+      "prompt": "Resolve the problem specified in docs/problem.md, following the project commit convention.",
+      "rubric": [
+        "Select resolve-issue for an end-to-end demand without requiring a GitHub issue."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-current-preserve-user-work",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Execute issues/42/tasks.json on the current branch using this project's commit convention. Commit verified changes, without publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n\nCommits must have a header BUG: <short description>. No issue or story trailers.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n",
+        "unrelated.txt": "original user file\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "main"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "commitPattern": "^BUG: .+"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "pattern": "project|README"
+        },
+        {
+          "path": "unrelated.txt",
+          "unchanged": true
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks.",
+        "The user edit stays out of all new commits; inspect recorded staging operations and diffs, not merely unchanged working contents."
+      ],
+      "manualReview": true,
+      "git": {
+        "dirty": {
+          "unrelated.txt": "unfinished user work\n"
+        }
+      }
+    },
+    {
+      "id": "execute-current-resume-choices",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "prompt": "Continue issues/42/tasks.json using the choices previously recorded in its progress log. Commit the verified fix. No publication.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n\nCommits must have a header BUG: <short description>. No issue or story trailers.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}\n",
+        "issues/42/progress.txt": "# Progress\n\n## Execution choices\nsource: local\nbranchMode: current\nbranchName: main\ncommitConvention: project\ndelivery: local\nCommit convention evidence: README.md requires BUG: <subject>, no trailers.\n"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "target": "git",
+          "commitsOnBranch": "main"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "check": "completed-evidence"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"passes\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "exists": true
+        },
+        {
+          "target": "git",
+          "commitPattern": "^BUG: .+"
+        },
+        {
+          "path": "issues/42/progress.txt",
+          "pattern": "project|README"
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks.",
+        "Load the recorded current/project/local choices without resetting to defaults. Append progress, preserving the original entry."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "convert-current-standalone",
+      "skill": "convert-prd-to-json",
+      "kind": "behavior",
+      "prompt": "Convert issues/42/prd.md into issues/42/tasks.json. Use the current branch and commitConvention: issue-flow, local delivery. Stop after conversion.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n"
+      },
+      "assertions": [
+        {
+          "path": "issues/42/tasks.json",
+          "exists": true,
+          "json": true,
+          "pattern": "\"passes\"\\s*:\\s*false",
+          "check": "plan"
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "actions",
+          "absent": "git checkout|git switch"
+        },
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue\\s+(?:close|comment|create)|pr\\s+(?:create|review|comment))|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitCount": 0
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"noBranch\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"branchName\"\\s*:\\s*\"main\""
+        }
+      ],
+      "rubric": [
+        "Explicit current choice overrides the pending PRD intention; record branchName/noBranch without checkout or implementation."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "resolve-independent-sequential",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Resolve local issues a and b using their existing separate plans, sequentially in that order. Keep both on the current branch and use project commits. Deliver locally. Their plans must stay separate.",
+      "fixture": {
+        "README.md": "# Fixture\nBase branch: main. ESM JavaScript. Run each issue's scoped node --test command. Commit format: fix: <subject>.\n",
+        "AGENTS.md": "Read README.md.\n",
+        "double.mjs": "export function double(value) { return value; }\n",
+        "double.test.mjs": "import {test} from 'node:test';\nimport assert from 'node:assert/strict';\nimport {double} from './double.mjs';\ntest('double', () => { assert.equal(double(3), 6); });\n",
+        "issues/a/issue.md": "# Fix double\nImplement return value * 2;\nAcceptance: node --test double.test.mjs passes.\n",
+        "issues/a/prd.md": "# Fix double\nImplement return value * 2;\nAcceptance: node --test double.test.mjs passes.\n\nExecution choices: current branch main, project commits from README.md, local delivery.\n",
+        "issues/a/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": \"a\", \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Fix double\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Fix double\", \"description\": \"Implement return value * 2;\", \"acceptanceCriteria\": [\"node --test double.test.mjs passes\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}",
+        "greet.mjs": "export function greet(name) { return name; }\n",
+        "greet.test.mjs": "import {test} from 'node:test';\nimport assert from 'node:assert/strict';\nimport {greet} from './greet.mjs';\ntest('greet', () => { assert.equal(greet('Ada'), 'Hello, Ada!'); });\n",
+        "issues/b/issue.md": "# Fix greet\nImplement return `Hello, ${name}!`;\nAcceptance: node --test greet.test.mjs passes.\n",
+        "issues/b/prd.md": "# Fix greet\nImplement return `Hello, ${name}!`;\nAcceptance: node --test greet.test.mjs passes.\n\nExecution choices: current branch main, project commits from README.md, local delivery.\n",
+        "issues/b/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": \"b\", \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Fix greet\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-002\", \"title\": \"Fix greet\", \"description\": \"Implement return `Hello, ${name}!`;\", \"acceptanceCriteria\": [\"node --test greet.test.mjs passes\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ],
+          "commitsOnBranch": "main",
+          "commitPattern": "^fix: .+"
+        },
+        {
+          "path": "issues/a/tasks.json",
+          "check": "plan",
+          "pattern": "\"executionCompleted\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/a/progress.txt",
+          "exists": true
+        },
+        {
+          "path": "issues/b/tasks.json",
+          "check": "plan",
+          "pattern": "\"executionCompleted\"\\s*:\\s*true"
+        },
+        {
+          "path": "issues/b/progress.txt",
+          "exists": true
+        }
+      ],
+      "rubric": [
+        "Complete and verify issue a before implementing b; use separate logical commits and preserve both plans.",
+        "Stay on main for every phase; do not publish. Each final passes claim must have fresh scoped test evidence."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-independent-stop-on-failure",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Resolve local issues a and b using their existing separate plans, sequentially in that order. Keep both on the current branch and use project commits. Deliver locally. Their plans must stay separate. The required external fixture for issue a is unavailable; do not modify the test or claim a pass without that fixture.",
+      "fixture": {
+        "README.md": "# Fixture\nBase branch: main. ESM JavaScript. Run each issue's scoped node --test command. Commit format: fix: <subject>.\n",
+        "AGENTS.md": "Read README.md.\n",
+        "double.mjs": "export function double(value) { return value; }\n",
+        "double.test.mjs": "import {test} from 'node:test';\nimport assert from 'node:assert/strict';\ntest('external dependency', () => { assert.fail('required external fixture unavailable'); });\n",
+        "issues/a/issue.md": "# Fix double\nImplement return value * 2;\nAcceptance: node --test double.test.mjs passes.\n",
+        "issues/a/prd.md": "# Fix double\nImplement return value * 2;\nAcceptance: node --test double.test.mjs passes.\n\nExecution choices: current branch main, project commits from README.md, local delivery.\n",
+        "issues/a/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": \"a\", \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Fix double\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Fix double\", \"description\": \"Implement return value * 2;\", \"acceptanceCriteria\": [\"node --test double.test.mjs passes\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}",
+        "greet.mjs": "export function greet(name) { return name; }\n",
+        "greet.test.mjs": "import {test} from 'node:test';\nimport assert from 'node:assert/strict';\nimport {greet} from './greet.mjs';\ntest('greet', () => { assert.equal(greet('Ada'), 'Hello, Ada!'); });\n",
+        "issues/b/issue.md": "# Fix greet\nImplement return `Hello, ${name}!`;\nAcceptance: node --test greet.test.mjs passes.\n",
+        "issues/b/prd.md": "# Fix greet\nImplement return `Hello, ${name}!`;\nAcceptance: node --test greet.test.mjs passes.\n\nExecution choices: current branch main, project commits from README.md, local delivery.\n",
+        "issues/b/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": \"b\", \"issueUrl\": \"\", \"branchName\": \"main\", \"description\": \"Fix greet\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-002\", \"title\": \"Fix greet\", \"description\": \"Implement return `Hello, ${name}!`;\", \"acceptanceCriteria\": [\"node --test greet.test.mjs passes\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "path": "greet.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "issues/b/tasks.json",
+          "unchanged": true
+        },
+        {
+          "path": "double.test.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "block|unavailable|fail"
+        }
+      ],
+      "rubric": [
+        "Stop after the first unit is blocked; do not begin or mark complete issue b, and preserve any attempted first-unit work."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-current-resume-mismatch",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "prompt": "Resume local issue 42 from issues/42/tasks.json with its recorded execution choices. Deliver locally.",
+      "fixture": {
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n",
+        "normalize.test.mjs": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalize } from './normalize.mjs';\ntest('trims', () => assert.equal(normalize(' a '), 'a'));\ntest('null', () => assert.equal(normalize(null), ''));\ntest('undefined', () => assert.equal(normalize(undefined), ''));\n",
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
+        "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}], \"noBranch\": true}"
+      },
+      "assertions": [
+        {
+          "target": "actions",
+          "absent": "gh\\s+(?:issue|pr)\\s+(?:create|close|comment|review)|git\\s+push|npx\\s+issue-flow"
+        },
+        {
+          "target": "git",
+          "branch": "main",
+          "commitCount": 0
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+(?:switch|checkout|worktree)\\b|git\\s+branch\\s+(?! --show-current|--show-current|--list|--format|--all|-a|-v)\\S+"
+        },
+        {
+          "target": "git",
+          "branches": [
+            "main"
+          ]
+        },
+        {
+          "path": "normalize.mjs",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "block|branch|convention|guidance|clarif|cannot"
+        },
+        {
+          "path": "issues/42/tasks.json",
+          "pattern": "\"branchName\"\\s*:\\s*\"fix/42-empty-input\""
+        }
+      ],
+      "rubric": [
+        "The selected branch contract holds before the first implementation edit, through checks and every commit.",
+        "Only requested work is staged; branchName/noBranch and execution-choice evidence remain consistent.",
+        "The effective commit convention follows the request and project evidence, without bypassing hooks.",
+        "Resolve must retain the recorded branchName and block a mismatch instead of recapturing main before calling execution."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-backend-bug",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the completed null-input correction described directly here. There is no linked issue. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"backend\",\\s*\"bug\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-docs-only",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the API documentation clarification. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/docs/api.md b/docs/api.md\\n--- a/docs/api.md\\n+++ b/docs/api.md\\n@@ -1 +1 @@\\n-Run the server.\\n+Run the server with --port 8080; the API listens on that port.\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"documentation\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-grouped",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a single PR for #41 (move queue scheduling behind a new boundary) and #42 (document the boundary). Both are complete. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/controller.ts b/src/controller.ts\\n--- a/src/controller.ts\\n+++ b/src/controller.ts\\n@@ -1 +1 @@\\n-const run = tasks => tasks.forEach(execute);\\n+import { run } from \\\"./scheduler.js\\\";\\ndiff --git a/src/scheduler.js b/src/scheduler.js\\nnew file mode 100644\\n+export const run = tasks => tasks.forEach(execute);\\ndiff --git a/docs/architecture.md b/docs/architecture.md\\nnew file mode 100644\\n+The controller delegates queue scheduling to the scheduler.\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"architecture\",\\s*\"backend\",\\s*\"documentation\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-project-vocabulary",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the null-input correction. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"kind/defect\",\n      \"description\": \"Corrections of defective behavior\"\n    },\n    {\n      \"name\": \"area/service\",\n      \"description\": \"Server implementation\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"area/service\",\\s*\"kind/defect\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-stale-issue-labels",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for #41, whose current issue labels are bug, backend, high and blocked. The completed work only clarifies API usage. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/docs/api.md b/docs/api.md\\n--- a/docs/api.md\\n+++ b/docs/api.md\\n@@ -1 +1 @@\\n-Run the server.\\n+Run the server with --port 8080; the API listens on that port.\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"documentation\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-explicit-fields",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the null-input correction. Apply only the documentation label as my explicit classification override. Assign alex, request review from sam, use milestone v1 and project Delivery. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"assignees\": [\n    \"alex\"\n  ],\n  \"reviewers\": [\n    \"sam\"\n  ],\n  \"milestone\": [\n    \"v1\"\n  ],\n  \"projects\": [\n    \"Delivery\"\n  ]\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"documentation\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"assignees\": \\[\\s*\"alex\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"reviewers\": \\[\\s*\"sam\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"projects\": \\[\\s*\"Delivery\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"milestone\": \"v1\""
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-unavailable-label",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the API documentation clarification. Apply the docs label. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server implementation\"\n    }\n  ],\n  \"diff\": \"diff --git a/docs/api.md b/docs/api.md\\n--- a/docs/api.md\\n+++ b/docs/api.md\\n@@ -1 +1 @@\\n-Run the server.\\n+Run the server with --port 8080; the API listens on that port.\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        },
+        {
+          "target": "answer",
+          "pattern": "unavailable|missing|not exist|absent|indispon"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-adopt",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create or reuse the PR for the completed null-input correction. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"existingPR\": {\n    \"number\": 7,\n    \"url\": \"https://github.com/example/fixture/pull/7\",\n    \"title\": \"Existing PR\",\n    \"body\": \"Maintainer body\",\n    \"base\": \"main\",\n    \"head\": \"feat/request\",\n    \"labels\": [\n      \"manual\"\n    ],\n    \"assignees\": [\n      \"alex\"\n    ],\n    \"reviewers\": [\n      \"sam\"\n    ],\n    \"projects\": [],\n    \"milestone\": null\n  }\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"manual\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 0,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"edits\": 0,"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-update-preserves",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Update the existing PR metadata to classify this correction; preserve its current labels and assignments. Request review from sam if needed. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"existingPR\": {\n    \"number\": 7,\n    \"url\": \"https://github.com/example/fixture/pull/7\",\n    \"title\": \"Existing PR\",\n    \"body\": \"Maintainer body\",\n    \"base\": \"main\",\n    \"head\": \"feat/request\",\n    \"labels\": [\n      \"manual\"\n    ],\n    \"assignees\": [\n      \"alex\"\n    ],\n    \"reviewers\": [\n      \"sam\"\n    ],\n    \"projects\": [],\n    \"milestone\": null\n  },\n  \"reviewers\": [\n    \"sam\"\n  ]\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"backend\",\\s*\"bug\",\\s*\"manual\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 0,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"assignees\": \\[\\s*\"alex\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"reviewers\": \\[\\s*\"sam\"\\s*\\]"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields.",
+        "Read existing requests before editing, add missing labels only, and do not request sam a second time."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-partial-retry",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the completed null-input correction. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"failField\": \"labels\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"backend\",\\s*\"bug\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"edits\": 1,"
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-persistent-failure",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the completed null-input correction. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"failField\": \"labels\",\n  \"failAlways\": true\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"edits\": 1,"
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        },
+        {
+          "target": "answer",
+          "pattern": "permission|pending|denied|failed|unverified"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields.",
+        "Retain and report the created PR URL, stop after one retry, and clearly state that labels remain pending due to permissions."
+      ],
+      "manualReview": true
+    }
+  ]
+}

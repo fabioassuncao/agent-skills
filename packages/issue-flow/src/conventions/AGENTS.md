@@ -10,6 +10,9 @@ and [`docs/conventions.md`](../../../../docs/conventions.md). This package
 is the machine-readable half; `policy/` discovers what a target repo
 already has.
 
+Distribution of these pure rules to independent Skills is defined in the
+[source/artifact contract](../../../../docs/skills.md#source-and-distribution).
+
 ## Invariants
 
 - **Last rung only.** `defaults.ts` applies when repo, org and config are

@@ -1,0 +1,2680 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-05T22:40:47.987Z",
+  "provider": "claude",
+  "version": "2.1.261 (Claude Code)",
+  "baseline": null,
+  "mode": "catalogue selection + explicit isolated behavior (not native discovery certification)",
+  "corpusHash": "d9b0048667529c87dc58d2575deda05119d4d73f389e4c8a0af2872ddd1da058",
+  "results": [
+    {
+      "id": "analyze-issue-positive",
+      "skill": "analyze-issue",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 3169,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 16,
+        "cacheReadTokens": 0,
+        "cacheCreationTokens": 17688,
+        "costUsd": 0.17893399999999998,
+        "cliDurationMs": 2275,
+        "apiDurationMs": 3116,
+        "ttftMs": 2222,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"analyze-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "analyze-issue-negative",
+      "skill": "analyze-issue",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 2870,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 9,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9308,
+        "costUsd": 0.09911099999999999,
+        "cliDurationMs": 1993,
+        "apiDurationMs": 2787,
+        "ttftMs": 1960,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": null}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "generate-prd-positive",
+      "skill": "generate-prd",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 2862,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 15,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9326,
+        "costUsd": 0.099465,
+        "cliDurationMs": 2002,
+        "apiDurationMs": 2873,
+        "ttftMs": 1970,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"generate-prd\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "generate-prd-negative",
+      "skill": "generate-prd",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 2812,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 19,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9328,
+        "costUsd": 0.099577,
+        "cliDurationMs": 1971,
+        "apiDurationMs": 2812,
+        "ttftMs": 1937,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"convert-prd-to-json\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "convert-prd-to-json-positive",
+      "skill": "convert-prd-to-json",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 2842,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 19,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9331,
+        "costUsd": 0.099631,
+        "cliDurationMs": 1990,
+        "apiDurationMs": 2858,
+        "ttftMs": 1958,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"convert-prd-to-json\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "convert-prd-to-json-negative",
+      "skill": "convert-prd-to-json",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 3080,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 15,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9315,
+        "costUsd": 0.09934200000000001,
+        "cliDurationMs": 2185,
+        "apiDurationMs": 3074,
+        "ttftMs": 2167,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"generate-prd\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-tasks-positive",
+      "skill": "execute-tasks",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 2956,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 16,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9327,
+        "costUsd": 0.099518,
+        "cliDurationMs": 2046,
+        "apiDurationMs": 2983,
+        "ttftMs": 2010,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"execute-tasks\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-tasks-negative",
+      "skill": "execute-tasks",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 2867,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9320,
+        "costUsd": 0.09937,
+        "cliDurationMs": 1955,
+        "apiDurationMs": 2920,
+        "ttftMs": 1925,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"review-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "create-pr-positive",
+      "skill": "create-pr",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 3721,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9320,
+        "costUsd": 0.099359,
+        "cliDurationMs": 2241,
+        "apiDurationMs": 3154,
+        "ttftMs": 2200,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"create-pr\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "create-pr-negative",
+      "skill": "create-pr",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 3514,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9320,
+        "costUsd": 0.09937700000000001,
+        "cliDurationMs": 2143,
+        "apiDurationMs": 2989,
+        "ttftMs": 2113,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"review-pr\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-issue-positive",
+      "skill": "review-issue",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 3493,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9327,
+        "costUsd": 0.099454,
+        "cliDurationMs": 1930,
+        "apiDurationMs": 2949,
+        "ttftMs": 1872,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"review-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-issue-negative",
+      "skill": "review-issue",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 3470,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 15,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9315,
+        "costUsd": 0.099335,
+        "cliDurationMs": 1942,
+        "apiDurationMs": 2908,
+        "ttftMs": 1915,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"generate-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-pr-positive",
+      "skill": "review-pr",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 2975,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9323,
+        "costUsd": 0.099405,
+        "cliDurationMs": 2094,
+        "apiDurationMs": 2910,
+        "ttftMs": 2053,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"review-pr\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-pr-negative",
+      "skill": "review-pr",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 2815,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9317,
+        "costUsd": 0.09933600000000001,
+        "cliDurationMs": 1959,
+        "apiDurationMs": 2769,
+        "ttftMs": 1938,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"create-pr\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "generate-issue-positive",
+      "skill": "generate-issue",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 2850,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 15,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9335,
+        "costUsd": 0.09954299999999998,
+        "cliDurationMs": 1980,
+        "apiDurationMs": 2838,
+        "ttftMs": 1886,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"generate-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "generate-issue-negative",
+      "skill": "generate-issue",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 3055,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 17,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9323,
+        "costUsd": 0.09947399999999999,
+        "cliDurationMs": 2201,
+        "apiDurationMs": 3038,
+        "ttftMs": 2181,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"generate-local-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "generate-local-issue-positive",
+      "skill": "generate-local-issue",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 3156,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 17,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9320,
+        "costUsd": 0.09943900000000001,
+        "cliDurationMs": 2304,
+        "apiDurationMs": 3179,
+        "ttftMs": 2272,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"generate-local-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "generate-local-issue-negative",
+      "skill": "generate-local-issue",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 2773,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 15,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9330,
+        "costUsd": 0.09948599999999999,
+        "cliDurationMs": 1914,
+        "apiDurationMs": 2749,
+        "ttftMs": 1894,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"generate-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "init-repository-positive",
+      "skill": "init-repository",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 2958,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9322,
+        "costUsd": 0.099383,
+        "cliDurationMs": 2115,
+        "apiDurationMs": 2988,
+        "ttftMs": 2074,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"init-repository\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "init-repository-negative",
+      "skill": "init-repository",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 2929,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 16,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9316,
+        "costUsd": 0.09936599999999998,
+        "cliDurationMs": 2084,
+        "apiDurationMs": 3050,
+        "ttftMs": 2051,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"resolve-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "resolve-issue-positive",
+      "skill": "resolve-issue",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 3030,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 16,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9328,
+        "costUsd": 0.09952,
+        "cliDurationMs": 2186,
+        "apiDurationMs": 2915,
+        "ttftMs": 2157,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"resolve-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "resolve-issue-negative",
+      "skill": "resolve-issue",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 2907,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9325,
+        "costUsd": 0.099428,
+        "cliDurationMs": 2047,
+        "apiDurationMs": 2844,
+        "ttftMs": 2008,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29",
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e",
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef",
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f",
+        "create-pr": "25b16cd02acdbe313a44f025b584e062b5564738e046578485d9fbc6779858b9",
+        "review-issue": "4d81ee6e940479347e23080c884367eedde26c0c9440d3a743f7375cd49a6afd",
+        "review-pr": "c717bee48ae52715bfbb43026a053a6121a2313e5e32fba078960d0d3e4e7bd5",
+        "generate-issue": "45d1813553da4db297ade38870cf50866b5f169d0f0e5a44b578460fb043f32b",
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399",
+        "init-repository": "8282cfe09847340bd4066f166a8e89745f65bb8bc78da3e42b92d4898774d12c",
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"review-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "analyze-local",
+      "skill": "analyze-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 66583,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 4873,
+        "cacheReadTokens": 117918,
+        "cacheCreationTokens": 14887,
+        "costUsd": 0.33080800000000005,
+        "cliDurationMs": 65967,
+        "apiDurationMs": 66715,
+        "ttftMs": 2181,
+        "numTurns": 13
+      },
+      "hashes": {
+        "analyze-issue": "025ef64801b0d4636e3bb1c28a004d7bac31a6434ff68a28b784b3db54da4a29"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Analysis written to `issues/42/analysis.md`. No implementation files were touched.\n\n**What I did:** followed the installed `analyze-issue` Skill (its `issue-input`, `repository-policy`, and `analyze-issue` references). Resolved the issue locally with no remote probes \u2014 the repo has no remote and `README.md` declares it local-only. Skipped the CLI-integration reference since the Issue Flow CLI is unavailable; direct discovery was sufficient.\n\n**Key findings:**\n\n- `normalize.mjs:1` is a bare `value.trim()`. Running `node --test` confirms the acceptance criteria currently fail: 3 tests, 1 pass, 2 fail (`null` and `undefined` both throw `TypeError`).\n- The suite has **no whitespace-only test**, though acceptance names whitespace explicitly. `trims` covers `' a '`, not `'   '`.\n- Constraints from policy: ESM `.mjs`, verify with `node --test`, no new dependencies (`README.md`, reached via the `AGENTS.md` pointer). No `package.json`, templates, `CODEOWNERS`, or `.issue-flow.json` exist, so no template/label governance applies.\n- No callers of `normalize` exist in-repo; the export shape is depended on only by the test file.\n\n**Decisions needed before implementation** \u2014 the substantive one is what *\"keep numbers unsupported\"* means observably. Today `normalize(42)` throws an incidental `TypeError` from the missing `.trim`; the issue doesn't say whether that should stay incidental, become an explicit typed error, or be treated as undefined behavior. That choice also settles whether the guard is nullish-only (`?? ''`) or truthiness-based, since a truthiness guard would swallow `0` and `false`. I recorded three further ambiguities (whitespace test scope, other non-string values, falsy-vs-nullish) in the analysis, with facts and hypotheses kept separate throughout.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../analyze-issue/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/analyze-issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-LjxZ3s/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-LjxZ3s/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-LjxZ3s/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-LjxZ3s/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -a && echo \"--- issues ---\" && ls -aR issues && echo \"..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -30"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/analysis.md"
+        }
+      ],
+      "artifacts": {
+        "issues/42/analysis.md": "# Analysis \u2014 Issue 42: Handle empty input\n\nSource: local file `issues/42/issue.md` (local-only; no remote probes performed \u2014 `git remote -v` is empty and `README.md` declares \"Local-only repository; no remote\"). No metadata block present in the issue file; per the issue-input reference, metadata is optional when reading, so nothing was invented.\n\n## Summary and goal\n\n`normalize(value)` must trim strings and return an empty string (`''`) for `null` and `undefined`. Numbers stay unsupported. Acceptance is stated as: `node --test` passes for null, undefined and whitespace.\n\n## Affected areas\n\n- `normalize.mjs:1` \u2014 the sole implementation: `export function normalize(value) { return value.trim(); }`.\n- `normalize.test.mjs:4-6` \u2014 the existing suite (`trims`, `null`, `undefined`).\n- No other file references `normalize`; there are no callers in this repository (verified by search across the tree). The function is exported, so any consumers would be external to this fixture.\n\n## Observed facts\n\n- Current behavior fails the stated acceptance. `node --test` run at analysis time: 3 tests, 1 pass, 2 fail.\n  - `trims` passes (`normalize(' a ') === 'a'`).\n  - `null` fails: `TypeError: Cannot read properties of null (reading 'trim')`.\n  - `undefined` fails: `TypeError: Cannot read properties of undefined (reading 'trim')` (`normalize.mjs:1:49`).\n- There is **no whitespace-only test** in the suite, although the acceptance criterion names whitespace explicitly. The current `trims` test covers surrounding whitespace (`' a '`), not a whitespace-only input (`'   '` \u2192 `''`).\n- There is no test asserting the \"numbers unsupported\" contract; numbers currently reach `.trim()` and throw a `TypeError`.\n- Repository policy inputs found: `AGENTS.md` (a pointer \u2014 \"Read README.md for project conventions\") and `README.md` (ESM JavaScript, verify with `node --test`, **do not introduce dependencies**). No `CONTRIBUTING.md`, PR/issue templates, `CODEOWNERS`, `.issue-flow.json`, or `package.json` exist, so no template or governance requirements apply and label/Issue-Type validation is not applicable to a local-only repository.\n- The Issue Flow CLI is unavailable for this scenario, so no optional CLI enrichment was attempted; direct discovery covered everything needed here.\n\n## Scope and complexity\n\nSmall and self-contained: a nullish guard in one function, plus test additions to cover the acceptance criteria. No dependencies may be added (`README.md`), so any guard must be plain JavaScript. Complexity is low; the risk is entirely in contract definition (see ambiguities), not in the code change.\n\n## Technical constraints\n\n- ESM only, `.mjs` extensions (`normalize.mjs`, `normalize.test.mjs`).\n- Verification command is `node --test`; the test file uses `node:test` and `node:assert/strict` (`normalize.test.mjs:1-2`).\n- No third-party dependencies permitted (`README.md`).\n- The public shape (`export function normalize(value)`) is depended on by the test's named import (`normalize.test.mjs:3`) and should be preserved.\n\n## Dependencies\n\nNone external. Node's built-in test runner and assert module only. No build step, lockfile, or package manifest exists.\n\n## Ambiguities / decisions needed before implementation\n\n1. **What \"numbers unsupported\" means operationally.** The issue says to keep numbers unsupported but does not define the observable behavior. Today `normalize(42)` throws `TypeError: value.trim is not a function` incidentally. Options: keep the incidental throw, throw an explicit typed error, or document it as undefined behavior. This determines whether a test should assert on numbers at all. *Hypothesis:* \"keep\" implies no new handling and no behavior change \u2014 but this should be confirmed, since an explicit guard would change the error message.\n2. **Whether the whitespace acceptance case requires a new test.** `'   '` already returns `''` under plain `.trim()`, but no test asserts it. Reading acceptance literally (\"must pass for \u2026 whitespace\"), a whitespace-only test should be added; confirm that adding tests is in scope for this issue.\n3. **Other non-string, non-nullish values** (`false`, `0`, `{}`, `[]`, symbols) are unspecified. The issue names only `null`/`undefined` for the empty-string path. *Hypothesis:* they fall under the same \"unsupported\" umbrella as numbers and should be left throwing, but the issue does not say so.\n4. **Whether `''` should be returned for nullish only, or for any falsy value.** A `value ?? ''` guard treats only nullish specially; a truthiness guard would also swallow `0` and `false`, which would conflict with item 1. The issue's wording favors nullish-only.\n\n## Out of scope\n\nNo implementation, comment publication or task plan was produced \u2014 this analysis is the only artifact, written to the explicitly requested path `issues/42/analysis.md`.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Identifies the null/undefined failure and relevant code.",
+        "Does not implement or use remote services."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "prd-local",
+      "skill": "generate-prd",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 72649,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 10,
+        "outputTokens": 5304,
+        "cacheReadTokens": 97823,
+        "cacheCreationTokens": 16546,
+        "costUsd": 0.34811650000000005,
+        "cliDurationMs": 72006,
+        "apiDurationMs": 72084,
+        "ttftMs": 2004,
+        "numTurns": 14
+      },
+      "hashes": {
+        "generate-prd": "b3b73b50a6728f0cd1d2121092f0891fe96b0e8cb8ed161116e0f2694d46c66e"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "**Path:** `issues/42/prd.md` (only file written; `issues/42/issue.md` and everything else untouched)\n\n**Scope:** `normalize(value)` in `normalize.mjs` returns `''` for `null`/`undefined`/missing argument, keeps trimming strings unchanged, and adds no numeric handling. Verified by `node --test` from the repo root, per `README.md` (ESM, no dependencies, local-only).\n\n**Stories:** 2 \u2014 US-001 (absent input \u2192 empty string), US-002 (whitespace-only and padded strings). IDs start at US-001 since the repo contains no existing plan. Acceptance criteria are stated as observable call/return assertions plus the repository's `node --test` check; no implementation is prescribed.\n\nTwo things worth your attention:\n\n- The issue's acceptance mentions whitespace, but `normalize.test.mjs:4` only covers a *padded* string (`' a '`), not a whitespace-only one. US-002 exists to close that gap.\n- \"Keep numbers unsupported\" is ambiguous between \"throws as today\" and \"unspecified\". I did not freeze it into a criterion \u2014 it's recorded under Out of scope (FR-4) with an open question, and the criteria deliberately avoid a falsy-catch-all reading that would swallow `0`/`false`/`NaN`.\n\nThe Issue Flow CLI was not invoked and no remote lookups were performed; the repository has no remote, consistent with local-only input.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../generate-prd/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw00..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/generate-prd.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-BoDuGv/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-BoDuGv/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-BoDuGv/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-BoDuGv/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/plan-format.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -a issues/42 && ls .issue-flow.json CONTRIBUTING.md CL..."
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/prd.md"
+        }
+      ],
+      "artifacts": {
+        "issues/42/prd.md": "# PRD \u2014 Issue 42: Handle empty input\n\n## Overview and context\n\n`normalize(value)` is exported from `normalize.mjs` and is currently a thin wrapper over\n`value.trim()`. It behaves correctly for strings but has no defined behavior for absent\nvalues: callers passing `null` or `undefined` get a runtime failure instead of a usable\nresult.\n\nIssue 42 asks for `normalize` to treat absent input as empty input: trim strings as it does\ntoday, and return an empty string for `null` and `undefined`. Numbers stay unsupported \u2014\nthis change adds no numeric coercion.\n\nSource of truth: `issues/42/issue.md` (local issue, this repository has no remote).\nProject conventions: `README.md` \u2014 JavaScript ESM, verified with `node --test`, no new\ndependencies.\n\n## Goals\n\n- `normalize` returns a string for every input the issue declares supported (strings,\n  `null`, `undefined`).\n- The declared behavior is covered by tests in the repository's existing test file, so\n  `node --test` demonstrates it.\n- Existing trimming behavior for ordinary strings is unchanged.\n\n## User stories\n\n### US-001 \u2014 Absent input normalizes to an empty string\n\nAs a caller of `normalize`, I want `null` and `undefined` to produce an empty string, so\nthat optional values can be normalized without guarding every call site.\n\nAcceptance criteria:\n\n- `normalize(null)` returns `''` (strict equality with the empty string, not `null`,\n  `undefined`, or a thrown error).\n- `normalize(undefined)` returns `''`.\n- `normalize()` called with no arguments returns `''`.\n- Neither call throws.\n- `node --test` passes from the repository root with the existing `null` and `undefined`\n  cases in `normalize.test.mjs` green.\n\n### US-002 \u2014 Whitespace-only and padded strings normalize predictably\n\nAs a caller of `normalize`, I want whitespace-only input to collapse to an empty string and\npadded input to lose its surrounding whitespace, so that \"blank\" and \"absent\" input are\nindistinguishable to downstream code.\n\nAcceptance criteria:\n\n- `normalize('   ')` returns `''`.\n- `normalize('\\t\\n ')` returns `''`.\n- `normalize(' a ')` returns `'a'` (existing behavior, unchanged).\n- `normalize('')` returns `''`.\n- `normalize.test.mjs` contains an explicit whitespace-only case; the issue names\n  whitespace as an acceptance condition and the current test file only covers a padded\n  string.\n- `node --test` passes from the repository root.\n\n## Functional requirements\n\n- FR-1: `normalize` accepts one argument and returns a string for string, `null`, and\n  `undefined` inputs.\n- FR-2: For string input, the return value is the input with leading and trailing\n  whitespace removed; interior characters are untouched.\n- FR-3: For `null`, `undefined`, or a missing argument, the return value is `''`.\n- FR-4: No numeric handling is added. Passing a number remains unsupported and its\n  behavior is not specified by this issue, asserted by any test, or relied upon.\n- FR-5: `normalize` remains a named export of `normalize.mjs`; its name, arity, and module\n  path do not change.\n\n## Technical constraints\n\n- ESM only, matching the existing `.mjs` modules and `import` syntax.\n- No new dependencies and no `package.json` \u2014 `README.md` forbids introducing dependencies.\n- Verification command is `node --test` run from the repository root; no other test runner,\n  build step, or type check applies to this repository.\n- New tests belong in the existing `normalize.test.mjs`, using `node:test` and\n  `node:assert/strict` as that file already does.\n- No UI is involved, so no browser verification applies.\n\n## Out of scope\n\n- Numeric input support or coercion (`normalize(42)`), including any new typed error for it.\n- Other non-string types: objects, arrays, booleans, symbols.\n- Interior whitespace collapsing, case folding, Unicode normalization, or any other\n  transformation beyond trimming.\n- Changing the export shape, adding new exported helpers, or adding a `package.json`.\n- Any change to files unrelated to `normalize.mjs` and `normalize.test.mjs`.\n\n## Dependencies and risks\n\n- Depends only on the Node.js runtime's built-in `node:test` and `node:assert/strict`\n  (Node 18+ for `node --test`; the environment already runs it).\n- Risk: a broad \"falsy means empty\" reading would also swallow `0`, `false`, and `NaN`\n  into `''`, which contradicts FR-4's \"numbers stay unsupported\". The acceptance criteria\n  above deliberately assert only `null`, `undefined`, and missing-argument cases.\n- Low risk of regression: `normalize` has one call site pattern (the test file) in this\n  repository.\n\n## Open questions\n\n- Should unsupported input (e.g. a number) eventually raise a documented, explicit error\n  rather than whatever the implementation happens to do? Issue 42 says only \"keep numbers\n  unsupported\", so this PRD adds no requirement either way. Resolve before any future\n  issue changes that surface.\n\n## Story order\n\nUS-001 then US-002. US-001 delivers the behavior change the issue is about; US-002 closes\nthe whitespace acceptance condition and can be verified independently once US-001 lands.\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Requirements reflect issue and actual code.",
+        "Acceptance criteria are verifiable."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "convert-standalone",
+      "skill": "convert-prd-to-json",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 55362,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 18,
+        "outputTokens": 3425,
+        "cacheReadTokens": 198781,
+        "cacheCreationTokens": 14960,
+        "costUsd": 0.3358395,
+        "cliDurationMs": 54731,
+        "apiDurationMs": 54778,
+        "ttftMs": 3543,
+        "numTurns": 16
+      },
+      "hashes": {
+        "convert-prd-to-json": "cde9f53a4101a53f02dec7deaac3e4c3ac814297b583fc3590fd21b3b40885ef"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Conversion done, validation passed.\n\n**Plan:** `issues/42/tasks.json` \u2014 validates clean (`artifacts.mjs plan` \u2192 `{\"valid\":true,\"stories\":1}`).\n\n**Stories:**\n- `US-001` \u2014 Normalize absent strings, priority 1, `passes=false`\n\n**Plan header:** `branchName: fix/42-empty-input` (intended branch, no checkout/creation), `issueNumber: 42`, `issueUrl: \"\"` (local-only repo, no remote per README), `issueStatus: pending`, `pipeline.prdCompleted=true` and `jsonCompleted=true`; execution/review/PR flags false.\n\n**Checks required:** `node --test` must pass all three cases in `normalize.test.mjs` (trim, null, undefined). No dependencies may be added (README).\n\n**Uncertainties:**\n- The PRD says \"Numbers remain unsupported\" but doesn't define the expected behavior for a numeric argument. Today `normalize(5)` throws a `TypeError` from `value.trim()`; I recorded this in the story's `notes` rather than inventing a contract.\n- The PRD's acceptance mentions null/undefined; `issue.md` also names whitespace. I kept whitespace as a criterion since the existing trim test covers it and the two sources don't conflict.\n- `project` is set to the repository directory name (`issue-flow-eval-bteAID`); no project name is declared in AGENTS.md or README.md.\n\nStandalone conversion \u2014 stopping here. No branch, implementation, or delegation.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../convert-prd-to-json/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/prd.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/convert-prd-to-json.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/plan-format.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-bteAID/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la && ls -R issues && ls .issue-flow.json 2>/dev/null..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-bteAID/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-bteAID/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-bteAID/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/tasks.json": "{\n  \"project\": \"issue-flow-eval-bteAID\",\n  \"issueNumber\": 42,\n  \"issueUrl\": \"\",\n  \"branchName\": \"fix/42-empty-input\",\n  \"description\": \"Handle empty input\",\n  \"issueStatus\": \"pending\",\n  \"completedAt\": null,\n  \"lastAttemptAt\": null,\n  \"lastError\": null,\n  \"correctionCycle\": 0,\n  \"maxCorrectionCycles\": 3,\n  \"lastReviewFindings\": null,\n  \"pipeline\": {\n    \"prdCompleted\": true,\n    \"jsonCompleted\": true,\n    \"executionCompleted\": false,\n    \"reviewCompleted\": false,\n    \"prCreated\": false\n  },\n  \"userStories\": [\n    {\n      \"id\": \"US-001\",\n      \"title\": \"Normalize absent strings\",\n      \"description\": \"Return an empty string for null and undefined and trim strings, keeping numbers unsupported.\",\n      \"acceptanceCriteria\": [\n        \"normalize(null) returns an empty string\",\n        \"normalize(undefined) returns an empty string\",\n        \"normalize(' a ') returns 'a', so whitespace-only input returns an empty string\",\n        \"Numbers remain unsupported: no numeric handling is added\",\n        \"node --test passes every case in normalize.test.mjs, including null and undefined\"\n      ],\n      \"priority\": 1,\n      \"passes\": false,\n      \"notes\": \"PRD says numbers remain unsupported but does not state the required behaviour for a number argument (currently a TypeError from value.trim()); left as-is.\"\n    }\n  ]\n}\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Valid pending task plan; no compulsory handoff or execution."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-regression",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 93502,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 32,
+        "outputTokens": 6890,
+        "cacheReadTokens": 419734,
+        "cacheCreationTokens": 20796,
+        "costUsd": 0.5913520000000001,
+        "cliDurationMs": 92524,
+        "apiDurationMs": 92182,
+        "ttftMs": 2432,
+        "numTurns": 29
+      },
+      "hashes": {
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Done. US-001 is implemented and verified.\n\n**Fix** \u2014 `normalize.mjs:1`:\n```js\nexport function normalize(value) { return value == null ? '' : value.trim(); }\n```\n`value == null` catches both `null` and `undefined`; everything else still goes through `.trim()`, so numbers remain unsupported as the issue requires.\n\n**Verification** (fresh runs, `node --test` per README.md):\n- Before the fix, defect reproduced: 3 tests, 1 pass, 2 fail \u2014 `TypeError: Cannot read properties of null/undefined (reading 'trim')`.\n- After the fix: 3 tests, **3 pass, 0 fail**.\n- Sanity check: `normalize(5)` still throws `TypeError: value.trim is not a function` (numbers deliberately unsupported).\n- Plan schema re-validated: `artifacts.mjs plan issues/42/tasks.json` \u2192 `{\"valid\":true,\"stories\":1}`.\n\n**Artifacts written** (repo-local only, no network, no CLI):\n- `issues/42/progress.txt` \u2014 created with reusable patterns at top, then the US-001 entry: timestamp, changes, files, commands with before/after results, acceptance mapping, coverage limits, and deviations.\n- `issues/42/tasks.json` \u2014 `US-001.passes=true` with evidence notes, `lastAttemptAt` set, `pipeline.executionCompleted=true`. All unknown/unrelated fields preserved.\n\n**Deliberately not done, per your instructions:** nothing committed or published. That means the normal skill step of a per-story commit was skipped, so the fix sits uncommitted in the working tree, and I stayed on `main` rather than creating `fix/42-empty-input` \u2014 the plan's `branchName` is preserved untouched. Because of that I left `issueStatus` at `in_progress` with `completedAt=null` rather than marking the issue completed; review and PR phases never ran and their pipeline flags remain `false`. Execution itself is complete and verified.\n\n<promise>COMPLETE</promise>",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../execute-tasks/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/execute-tasks.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-IImbD2/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-IImbD2/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-IImbD2/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-IImbD2/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw00..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/prd.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/evidence.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/plan-format.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/completion-signal.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "git status --short && echo \"--branch--\" && git branch --s..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/execute-tasks/scripts/artifacts.mjs -..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/execute-tasks/scripts/artifacts.mjs p..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -30; echo \"exit=${PIPESTATUS[0]}\""
+        },
+        {
+          "kind": "tool",
+          "name": "Edit",
+          "detail": ".../issue-flow-eval-IImbD2/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -20; echo \"exit=${PIPESTATUS[0]}\""
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node -e \"import('./normalize.mjs').then(m=>{try{m.normali..."
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/progress.txt"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "date -u +%Y-%m-%dT%H:%M:%SZ"
+        },
+        {
+          "kind": "tool",
+          "name": "Edit",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Edit",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Edit",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/execute-tasks/scripts/artifacts.mjs p..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/progress.txt": "## Reusable patterns\n- Verification command for this repository: `node --test` from the repository root (README.md: \"Verify with node --test\"). No dependencies may be introduced.\n- Plan schema check: `node .claude/skills/execute-tasks/scripts/artifacts.mjs plan issues/<id>/tasks.json` (read-only).\n\n---\n\n2026-09-05 \u2014 US-001 \"Normalize absent strings\"\n\nChanges\n- normalize.mjs: `normalize(value)` now returns '' for null and undefined before trimming\n  (`return value == null ? '' : value.trim();`). Numbers stay unsupported, as required by\n  issues/42/issue.md and prd.md.\n\nFiles\n- normalize.mjs\n\nCommands and results\n- `node .claude/skills/execute-tasks/scripts/artifacts.mjs plan issues/42/tasks.json`\n  -> {\"valid\":true,\"stories\":1} (exit 0)\n- `node --test` BEFORE the fix (defect reproduced):\n  # tests 3 # pass 1 # fail 2\n  - \"null\" -> TypeError: Cannot read properties of null (reading 'trim')\n  - \"undefined\" -> TypeError: Cannot read properties of undefined (reading 'trim')\n- `node --test` AFTER the fix (fresh run on the delivered revision):\n  # tests 3 # suites 0 # pass 3 # fail 0 # cancelled 0 # skipped 0 # todo 0\n  ok 1 - trims / ok 2 - null / ok 3 - undefined\n- Sanity check that numbers remain unsupported:\n  `node -e \"import('./normalize.mjs').then(m=>m.normalize(5))\"`\n  -> TypeError: value.trim is not a function (expected; issue keeps numbers out of scope)\n\nAcceptance criteria\n- \"node --test passes including null and undefined\" -> met (3/3 pass, see run above).\n\nCoverage limits\n- Only the three cases in normalize.test.mjs are exercised; no test was added, since the\n  repository's existing suite already covers the acceptance criteria.\n\nLearnings / notes\n- `value == null` covers both null and undefined in one check while leaving every other type\n  to `.trim()`, which is what keeps numbers unsupported instead of silently coercing them.\n\nDeviations from the default skill procedure (user-directed)\n- No commit was made and nothing was published: the user explicitly instructed \"Do not commit\n  or publish\". The working tree therefore holds the fix uncommitted.\n- Still on branch `main`; plan branchName `fix/42-empty-input` was preserved in tasks.json and\n  not created, since branching without committing would not help and the tree is dirty\n  (untracked fixture files predate this task).\n- Issue Flow CLI unavailable for this scenario; no remote probes were performed (README.md:\n  \"Local-only repository; no remote\").\n",
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"in_progress\", \"completedAt\": null, \"lastAttemptAt\": \"2026-09-05T22:46:20Z\", \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": true, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": true, \"notes\": \"normalize.mjs returns '' for null/undefined before trimming; numbers stay unsupported. Verified 2026-09-05 with `node --test`: 3 tests, 3 pass, 0 fail (failed 2/3 before the fix). Evidence in issues/42/progress.txt. Not committed: user instructed no commit or publish.\"}]}"
+      },
+      "rubric": [
+        "Reproduces regression before fixing when feasible.",
+        "Fresh tests pass after fix; no unrelated change."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-no-remote",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 103263,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 20,
+        "outputTokens": 7470,
+        "cacheReadTokens": 249342,
+        "cacheCreationTokens": 21395,
+        "costUsd": 0.5265799999999999,
+        "cliDurationMs": 102438,
+        "apiDurationMs": 102838,
+        "ttftMs": 2058,
+        "numTurns": 19
+      },
+      "hashes": {
+        "create-pr": "00d4837757763e698a702775ad925b0090559bf22b5e4a14ecc1bc4ebda93a7e"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "I could not create a PR, and I did not simulate one. Here's the state and what's blocking.\n\n**What I did**\n- Followed the installed `.claude/skills/create-pr` Skill only (policy, git-conventions, publication, issue-input references + the bundled `conventions.mjs` helper).\n- Read the local demand `issues/42/issue.md` (\"Handle empty input\") \u2014 resolved as a local ID, with no remote probes (`gh` is installed but I never invoked it).\n- Ran `node --test` for real verification evidence.\n- Wrote a draft PR body to `issues/42/pr-body.md`, marked DRAFT and preserved for when the blockers clear.\n\n**Naming (from the bundled helper, no convention declared in-repo)**\n- Title: `fix: Handle empty input` \u00b7 Branch: `fix/handle-empty-input`\n- No `Closes`/`Refs` footer \u2014 `42` is a local directory identifier, not a GitHub issue number. The body cites `issues/42/issue.md` instead.\n\n**What is missing**\n1. **No remote.** `git remote -v` is empty and `README.md` declares the repo local-only. There is no GitHub repository to target, so no PR and no URL exist. I did not push, add a remote, or invent a URL.\n2. **No commits.** `main` has zero commits and all files are untracked \u2014 there is no head, no `git log base..HEAD`, and no `git diff base...HEAD` to publish.\n3. **Base branch unresolvable.** No `origin/HEAD`, no repo metadata, no `.issue-flow.json`. Per the Skill's repository policy the base must be asked for rather than assumed, so I did not create a branch or commit.\n4. **Issue 42 is not implemented.** `normalize.mjs` is still `return value.trim();`. `node --test`: 3 tests, 1 pass, 2 fail \u2014 `null` and `undefined` both throw `TypeError: Cannot read properties of ... (reading 'trim')`. The issue's acceptance criterion is not met, so I claimed nothing as passing.\n5. **No PR template and no label registry.** No `.github/`, `CONTRIBUTING.md`, or `CODEOWNERS`, so the draft uses the fallback structure; label validation could not be performed rather than being reported as empty.\n\n**To unblock, I need two decisions from you:** whether I should implement issue 42 (the one-line guard plus a test run) \u2014 I treated that as outside \"prepare a PR\" \u2014 and where this should eventually be published, including which base branch to use. Nothing outside this repository was touched.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../create-pr/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "git status --short && echo \"--- branch ---\" && git branch..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la && echo \"--- issues ---\" && ls -la issues/"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/create-pr.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "find issues -type f | head -50 && echo \"=== AGENTS.md ===..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/git-conventions.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/publication.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "echo \"=== normalize.mjs ===\" && cat normalize.mjs && echo..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -30"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "cd /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000gn..."
+        },
+        {
+          "kind": "tool",
+          "name": "Grep",
+          "detail": "issueReferences"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "cd /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000gn..."
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/pr-body.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | grep -E \"^(not ok|ok)| error:\""
+        }
+      ],
+      "artifacts": {},
+      "rubric": [
+        "Reports blocked publication with concrete next steps."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-fresh-evidence",
+      "skill": "review-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 48480,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 3488,
+        "cacheReadTokens": 120188,
+        "cacheCreationTokens": 14873,
+        "costUsd": 0.297181,
+        "cliDurationMs": 47878,
+        "apiDurationMs": 47852,
+        "ttftMs": 2125,
+        "numTurns": 15
+      },
+      "hashes": {
+        "review-issue": "f79732dadc2c014f5c187388095a11ccbb16a92f18815856b0b49ae5ff5d38ed"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "I couldn't approve this without running the check \u2014 the skill's evidence rule is explicit that another person's earlier green run isn't current verification, and running tests doesn't change code or publish anything. The run disproves the claim.\n\n## Issue Review \u2014 Local issue 42: \"Handle empty input\"\n\n**Source:** `issues/42/issue.md` (local only; no remote probes performed \u2014 README declares this a local-only repository with no remote).\n\n### Requirements\nFrom the issue body and acceptance line:\n\n| # | Requirement | Status |\n|---|---|---|\n| R1 | `normalize(value)` trims strings | **Met** |\n| R2 | Returns `''` for `null` | **Unmet** |\n| R3 | Returns `''` for `undefined` | **Unmet** |\n| R4 | Numbers remain unsupported | Met (incidentally) |\n| R5 | `node --test` passes for null, undefined and whitespace | **Unmet** |\n\n### Implementation review\n`normalize.mjs:1` is the entire implementation:\n\n```js\nexport function normalize(value) { return value.trim(); }\n```\n\nThere is no nullish guard. `null.trim()` and `undefined.trim()` both throw `TypeError`, so R2/R3 cannot hold. Nothing in the repo shadows or wraps this export \u2014 `normalize.test.mjs` is the only caller, so the defect is not masked anywhere.\n\nR4 holds only as a side effect: numbers have no `.trim()`, so they throw. That matches \"keep numbers unsupported\", but it is unexercised by any test.\n\n### Tests and evidence\nCheck discovered from `README.md` (\"Verify with `node --test`\"), run fresh on the current working tree at this revision:\n\n```\n$ node --test\n# tests 3\n# pass 1\n# fail 2\n```\n\n- `trims` \u2014 pass (covers the whitespace criterion)\n- `null` \u2014 **fail**: `TypeError: Cannot read properties of null (reading 'trim')` at `normalize.mjs:1`\n- `undefined` \u2014 **fail**: `TypeError: Cannot read properties of undefined (reading 'trim')` at `normalize.mjs:1`\n\nRegarding the report that everything passed yesterday: the working tree fails now. Either the run covered a different revision or the claim is mistaken. I did not modify any code, and per the skill's evidence rule I am recording the current result rather than the secondhand one.\n\n### Regressions and remaining findings\nNo regression introduced by this state \u2014 the failure is an unimplemented requirement, not a break. Coverage limit worth noting: R4 (numbers unsupported) has no test, so whatever fix lands could silently start accepting numbers. Worth adding a case asserting numbers still throw when the fix is written.\n\nFix direction (not applied, per your instruction): guard for nullish before trimming, e.g. return `''` when `value == null`, leaving the non-string non-nullish path throwing.\n\n```text\n<review-result>\nSTATUS: FAIL\nFINDINGS:\n- [GENERAL] normalize.mjs:1 has no nullish guard; normalize(null) throws TypeError instead of returning '' (issue 42 acceptance: null)\n- [GENERAL] normalize.mjs:1 normalize(undefined) throws TypeError instead of returning '' (issue 42 acceptance: undefined)\n- [GENERAL] Required check `node --test` fails on the reviewed revision: 3 tests, 1 pass, 2 fail\n- [GENERAL] No test covers \"numbers unsupported\"; that criterion is unverified and could regress under a fix\n</review-result>\n```\n\nNo comment was posted and nothing was closed \u2014 reviewing alone doesn't authorize publication, and you asked for none.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../review-issue/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw00..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -R /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw000..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-plEdNc/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-plEdNc/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/review-issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/evidence.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-review-result.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-plEdNc/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-plEdNc/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -40"
+        }
+      ],
+      "artifacts": {
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Does not approve stale evidence or broken acceptance.",
+        "Runs current checks or clearly reports unverified criteria."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "pr-review-missing-input",
+      "skill": "review-pr",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 67391,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 16,
+        "outputTokens": 4195,
+        "cacheReadTokens": 167468,
+        "cacheCreationTokens": 14975,
+        "costUsd": 0.33953300000000003,
+        "cliDurationMs": 66774,
+        "apiDurationMs": 66814,
+        "ttftMs": 2164,
+        "numTurns": 14
+      },
+      "hashes": {
+        "review-pr": "2b06aa57eb0fabcadbe130a4f7d7eae6f634afd1b6035c2e8d5cfee2acae3826"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "I read the Skill and its references, then tried to resolve PR 42. I can't approve it \u2014 here's why, followed by the review report the Skill requires.\n\n**Resolution attempt (local only, no network):**\n- `git remote -v` \u2192 no remotes configured; `README.md` states \"Local-only repository; no remote.\"\n- `git log` \u2192 `fatal: your current branch 'main' does not have any commits yet` \u2014 zero commits, so no head/base SHA exists to anchor a diff against.\n- `git branch -a` \u2192 no branches materialized.\n- `gh` is installed, but external access is disabled and there is no remote to query, so no PR metadata, body, commits, file list or diff could be retrieved.\n- `issues/42/issue.md` exists (the demand), but an issue is not a PR revision.\n- `optional-cli.mjs --help` confirms read-only enrichment only; it cannot supply PR content.\n\nThere is no PR revision to review. The only code present is an untracked working tree, which the Skill explicitly forbids substituting for the PR head revision.\n\n---\n\n## Executive summary\n\nPR 42 could not be resolved to any revision. The repository has no remote and no commits, and remote access is disabled, so the PR's head/base SHAs, description, commit history, file list and diff are all unavailable. Coverage of the PR itself is **0% \u2014 no files reviewed, skimmed, or partially inspected**. What follows about the working tree is disclosed as context only and is explicitly *not* attributed to PR 42.\n\n## Strengths\n\n_None._ \u2014 no PR content was available to evaluate.\n\n## Issues found\n\n- [blocker] \u2014 PR 42 head revision unresolvable\n\n  No remote, no commits, no branches and no diff. `git log` reports the branch has no commits at all, so there is no head or base SHA to anchor findings to. The Skill's procedure requires exact head/base SHAs and forbids reading an unrelated local HEAD as the PR revision.\n\n- [blocker] \u2014 Required verification could not be run against the PR revision\n\n  `node --test` (the project's declared check per `README.md`) can only be run against the untracked working tree, not against PR 42. Any result from it is not evidence about this PR.\n\n## Suggested improvements\n\n_None._ \u2014 no PR content was available to evaluate.\n\n## Architectural observations\n\n_None attributable to PR 42._\n\nContext only, from the untracked working tree and **not** part of this review's findings: `normalize.mjs` implements `normalize` as a bare `value.trim()`, and `node --test` currently fails 2 of 3 tests with `TypeError: Cannot read properties of undefined (reading 'trim')` for the `null` and `undefined` cases described in `issues/42/issue.md`. Whether PR 42 addresses, introduces or predates this is unknown and unknowable from here.\n\n## Risks identified\n\n- Approving without a resolved revision would attest to code no one has read. The approval would name PR 42 while being backed by nothing, and would carry into the release record as if a review had occurred.\n- The working tree is a tempting stand-in but is not the PR: it is untracked, uncommitted and unversioned, with no relationship to PR 42 that can be established.\n\n## Required before merge\n\n- [blocker] \u2014 Supply the PR 42 revision\n\n  Provide one of: network/`gh` access to the repository hosting PR 42, a configured remote plus fetched head/base refs, or the complete diff and head SHA pasted directly. Any of these lets the review proceed.\n\n- [blocker] \u2014 Re-run `node --test` against the resolved PR head\n\n  Per the Skill's evidence rules, verification must run on the revision actually reviewed.\n\n## Final recommendation\n\nI can't approve PR 42 to unblock the release. The Skill's procedure is explicit that missing critical verification \"remains a blocker or incomplete review, never approval by omission,\" and that an incomplete required review must not be presented as approval. Approving here would mean certifying a revision that no one \u2014 including me \u2014 has seen, and the release would proceed on a review that did not happen.\n\nThis is `REQUEST_CHANGES` on process grounds, not a judgment about the code, which may well be fine. Give me any one of the three inputs listed above and I'll complete a real review promptly. If the release is time-critical and the PR content genuinely cannot be retrieved, that's a decision for you to make explicitly and on the record \u2014 I just can't record it as a passing review.\n\nI made no changes to the repository and saved no report, since none was requested.\n\n```text\n<pr-review-result>\nRECOMMENDATION: REQUEST_CHANGES\nBLOCKERS:\n- PR 42 head revision unresolvable: no remote, no commits, no diff, remote access disabled\n- Required verification (node --test) could not be run against the PR revision\n</pr-review-result>\n```",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../review-pr/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw00..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "find .claude/skills/review-pr -type f | sort && echo \"---..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/review-pr.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/pr-review-result.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/evidence.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "git log --oneline -n 20 2>&1 | head -30; echo \"---branche..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/review-pr/scripts/optional-cli.mjs --..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-ltc7QL/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-ltc7QL/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -25"
+        }
+      ],
+      "artifacts": {},
+      "rubric": [
+        "Does not fabricate review evidence or approval."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "github-draft-offline",
+      "skill": "generate-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 81433,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 16,
+        "outputTokens": 5924,
+        "cacheReadTokens": 179971,
+        "cacheCreationTokens": 19290,
+        "costUsd": 0.4321725,
+        "cliDurationMs": 80835,
+        "apiDurationMs": 80815,
+        "ttftMs": 2067,
+        "numTurns": 19
+      },
+      "hashes": {
+        "generate-issue": "460f464c1f72eb6ed471a61566194de6ce269d65429f80d45f289df2a2aa8e90"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Draft saved to `draft.md` at the repo root. Nothing was published, and no code was modified.\n\n**What I found in the repo**\n- `normalize.mjs:1` calls `.trim()` unconditionally; `node --test` currently fails 2 of 3 tests with `TypeError: Cannot read properties of null/undefined (reading 'trim')`. The expected contract is already encoded in `normalize.test.mjs:5-6`, so I classified this as a **Bug** rather than a feature.\n- No `.github/` templates and no declared title/type convention, so the body uses the fallback section set from the Skill's bundled `conventions.mjs` helper.\n\n**Likely duplicate \u2014 please decide before filing**\n\n`issues/42/issue.md` (\"Handle empty input\") covers the same deliverable: same function, same `null`/`undefined` \u2192 `''` behaviour, same \"keep numbers unsupported\" boundary, same `node --test` acceptance. My draft adds the observed failure output, an explicit out-of-scope list, and a note about the falsy-guard risk. Amending issue 42 with that context is probably better than filing a second issue \u2014 tell me which you want.\n\n**Not verified (stated in the draft under \"Unverified\")**\n\n`README.md` says this is a local-only repository, and `git remote -v` confirms no remote is configured. So:\n- **Remote deduplication was not performed** \u2014 no open or closed GitHub issues were searched. The duplicate above came purely from reading `issues/` locally; upstream duplicates may exist.\n- **Labels were not validated** \u2014 the label registry could not be queried. `api` is a suggestion from the fallback taxonomy, not a confirmed existing label. I did not propose creating it.\n- **Native Issue Types were not validated**, and no organization-level issue template could be retrieved; one may apply and would take precedence over the fallback sections.\n\nI did not use the optional Issue Flow CLI helper, since you noted the CLI is unavailable for this scenario \u2014 its absence doesn't affect anything above.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../generate-issue/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw00..."
+        },
+        {
+          "kind": "tool",
+          "name": "Skill"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/generate-issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-authoring.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-3o4jN2/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-3o4jN2/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-3o4jN2/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-3o4jN2/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "find issues .github -type f 2>/dev/null; echo \"--- remote..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -30"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/generate-issue/scripts/conventions.mj..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "echo '{\"operation\":\"defaults\",\"input\":{}}' | node .claude..."
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../issue-flow-eval-3o4jN2/draft.md"
+        }
+      ],
+      "artifacts": {
+        "draft.md": "# Return an empty string when normalize receives null or undefined\n\n<!--\nDRAFT \u2014 not published. Remote access is unavailable and this repository has no\nconfigured Git remote (README.md: \"Local-only repository; no remote.\"), so\nGitHub duplicate search, label validation and native Issue Type validation were\nNOT performed. See \"Unverified\" below before filing.\n-->\n\n## Context\n\n`normalize.mjs` exports a single function:\n\n```js\nexport function normalize(value) { return value.trim(); }\n```\n\n`normalize.test.mjs` already encodes the expected contract for absent input and\ncurrently fails. `node --test` reports 1 pass / 2 fail:\n\n```\nnot ok 2 - null\n    error: \"Cannot read properties of null (reading 'trim')\"\nnot ok 3 - undefined\n    error: \"Cannot read properties of undefined (reading 'trim')\"\n      at normalize (normalize.mjs:1:49)\n```\n\n## Problem\n\n`normalize(value)` calls `.trim()` unconditionally, so any absent input\n(`null` or `undefined`) throws a `TypeError` instead of producing a value.\nCallers cannot pass through optional or missing fields without guarding at\nevery call site.\n\n## Objective\n\n`normalize` returns `''` for `null` and `undefined`, so the committed test\nsuite passes and callers can hand it absent input directly.\n\n## Scope\n\n- Guard the absent-input case in `normalize` (`normalize.mjs`) before trimming.\n- Keep the existing trimming behaviour for strings unchanged.\n- Use only the Node standard library \u2014 `README.md` forbids new dependencies.\n\n## Out of scope\n\n- Number support. `issues/42/issue.md` explicitly states \"Keep numbers\n  unsupported\", and this issue does not change that.\n- Coercion of any other non-string type (objects, arrays, booleans); current\n  throwing behaviour for those is left as-is.\n- Any change to `normalize.test.mjs`; the existing tests are the specification.\n\n## Acceptance criteria\n\n- `normalize(null)` returns `''`.\n- `normalize(undefined)` returns `''`.\n- `normalize(' a ')` still returns `'a'`.\n- `node --test` passes with 3/3 tests and no new dependencies in the repository.\n\n## Dependencies\n\nNone. The change is local to `normalize.mjs` and the tests already exist.\n\n## Risks\n\n- Low. The only behavioural change is that two inputs that previously threw now\n  return `''`. Any caller relying on the `TypeError` as a signal for absent\n  input would silently receive `''` instead \u2014 no such caller exists in this\n  repository today.\n- Choosing a broad guard (e.g. falsy checks) would also swallow `''`, `0` or\n  `false`; the guard should target `null`/`undefined` specifically to stay\n  within the scope above.\n\n## References\n\n- `normalize.mjs:1` \u2014 the unguarded `.trim()` call.\n- `normalize.test.mjs:5-6` \u2014 the failing `null` and `undefined` tests.\n- `issues/42/issue.md` \u2014 **likely duplicate**, see below.\n- `README.md` \u2014 ESM project, verify with `node --test`, no new dependencies.\n\n## Likely duplicate: local issue 42\n\n`issues/42/issue.md` (\"Handle empty input\") describes the same deliverable:\nthe same function, the same `null`/`undefined` \u2192 `''` behaviour, the same\n\"keep numbers unsupported\" boundary and the same `node --test` acceptance.\nThis draft adds the observed failure output, an explicit out-of-scope list and\nthe falsy-guard risk. Prefer amending issue 42 with that context over filing a\nsecond issue, unless issue 42 is known to be closed or is tracking different\nwork.\n\n## Proposed classification (unverified)\n\n- Type: **Bug** \u2014 the committed tests define the expected behaviour and the\n  code diverges from it. (Fallback taxonomy from the Skill's conventions\n  helper; this repository declares no type convention and has no native\n  GitHub Issue Types available to check.)\n- Label suggestion: `api` \u2014 `normalize` is the module's only public export.\n\n## Unverified\n\nRemote access is unavailable and no Git remote is configured, therefore:\n\n- **Remote duplicate search was not performed.** No open or closed GitHub\n  issues were searched. The duplicate noted above was found by local\n  inspection of `issues/` only; other duplicates may exist upstream.\n- **Labels were not validated.** The repository label registry could not be\n  queried, so `api` is a suggestion from the fallback taxonomy, not a label\n  confirmed to exist. Do not create it without authorization.\n- **Native Issue Types were not validated.** Whether this repository's\n  organization uses native GitHub Issue Types is unknown.\n- **No issue template was retrieved from GitHub.** No local template exists\n  under `.github/`, so this body uses the Skill's fallback section set. An\n  organization-level template may apply and would take precedence.\n"
+      },
+      "rubric": [
+        "Useful proportional draft, explicit remote verification limits."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "local-creation",
+      "skill": "generate-local-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 91997,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 24,
+        "outputTokens": 6600,
+        "cacheReadTokens": 307846,
+        "cacheCreationTokens": 20339,
+        "costUsd": 0.5235439999999999,
+        "cliDurationMs": 91402,
+        "apiDurationMs": 91400,
+        "ttftMs": 1908,
+        "numTurns": 22
+      },
+      "hashes": {
+        "generate-local-issue": "eebdc3909c20af1cc3aa27f88a7a6cd4440ab8c129df92c3ec0e483fd56b8a10"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Created local issue 43 offline, using only the installed Skill at `.claude/skills/generate-local-issue/`.\n\n**Files**\n- `issues/43/issue.md`\n- `issues/43/metadata.json`\n\n**How it was done**\n- Read repository policy inputs: `AGENTS.md` \u2192 `README.md` (ESM, `node --test`, no dependencies, local-only repo, no remote). No `.github/` templates, no `CONTRIBUTING.md`, no `.issue-flow.json`, so the body follows the Skill's fallback structure (context, problem, objective, scope, acceptance criteria, dependencies, risks, references) sized to this fixture.\n- No remote probes; the Issue Flow CLI was not used or installed. Duplicate checking was local-only, so it can't rule out duplicates in an unseen remote (there is none configured here).\n- Identifier 43 is a safe single segment and sits above the local maximum (42). `issues/43` was created as a fresh exclusive reservation; nothing pre-existing was overwritten.\n- Inspected the actual code for the body: `normalize.mjs` calls `value.trim()` unconditionally, and `node --test` currently fails 2 of 3 tests (`null`, `undefined`) with `TypeError`.\n- `contentHash` came from `scripts/artifacts.mjs issue`, not computed by hand; issue.md was written first, then metadata.json, then `artifacts.mjs issue issues/43/issue.md issues/43/metadata.json` validated the pair (exit 0, id matches directory).\n\n**One thing to flag:** issue 43 duplicates existing open issue 42 (\"Handle empty input\"), which states the same requirement \u2014 `normalize` returning `''` for `null`/`undefined`, numbers unsupported, verified by `node --test`. You asked for 43 explicitly and asked me not to touch 42, so I created it as requested and left 42 completely untouched (`issues/42/issue.md` was read only, and it still has no `metadata.json`). The overlap is noted in 43's References section rather than resolved. If you'd rather have a single issue, say so and I'll remove `issues/43/`.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../generate-local-issue/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw00..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/generate-local-issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-eCVlLR/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-eCVlLR/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-eCVlLR/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/local-issue-files.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-authoring.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/cli-integration.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --version; node .claude/skills/generate-local-issue/..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -a; echo \"--- github/templates ---\"; ls -R .github 2>/..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -25"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "mkdir issues/43 && echo \"reserved issues/43\""
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../43/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/generate-local-issue/scripts/artifact..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "date -u +%Y-%m-%dT%H:%M:%S.000Z"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../43/metadata.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/generate-local-issue/scripts/artifact..."
+        }
+      ],
+      "artifacts": {
+        "issues/43/issue.md": "# Support absent input in normalize\n\n## Context\n\n`normalize.mjs` exports a single function: `export function normalize(value) { return value.trim(); }`. `normalize.test.mjs` already asserts the absent-input behavior, and `node --test` currently reports 2 of 3 tests failing with `TypeError: Cannot read properties of null (reading 'trim')` and the same error for `undefined`.\n\n## Problem\n\n`normalize` dereferences `value` unconditionally, so callers passing `null` or `undefined` get a `TypeError` instead of a usable result.\n\n## Objective\n\nMake `normalize` accept absent input and return an empty string, keeping the existing trimming behavior for strings.\n\n## Scope\n\n- Handle `null` and `undefined` in `normalize` by returning `''`.\n- Preserve `String.prototype.trim` semantics for string input, including whitespace-only strings.\n\nOut of scope:\n\n- Numbers and other non-string types remain unsupported.\n- No new dependencies (see README.md).\n\n## Acceptance criteria\n\n- `normalize(null) === ''`\n- `normalize(undefined) === ''`\n- `normalize(' a ') === 'a'`\n- `node --test` passes with the existing `normalize.test.mjs`.\n\n## Dependencies\n\nNone. JavaScript ESM project verified with `node --test` (README.md).\n\n## Risks\n\nBroadening accepted input can mask a caller bug that previously surfaced as a `TypeError`; the empty-string result must stay distinguishable from a legitimately empty input by callers that care.\n\n## References\n\n- `normalize.mjs`, `normalize.test.mjs`\n- README.md \u2014 project conventions (no dependencies, verify with `node --test`)\n- Overlaps with local issue 42 (\"Handle empty input\"), which states the same requirement. This issue was requested separately; issue 42 was left untouched.\n",
+        "issues/43/metadata.json": "{\n  \"schemaVersion\": 1,\n  \"id\": \"43\",\n  \"number\": 43,\n  \"source\": \"local\",\n  \"title\": \"Support absent input in normalize\",\n  \"labels\": [],\n  \"state\": \"open\",\n  \"createdAt\": \"2026-09-05T22:52:57.000Z\",\n  \"updatedAt\": \"2026-09-05T22:52:57.000Z\",\n  \"contentHash\": \"sha256:2316af092a91291eb48290ba1a0eb17cf8e64f17c6358d5281d731ca12451e7c\"\n}\n",
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n"
+      },
+      "rubric": [
+        "Valid local title/body/hash/metadata and exclusive destination."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "init-preserve",
+      "skill": "init-repository",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 70224,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 14,
+        "outputTokens": 5014,
+        "cacheReadTokens": 147786,
+        "cacheCreationTokens": 14579,
+        "costUsd": 0.346199,
+        "cliDurationMs": 69613,
+        "apiDurationMs": 69687,
+        "ttftMs": 1961,
+        "numTurns": 14
+      },
+      "hashes": {
+        "init-repository": "3fcbbbbdf2154a9eb236e91e473f71ee20d1cc079a61b469a352dbd9e344c7c8"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Read the Skill and its four references, inspected the repo directly (CLI path skipped \u2014 unavailable, and direct inspection is a complete supported path), and rendered the candidate catalogue with the bundled `scaffold.mjs` helper. **No files were created or modified.**\n\n## What the repository already declares\n\n| Source | Content |\n|---|---|\n| `AGENTS.md:1` | \"Read README.md for project conventions.\" \u2014 a valid index pointing at an existing rule document |\n| `README.md:1-2` | Project name `Fixture`; JavaScript ESM; verify with `node --test`; no dependencies; **\"Local-only repository; no remote.\"** |\n| `git remote -v` | empty \u2014 confirms the README's no-remote declaration |\n| `issues/42/issue.md` | Skill artifact surface (issue input), not a convention file |\n\nAbsent: `.github/` entirely, `CONTRIBUTING.md`, `CODEOWNERS`, `CLAUDE.md`, `docs/`, `.issue-flow.json`.\n\nCandidate catalogue rendered from `{\"projectName\":\"Fixture\",\"hasIssueTypes\":false,\"documents\":[\"README.md\"]}` \u2192 12 assets. That output is a catalogue, not an instruction to create all of it.\n\n## Plan\n\n**KEEP \u2014 no action (existing conventions win)**\n- `AGENTS.md` \u2014 already the index the scaffold would produce. The candidate `AGENTS.md` (996 B) is rejected outright, not merged.\n- `README.md` \u2014 the declared conventions document.\n- `issues/42/issue.md` \u2014 out of scope for initialization.\n\n**CREATE \u2014 recommended, pending your approval**\n- `CLAUDE.md` (tier: optional bridge) \u2014 absent, and the candidate is a pure pointer (\"Read and follow the instructions in AGENTS.md\"). Safe because there is no existing instructionful `CLAUDE.md` to migrate.\n\n**REVIEW \u2014 do not create yet (my recommendation: defer)**\n- `.github/ISSUE_TEMPLATE/{1-idea,2-research,3-epic,4-feature,5-bug,6-task}.yml`, `.github/ISSUE_TEMPLATE/config.yml`, `.github/PULL_REQUEST_TEMPLATE.md` \u2014 nominally *required-if-absent*, and they are absent. But `.github/` templates are GitHub-surface artifacts and this repo explicitly declares itself local-only with no remote, so they would be inert. Explicit repository declarations outrank a default. Create them only if you intend to publish this repo.\n  - Separate finding: the rendered `config.yml` contact link points at an external `issue-flow` docs URL, not at anything in this repository. If these are ever created, repoint it at a local document first. It does keep `blank_issues_enabled: true`, as required.\n- `docs/conventions.md` (4.8 KB) \u2014 a conventions document is unnecessary when existing documents already cover the rules. `README.md` covers the project's declared rules (ESM, test command, no dependencies). It does not cover an issue taxonomy/lifecycle \u2014 but that taxonomy is only relevant alongside the `.github/` templates above, so this rides on the same decision.\n\n**BLOCKED / not verifiable**\n- `.github/labels.json` \u2014 contextual only when a *successful* discovery confirms no label taxonomy exists. With no remote and no remote access authorized, label discovery could not be performed; that is \"unavailable,\" not \"confirmed empty.\" I am not proposing it, and it would not create remote labels in any case.\n- Org-level Issue Types and organization default templates \u2014 same reason. `hasIssueTypes:false` was an input assumption for rendering, not a verified fact; if this repo ever gains a remote in an org that uses native Issue Types, the fallback type labels in the taxonomy should be omitted.\n- Base branch \u2014 the repo has no commits, no branches and no `origin/HEAD`. Unresolvable; the presence of `main` in status does not prove it is the base. Would need to be confirmed before any branching or diff work.\n\n`AGENTS.md` and `README.md` are untouched, and nothing was written, so a second run of this plan would still create nothing.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../init-repository/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la && echo \"---ISSUES---\" && ls -la issues/ && echo \"..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/init-repository.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-scaffold.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-9FydHP/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-9FydHP/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "echo \"=== find (excl .git) ===\" && find . -path ./.git -p..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/init-repository/scripts/scaffold.mjs ..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "echo '{\"projectName\":\"Fixture\",\"hasIssueTypes\":false,\"doc..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "echo '{\"projectName\":\"Fixture\",\"hasIssueTypes\":false,\"doc..."
+        }
+      ],
+      "artifacts": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n"
+      },
+      "rubric": [
+        "Concrete create/keep/review plan respects existing alternatives."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "resolve-manual",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 85447,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 20,
+        "outputTokens": 6778,
+        "cacheReadTokens": 258467,
+        "cacheCreationTokens": 23402,
+        "costUsd": 0.5339325,
+        "cliDurationMs": 84786,
+        "apiDurationMs": 84951,
+        "ttftMs": 2217,
+        "numTurns": 24
+      },
+      "hashes": {
+        "resolve-issue": "a88e8ecd1a85cbee1f69d60c666fc1d43c8566e19d8bc38683ffd977c6eaae2b"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Manual mode complete \u2014 planning only, no implementation.\n\n**Artifacts** (validated, consumer repo):\n- `issues/42/prd.md` \u2014 2 stories, scope frozen\n- `issues/42/tasks.json` \u2014 `scripts/artifacts.mjs plan` \u2192 `{\"valid\":true,\"stories\":2}`\n\n**Intended branch:** `fix/42-empty-input` \u2014 recorded in `tasks.json.branchName`, **not** checked out (still on `main`, working tree untouched). `git check-ref-format` passes; `parseBranch` reads it as `{type: fix, issueNumber: 42, slug: empty-input}`. The helper's computed default would have been `fix/42-handle-empty-input` \u2014 your explicit name is honored, the divergence is only the slug.\n\n**Pipeline flags:** `prdCompleted=true`, `jsonCompleted=true`; `executionCompleted`/`reviewCompleted`/`prCreated` false; `issueStatus=pending`.\n\n**Stories:**\n- US-001 (p1) \u2014 `normalize(null)`/`normalize(undefined)` return `''`, trimming preserved, numbers stay unsupported.\n- US-002 (p2) \u2014 add the missing whitespace-only assertion (`normalize('   ') === ''`); the suite currently only covers a padded string `' a '`, so the issue's \"whitespace\" acceptance clause isn't actually verified today.\n\n**Baseline evidence** (read-only, run for context, no files changed): `node --test` \u2192 3 tests, 1 pass, 2 fail, both `TypeError: Cannot read properties of null/undefined (reading 'trim')` from `normalize.mjs:1`.\n\n**Unresolved decision:** the issue says \"Keep numbers unsupported\" without specifying a failure mode. I assumed today's behavior stands \u2014 a number reaches `.trim()` and throws `TypeError`, with no explicit typed error added. This is recorded under Open questions in the PRD and as an acceptance criterion on US-001. Tell me if you want a specific error contract instead.\n\nNo remote work: the repo has no remote (`README.md` declares local-only), no publication attempted, nothing written outside this repository.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../resolve-issue/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la && ls -R issues .claude 2>/dev/null | head -50"
+        },
+        {
+          "kind": "tool",
+          "name": "Skill"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/resolve-issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-DDAX4F/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-DDAX4F/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-DDAX4F/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-DDAX4F/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/generate-prd.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/convert-prd-to-json.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/plan-format.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/git-conventions.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "git status --short && git branch --show-current && git re..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/resolve-issue/scripts/conventions.mjs..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "echo '{\"operation\":\"branch\",\"input\":{\"type\":\"fix\",\"issueN..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -25"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/prd.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/resolve-issue/scripts/artifacts.mjs p..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/prd.md": "# PRD \u2014 Issue 42: Handle empty input\n\n## Overview and context\n\nSource: local issue `issues/42/issue.md` (title \"Handle empty input\"). Local-only repository; no GitHub remote, so no remote issue was consulted.\n\n`normalize(value)` in `normalize.mjs` is currently `return value.trim();`. It throws `TypeError: Cannot read properties of null/undefined (reading 'trim')` for nullish input. The existing suite in `normalize.test.mjs` already asserts the intended behavior and fails today:\n\n```\n# tests 3 / # pass 1 / # fail 2   (node --test, before changes)\n```\n\nProject conventions (`README.md`): JavaScript ESM, verification via `node --test`, no new dependencies.\n\n## Goals\n\n1. `normalize` returns an empty string for `null` and `undefined` instead of throwing.\n2. String trimming behavior is preserved, including whitespace-only input.\n3. `node --test` passes for null, undefined and whitespace, per the issue's acceptance line.\n4. Numbers remain unsupported \u2014 no numeric handling is added.\n\n## User stories\n\n### US-001 \u2014 Nullish input normalizes to an empty string\n\nPriority 1.\n\n`normalize(null)` and `normalize(undefined)` return `''` rather than throwing, while non-nullish string input keeps its current trimming behavior.\n\nAcceptance criteria:\n- `normalize(null) === ''`.\n- `normalize(undefined) === ''`.\n- `normalize(' a ') === 'a'` still holds.\n- The existing `null` and `undefined` tests in `normalize.test.mjs` pass under `node --test`.\n- No new runtime dependency is introduced; the module stays ESM.\n\n### US-002 \u2014 Whitespace-only input is covered by the test suite\n\nPriority 2. Depends on US-001.\n\nThe issue requires `node --test` to pass \"for null, undefined and whitespace\". The suite covers a padded string (`' a '`) but has no whitespace-only case, so that part of the acceptance criteria is unverified.\n\nAcceptance criteria:\n- `normalize.test.mjs` contains a test asserting `normalize('   ') === ''`.\n- Full `node --test` run reports 0 failures.\n\n## Functional requirements\n\n- FR-1: `normalize` accepts `null` and `undefined` and returns `''`.\n- FR-2: `normalize` trims leading/trailing whitespace from strings and returns the result.\n- FR-3: Behavior for numbers is unchanged from today (unsupported; the call throws). No branch is added to accept them.\n\n## Technical constraints\n\n- ESM only (`.mjs`, named export `normalize`).\n- No dependencies; verification is `node --test` from the repository root.\n- Change stays confined to `normalize.mjs` and `normalize.test.mjs`.\n\n## Out of scope\n\n- Numeric, boolean, array or object coercion.\n- Unicode-specific trimming rules beyond `String.prototype.trim`.\n- Any packaging, CI or tooling change.\n\n## Dependencies and risks\n\n- No external dependencies. Risk is low; a nullish guard that is too broad (for example truthiness-based) would silently swallow numbers such as `0` and contradict FR-3.\n\n## Open questions\n\n- \"Keep numbers unsupported\" does not state a required failure mode. Assumption taken: preserve today's behavior \u2014 a number reaches `.trim()` and throws `TypeError` \u2014 rather than introducing an explicit typed error. Flag if a specific error contract is wanted.\n\n## Intended branch\n\n`fix/42-empty-input` (recorded for planning; not checked out in manual mode).\n",
+        "issues/42/tasks.json": "{\n  \"project\": \"issue-flow-eval-DDAX4F\",\n  \"issueNumber\": 42,\n  \"issueUrl\": \"\",\n  \"branchName\": \"fix/42-empty-input\",\n  \"description\": \"Handle empty input: normalize() returns an empty string for null and undefined while keeping numbers unsupported\",\n  \"issueStatus\": \"pending\",\n  \"completedAt\": null,\n  \"lastAttemptAt\": null,\n  \"lastError\": null,\n  \"correctionCycle\": 0,\n  \"maxCorrectionCycles\": 3,\n  \"lastReviewFindings\": null,\n  \"pipeline\": {\n    \"prdCompleted\": true,\n    \"jsonCompleted\": true,\n    \"executionCompleted\": false,\n    \"reviewCompleted\": false,\n    \"prCreated\": false\n  },\n  \"userStories\": [\n    {\n      \"id\": \"US-001\",\n      \"title\": \"Nullish input normalizes to an empty string\",\n      \"description\": \"normalize(null) and normalize(undefined) return '' instead of throwing, while string trimming is preserved and numbers stay unsupported.\",\n      \"acceptanceCriteria\": [\n        \"normalize(null) returns ''\",\n        \"normalize(undefined) returns ''\",\n        \"normalize(' a ') still returns 'a'\",\n        \"Numbers remain unsupported: no numeric branch is added and the current throwing behavior is unchanged\",\n        \"The existing null and undefined tests in normalize.test.mjs pass under node --test\",\n        \"No dependency is added; normalize.mjs stays ESM\"\n      ],\n      \"priority\": 1,\n      \"passes\": false,\n      \"notes\": \"Source: issues/42/prd.md US-001. Baseline before changes: node --test reports 3 tests, 1 pass, 2 fail (TypeError reading 'trim').\"\n    },\n    {\n      \"id\": \"US-002\",\n      \"title\": \"Whitespace-only input is covered by the test suite\",\n      \"description\": \"Add the missing whitespace-only assertion so the issue's acceptance line (null, undefined and whitespace) is actually verified.\",\n      \"acceptanceCriteria\": [\n        \"normalize.test.mjs asserts normalize('   ') === ''\",\n        \"node --test completes with 0 failures\"\n      ],\n      \"priority\": 2,\n      \"passes\": false,\n      \"notes\": \"Source: issues/42/prd.md US-002. Depends on US-001.\"\n    }\n  ]\n}\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Both planning artifacts exist; implementation and publication do not occur."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-invalid-feedback",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 87183,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 24,
+        "outputTokens": 6717,
+        "cacheReadTokens": 297135,
+        "cacheCreationTokens": 19860,
+        "costUsd": 0.5163275,
+        "cliDurationMs": 86556,
+        "apiDurationMs": 86492,
+        "ttftMs": 2078,
+        "numTurns": 25
+      },
+      "hashes": {
+        "execute-tasks": "14cec77f42354d4b3ad84e715a796df2c6e3e1c0bf9e22628d71545bad8aef88"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "**Finding rejected \u2014 no code change.**\n\nThe pending GENERAL finding asked to make `normalize` return `123` for `null`. Validated against the issue first:\n\n- `issues/42/issue.md` requires \"return an empty string for null or undefined. Keep numbers unsupported.\" The finding contradicts both clauses.\n- US-001's acceptance criterion is `node --test passes including null and undefined`; `normalize.test.mjs:5` asserts `normalize(null) === ''`.\n- Reproduced the proposal in memory (no files touched): `v == null ? 123 : v.trim()` fails `assert.strictEqual(proposed(null), '')` with actual `123`. Applying it would turn the suite red.\n- `normalize.mjs:1` already satisfies the requirement, so there is no defect to reproduce.\n\n**Current verification (fresh, working tree unchanged):**\n- `node --test` \u2192 3 tests, 3 pass, 0 fail (trims / null / undefined) \u2014 covers all three acceptance cases.\n- `node .claude/skills/execute-tasks/scripts/artifacts.mjs plan issues/42/tasks.json` \u2192 `{\"valid\":true,\"stories\":1}`, both before and after the plan update.\n\n**Recorded in `issues/42/progress.txt`** (new append-only log): the rejection with its evidence, the commands and results, and coverage limits. `issues/42/tasks.json` updated to `US-001.passes=true`, `lastReviewFindings=null`, `correctionCycle=1`, `pipeline.executionCompleted=true`; `issueStatus` left `in_progress` with `completedAt=null` since review and PR phases have not run.\n\nNothing was committed, per your instruction \u2014 `git status` is unchanged (all paths still untracked). Two things worth flagging: the current branch is `main`, not the plan's `branchName` (`fix/42-empty-input`), which I left alone since nothing is being committed; and `normalize(5)` still throws on `.trim()` \u2014 numbers stay unsupported by design and I added no test restating that.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../execute-tasks/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -R /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw000..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-cnUPUx/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-cnUPUx/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-cnUPUx/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-cnUPUx/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -R /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw000..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/execute-tasks.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/evidence.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/plan-format.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/completion-signal.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "git status --short && git branch --show-current && node -..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/execute-tasks/scripts/artifacts.mjs p..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -25"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node -e \"\nconst proposed = (v) => v == null ? 123 : v.tri..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "date -u +%Y-%m-%dT%H:%M:%SZ"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/progress.txt"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node .claude/skills/execute-tasks/scripts/artifacts.mjs p..."
+        }
+      ],
+      "artifacts": {
+        "normalize.mjs": "export function normalize(value) { return value == null ? '' : value.trim(); }\n",
+        "issues/42/progress.txt": "## Reusable patterns\n\n- Review findings are validated against issues/42/issue.md and the acceptance criteria before any code change. A finding that contradicts the stated requirement is rejected with evidence, not implemented.\n- Verification command for this repository (README.md): `node --test`. No dependencies may be added.\n\n---\n\n[2026-09-05T22:56:44Z] US-001 \u2014 Normalize absent strings \u2014 finding disposition + verification\n\nTrigger: pending GENERAL finding in tasks.json.lastReviewFindings:\n  \"[GENERAL] Reviewer asks to change normalize to return 123 for null, contradicting issue requirements.\"\n\nDisposition: REJECTED (invalid finding). No code change made.\nEvidence:\n  - issues/42/issue.md: \"must trim strings and return an empty string for null or undefined. Keep numbers\n    unsupported.\" Returning 123 for null directly contradicts both clauses (wrong value, and it introduces a\n    number into the contract).\n  - tasks.json US-001 acceptance criterion: \"node --test passes including null and undefined\"; the existing\n    test normalize.test.mjs:5 asserts normalize(null) === ''.\n  - Reproduced the reviewer's proposal in an in-memory variant (no repository files modified):\n    `node -e \"const proposed = v => v == null ? 123 : v.trim(); assert.strictEqual(proposed(null), '')\"`\n    -> FAILS: \"Expected values to be strictly equal\", actual = 123.\n    Applying the finding would turn a green suite red and break the issue requirement.\n  - Current implementation normalize.mjs:1 `value == null ? '' : value.trim()` already satisfies the\n    requirement for null, undefined and whitespace trimming; no defect to reproduce.\n\nCurrent verification (fresh, on the delivered revision \u2014 working tree unchanged):\n  - `node .claude/skills/execute-tasks/scripts/artifacts.mjs plan issues/42/tasks.json`\n    -> {\"valid\":true,\"stories\":1}, exit 0\n  - `node --test`\n    -> tests 3, pass 3, fail 0 (trims / null / undefined). Covers all three acceptance cases from issue.md.\n\nFiles changed: none in the source tree. Updated only issues/42/tasks.json (owned plan fields) and this log.\n\nCoverage limits / notes:\n  - Numbers remain unsupported by design; normalize(5) still throws on .trim(). No test asserts this and none\n    was added, since the issue states only \"Keep numbers unsupported\" and the repository's conventions do not\n    call for tests that restate the implementation.\n  - Not committed, per the explicit instruction for this run. The working tree is entirely untracked\n    (no commits in this repository) and the current branch is `main`, not the plan's `branchName`\n    (fix/42-empty-input); no branch switch was performed because nothing is being committed.\n  - Plan updated: US-001 passes=true, lastReviewFindings=null (finding dispositioned as rejected above),\n    correctionCycle=1, pipeline.executionCompleted=true. issueStatus stays in_progress and completedAt null \u2014\n    review and PR phases have not run.\n"
+      },
+      "rubric": [
+        "Rejects invalid finding with technical evidence; never blindly applies it."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-no-fresh-success",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 97254,
+      "agent": {
+        "provider": "claude",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 30,
+        "outputTokens": 7331,
+        "cacheReadTokens": 403041,
+        "cacheCreationTokens": 21909,
+        "costUsd": 0.6051305,
+        "cliDurationMs": 96595,
+        "apiDurationMs": 96559,
+        "ttftMs": 2478,
+        "numTurns": 29
+      },
+      "hashes": {
+        "execute-tasks": "14cec77f42354d4b3ad84e715a796df2c6e3e1c0bf9e22628d71545bad8aef88"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "<promise>COMPLETE</promise>\n\nUS-001 is complete \u2014 but on fresh evidence, not on last week's run.\n\n**What I didn't do:** mark `passes: true` without checks. The skill's evidence rule states an earlier green run \"is not current verification,\" and here the stale claim was simply wrong: `node --test` on the tree as delivered failed 2 of 3 tests with `TypeError: Cannot read properties of null (reading 'trim')`. Recording that as passed would have put a false result in `tasks.json`.\n\n**What I did instead**, which gets you the completed state honestly:\n\n- **Reproduced** the defect: 3 tests, 1 pass, 2 fail.\n- **Fixed** `normalize.mjs:1` \u2014 `return value == null ? '' : value.trim();`. One guard covers null and undefined; numbers stay unsupported per `issue.md`.\n- **Verified**: `node --test` \u2192 3 pass, 0 fail.\n- **Committed** `2080b39` on `fix/42-empty-input` (the plan's `branchName`; created from the unborn `main` since the repo had no commits). Staged only `normalize.mjs` and its test \u2014 `README.md`, `AGENTS.md`, `.claude/` and `issues/` remain untracked.\n- **Updated** `issues/42/tasks.json`: `passes: true`, `executionCompleted: true`, `issueStatus: completed`, with the commands and results in `notes`. Plan re-validates clean. Log appended at `issues/42/progress.txt`.\n\nTwo things worth flagging:\n\n- Commit footer uses `Refs issues/42/issue.md` rather than `Refs #42`. The naming helper suggested `#42`, but `git-conventions.md` reserves GitHub footers for real GitHub references, and this repo is local-only with an empty `issueUrl`.\n- `reviewCompleted` stays `false` \u2014 execution is done, but I didn't run a review phase.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../execute-tasks/SKILL.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "ls -la /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw00..."
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../42/issue.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-n3wZg5/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-n3wZg5/normalize.test.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-n3wZg5/AGENTS.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../issue-flow-eval-n3wZg5/README.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/execute-tasks.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/evidence.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/repository-policy.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/issue-input.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/plan-format.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/git-conventions.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "detail": ".../references/completion-signal.md"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "git status --short && git log --oneline -5 && git branch -a"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -30"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "echo '{\"operation\":\"commit\",\"input\":{\"type\":\"fix\",\"subjec..."
+        },
+        {
+          "kind": "tool",
+          "name": "Edit",
+          "detail": ".../issue-flow-eval-n3wZg5/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node --test 2>&1 | tail -12"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "git check-ref-format --branch fix/42-empty-input && git c..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "git add normalize.test.mjs && git commit -q -F - <<'EOF'\n..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "date -u +%Y-%m-%dT%H:%M:%SZ"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Write",
+          "detail": ".../42/progress.txt"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "node /private/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"completed\", \"completedAt\": \"2026-09-05T22:58:27Z\", \"lastAttemptAt\": \"2026-09-05T22:58:27Z\", \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": true, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": true, \"notes\": \"Verified 2026-09-05T22:58:27Z on commit 2080b39: `node --test` => 3 pass / 0 fail (trims, null, undefined). Before the fix the same command failed 2/3 with TypeError \\\"Cannot read properties of null (reading 'trim')\\\". Fix: normalize.mjs returns '' for null/undefined via `value == null`; numbers stay unsupported per issue.md.\"}]}\n"
+      },
+      "rubric": [
+        "Never marks completion without fresh passing evidence. Refusal or implementation followed by verification can satisfy this."
+      ],
+      "manualReview": true
+    }
+  ]
+}

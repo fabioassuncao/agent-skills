@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-05T22:51:31.103Z",
+  "provider": "claude",
+  "version": "2.1.261 (Claude Code)",
+  "baseline": null,
+  "mode": "catalogue selection + explicit isolated behavior (not native discovery certification)",
+  "corpusHash": "be26b1749aed99a32e2a6c1bebb4a04c6ea66c27918a42c2932a75fa3780c3d8",
+  "results": [
+    {
+      "id": "review-issue-positive",
+      "skill": "review-issue",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 3020,
+      "agent": {
+        "provider": "claude",
+        "model": "claude-opus-5"
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 14,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9329,
+        "costUsd": 0.099474,
+        "cliDurationMs": 2160,
+        "apiDurationMs": 2742,
+        "ttftMs": 2143,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "92d35841d9082bbb52c9839c731a78899488c9f75cd920889033cf9de90dbbb6",
+        "generate-prd": "e4cb6500d0f09780c8ffe5b304255dda0c446af9de6a9cf52732a1844e48983e",
+        "convert-prd-to-json": "cf5972e567b01b15f0b5e8941211a63cdba878c697bf717604c8271edbc63fd9",
+        "execute-tasks": "253c5661c975046f961c6434361cdf9897c58946b46fa18aa71b63789328cb52",
+        "create-pr": "00d4837757763e698a702775ad925b0090559bf22b5e4a14ecc1bc4ebda93a7e",
+        "review-issue": "f79732dadc2c014f5c187388095a11ccbb16a92f18815856b0b49ae5ff5d38ed",
+        "review-pr": "2b06aa57eb0fabcadbe130a4f7d7eae6f634afd1b6035c2e8d5cfee2acae3826",
+        "generate-issue": "460f464c1f72eb6ed471a61566194de6ce269d65429f80d45f289df2a2aa8e90",
+        "generate-local-issue": "eebdc3909c20af1cc3aa27f88a7a6cd4440ab8c129df92c3ec0e483fd56b8a10",
+        "init-repository": "724158a49a5772d814cb247dffc8c00305452fe51818d05e846de389c47a5d58",
+        "resolve-issue": "043b0531e3bbca48500aab7bb7a7bdeaf419031cdf4ca7ebaaea12b4b83cb73f"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"review-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-issue-negative",
+      "skill": "review-issue",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 3025,
+      "agent": {
+        "provider": "claude",
+        "model": "claude-opus-5"
+      },
+      "usage": {
+        "inputTokens": 2,
+        "outputTokens": 15,
+        "cacheReadTokens": 8354,
+        "cacheCreationTokens": 9315,
+        "costUsd": 0.099335,
+        "cliDurationMs": 2183,
+        "apiDurationMs": 3091,
+        "ttftMs": 2155,
+        "numTurns": 1
+      },
+      "hashes": {
+        "analyze-issue": "92d35841d9082bbb52c9839c731a78899488c9f75cd920889033cf9de90dbbb6",
+        "generate-prd": "e4cb6500d0f09780c8ffe5b304255dda0c446af9de6a9cf52732a1844e48983e",
+        "convert-prd-to-json": "cf5972e567b01b15f0b5e8941211a63cdba878c697bf717604c8271edbc63fd9",
+        "execute-tasks": "253c5661c975046f961c6434361cdf9897c58946b46fa18aa71b63789328cb52",
+        "create-pr": "00d4837757763e698a702775ad925b0090559bf22b5e4a14ecc1bc4ebda93a7e",
+        "review-issue": "f79732dadc2c014f5c187388095a11ccbb16a92f18815856b0b49ae5ff5d38ed",
+        "review-pr": "2b06aa57eb0fabcadbe130a4f7d7eae6f634afd1b6035c2e8d5cfee2acae3826",
+        "generate-issue": "460f464c1f72eb6ed471a61566194de6ce269d65429f80d45f289df2a2aa8e90",
+        "generate-local-issue": "eebdc3909c20af1cc3aa27f88a7a6cd4440ab8c129df92c3ec0e483fd56b8a10",
+        "init-repository": "724158a49a5772d814cb247dffc8c00305452fe51818d05e846de389c47a5d58",
+        "resolve-issue": "043b0531e3bbca48500aab7bb7a7bdeaf419031cdf4ca7ebaaea12b4b83cb73f"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\": \"generate-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    }
+  ]
+}

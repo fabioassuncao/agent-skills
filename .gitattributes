@@ -1,0 +1,6 @@
+skills/** linguist-generated=true
+skills/README.md -linguist-generated
+skills/AGENTS.md -linguist-generated
+# Bundled dependency template strings preserve meaningful source whitespace.
+skills/*/scripts/artifacts.mjs whitespace=-blank-at-eol
+packages/issue-flow/prompts/** linguist-generated=true

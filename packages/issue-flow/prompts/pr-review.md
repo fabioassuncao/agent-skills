@@ -22,7 +22,7 @@ Run these, in this order:
 
 1. `gh pr view __PR_NUMBER__` — title, description, state, base and head branches
 2. `gh pr diff __PR_NUMBER__ --name-only` — the file list, BEFORE any full diff
-3. `gh pr diff __PR_NUMBER__ --stat` — size and shape of the change
+3. `gh pr view __PR_NUMBER__ --json files,headRefOid,baseRefOid` — size and shape of the change
 4. `git log --oneline <base>..<head>` — commit history of the branch
 5. Read __TASKS_PATH__ and __PRD_PATH__ when they exist, to learn what was intended
 6. Learn the repository's conventions from **its own** sources, not from prior knowledge —
@@ -44,13 +44,13 @@ Before reading any hunk:
 - Rank the changed files by impact: core/domain logic, public API surface and security
   or data-handling code first; generated files, lockfiles, snapshots and pure
   formatting last
-- Read the full diff of the high-impact files (`gh pr diff __PR_NUMBER__ -- <path>`),
+- Read the full diff of the high-impact files (fetch the exact head/base refs and use `git diff <base-sha>...<head-sha> -- <path>`),
   skim the rest
 - Read the surrounding code of a changed file when the diff alone does not tell you
   whether the change is correct — a diff hides its own context
 - If the PR is too large to review completely, review what matters most and DECLARE
   the scope you covered in the executive summary (which files you read in full, which
-  you skimmed, which you did not open). Produce a scoped report; never fail and never
+  you skimmed, which you did not open). Produce a scoped report, disclose missing required verification, and never
   imply coverage you did not have
 
 ## Step 3 — Review axes
@@ -142,9 +142,9 @@ Pick exactly one recommendation, by these criteria:
 A missing preference or a matter of style is never a blocker. When you hesitate
 between two verdicts, pick the more conservative one and explain why in the summary.
 
-## Step 5 — Output format
+## Pull Request review report
 
-Output the report as Markdown, using exactly these headings, in this order:
+Use these eight headings in order:
 
 ```markdown
 ## Executive summary
@@ -157,35 +157,27 @@ Output the report as Markdown, using exactly these headings, in this order:
 ## Final recommendation
 ```
 
-Under **Issues found** and **Required before merge**, write every item on one line in
-exactly this format, so it can be indexed mechanically:
+Anchor findings to the PR head revision. In Issues found and Required before merge use `- [severity] path/to/file:line — Short title`, with severity blocker/high/medium/low. Omit the line only for a whole-file finding. Explain below the item. Empty sections contain _None._
 
-```
+Example finding accepted by the report index:
+
+```markdown
 - [severity] path/to/file.ts:123 — Short title of the problem
 ```
 
-- `severity` is one of `blocker`, `high`, `medium`, `low`
-- `path/to/file.ts:123` is the file and line in the PR's head revision; omit `:123`
-  when the finding is about the file as a whole
-- The title is one line; put the explanation in the lines below the item
-- Sections with nothing to report: write `_None._` rather than removing the heading
+APPROVE means no blocker or meaningful improvement; APPROVE_WITH_SUGGESTIONS means non-blocking improvements; REQUEST_CHANGES means a concrete blocker, such as a defect, missing critical verification or mandatory requirement. Do not turn a preference into a blocker. Declare files reviewed fully, skimmed or omitted when coverage is limited. An incomplete required review must not be presented as approval.
 
-Finish your output with this block, verbatim, as the very last thing you write:
+Finish with:
 
+```text
 <pr-review-result>
 RECOMMENDATION: APPROVE
 BLOCKERS:
 - None
 </pr-review-result>
+```
 
-Replace `APPROVE` with `APPROVE_WITH_SUGGESTIONS` or `REQUEST_CHANGES` as decided in
-step 4, and list one line per blocker under `BLOCKERS:` (keep `- None` when there are
-none). Every `REQUEST_CHANGES` must list at least one blocker.
-
-IMPORTANT: You MUST include the `<pr-review-result>` block, with the recommendation
-written exactly as one of `APPROVE`, `APPROVE_WITH_SUGGESTIONS` or `REQUEST_CHANGES`.
-An output without it, or with any other value, is a failed review — it is never read
-as an approval.
+Use one of the three recommendations, exactly. REQUEST_CHANGES lists at least one blocker. Missing or malformed output is a failed review, never APPROVE. This block is the last output.
 
 <!-- if:__REPO_POLICY__ -->
 ## Repository policy
@@ -202,4 +194,20 @@ silent, the defaults above still apply.
 
 Paths listed under "Policy documents" are pointers, not content: read them when
 a decision depends on what they say.
+
+Use the repository's applicable issue template instead of layering another body template over it. Fill required fields; ask when two templates fit equally. Keep the PR template's sections, explaining non-applicable ones briefly.
+
+Use existing label casing. Never create a label unless explicitly opted in by issues.allowLabelCreation and the action is authorized. Drop labels known to be absent; report lost classification. When the registry is unavailable, report that validation could not be performed rather than claiming the label does not exist. Local metadata labels are free-form and should reuse the local vocabulary.
+
+Prefer native fields over labels and textual prefixes. Do not reintroduce a type prefix when the repository uses native Issue Types unless its declared title convention requires it. Defaults apply only to undeclared choices; obtain the fallback taxonomy from the bundled conventions helper where supplied.
 <!-- /if -->
+
+## Evidence before completion
+
+Use fresh evidence from the revision being delivered. Read the repository's test/build instructions and execute the relevant checks after the final meaningful change. Record commands, results and material coverage limits. An earlier green run, a checked checkbox or another agent's claim is not current verification.
+
+If a required check fails or cannot run, report the failure or unverified criterion. Do not mark that criterion passed or emit a completion/approval signal. Discover checks appropriate to the stack; do not require TypeScript checks in a project without TypeScript. For UI acceptance, use an available browser capability and record what was exercised; missing browser verification remains pending when required.
+
+For bug fixes, reproduce the defect with a focused check before correcting it when the repository and environment permit. Follow existing testing conventions; do not impose universal TDD or tests that merely restate the implementation.
+
+Evaluate review feedback against the code and requirements before applying it. Reproduce valid defects where feasible. Record why an incorrect or inapplicable finding was rejected, with evidence, rather than changing code just to satisfy its wording. Re-review after valid fixes.

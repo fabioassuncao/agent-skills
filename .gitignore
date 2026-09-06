@@ -1,8 +1,2 @@
 .DS_Store
-
-# Legacy artifact directory. The pipeline writes to ~/.issue-flow now and only
-# ever reads from here (see README -> "The legacy `issues/` directory"), so this
-# entry guards a tree that predates the migration -- it is not the write target.
-/issues
-
 /node_modules

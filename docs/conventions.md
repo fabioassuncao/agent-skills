@@ -4,10 +4,15 @@ Issue Flow adapts to the repository it runs in. When that repository already
 declares how it works, the tool follows it; when it declares nothing, the tool
 supplies a baseline and can write it down.
 
-This document explains the behaviour: how conventions are discovered, in what
-order they win, what the defaults are, and how to initialize a repository.
+This document owns the shared repository conventions and explains their CLI
+implementation. [Agent Skills](../skills/README.md) discover instructions directly
+in the consumer repository; their host's permissions still apply. CLI discovery,
+configuration loaders and commands below describe the [experimental CLI](cli.md).
+Skills do not require those commands or configuration files.
 
 ## The precedence ladder
+
+The CLI policy loader applies this ladder:
 
 ```text
 Issue Flow defaults
@@ -29,84 +34,14 @@ The rungs are applied by `mergeConfigLayers()` and resolved once per process by
 
 ### The `resilience` key
 
-The ladder above is the one the `policy` key climbs. The `resilience` key --
-retry, providers, queue, watchdog, journal and decomposition -- climbs a longer
-one, because it is a preference rather than a convention and therefore also has
-a machine-wide rung:
-
-```text
-Issue Flow defaults
-  < ~/.issue-flow/config.json
-  < the "resilience" key of .issue-flow.json
-  < ISSUE_FLOW_RESILIENCE_* environment variables
-  < CLI flags
-```
-
-Same rungs, same `mergeConfigLayers()`, resolved by `loadResilienceConfig()` in
-`src/config.ts`. Three properties are the whole contract:
-
-- **Absence is absence.** A project that configures nothing resolves to `{}`,
-  not to a skeleton of empty sections and never to a materialized default, so
-  "nothing configured" and "the behaviour of every release before the key
-  existed" are literally the same object.
-- **A rung never erases the rung below it.** The merge is per key, and inside
-  `retry` it goes one level deeper -- per `FailureKind` *and* per field --
-  because that table is two levels deep by construction. A project raising
-  `retry.network.maxDelayMs` keeps a `retry.network.retryForever` set in
-  `config.json`.
-- **No configuration buys an attempt for a failure that needs a human.**
-  `authentication`, `configuration`, `repository_state` and `task_execution` are
-  clamped to zero attempts *after* the user layer, so no file, variable, flag or
-  profile can widen them. See `src/resilience/AGENTS.md`.
-
-```json
-{
-  "resilience": {
-    "profile": "continuous",
-    "retry": {
-      "network": { "retryForever": true, "maxDelayMs": 120000 },
-      "rateLimit": { "retryForever": true, "maxDelayMs": 900000 },
-      "providerDown": { "maxAttempts": 4, "failover": "after_attempts" }
-    },
-    "providers": { "failover": true, "chain": ["claude", "codex"], "cooldownMs": 60000 },
-    "queue": { "onIssueFailure": "skip", "maxIssueAttempts": 3 },
-    "watchdog": { "inactivityTimeoutMs": 600000 },
-    "journal": { "enabled": true, "maxFileBytes": 10485760 },
-    "decompose": { "auto": false }
-  }
-}
-```
-
-The same object is accepted in `.issue-flow.json` and in
-`~/.issue-flow/config.json` -- they are two rungs of one ladder, not two
-formats. The environment covers the scalar knobs one variable each
-(`ISSUE_FLOW_RESILIENCE_PROFILE`, `ISSUE_FLOW_RESILIENCE_FAILOVER`,
-`ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE`,
-`ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`, `ISSUE_FLOW_RESILIENCE_JOURNAL`,
-`ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE`, and the rest listed in the
-[configuration reference](configuration.md#environment-variables)); the per-kind
-`retry` table is too
-shaped for a shell variable and travels whole as JSON in
-`ISSUE_FLOW_RESILIENCE_RETRY`.
+Resilience configures the CLI runtime rather than repository conventions. See
+[configuration](configuration.md#resilience) for its precedence and fields, and
+[Resilience](resilience.md) for retries, failover and failure handling.
 
 #### The `continuous` profile
 
-`profile: "continuous"` is the one value of the key that is a *statement of
-intent* rather than a number. It says "this run has nobody watching it", and it
-expands into the settings that implies -- network and rate limits retried
-forever, wider budgets for the other transient kinds, provider failover, a queue
-that skips a failing issue instead of stopping, a journal, and the inactivity
-watchdog.
-
-Two properties keep it honest:
-
-- **It only ever widens.** What is not retryable under the default profile is
-  not retryable here either -- the profile is a spread applied *before* the
-  golden-rule clamp, never after it.
-- **Anything it sets stays settable.** The profile is one rung of the same
-  ladder; a `retry.network.maxAttempts` in `.issue-flow.json`, an
-  `ISSUE_FLOW_RESILIENCE_*` variable or a CLI flag all still win over it, in
-  that order. `--continuous --no-failover` is a coherent request.
+See [the continuous profile](resilience.md#the-continuous-profile) for expansion,
+overrides and retry boundaries. It is not a Skill execution mode.
 
 ### Where the organization sits
 
@@ -148,7 +83,7 @@ Inspect the result with:
 
 ```bash
 issue-flow policy            # human-readable, with the provenance of each value
-issue-flow policy --json     # the versioned contract the Agent Skills read
+issue-flow policy --json     # versioned contract for optional Skill enrichment
 ```
 
 ## The default conventions
@@ -190,9 +125,9 @@ of a container fails instead of implementing the document nobody approved.
 
 | Concept | Represent it as | Why |
 |---|---|---|
-| Documentation | `Task` + label `docs` | The work is a task; what varies is the area |
+| Documentation | `Task` + an existing documentation label | The work is a task; what varies is the area |
 | Maintenance, chore | `Task` | That is already what `Task` means |
-| Refactor, technical debt | `Task` + label `tech-debt` | A cross-cutting characteristic, not a nature |
+| Refactor, technical debt | `Task` + an existing refactoring/debt label | A cross-cutting characteristic, not a nature |
 | Security | the real type + label `security` | It cuts across every type |
 | Spike, investigation | `Research` | The same concept, different name |
 | Enhancement | `Feature` | A change to what the product does is a feature |
@@ -201,13 +136,18 @@ of a container fails instead of implementing the document nobody approved.
 
 ### Labels
 
-A small vocabulary, for what has no native representation — area, component and
+For issues, prefer a small vocabulary for what has no native representation — area, component and
 cross-cutting characteristic: `api`, `backend`, `frontend`, `database`, `infra`,
-`docs`, `security`, `tech-debt`, `blocked`, `good first issue`.
+`documentation`, `security`, `tech-debt`, `blocked`, `good first issue`. These are
+examples for discovery/fallback, not a requirement to create those names. In this
+repository the existing documentation label is `documentation`.
 
-There is deliberately no `priority`, `status`, `type` or size label: GitHub
-models all four. The one exception is `type:*`, proposed only for an organization
-with no Issue Types at all.
+Do not create duplicate priority/status/type/size labels when the project models
+those decisions with native Issue Types, Projects fields or other existing
+structure. A `type:*` fallback can be proposed for issues when native Issue Types
+are unavailable. PRs are classified separately: their applicable labels and
+other metadata follow [PR conventions](git-conventions.md#pr-description-and-metadata).
+Existing labels are not removed or migrated by this guidance.
 
 **Issue Flow never creates a label.** A suggestion the repository does not have is
 dropped with a warning. A team that deleted `high`/`medium`/`low` in favour of a
@@ -273,6 +213,13 @@ whole content forwards to `AGENTS.md` is not a repository without conventions.
 
 ## Initializing a repository
 
+For the recommended interactive workflow, use
+[`init-repository`](../skills/init-repository/SKILL.md) to inspect the consumer
+repository and plan missing conventions. Initialization is optional when the
+repository already has the conventions it needs.
+
+The CLI exposes the same capability through these commands:
+
 ```bash
 issue-flow init                 # prerequisites + what is missing. Writes nothing
 issue-flow init --apply         # create the missing files
@@ -281,9 +228,9 @@ issue-flow init --scope apps/api
 issue-flow init --check-only    # prerequisites only, as earlier releases did
 ```
 
-The same capability is available interactively through the
-[`init-repository`](../skills/init-repository/SKILL.md) skill, which calls this
-command rather than re-deriving the analysis.
+The Skill renders candidates with bundled canonical renderers; consulting an
+installed CLI is an optional optimization. The verdicts and preservation rules
+below describe the shared scaffold behavior.
 
 ### The three verdicts
 
@@ -333,8 +280,7 @@ document.
 
 ## How the flows consume all this
 
-Every flow reads the same resolved policy — there is no second discovery
-anywhere:
+Every CLI flow reads the same resolved policy:
 
 | Flow | What it does with the conventions |
 |---|---|
@@ -346,10 +292,12 @@ anywhere:
 | `review`, `pr-review` | Add policy conformance as an explicit axis, citing the document behind every rule |
 | `init` | Reports and fills only what is missing |
 
-The Agent Skills consume the same thing through `issue-flow policy --json`, via
-[`skills/_shared/repository-policy.md`](../skills/_shared/repository-policy.md) —
-one source, referenced by every skill, never copied. A parity test fails if the
-two paths start deciding differently.
+Agent Skills discover the consumer repository directly, with optional enrichment
+from `issue-flow policy --json`. Shared decisions are authored once under
+[`skills-src/_shared/`](../skills-src/_shared/) and materialized into each Skill
+and applicable packaged prompts. Pure naming rules are bundled from the CLI's
+canonical modules. See [the source/artifact contract](skills.md); installed
+Skills never read the Issue Flow source tree.
 
 ## Customizing
 
@@ -367,7 +315,7 @@ two paths start deciding differently.
 }
 ```
 
-### Adjust a prompt
+### Adjust a CLI prompt
 
 | File | Effect |
 |---|---|
@@ -376,6 +324,8 @@ two paths start deciding differently.
 
 `append` is recommended because a full replacement makes the repository inherit
 that prompt's maintenance: later improvements stop reaching it, silently.
+Installed Skills keep their own resources; these overrides affect only the CLI.
+Contributor edits to packaged defaults follow the [source/artifact contract](skills.md#source-and-distribution).
 
 ### Establish conventions for a whole organization
 

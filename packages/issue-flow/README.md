@@ -1,127 +1,49 @@
-# issue-flow
+# issue-flow CLI
 
-**Turn an issue into a reviewed Pull Request, without sitting in front of it.**
+**Experimental automation from issue to reviewed Pull Request.**
 
-> ⚠️ **Experimental — under active development.** This project was built mostly
-> with the help of AI coding agents and has not been audited. Expect bugs,
-> incomplete implementations, regressions and possibly undiscovered security
-> flaws. **Not recommended for real projects, production environments, critical
-> systems or repositories with sensitive information** — today it is meant for
-> testing, evaluation and disposable repositories. Keep backups, run it on a
-> dedicated branch and review every change it produces. Token consumption is not
-> optimized yet: a run may use significantly more tokens than necessary.
-> Full notice:
-> [**Project status**](https://github.com/fabioassuncao/issue-flow/blob/main/docs/project-status.md).
+This npm package is Issue Flow's independent CLI. It drives coding agents in
+headless mode and manages persistent execution state, verification, queues,
+recovery and monitoring. It accepts GitHub or local issues.
 
-A CLI that orchestrates the whole path — analyse, plan, implement, verify,
-review, deliver — by driving a coding agent in headless mode:
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the default),
-[Codex CLI](https://developers.openai.com/codex/noninteractive), Cursor CLI or
-[Antigravity CLI](https://antigravity.google/docs/cli/getting-started/), one
-agent per phase if you want.
+For the recommended workflow in your current coding agent, start with the
+[portable Agent Skills](https://github.com/fabioassuncao/issue-flow/blob/main/skills/README.md).
+They are installed separately from Git and do not require this npm package.
+Installing this package does not install Skills.
 
-```bash
-npx issue-flow init           # check prerequisites and repository conventions
-npx issue-flow run 42         # prd → plan → execute → review → pr
-npx issue-flow run 42 --web   # …and watch it live at http://localhost:3737
-```
+> [!WARNING]
+> The whole project, including the CLI and Skills, is experimental. Recommended
+> Skill use does not imply production readiness. Read the
+> [project status](https://github.com/fabioassuncao/issue-flow/blob/main/docs/project-status.md)
+> for the current risks, restrictions and precautions.
 
-> **Full documentation lives in the repository:**
-> [README](https://github.com/fabioassuncao/issue-flow#readme) ·
-> [Commands](https://github.com/fabioassuncao/issue-flow/blob/main/docs/commands.md) ·
-> [Configuration](https://github.com/fabioassuncao/issue-flow/blob/main/docs/configuration.md) ·
-> [Agents](https://github.com/fabioassuncao/issue-flow/blob/main/docs/agents.md) ·
-> [Storage](https://github.com/fabioassuncao/issue-flow/blob/main/docs/storage.md) ·
-> [Web monitoring](https://github.com/fabioassuncao/issue-flow/blob/main/docs/web-monitor.md) ·
-> [Resilience](https://github.com/fabioassuncao/issue-flow/blob/main/docs/resilience.md) ·
-> [Project status](https://github.com/fabioassuncao/issue-flow/blob/main/docs/project-status.md)
+## Get started
 
-## Requirements
-
-- **Node.js** ≥ 22.13.0
-- **Git**, available in `PATH`, inside a repository
-- **A coding agent** — `npm install -g @anthropic-ai/claude-code` for the default
-- **GitHub CLI** (`gh`), authenticated — only for GitHub issues; a run on local
-  issues does not need it
-
-## What it does
-
-- The full pipeline `prd` → `plan` → `execute` → `review` → `pr`, plus an
-  optional whole-PR review. Every phase is also a standalone command.
-- An iterative execute loop: each iteration is a fresh agent instance that picks
-  the highest-priority pending user story, implements it, runs quality checks and
-  commits.
-- An objective acceptance contract (typecheck, lint, tests) before the LLM
-  judges. An empty contract finishes `unverified`, never green.
-- Per-phase agent selection, resolved explicitly and never inferred from which
-  binary happens to be installed.
-- Resilience for long unattended runs: a failure taxonomy, per-kind retry
-  budgets, provider failover with circuit breakers, an inactivity watchdog and an
-  append-only event journal.
-- Multi-issue queues discovered from sub-issues and dependencies: one branch, one
-  Pull Request.
-- A read-only live web monitor, one card per active run across every project.
-- Issues from GitHub or from plain files — the local provider needs nothing
-  beyond git.
-- Repository conventions (templates, labels, base branch, commit and branch
-  format) discovered rather than imposed.
-
-## Commands
-
-| Command | What it does |
-|---------|--------------|
-| `run <issues...>` | The full pipeline, for one issue or a queue |
-| `resume [issue]` | Continue an interrupted pipeline, explicitly |
-| `generate` | Draft and create an issue on GitHub, locally, or both |
-| `init` | Check prerequisites and report (or create) missing conventions |
-| `analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review` | The phases, standalone |
-| `status`, `ps`, `runs`, `history`, `logs`, `usage`, `pause`, `cancel` | Operate a running pipeline |
-| `agent`, `policy`, `conventions`, `routing` | Inspect what was resolved, and why |
-| `web serve`, `web stop` | The monitoring server |
-
-Run `issue-flow <command> --help` for the flags, or read the
-[command reference](https://github.com/fabioassuncao/issue-flow/blob/main/docs/commands.md).
-
-## Where things are written
-
-Nothing is written inside your repository. Artifacts live in a machine-wide tree
-keyed by a deterministic project id:
-
-```
-~/.issue-flow/projects/<project-id>/issues/42/
-  prd.md   tasks.json   progress.txt   session.json   events.jsonl   pr-review/
-```
-
-`ISSUE_FLOW_HOME` relocates the whole tree. A legacy `<projectRoot>/issues/`
-directory from an earlier release is copied in automatically on first use and
-then left read-only.
-
-## Configuration
-
-Everything resolves through **CLI flag > environment variable >
-`.issue-flow.json` > `~/.issue-flow/config.json` > default**. Nothing is
-mandatory. See the
-[configuration reference](https://github.com/fabioassuncao/issue-flow/blob/main/docs/configuration.md).
-
-## Development
+Complete the
+[CLI prerequisites](https://github.com/fabioassuncao/issue-flow/blob/main/docs/cli.md#requirements-and-installation)
+first. From your consumer repository:
 
 ```bash
-npm install
-npm run build       # tsup → dist/
-npm run typecheck
-npm test
-npm run smoke       # end-to-end, against deterministic stand-ins for claude and gh
-npm run check       # biome + typecheck
+npx issue-flow init
+npx issue-flow run 42
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup and the release
-process.
+Replace `42` with the issue to resolve. `run` plans, implements, verifies,
+reviews and creates a PR. Review the resulting changes before merging.
+For installation, local issues, monitoring and limitations, use the
+[CLI guide](https://github.com/fabioassuncao/issue-flow/blob/main/docs/cli.md).
 
-## Credits
+## Documentation
 
-Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/) and the
-[snarktank/ralph](https://github.com/snarktank/ralph) repository.
+- [Project overview](https://github.com/fabioassuncao/issue-flow#readme)
+- [CLI guide and reference map](https://github.com/fabioassuncao/issue-flow/blob/main/docs/cli.md)
+- [Commands](https://github.com/fabioassuncao/issue-flow/blob/main/docs/commands.md)
+- [Configuration](https://github.com/fabioassuncao/issue-flow/blob/main/docs/configuration.md)
+- [Agent setup and authentication](https://github.com/fabioassuncao/issue-flow/blob/main/docs/agents.md)
+- [Agent Skills](https://github.com/fabioassuncao/issue-flow/blob/main/skills/README.md)
+- [Contributing](https://github.com/fabioassuncao/issue-flow/blob/main/CONTRIBUTING.md)
+- [CLI development and release](https://github.com/fabioassuncao/issue-flow/blob/main/packages/issue-flow/CONTRIBUTING.md)
 
 ## License
 
-[MIT](LICENSE)
+MIT. See [LICENSE](https://github.com/fabioassuncao/issue-flow/blob/main/LICENSE).

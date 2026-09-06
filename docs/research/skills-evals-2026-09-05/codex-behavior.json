@@ -1,0 +1,311 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-05T22:40:55.440Z",
+  "provider": "codex",
+  "version": "codex-cli 0.153.4",
+  "baseline": null,
+  "mode": "catalogue selection + explicit isolated behavior (not native discovery certification)",
+  "corpusHash": "d9b0048667529c87dc58d2575deda05119d4d73f389e4c8a0af2872ddd1da058",
+  "results": [
+    {
+      "id": "execute-regression",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 83739,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 16612,
+        "outputTokens": 1529,
+        "cacheReadTokens": 184448,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "execute-tasks": "9f12e636ed00142b9682696e1bcaad9042a2e90b0f0973cb5226853a98e6ba4f"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Fixed `normalize()` and marked US-001 complete. All 6 tests pass, covering null, undefined, trimming, whitespace, empty strings, and unsupported numbers.\n\nVerification recorded in [issues/42/progress.txt](issues/42/progress.txt). No commits or publishing.\n\n<promise>COMPLETE</promise>",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'pwd; cat README.md .agents/skills/execute-t..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"cat .agents/skills/execute-tasks/references..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"cat AGENTS.md issues/42/issue.md issues/42/..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node --test'"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node /private/var/folders/_p/rbn75vgs0fs1hz..."
+        },
+        {
+          "kind": "tool",
+          "name": "Edit",
+          "detail": ".../issue-flow-eval-PC833C/normalize.mjs"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node --test'"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"node --input-type=module <<'NODE'\nimport { ..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/progress.txt": "2026-09-05T22:42:11.506Z \u2014 US-001 \u2014 completed\nChanges: normalize uses a nullish fallback before trimming; null and undefined return an empty string, and numbers still throw TypeError. Added whitespace, empty-string, and numeric rejection regression coverage.\nFiles: normalize.mjs, normalize.test.mjs, issues/42/tasks.json, issues/42/progress.txt.\nVerification: baseline node --test exited 1 (1 passed, 2 failed: null and undefined threw TypeError). After the fix, node --test exited 0 (6 passed, 0 failed).\nPlan validation: installed execute-tasks/scripts/artifacts.mjs plan issues/42/tasks.json passed before execution.\nLearnings: use a nullish fallback to preserve unsupported falsy numbers such as 0 and NaN.\nScope: local-only execution using the installed skill; no CLI, external services, dependencies, commits, or publishing. Existing main branch and plan branchName preserved.\n\n",
+        "issues/42/tasks.json": "{\n  \"project\": \"fixture\",\n  \"issueNumber\": 42,\n  \"issueUrl\": \"\",\n  \"branchName\": \"fix/42-empty-input\",\n  \"description\": \"Handle empty input\",\n  \"issueStatus\": \"completed\",\n  \"completedAt\": \"2026-09-05T22:42:11.506Z\",\n  \"lastAttemptAt\": \"2026-09-05T22:42:11.506Z\",\n  \"lastError\": null,\n  \"correctionCycle\": 0,\n  \"maxCorrectionCycles\": 3,\n  \"lastReviewFindings\": null,\n  \"pipeline\": {\n    \"prdCompleted\": true,\n    \"jsonCompleted\": true,\n    \"executionCompleted\": true,\n    \"reviewCompleted\": false,\n    \"prCreated\": false\n  },\n  \"userStories\": [\n    {\n      \"id\": \"US-001\",\n      \"title\": \"Normalize absent strings\",\n      \"description\": \"Return empty string for null and undefined\",\n      \"acceptanceCriteria\": [\n        \"node --test passes including null and undefined\"\n      ],\n      \"priority\": 1,\n      \"passes\": true,\n      \"notes\": \"Verified with node --test: 6 tests pass covering trimming, null, undefined, whitespace, empty string, and unsupported numbers (0, 42, NaN).\"\n    }\n  ]\n}\n"
+      },
+      "rubric": [
+        "Reproduces regression before fixing when feasible.",
+        "Fresh tests pass after fix; no unrelated change."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "local-creation",
+      "skill": "generate-local-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 78742,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 17458,
+        "outputTokens": 1469,
+        "cacheReadTokens": 130304,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "generate-local-issue": "d525cc7d654739bdebffc4e5785b454cf5c4f1d93b682c9cb7bde59a55738399"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Created issue 43 offline:\n\n- [issue.md](/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000gn/T/issue-flow-eval-TUedj1/issues/43/issue.md)\n- [metadata.json](/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000gn/T/issue-flow-eval-TUedj1/issues/43/metadata.json)\n\nValidated metadata and content hash. Documented the overlap with issue 42, which remains untouched. Existing null/undefined test failures are recorded; no implementation changes were made.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'cat README.md .agents/skills/generate-local..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'cat .agents/skills/generate-local-issue/ref..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"rg --files -g '\"'!node_modules'\"' -g '\"'!'\"..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"ls -la; rg --files --hidden -g '\"'!.git/**'..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node /var/folders/_p/rbn75vgs0fs1hzyd7xm8lw..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"printf '%s\\\\n' '{\\\"operation\\\":\\\"defaults\\\"..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node --test'"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"node --input-type=module <<'NODE'\nimport fs..."
+        }
+      ],
+      "artifacts": {
+        "issues/43/issue.md": "# Support absent input in normalize\n\n## Context and problem\n\nThe exported normalize(value) in normalize.mjs calls value.trim() directly. Absent input (null or undefined, including an omitted argument) therefore throws instead of returning an empty string. Existing tests already expect null and undefined to return ''. Running node --test currently yields one passing string-trimming test and two failing absent-input tests with TypeError.\n\n## Objective and scope\n\nFix this bug so normalize returns '' for null and undefined while preserving string trimming. Cover an omitted argument and empty/whitespace-only strings in normalize.test.mjs. Keep numbers unsupported; avoid broad coercion or changes to other input types. No dependencies or unrelated refactoring are needed.\n\n## Acceptance criteria\n\n- normalize(null), normalize(undefined), and normalize() return ''.\n- normalize(' a ') returns 'a'; empty and whitespace-only strings return ''.\n- Numeric input remains unsupported and throws TypeError.\n- node --test passes, with coverage for the cases above.\n\n## Dependencies and risks\n\nNo external dependencies. Avoid a broad falsy-value fallback that would silently accept numeric input.\n\n## References and duplicate context\n\n- normalize.mjs and normalize.test.mjs contain the implementation and existing regression tests.\n- README.md specifies JavaScript ESM, node --test, and no new dependencies.\n- Local issue 42 (../42/issue.md) describes the same intended behavior. Issue 43 is a separate record explicitly requested by the user; issue 42 is left untouched. Issue 42 has no metadata, so its state is unknown.\n",
+        "issues/43/metadata.json": "{\n  \"schemaVersion\": 1,\n  \"id\": \"43\",\n  \"number\": 43,\n  \"source\": \"local\",\n  \"title\": \"Support absent input in normalize\",\n  \"labels\": [\n    \"type:bug\"\n  ],\n  \"state\": \"open\",\n  \"createdAt\": \"2026-09-05T22:43:26.876Z\",\n  \"updatedAt\": \"2026-09-05T22:43:26.876Z\",\n  \"contentHash\": \"sha256:f8339b6fd3de3298a06dd3d722587f90579f6b9b80a18bfec91b350c6ba6ebef\"\n}\n",
+        "issues/42/issue.md": "# Handle empty input\n\nThe exported normalize(value) must trim strings and return an empty string for null or undefined. Keep numbers unsupported.\n\nAcceptance: node --test must pass for null, undefined and whitespace.\n"
+      },
+      "rubric": [
+        "Valid local title/body/hash/metadata and exclusive destination."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "resolve-manual",
+      "skill": "resolve-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 121803,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 18086,
+        "outputTokens": 2969,
+        "cacheReadTokens": 163200,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "resolve-issue": "5f308dfacc20669d4b6a8dac609aca7484dcb50a480028c7bb14f15094691966"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Created [prd.md](issues/42/prd.md) and [tasks.json](issues/42/tasks.json).\n\nPlan validation passed: one pending story, `US-001`, priority 1. Intended branch: `fix/42-empty-input`.\n\nStopped before implementation. No branch checkout or publication. Future implementation must pass `node --test`; the base branch remains to be resolved before branching.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc pwd"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'cat README.md .agents/skills/resolve-issue/..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'cat .agents/skills/resolve-issue/references..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"git status --short; rg --files -g '\"'! .git..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"cat .agents/skills/resolve-issue/references..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node /private/var/folders/_p/rbn75vgs0fs1hz..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"python3 - <<'PY'\nimport json\nfrom pathlib i..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node /private/var/folders/_p/rbn75vgs0fs1hz..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"python3 - <<'PY'\nimport json\nfrom pathlib i..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node /private/var/folders/_p/rbn75vgs0fs1hz..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/prd.md": "# PRD: Handle empty input\n\n## Context and goals\n\nSource: `issues/42/issue.md` (local issue 42).\nThe exported `normalize(value)` in `normalize.mjs` currently calls `value.trim()` directly. Strings are trimmed, but null and undefined throw. Existing tests cover trimming, null and undefined; whitespace needs explicit coverage.\n\nReturn an empty string for null and undefined while preserving string trimming and keeping numbers unsupported.\n\n## User story\n\n### US-001: Normalize missing values and strings\n\nAs a caller of `normalize(value)`, I want missing values to produce an empty string so I can use the result consistently with trimmed string input.\n\nAcceptance criteria:\n\n- normalize(null) returns an empty string.\n- normalize(undefined) and normalize() return an empty string.\n- Strings retain native trimming behavior: ' a ' returns 'a', an empty string remains empty, and whitespace-only input including spaces, tabs and newlines returns an empty string.\n- Numbers remain unsupported: 0 and 42 throw TypeError instead of returning strings.\n- Regression tests cover these cases, and node --test passes.\n\n## Functional requirements\n\n1. Handle null and undefined before invoking string trimming.\n2. Preserve the exported `normalize(value)` interface and string trimming semantics.\n3. Do not coerce numbers to strings or treat zero as missing input.\n\n## Technical constraints\n\nFollow `README.md`: JavaScript ESM, no new dependencies, verification with `node --test`. Implementation is expected to touch `normalize.mjs` and `normalize.test.mjs` only.\n\n## Out of scope\n\nSupport for numbers or additional input types, API redesign, remote publication, and implementation during this manual planning invocation.\n\n## Dependencies and risks\n\nNo external dependencies or preceding stories. A broad falsy-value fallback could accidentally accept zero; number regression coverage must prevent that. The TypeError criterion preserves current numeric-input behavior.\n\n## Delivery and open questions\n\nIntended branch: `fix/42-empty-input`. This invocation produces the PRD and task plan only; branch checkout and implementation are deferred. No publication.\nThere are no unresolved requirements. A base branch must be resolved before any future branch creation; the current `main` branch alone does not establish it.\n",
+        "issues/42/tasks.json": "{\n  \"project\": \"Fixture\",\n  \"issueNumber\": 42,\n  \"issueUrl\": \"issues/42/issue.md\",\n  \"branchName\": \"fix/42-empty-input\",\n  \"description\": \"Handle null and undefined as empty strings while preserving string trimming and keeping numbers unsupported. Manual planning only; no publication.\",\n  \"issueStatus\": \"pending\",\n  \"completedAt\": null,\n  \"lastAttemptAt\": null,\n  \"lastError\": null,\n  \"correctionCycle\": 0,\n  \"maxCorrectionCycles\": 3,\n  \"lastReviewFindings\": null,\n  \"pipeline\": {\n    \"prdCompleted\": true,\n    \"jsonCompleted\": true,\n    \"executionCompleted\": false,\n    \"reviewCompleted\": false,\n    \"prCreated\": false\n  },\n  \"userStories\": [\n    {\n      \"id\": \"US-001\",\n      \"title\": \"Normalize missing values and strings\",\n      \"description\": \"As a caller of normalize(value), I want missing values to produce an empty string so I can use the result consistently with trimmed string input.\",\n      \"acceptanceCriteria\": [\n        \"normalize(null) returns an empty string.\",\n        \"normalize(undefined) and normalize() return an empty string.\",\n        \"Strings retain native trimming behavior: ' a ' returns 'a', an empty string remains empty, and whitespace-only input including spaces, tabs and newlines returns an empty string.\",\n        \"Numbers remain unsupported: 0 and 42 throw TypeError instead of returning strings.\",\n        \"Regression tests cover these cases, and node --test passes.\"\n      ],\n      \"priority\": 1,\n      \"passes\": false,\n      \"notes\": \"No preceding story dependencies. Expected implementation files: normalize.mjs and normalize.test.mjs. Follow README.md: JavaScript ESM and no new dependencies. Implementation is deferred in manual mode. Resolve the base branch before future branch creation.\"\n    }\n  ]\n}\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Both planning artifacts exist; implementation and publication do not occur."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-invalid-feedback",
+      "skill": "execute-tasks",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 74837,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 28471,
+        "outputTokens": 1461,
+        "cacheReadTokens": 143616,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "execute-tasks": "1b58d5d18da9daf1bc1171dd498a8109918994cc20f573b4b385297e05059225"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Rejected the GENERAL finding because it contradicts issue 42. Implementation unchanged.\n\nUpdated `tasks.json` and recorded the disposition in `issues/42/progress.txt`. All 3 tests, focused edge-case checks, and plan validation passed. No commits or external access.\n\n<promise>COMPLETE</promise>",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'pwd; cat README.md; cat .agents/skills/exec..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"cat .agents/skills/execute-tasks/references..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"cat AGENTS.md issues/42/issue.md issues/42/..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node /private/var/folders/_p/rbn75vgs0fs1hz..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"node --test; node --input-type=module -e 'i..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"node --input-type=module <<'NODE'\nimport fs..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"node --input-type=module -e 'import fs from..."
+        }
+      ],
+      "artifacts": {
+        "normalize.mjs": "export function normalize(value) { return value == null ? '' : value.trim(); }\n",
+        "issues/42/progress.txt": "[2026-09-05T22:46:39.968Z] US-001 \u2014 GENERAL finding disposition and current verification\nFinding: Reviewer asks normalize(null) to return 123.\nDisposition: Rejected as incorrect. Before any change, compared feedback with issues/42/issue.md, which explicitly requires an empty string for null and undefined and keeps numbers unsupported. normalize.mjs already returns '' for nullish values and trims strings; normalize.test.mjs asserts the required null/undefined behavior. No implementation or test changes needed. Cleared the resolved finding from lastReviewFindings.\nVerification: node --test \u2014 PASS, 3 tests, 0 failures (trimming, null, undefined). Also ran node --input-type=module with node:assert/strict assertions: null/undefined/whitespace-only input return ''; ' a ' returns 'a'; 0, 123 and NaN throw TypeError \u2014 all PASS. Whitespace and number rejection were checked with focused assertions, not the persisted test suite.\nPlan validation: installed execute-tasks/scripts/artifacts.mjs plan issues/42/tasks.json \u2014 valid, 1 story before update. US-001 marked passed and standalone execution completed; review/publication flags preserved. correctionCycle unchanged because the finding required no correction attempt.\nContext: No prd.md or prior progress.txt exists; used the explicit local issue and plan. Actual branch is main; preserved plan branchName fix/42-empty-input and did not switch branches. Existing untracked repository files preserved.\nFiles changed: issues/42/tasks.json and issues/42/progress.txt only. No commits, external services, dependencies or changes outside the repository.\n\nPost-update verification: installed artifacts.mjs plan issues/42/tasks.json \u2014 PASS (valid: true, stories: 1).\n"
+      },
+      "rubric": [
+        "Rejects invalid finding with technical evidence; never blindly applies it."
+      ],
+      "manualReview": false
+    }
+  ]
+}

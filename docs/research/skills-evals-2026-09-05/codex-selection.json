@@ -1,0 +1,251 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-05T22:53:59.621Z",
+  "provider": "codex",
+  "version": "codex-cli 0.153.4",
+  "baseline": null,
+  "mode": "catalogue selection + explicit isolated behavior (not native discovery certification)",
+  "corpusHash": "be26b1749aed99a32e2a6c1bebb4a04c6ea66c27918a42c2932a75fa3780c3d8",
+  "results": [
+    {
+      "id": "execute-tasks-positive",
+      "skill": "execute-tasks",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 6188,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 9412,
+        "outputTokens": 11,
+        "cacheReadTokens": 12160,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "analyze-issue": "ebd4ac5be96690e09d94fc21c12d74e97457eddd0bdb76c9d41d5beca040e1f4",
+        "generate-prd": "5f001de35c410b8362cda5c653fc383ae371c8df394f871f3725f3c4d6150614",
+        "convert-prd-to-json": "075ace044c27c397e48125584a57c4a98229ad3355b19ce15499f6187c22caac",
+        "execute-tasks": "14cec77f42354d4b3ad84e715a796df2c6e3e1c0bf9e22628d71545bad8aef88",
+        "create-pr": "530f2c06ca5c7f12a5b210dc9816990c38a0f4c00796669d266d58f8c23e0101",
+        "review-issue": "56fa4ff9765dacdfc08859cfead111b99a63e230831b6f42d9d8fd1c7e157123",
+        "review-pr": "f9a2a82e963030e1feab43e6a532bb436cd2ac62bb54763fd8e95f4bdb98beca",
+        "generate-issue": "43ba95a8a876eb90bacb6a1e9278201447bfd7c00e8bf9f09ef6fdf3ca1787db",
+        "generate-local-issue": "9c94c440515eeff8bac9d714dcd958a280cdb71da70b9a421c437baa550a9788",
+        "init-repository": "3fcbbbbdf2154a9eb236e91e473f71ee20d1cc079a61b469a352dbd9e344c7c8",
+        "resolve-issue": "a88e8ecd1a85cbee1f69d60c666fc1d43c8566e19d8bc38683ffd977c6eaae2b"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\":\"execute-tasks\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "execute-tasks-negative",
+      "skill": "execute-tasks",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 7183,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 9418,
+        "outputTokens": 11,
+        "cacheReadTokens": 12160,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "analyze-issue": "ebd4ac5be96690e09d94fc21c12d74e97457eddd0bdb76c9d41d5beca040e1f4",
+        "generate-prd": "5f001de35c410b8362cda5c653fc383ae371c8df394f871f3725f3c4d6150614",
+        "convert-prd-to-json": "075ace044c27c397e48125584a57c4a98229ad3355b19ce15499f6187c22caac",
+        "execute-tasks": "14cec77f42354d4b3ad84e715a796df2c6e3e1c0bf9e22628d71545bad8aef88",
+        "create-pr": "530f2c06ca5c7f12a5b210dc9816990c38a0f4c00796669d266d58f8c23e0101",
+        "review-issue": "56fa4ff9765dacdfc08859cfead111b99a63e230831b6f42d9d8fd1c7e157123",
+        "review-pr": "f9a2a82e963030e1feab43e6a532bb436cd2ac62bb54763fd8e95f4bdb98beca",
+        "generate-issue": "43ba95a8a876eb90bacb6a1e9278201447bfd7c00e8bf9f09ef6fdf3ca1787db",
+        "generate-local-issue": "9c94c440515eeff8bac9d714dcd958a280cdb71da70b9a421c437baa550a9788",
+        "init-repository": "3fcbbbbdf2154a9eb236e91e473f71ee20d1cc079a61b469a352dbd9e344c7c8",
+        "resolve-issue": "a88e8ecd1a85cbee1f69d60c666fc1d43c8566e19d8bc38683ffd977c6eaae2b"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\":\"review-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-issue-positive",
+      "skill": "review-issue",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 8729,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 9417,
+        "outputTokens": 11,
+        "cacheReadTokens": 12160,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "analyze-issue": "ebd4ac5be96690e09d94fc21c12d74e97457eddd0bdb76c9d41d5beca040e1f4",
+        "generate-prd": "5f001de35c410b8362cda5c653fc383ae371c8df394f871f3725f3c4d6150614",
+        "convert-prd-to-json": "075ace044c27c397e48125584a57c4a98229ad3355b19ce15499f6187c22caac",
+        "execute-tasks": "14cec77f42354d4b3ad84e715a796df2c6e3e1c0bf9e22628d71545bad8aef88",
+        "create-pr": "530f2c06ca5c7f12a5b210dc9816990c38a0f4c00796669d266d58f8c23e0101",
+        "review-issue": "56fa4ff9765dacdfc08859cfead111b99a63e230831b6f42d9d8fd1c7e157123",
+        "review-pr": "f9a2a82e963030e1feab43e6a532bb436cd2ac62bb54763fd8e95f4bdb98beca",
+        "generate-issue": "43ba95a8a876eb90bacb6a1e9278201447bfd7c00e8bf9f09ef6fdf3ca1787db",
+        "generate-local-issue": "9c94c440515eeff8bac9d714dcd958a280cdb71da70b9a421c437baa550a9788",
+        "init-repository": "3fcbbbbdf2154a9eb236e91e473f71ee20d1cc079a61b469a352dbd9e344c7c8",
+        "resolve-issue": "a88e8ecd1a85cbee1f69d60c666fc1d43c8566e19d8bc38683ffd977c6eaae2b"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\":\"review-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-issue-negative",
+      "skill": "review-issue",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 9571,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 9413,
+        "outputTokens": 11,
+        "cacheReadTokens": 12160,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "analyze-issue": "ebd4ac5be96690e09d94fc21c12d74e97457eddd0bdb76c9d41d5beca040e1f4",
+        "generate-prd": "5f001de35c410b8362cda5c653fc383ae371c8df394f871f3725f3c4d6150614",
+        "convert-prd-to-json": "075ace044c27c397e48125584a57c4a98229ad3355b19ce15499f6187c22caac",
+        "execute-tasks": "14cec77f42354d4b3ad84e715a796df2c6e3e1c0bf9e22628d71545bad8aef88",
+        "create-pr": "530f2c06ca5c7f12a5b210dc9816990c38a0f4c00796669d266d58f8c23e0101",
+        "review-issue": "56fa4ff9765dacdfc08859cfead111b99a63e230831b6f42d9d8fd1c7e157123",
+        "review-pr": "f9a2a82e963030e1feab43e6a532bb436cd2ac62bb54763fd8e95f4bdb98beca",
+        "generate-issue": "43ba95a8a876eb90bacb6a1e9278201447bfd7c00e8bf9f09ef6fdf3ca1787db",
+        "generate-local-issue": "9c94c440515eeff8bac9d714dcd958a280cdb71da70b9a421c437baa550a9788",
+        "init-repository": "3fcbbbbdf2154a9eb236e91e473f71ee20d1cc079a61b469a352dbd9e344c7c8",
+        "resolve-issue": "a88e8ecd1a85cbee1f69d60c666fc1d43c8566e19d8bc38683ffd977c6eaae2b"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\":\"generate-issue\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-pr-positive",
+      "skill": "review-pr",
+      "kind": "positive",
+      "status": "PASS",
+      "durationMs": 8698,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 9419,
+        "outputTokens": 10,
+        "cacheReadTokens": 12160,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "analyze-issue": "ebd4ac5be96690e09d94fc21c12d74e97457eddd0bdb76c9d41d5beca040e1f4",
+        "generate-prd": "5f001de35c410b8362cda5c653fc383ae371c8df394f871f3725f3c4d6150614",
+        "convert-prd-to-json": "075ace044c27c397e48125584a57c4a98229ad3355b19ce15499f6187c22caac",
+        "execute-tasks": "14cec77f42354d4b3ad84e715a796df2c6e3e1c0bf9e22628d71545bad8aef88",
+        "create-pr": "530f2c06ca5c7f12a5b210dc9816990c38a0f4c00796669d266d58f8c23e0101",
+        "review-issue": "56fa4ff9765dacdfc08859cfead111b99a63e230831b6f42d9d8fd1c7e157123",
+        "review-pr": "f9a2a82e963030e1feab43e6a532bb436cd2ac62bb54763fd8e95f4bdb98beca",
+        "generate-issue": "43ba95a8a876eb90bacb6a1e9278201447bfd7c00e8bf9f09ef6fdf3ca1787db",
+        "generate-local-issue": "9c94c440515eeff8bac9d714dcd958a280cdb71da70b9a421c437baa550a9788",
+        "init-repository": "3fcbbbbdf2154a9eb236e91e473f71ee20d1cc079a61b469a352dbd9e344c7c8",
+        "resolve-issue": "a88e8ecd1a85cbee1f69d60c666fc1d43c8566e19d8bc38683ffd977c6eaae2b"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\":\"review-pr\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-pr-negative",
+      "skill": "review-pr",
+      "kind": "negative",
+      "status": "PASS",
+      "durationMs": 6191,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 9411,
+        "outputTokens": 10,
+        "cacheReadTokens": 12160,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "analyze-issue": "ebd4ac5be96690e09d94fc21c12d74e97457eddd0bdb76c9d41d5beca040e1f4",
+        "generate-prd": "5f001de35c410b8362cda5c653fc383ae371c8df394f871f3725f3c4d6150614",
+        "convert-prd-to-json": "075ace044c27c397e48125584a57c4a98229ad3355b19ce15499f6187c22caac",
+        "execute-tasks": "14cec77f42354d4b3ad84e715a796df2c6e3e1c0bf9e22628d71545bad8aef88",
+        "create-pr": "530f2c06ca5c7f12a5b210dc9816990c38a0f4c00796669d266d58f8c23e0101",
+        "review-issue": "56fa4ff9765dacdfc08859cfead111b99a63e230831b6f42d9d8fd1c7e157123",
+        "review-pr": "f9a2a82e963030e1feab43e6a532bb436cd2ac62bb54763fd8e95f4bdb98beca",
+        "generate-issue": "43ba95a8a876eb90bacb6a1e9278201447bfd7c00e8bf9f09ef6fdf3ca1787db",
+        "generate-local-issue": "9c94c440515eeff8bac9d714dcd958a280cdb71da70b9a421c437baa550a9788",
+        "init-repository": "3fcbbbbdf2154a9eb236e91e473f71ee20d1cc079a61b469a352dbd9e344c7c8",
+        "resolve-issue": "a88e8ecd1a85cbee1f69d60c666fc1d43c8566e19d8bc38683ffd977c6eaae2b"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "{\"skill\":\"create-pr\"}",
+      "actions": [],
+      "artifacts": {},
+      "rubric": [
+        "Select the scoped capability from description only; do not execute the request.",
+        "Positive selects this Skill; negative must not select this Skill."
+      ],
+      "manualReview": false
+    }
+  ]
+}

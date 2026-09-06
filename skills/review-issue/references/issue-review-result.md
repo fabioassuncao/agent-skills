@@ -1,0 +1,24 @@
+## Issue review result
+
+Write a report with summary, requirements and evidence, implementation review, tests, regressions and remaining findings. Distinguish unmet from unverified requirements.
+
+Finish with exactly one machine-readable block. PASS requires every acceptance criterion verified and no unresolved blocker. Missing evidence, an incomplete review or a malformed result is never approval.
+
+```text
+<review-result>
+STATUS: PASS
+</review-result>
+```
+
+For failure or incomplete verification:
+
+```text
+<review-result>
+STATUS: FAIL
+FINDINGS:
+- [US-001] Concrete defect or missing verification and supporting evidence
+- [GENERAL] Finding not tied to a story
+</review-result>
+```
+
+One finding per line in the block. Put explanations in the report above it. The result block is last. The caller owns orchestration and publication; this signal never independently authorizes closure.

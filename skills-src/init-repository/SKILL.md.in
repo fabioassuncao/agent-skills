@@ -1,0 +1,31 @@
+---
+name: init-repository
+description: "Inspect repository conventions and create only missing issue templates, PR templates and documentation entry points. Use when asked to initialize or standardize repository conventions; not for application scaffolding, issue creation or replacing existing policy."
+license: MIT
+compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ for bundled helpers, Git for repository operations, and authenticated GitHub access only for remote work.
+---
+
+# Init Repository
+
+Use this Skill only for its requested responsibility. Work in the consumer project, honoring its instructions and existing authorization. Resource links below belong to this installed Skill; project inputs and outputs belong to the consumer repository.
+
+## Workflow
+
+1. Identify the requested input, scope and output; read [issue input](references/issue-input.md) when resolving a demand or artifact location.
+2. For repository-dependent decisions, read [repository policy](references/repository-policy.md).
+3. Follow [init-repository](references/init-repository.md), loading the resources below when that procedure needs them.
+4. Return the requested artifact or evidence-based result; report material blockers without expanding the task.
+
+## Resources to load when needed
+
+- When interpreting invocation choices or resuming a configured run: [execution-options](references/execution-options.md).
+
+- Only when an installed CLI can enrich policy/scaffold decisions: [cli-integration](references/cli-integration.md).
+- When planning missing convention files: [repository-scaffold](references/repository-scaffold.md).
+
+## Bundled helpers
+
+Paths in commands are relative to this Skill root. Execute by absolute resolved path while keeping the consumer project as the working directory. Run a helper with `--help` first. No helper installs the Issue Flow CLI.
+
+- [scripts/optional-cli.mjs](scripts/optional-cli.mjs)
+- [scripts/scaffold.mjs](scripts/scaffold.mjs)

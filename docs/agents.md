@@ -1,6 +1,8 @@
-# Agents
+# CLI agents
 
-Issue Flow runs the pipeline through a coding agent. The default is
+[CLI guide](cli.md) · [Project overview](../README.md)
+
+The Issue Flow CLI runs the pipeline through a coding agent. The default is
 **Claude Code**. **Codex CLI** (`codex exec`), **Cursor CLI**
 (`cursor-agent`) and **Antigravity CLI** (`agy`) are the alternatives.
 Selection is explicit and, when you want it, **per phase**. The same
@@ -132,10 +134,10 @@ npx issue-flow agent use codex --phase execute --project
 ```
 
 `--json` is a published contract (`schemaVersion` in the payload).
-[`skills/_shared/agent-config.md`](../skills/_shared/agent-config.md) is the
-bridge document for that payload — the same pattern as `repository-policy.md`.
-No `SKILL.md` includes it yet, so the skills still fall through to the default
-Claude agent.
+Agent selection here configures the CLI runtime. Portable Skills run in the
+current agent and do not consult this setting or default to another provider.
+See [Skill compatibility](skills-compatibility.md) for their installation and
+invocation conventions.
 
 ## Permission
 

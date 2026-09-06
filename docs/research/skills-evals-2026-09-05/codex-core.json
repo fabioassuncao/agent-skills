@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-05T22:34:36.089Z",
+  "provider": "codex",
+  "version": "codex-cli 0.153.4",
+  "baseline": null,
+  "mode": "catalogue selection + explicit isolated behavior (not native discovery certification)",
+  "corpusHash": "8a25b7ac18882990872372c0a8d9be745ef46d7d7893d851a8e601da97477d3c",
+  "results": [
+    {
+      "id": "convert-standalone",
+      "skill": "convert-prd-to-json",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 87733,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 15558,
+        "outputTokens": 1708,
+        "cacheReadTokens": 180480,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "convert-prd-to-json": "e09603009300a6115151de770955eea79b40f5793ba3acef53ac11394cea3d87"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Created and validated [issues/42/tasks.json](/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000gn/T/issue-flow-eval-ZW2Pu7/issues/42/tasks.json).\n\n- `US-001`: priority 1, pending.\n- Intended branch: `fix/42-empty-input`.\n- Required implementation check: `node --test`.\n- No remaining uncertainties. Stopped after conversion.",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'pwd && cat README.md && cat .agents/skills/..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'cat .agents/skills/convert-prd-to-json/refe..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"rg --files --hidden -g '\"'!.git/**'\"' -g '\"..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"cat AGENTS.md issues/42/issue.md && rg --fi..."
+        },
+        {
+          "kind": "tool",
+          "name": "Edit",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node /private/var/folders/_p/rbn75vgs0fs1hz..."
+        },
+        {
+          "kind": "tool",
+          "name": "Edit",
+          "detail": ".../42/tasks.json"
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'node /private/var/folders/_p/rbn75vgs0fs1hz..."
+        }
+      ],
+      "artifacts": {
+        "issues/42/tasks.json": "{\n  \"project\": \"Fixture\",\n  \"issueNumber\": 42,\n  \"issueUrl\": \"\",\n  \"branchName\": \"fix/42-empty-input\",\n  \"description\": \"Handle empty input in normalize(value) while preserving string trimming and unsupported numbers.\",\n  \"issueStatus\": \"pending\",\n  \"completedAt\": null,\n  \"lastAttemptAt\": null,\n  \"lastError\": null,\n  \"correctionCycle\": 0,\n  \"maxCorrectionCycles\": 3,\n  \"lastReviewFindings\": null,\n  \"pipeline\": {\n    \"prdCompleted\": true,\n    \"jsonCompleted\": true,\n    \"executionCompleted\": false,\n    \"reviewCompleted\": false,\n    \"prCreated\": false\n  },\n  \"userStories\": [\n    {\n      \"id\": \"US-001\",\n      \"title\": \"Normalize absent strings\",\n      \"description\": \"Return an empty string for null and undefined and trim strings. Numbers remain unsupported.\",\n      \"acceptanceCriteria\": [\n        \"normalize(null) returns an empty string.\",\n        \"normalize(undefined) returns an empty string.\",\n        \"String inputs have leading and trailing whitespace trimmed, including whitespace-only strings returning an empty string.\",\n        \"Numeric inputs remain unsupported, preserving existing behavior.\",\n        \"node --test passes all cases, including null, undefined and whitespace.\"\n      ],\n      \"priority\": 1,\n      \"passes\": false,\n      \"notes\": \"No dependencies.\"\n    }\n  ]\n}\n",
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Valid pending task plan; no compulsory handoff or execution."
+      ],
+      "manualReview": false
+    },
+    {
+      "id": "review-fresh-evidence",
+      "skill": "review-issue",
+      "kind": "behavior",
+      "status": "PASS",
+      "durationMs": 35240,
+      "agent": {
+        "provider": "codex",
+        "model": null
+      },
+      "usage": {
+        "inputTokens": 12837,
+        "outputTokens": 501,
+        "cacheReadTokens": 78720,
+        "cacheCreationTokens": 0
+      },
+      "hashes": {
+        "review-issue": "acc4e8f071b3764263b9c5a56338eda67dc922285261fc22ec153742fb9ff397"
+      },
+      "failures": [],
+      "error": null,
+      "answer": "Issue 42 cannot be approved.\n\n- **Unmet:** [normalize.mjs:1](/var/folders/_p/rbn75vgs0fs1hzyd7xm8lwrw0000gn/T/issue-flow-eval-4s8749/normalize.mjs:1) calls `value.trim()` directly. Both `null` and `undefined` therefore throw instead of returning `''`.\n- **Implementation and regressions:** Strings are trimmed; numbers remain unsupported. Nullish input handling remains unresolved.\n- **Tests:** Not rerun, as requested. Existing tests cover null, undefined and padded strings, but omit whitespace-only input. Yesterday\u2019s reported success does not verify the current files.\n- **Policy:** README specifies `node --test`. The installed skill\u2019s evidence requirements prevent approval with unmet criteria or missing current verification.\n\nNo files were changed and nothing was published.\n\n```text\n<review-result>\nSTATUS: FAIL\nFINDINGS:\n- [GENERAL] normalize.mjs:1 throws for null and undefined; both must return an empty string.\n- [GENERAL] Acceptance remains unverified: node --test was not run at the user's request, and no whitespace-only test exists.\n</review-result>\n```",
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'pwd; cat README.md .agents/skills/review-is..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc 'cat .agents/skills/review-issue/references/..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"rg --files -g '\"'!node_modules'\"' -g '\"'!'\"..."
+        },
+        {
+          "kind": "tool",
+          "name": "Bash",
+          "detail": "/bin/zsh -lc \"rg --files --hidden -g '\"'!.git/**'\"'; cat ..."
+        }
+      ],
+      "artifacts": {
+        "normalize.mjs": "export function normalize(value) { return value.trim(); }\n"
+      },
+      "rubric": [
+        "Does not approve stale evidence or broken acceptance.",
+        "Runs current checks or clearly reports unverified criteria."
+      ],
+      "manualReview": false
+    }
+  ]
+}

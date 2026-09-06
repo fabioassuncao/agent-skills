@@ -1,115 +1,45 @@
-# Development and Deploy - issue-flow
+# CLI development and release
 
-Complete guide for setting up the development environment, testing locally, and publishing to NPM.
+Start with the root [Contributing guide](../../CONTRIBUTING.md) for environment
+setup, the issue-to-PR process and common validation. This page covers local CLI
+testing, packaging and maintainer releases. All commands run from
+`packages/issue-flow` unless a different directory is shown.
 
 ## Prerequisites
 
-| Tool | Minimum version | Check |
-|------|----------------|-------|
-| Node.js | >= 22.13.0 | `node --version` |
-| npm | >= 9 | `npm --version` |
-| git | any | `git --version` |
-| Claude Code | latest | `claude --version` |
-| GitHub CLI | latest | `gh --version` |
-
-To publish to NPM, you also need an account with access to the `issue-flow` package.
+Use the [shared development environment](../../CONTRIBUTING.md#set-up-the-repository).
+Real CLI runs additionally need the selected
+[agent and authentication](../../docs/agents.md), plus authenticated `gh` for
+GitHub work. Publishing requires an npm account with access to `issue-flow`.
 
 ## Development setup
 
-```bash
-# Clone the repository
-git clone https://github.com/fabioassuncao/issue-flow.git
-cd issue-flow/packages/issue-flow
-
-# Install dependencies
-npm install
-```
+Follow [repository setup](../../CONTRIBUTING.md#set-up-the-repository).
 
 ### Project structure
 
-```
-src/
-  cli.ts, config.ts, types.ts, schemas.ts
-  agents/       # Claude / Codex / Cursor / Antigravity, selection by phase
-  commands/     # Phase commands, publication order, multi-issue queue
-  core/         # Execute loop, session snapshot, metrics
-  storage/      # Global tree (~/.issue-flow), artifact paths, legacy migration
-  telemetry/    # Execution history in tasks.json
-  verify/       # Acceptance contract and independent review
-  routing/      # Shadow routing and escalation
-  policy/       # Convention discovery
-  conventions/  # Git conventions (branch, commit, PR title)
-  resilience/   # Failure taxonomy and retry policy
-  benchmark/    # Real / synthetic corpus
-  issues/       # GitHub and local providers
-  execution/    # Multi-issue queue
-  ui/           # Terminal output
-  web/          # Monitoring server
-  utils/        # Shell, git, filesystem helpers
-
-prompts/*.md              # Prompt templates (packaged, runtime asset)
-web/public/               # Monitoring dashboard (packaged, runtime asset)
-scripts/git-version.mjs   # preversion/postversion hooks: release commit + tag
-```
-
-Invariants live next to the code: each of those directories has an `AGENTS.md`.
-The index is the repository [`AGENTS.md`](../../AGENTS.md). Where a new file
-belongs — and when an existing one is already too large — is in
-[`docs/code-organization.md`](../../docs/code-organization.md). Session and plan
-artifacts live in the [global storage](../../docs/storage.md)
-(`~/.issue-flow/projects/<id>/issues/<N>/`), not under `<repo>/issues/`.
-
-`prompts/` and `web/public/` are resolved at runtime relative to the installed
-package (see `core/prompt-resolver.ts`), which is why both are listed in the
-`files` field of `package.json`. Adding a new runtime asset directory means
-adding it there too, otherwise it works locally and breaks once installed.
+The [architecture and code map](../../docs/code-organization.md) owns the
+repository layout and module responsibilities. `prompts/` and `web/public/`
+are resolved relative to the installed package, which is why both are listed
+in `package.json`'s `files`. Add any new runtime asset directory there too, or
+it may work locally and fail after installation.
 
 ## Available scripts
 
-```bash
-# Build - generates dist/cli.js (ESM bundle with shebang)
-npm run build
-
-# Watch mode - automatic rebuild on save
-npm run dev
-
-# Type checking (without emitting files)
-npm run typecheck
-
-# Lint (Biome, read-only — covers src/, web/public/, scripts/, *.config.ts)
-npm run lint
-
-# Gate local idêntico ao CI: biome check (não muta) + tsc
-npm run check
-
-# Aplica correções do Biome e depois typecheck (muta a árvore)
-npm run fix
-
-# Só formatação
-npm run format
-
-# Unit tests (single run)
-npm test
-
-# Tests in watch mode (re-runs on save)
-npm run test:watch
-
-# Integration tests
-npm run test:integration
-
-# Smoke script (real provider probes)
-npm run smoke
-```
+See [common validation](../../CONTRIBUTING.md#validate-your-change) for the
+shared gate. Use `npm run dev` for a build watcher, `npm run lint` for Biome,
+`npm run typecheck` for TypeScript, or `npm run format` to apply formatting.
+Local execution and packaging checks follow below.
 
 ## Local testing
 
-### 1. Unit tests
+### 1. Deterministic checks
 
-```bash
-npm test
-```
-
-Runs every `src/**/*.test.ts` via Vitest.
+Run the [common checks](../../CONTRIBUTING.md#validate-your-change) first.
+`npm run test:watch` reruns unit tests on edits; `npm run test:integration` runs
+the integration suite. `npm run smoke` builds the CLI and drives disposable Git
+repositories against deterministic stand-ins for the agent and `gh`, with no
+network or tokens. Pass `--keep` to inspect the fixture workspaces.
 
 ### 2. Manual CLI testing
 
@@ -150,7 +80,15 @@ npx --prefix packages/issue-flow issue-flow --help
 
 ### 5. Package testing before publishing
 
+After building, `npm run skills:cli-test` packs and installs the CLI in a
+temporary directory, runs the complete fixture pipeline without Skills, and
+checks optional integration with a copied Skill. It needs registry access for
+runtime dependencies and does not modify your global installation.
+
 ```bash
+# Reject stale generated resources before packing
+npm run skills:check
+
 # Generate the tarball without publishing (runs prepack -> npm run build)
 npm pack
 
@@ -166,8 +104,10 @@ npx issue-flow --help
 ## Release process
 
 Releases are **manual**. There is no CI job that publishes to npm — the only
-workflow in the repository is `.github/workflows/ci.yml` (lint, typecheck, test,
-build on pushes and pull requests). Everything below is run from a local
+workflow in the repository is `.github/workflows/ci.yml` (Skill drift, isolation,
+corpus validation, lint, typecheck, tests and build for main pushes and pull
+requests targeting main; installer and packed CLI checks also run on Linux/Node
+22). Everything below is run from a local
 machine by a maintainer with publish rights on the `issue-flow` npm package.
 
 ### Ground rules
@@ -187,9 +127,15 @@ machine by a maintainer with publish rights on the `issue-flow` npm package.
 - **`CHANGELOG.md` is updated before the version bump**, not after. Its section
   for the new version is the body of the GitHub Release.
 - The quality gate lives in the manifest, not in CI: `npm publish` runs
-  `prepublishOnly` (lint + typecheck + tests) and then `prepack`
+  `prepublishOnly` (Skill drift + isolation tests + lint + typecheck + unit tests) and then `prepack`
   (`npm run build`). A failing check aborts the publish, and `dist/` is always
   rebuilt from the current sources — a stale build cannot be published.
+- **`npm run build` and `npm pack` do not sync Skill or prompt sources.** Run
+  `skills:sync` and commit the derived artifacts before the release. `npm pack`
+  runs `prepack`, but not `prepublishOnly`; run `skills:check` explicitly when
+  testing a tarball. Publishing the npm CLI does not install or release Skills
+  into a user's agent; Git-based Skill distribution follows the selected
+  repository revision.
 
 ### Versioning (SemVer)
 
@@ -233,7 +179,7 @@ git commit -m "docs: changelog for vX.Y.Z"
 cd packages/issue-flow
 npm version patch      # or minor / major
 
-# 5. Publish — runs prepublishOnly (lint, typecheck, test) and prepack (build)
+# 5. Publish — runs prepublishOnly (Skill checks, lint, typecheck, tests) and prepack (build)
 npm publish
 
 # 6. Push the commits and the tag
@@ -276,3 +222,11 @@ git reset --hard HEAD~1
 | `npm version` bumped the files but created no commit or tag | The `preversion`/`postversion` hooks were bypassed (e.g. `--ignore-scripts`) | Revert the manifest change and re-run `npm version` without `--ignore-scripts` |
 | Published package missing `prompts/` or `web/public/` | New asset directory not added to `files` in `package.json` | Add it, verify with `npm pack --dry-run`, publish a patch |
 | Tag pushed but nothing published | Expected — there is no publish workflow | Run `npm publish` locally as described above |
+
+## Agent Skills and prompt contracts
+
+Read [Authoring and distributing Skills](../../docs/skills.md) before changing
+Skill sources, shared contracts or CLI prompt templates. That guide owns the
+source/artifact boundary and the complete generation and validation sequence.
+The [eval guide](../../docs/skills-evals.md) covers optional live-model evidence.
+The CLI must keep loading its own packaged resources without installed Skills.
