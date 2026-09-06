@@ -51,12 +51,9 @@ describe('buildOpenCodeArgv', () => {
   });
 
   it('passes provider/model and variant when configured', () => {
-    const args = argvOf(
-      {},
-      { model: 'anthropic/claude-sonnet-4-5', opencode: { variant: 'high' } },
-    );
+    const args = argvOf({}, { model: 'opencode-go/qwen3.8-flash', opencode: { variant: 'high' } });
     expect(args).toContain('--model');
-    expect(args).toContain('anthropic/claude-sonnet-4-5');
+    expect(args).toContain('opencode-go/qwen3.8-flash');
     expect(args).toContain('--variant');
     expect(args).toContain('high');
   });
@@ -65,7 +62,7 @@ describe('buildOpenCodeArgv', () => {
     const built = buildOpenCodeArgv(invocation(), settings({ model: 'sonnet' }));
     expect(built).toEqual({
       error:
-        'configuration: OpenCode model must be provider/model (for example anthropic/claude-sonnet-4-5).',
+        'configuration: OpenCode model must be provider/model (for example opencode-go/qwen3.8-flash).',
     });
   });
 

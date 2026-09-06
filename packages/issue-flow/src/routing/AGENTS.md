@@ -19,6 +19,9 @@ ladder: it never overrides an explicit `agent.phases` / `--agent`.
 - **The decision target is `(harness, model tier)`.** `models.ts` is the single
   hand-maintained catalog; relative cost/latency never pretend to be measured
   USD. A harness without model selection collapses to one `mid`/default entry.
+  OpenCode's catalog is the Go subscription (`opencode-go/*`), not Anthropic.
+  Intra-OpenCode choice — five roles, phase map, correction ladder — lives in
+  `opencode-go.ts` and only runs when the harness is OpenCode.
 - **The recommended policy is opt-in.** `policy.ts` turns the token-economy
   table into phase objectives (`preferredTier`, `optimizeFor`, soft
   `affinityHarness`). Affinity is never an eligibility filter.

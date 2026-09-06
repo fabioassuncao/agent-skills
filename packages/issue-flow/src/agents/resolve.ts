@@ -1,3 +1,4 @@
+import { type OpenCodeGoInput, resolveOpenCodeGoModel } from '../routing/opencode-go.js';
 import { getTrackedOrigins } from './origins.js';
 import {
   AGENT_PHASES,
@@ -87,6 +88,10 @@ export async function resolveAgentFor(
   if (cli?.forceModel !== undefined) {
     model = cli.forceModel;
     modelOrigin = 'cli';
+  }
+
+  if (provider === 'opencode' && model === null) {
+    model = resolveOpenCodeGoModel({ phase }).model;
   }
 
   return {
@@ -186,6 +191,19 @@ export function parseAgentPhaseFlag(value: string): { phase: AgentPhase; block: 
       ...(model ? { model } : {}),
     },
   };
+}
+
+/** Fill or refine the OpenCode Go model only when the user did not pin one. */
+export function applyOpenCodeGoModel(
+  settings: ResolvedAgentSettings,
+  input: OpenCodeGoInput,
+): ResolvedAgentSettings {
+  if (settings.provider !== 'opencode' || settings.origin.model !== 'default') {
+    return settings;
+  }
+  const model = resolveOpenCodeGoModel(input).model;
+  if (model === settings.model) return settings;
+  return { ...settings, model };
 }
 
 /** Whether any layer other than the baked default has spoken. */

@@ -51,7 +51,10 @@ only argv and stream parsing move here.
   `external_directory` allows limited to the requested paths. `--auto` is
   never used without those denials. Auth is `opencode auth list` (textual);
   tokens are reported only when `step_finish` includes them; cost stays
-  absent. Model ids are `provider/model`. Minimum version: **1.15.0**.
+  absent. Model ids are `provider/model`. An omitted model is filled from the
+  OpenCode Go policy (`opencode-go/qwen3.8-flash` and siblings), never from
+  Anthropic aliases or the user's `opencode.json` default. An explicit
+  `--agent-model` / `agent.phases.*.model` still wins. Minimum version: **1.15.0**.
 - **`harnessVersion` is captured at invocation time** and cached per
   process. After the process exits it is unrecoverable.
 - **`--fallback-model` is not exposed.** A native fallback the pipeline

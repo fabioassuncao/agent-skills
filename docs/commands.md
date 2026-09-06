@@ -469,7 +469,7 @@ issue-flow agent --json                           # versioned JSON for CLI runti
 issue-flow agent use codex --model gpt-5.6 --global
 issue-flow agent use claude --project
 issue-flow agent use codex --phase execute --project
-issue-flow agent use opencode --model anthropic/claude-sonnet-4-5 --global
+issue-flow agent use opencode --model opencode-go/qwen3.8-flash --global
 ```
 
 `use` writes an agent preference to `~/.issue-flow/config.json` (`--global`, the
