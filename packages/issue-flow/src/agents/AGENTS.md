@@ -126,3 +126,35 @@ breaks on every harness release.
 - Never make an invocation depend on any of this. Every failure path here
   returns "no reporting" and the run proceeds exactly as it did before phase 2
   of the WebMux absorption.
+
+## `tty.ts` / `custom.ts`: the same agents, in a pane
+
+`headless` spawns an agent and reads its structured stream. `interactive` runs
+the same agent as the TUI a person would run, in a tmux pane. The invocation is
+built the same way in both: **argv** (ADR-04).
+
+- **The argv is serialized to a shell string exactly once**, at the tmux
+  boundary, because `send-keys` accepts nothing else. That is not the same thing
+  as assembling a command from strings: there is one quoting function, it is
+  applied to every element without exception, and no caller ever hands it a
+  pre-joined fragment. `tty.integration.test.ts` proves the round trip through a
+  real `/bin/sh` for nine shapes of hostile prompt.
+- **The prompt goes after `--`.** Not for quoting — it means the TUI takes it as
+  its first turn, before its input loop starts, which is what avoids the
+  paste/Enter race against a TUI that is not ready yet.
+- **`codex` always gets `--enable hooks`.** Without it the lifecycle hooks never
+  fire and the agent's state becomes unknowable (ADR-05).
+- **Permission stays semantic.** The upstream has a `yolo` boolean; only
+  `autonomous` maps to skipping permission here, and `read-only` still gets
+  `--permission-mode plan`. Collapsing three levels into a boolean is on the
+  §45.3 list of regressions to avoid.
+- **A custom agent receives its context through exported environment
+  variables**, never by substituting the values into the command. A prompt
+  containing `'`, `$(…)` or a newline is then data the shell expands, not a
+  fragment of the command line.
+
+### Never
+
+- Never build an agent command by concatenating strings.
+- Never put the prompt anywhere but after `--` in a TTY invocation.
+- Never reduce the three permission levels to a boolean.

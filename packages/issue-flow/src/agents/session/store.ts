@@ -1,0 +1,144 @@
+import { randomUUID } from 'node:crypto';
+import type { PlanRepositoryContext } from '../../storage/db/repository.js';
+import {
+  deleteAgentSession,
+  listStoredAgentSessions,
+  loadStoredAgentSession,
+  type StoredAgentSession,
+  saveAgentSession,
+} from '../../storage/db/repository.js';
+import {
+  type AgentPhase,
+  type AgentProviderId,
+  isAgentPhase,
+  isAgentProviderId,
+} from '../types.js';
+import type { AgentSession, AgentSessionStatus } from './types.js';
+
+/**
+ * Persistence for the link between a conversation and what it is being used for.
+ *
+ * Thin on purpose: the interesting decisions are in `reuse.ts`, and everything
+ * here is the storage boundary. It writes nothing the outside world is the
+ * authority on (ADR-08) — the conversation lives with the provider, the pane
+ * lives in tmux, and a session whose pane is gone is marked `orphaned` by
+ * reconciliation rather than deleted here.
+ */
+
+export interface CreateAgentSessionInput {
+  branch: string;
+  provider: AgentProviderId;
+  runId?: string | null;
+  phase?: AgentPhase | null;
+  storyId?: string | null;
+  worktreeId?: string | null;
+  conversationId?: string | null;
+  paneTarget?: string | null;
+  status?: AgentSessionStatus;
+  now?: () => Date;
+}
+
+export function createAgentSession(input: CreateAgentSessionInput): AgentSession {
+  const at = (input.now ?? (() => new Date()))().toISOString();
+  return {
+    id: randomUUID(),
+    runId: input.runId ?? null,
+    phase: input.phase ?? null,
+    storyId: input.storyId ?? null,
+    branch: input.branch,
+    worktreeId: input.worktreeId ?? null,
+    provider: input.provider,
+    conversationId: input.conversationId ?? null,
+    status: input.status ?? 'starting',
+    paneTarget: input.paneTarget ?? null,
+    createdAt: at,
+    updatedAt: at,
+    endedAt: null,
+  };
+}
+
+export async function saveSession(
+  context: PlanRepositoryContext,
+  session: AgentSession,
+): Promise<void> {
+  await saveAgentSession(context, session);
+}
+
+/**
+ * Narrow a stored row into the domain shape.
+ *
+ * The row's `phase` and `provider` are plain strings — the database can hold a
+ * value written by a newer release, and a cast would let it reach code that
+ * switches on it exhaustively. An unrecognised phase becomes `null` (the row is
+ * still a session, it just is not one of *these* phases); an unrecognised
+ * provider makes the row unusable, so it is dropped rather than guessed.
+ */
+function toAgentSession(row: StoredAgentSession): AgentSession | null {
+  if (!isAgentProviderId(row.provider)) return null;
+  return {
+    ...row,
+    phase: row.phase !== null && isAgentPhase(row.phase) ? row.phase : null,
+    provider: row.provider,
+  };
+}
+
+export async function loadSession(
+  context: PlanRepositoryContext,
+  id: string,
+): Promise<AgentSession | null> {
+  const row = await loadStoredAgentSession(context, id);
+  return row === null ? null : toAgentSession(row);
+}
+
+export async function listSessions(
+  context: PlanRepositoryContext,
+  filter: { branch?: string; runId?: string } = {},
+): Promise<AgentSession[]> {
+  return (await listStoredAgentSessions(context, filter))
+    .map(toAgentSession)
+    .filter((session): session is AgentSession => session !== null);
+}
+
+export async function removeSession(context: PlanRepositoryContext, id: string): Promise<void> {
+  await deleteAgentSession(context, id);
+}
+
+/**
+ * Record the provider's own conversation id.
+ *
+ * Separate from a general update because it is the field that decides whether a
+ * session can be resumed at all, and it arrives later than the rest — the
+ * provider only reports it once the conversation exists.
+ */
+export async function recordConversationId(
+  context: PlanRepositoryContext,
+  session: AgentSession,
+  conversationId: string,
+  now: () => Date = () => new Date(),
+): Promise<AgentSession> {
+  const next: AgentSession = {
+    ...session,
+    conversationId,
+    updatedAt: now().toISOString(),
+  };
+  await saveAgentSession(context, next);
+  return next;
+}
+
+/** Move a session's status, stamping `endedAt` when it stops for good. */
+export async function updateSessionStatus(
+  context: PlanRepositoryContext,
+  session: AgentSession,
+  status: AgentSessionStatus,
+  now: () => Date = () => new Date(),
+): Promise<AgentSession> {
+  const at = now().toISOString();
+  const next: AgentSession = {
+    ...session,
+    status,
+    updatedAt: at,
+    endedAt: status === 'stopped' || status === 'orphaned' ? (session.endedAt ?? at) : null,
+  };
+  await saveAgentSession(context, next);
+  return next;
+}

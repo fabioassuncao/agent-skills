@@ -1582,6 +1582,164 @@ export async function deleteWorktree(
   }, context.databaseOptions);
 }
 
+const AGENT_SESSION_COLUMNS =
+  'id, run_id, phase, story_id, branch, worktree_id, provider, conversation_id, status, pane_target, created_at, updated_at, ended_at';
+
+interface AgentSessionRow {
+  id: string;
+  run_id: string | null;
+  phase: string | null;
+  story_id: string | null;
+  branch: string;
+  worktree_id: string | null;
+  provider: string;
+  conversation_id: string | null;
+  status: string;
+  pane_target: string | null;
+  created_at: string;
+  updated_at: string;
+  ended_at: string | null;
+}
+
+function toStoredAgentSession(row: AgentSessionRow): StoredAgentSession {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    phase: row.phase as StoredAgentSession['phase'],
+    storyId: row.story_id,
+    branch: row.branch,
+    worktreeId: row.worktree_id,
+    provider: row.provider as StoredAgentSession['provider'],
+    conversationId: row.conversation_id,
+    status: row.status as StoredAgentSession['status'],
+    paneTarget: row.pane_target,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    endedAt: row.ended_at,
+  };
+}
+
+/** Shape of `agent_sessions`. Mirrors `src/agents/session/types.ts`. */
+export interface StoredAgentSession {
+  id: string;
+  runId: string | null;
+  phase: string | null;
+  storyId: string | null;
+  branch: string;
+  worktreeId: string | null;
+  provider: string;
+  conversationId: string | null;
+  status: 'starting' | 'running' | 'idle' | 'stopped' | 'orphaned';
+  paneTarget: string | null;
+  createdAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+}
+
+export async function saveAgentSession(
+  context: PlanRepositoryContext,
+  session: StoredAgentSession,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      // Same reason as saveWorktree: the project row is a foreign key and a
+      // session can be the first thing a project records.
+      database
+        .prepare(
+          `INSERT INTO projects (id, root, remote_url, created_at, updated_at)
+           VALUES (?, ?, NULL, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+        )
+        .run(context.projectId, context.projectRoot, session.createdAt, session.updatedAt);
+      database
+        .prepare(
+          `INSERT INTO agent_sessions
+             (project_id, id, run_id, phase, story_id, branch, worktree_id, provider,
+              conversation_id, status, pane_target, created_at, updated_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             run_id = excluded.run_id,
+             phase = excluded.phase,
+             story_id = excluded.story_id,
+             branch = excluded.branch,
+             worktree_id = excluded.worktree_id,
+             provider = excluded.provider,
+             conversation_id = excluded.conversation_id,
+             status = excluded.status,
+             pane_target = excluded.pane_target,
+             updated_at = excluded.updated_at,
+             ended_at = excluded.ended_at`,
+        )
+        .run(
+          context.projectId,
+          session.id,
+          session.runId,
+          session.phase,
+          session.storyId,
+          session.branch,
+          session.worktreeId,
+          session.provider,
+          session.conversationId,
+          session.status,
+          session.paneTarget,
+          session.createdAt,
+          session.updatedAt,
+          session.endedAt,
+        );
+    });
+  }, context.databaseOptions);
+}
+
+export async function loadStoredAgentSession(
+  context: PlanRepositoryContext,
+  id: string,
+): Promise<StoredAgentSession | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare(
+        `SELECT ${AGENT_SESSION_COLUMNS} FROM agent_sessions WHERE project_id = ? AND id = ?`,
+      )
+      .get<AgentSessionRow>(context.projectId, id);
+    return row === undefined ? null : toStoredAgentSession(row);
+  }, context.databaseOptions);
+}
+
+export async function listStoredAgentSessions(
+  context: PlanRepositoryContext,
+  filter: { branch?: string; runId?: string } = {},
+): Promise<StoredAgentSession[]> {
+  return withDatabase((database) => {
+    const clauses = ['project_id = ?'];
+    const values: string[] = [context.projectId];
+    if (filter.branch !== undefined) {
+      clauses.push('branch = ?');
+      values.push(filter.branch);
+    }
+    if (filter.runId !== undefined) {
+      clauses.push('run_id = ?');
+      values.push(filter.runId);
+    }
+    return database
+      .prepare(
+        `SELECT ${AGENT_SESSION_COLUMNS} FROM agent_sessions
+          WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, rowid DESC`,
+      )
+      .all<AgentSessionRow>(...values)
+      .map(toStoredAgentSession);
+  }, context.databaseOptions);
+}
+
+export async function deleteAgentSession(
+  context: PlanRepositoryContext,
+  id: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare('DELETE FROM agent_sessions WHERE project_id = ? AND id = ?')
+      .run(context.projectId, id);
+  }, context.databaseOptions);
+}
+
 export async function loadExecution(
   context: PlanRepositoryContext,
   id: string,

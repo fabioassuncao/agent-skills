@@ -56,6 +56,27 @@ export interface TmuxGateway {
   ): Promise<void>;
   /** Type a command into a pane and submit it. */
   runCommand(target: string, command: string): Promise<void>;
+  /** Type text into a pane literally, without submitting it. */
+  sendLiteral(target: string, text: string): Promise<void>;
+  /** Send tmux key names (`Enter`, `C-c`) rather than literal text. */
+  sendKeys(target: string, keys: string[]): Promise<void>;
+  /** Send raw bytes as hex, for keys with no tmux name (CSI u sequences). */
+  sendHexKeys(target: string, hexBytes: string[]): Promise<void>;
+  /** Load text into a named tmux buffer, through stdin. */
+  loadBuffer(bufferName: string, content: string): Promise<void>;
+  /** Paste a named buffer into a pane. */
+  pasteBuffer(options: {
+    bufferName: string;
+    target: string;
+    /** `-r` — paste raw, without translating newlines into Enter. */
+    raw?: boolean;
+    /** `-p` — bracketed paste, so the TUI knows this is a paste and not typing. */
+    bracketed?: boolean;
+    /** `-d` — delete the buffer after pasting. */
+    deleteAfter?: boolean;
+  }): Promise<void>;
+  /** Whether a named buffer still exists. Diagnostics and tests. */
+  hasBuffer(bufferName: string): Promise<boolean>;
   selectPane(target: string): Promise<void>;
   /** Every window of every session, in **one** call (ADR-13). */
   listWindows(): Promise<TmuxWindowSummary[]>;
@@ -104,9 +125,10 @@ export function createTmuxGateway(options: TmuxGatewayOptions = {}): TmuxGateway
     return cachedEnv;
   }
 
-  async function tmux(args: string[]): Promise<TmuxResult> {
+  async function tmux(args: string[], stdin?: string): Promise<TmuxResult> {
     const base = baseEnv();
     const result = await run('tmux', ['-L', socketName, ...args], {
+      ...(stdin === undefined ? {} : { input: stdin }),
       // `extendEnv: false` is load-bearing: the point of `stripProjectEnv` is a
       // *replaced* environment, and execa would otherwise merge process.env
       // back in and undo it.
@@ -238,6 +260,43 @@ export function createTmuxGateway(options: TmuxGatewayOptions = {}): TmuxGateway
     runCommand: async (target, command) => {
       await assertOk(['send-keys', '-t', target, '-l', '--', command], `send command to ${target}`);
       await assertOk(['send-keys', '-t', target, 'C-m'], `submit command on ${target}`);
+    },
+
+    sendLiteral: async (target, text) => {
+      await assertOk(['send-keys', '-t', target, '-l', '--', text], `send text to ${target}`);
+    },
+
+    sendKeys: async (target, keys) => {
+      await assertOk(['send-keys', '-t', target, ...keys], `send keys to ${target}`);
+    },
+
+    // `-H` takes hex bytes, which is the only way to deliver a key tmux has no
+    // name for — the CSI u encodings a modern TUI expects, for instance.
+    sendHexKeys: async (target, hexBytes) => {
+      await assertOk(['send-keys', '-t', target, '-H', ...hexBytes], `send bytes to ${target}`);
+    },
+
+    // The text travels on stdin rather than in the argv: a prompt can be tens
+    // of kilobytes, well past what a command line accepts.
+    loadBuffer: async (bufferName, content) => {
+      const result = await tmux(['load-buffer', '-b', bufferName, '-'], content);
+      if (result.exitCode !== 0) {
+        throw new Error(`load tmux buffer ${bufferName} failed: ${result.stderr}`);
+      }
+    },
+
+    pasteBuffer: async ({ bufferName, target, raw, bracketed, deleteAfter }) => {
+      const args = ['paste-buffer'];
+      if (raw !== false) args.push('-r');
+      if (bracketed !== false) args.push('-p');
+      args.push('-b', bufferName, '-t', target);
+      if (deleteAfter !== false) args.push('-d');
+      await assertOk(args, `paste tmux buffer ${bufferName} into ${target}`);
+    },
+
+    hasBuffer: async (bufferName) => {
+      const result = await tmux(['show-buffer', '-b', bufferName]);
+      return result.exitCode === 0;
     },
 
     selectPane: async (target) => {

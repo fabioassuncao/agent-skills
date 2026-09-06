@@ -470,6 +470,38 @@ export const migrations: readonly Migration[] = [
         CREATE UNIQUE INDEX worktrees_project_branch_idx ON worktrees(project_id, branch);
       `),
   },
+  {
+    version: 12,
+    name: 'bind an agent conversation to a run, a phase and a worktree',
+    // The durable half of a session (§27): the provider owns the conversation
+    // itself, this row owns what it is *for*. `run_id`, `phase` and `story_id`
+    // are nullable on purpose (ADR-16) — a free session is the same entity with
+    // those columns empty, which is what avoids a second execution model.
+    //
+    // `conversation_id` is the provider's own id and is what makes `--resume`
+    // possible: without it a reopened worktree can only start over.
+    up: (database) =>
+      database.exec(`
+        CREATE TABLE agent_sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          run_id TEXT,
+          phase TEXT,
+          story_id TEXT,
+          branch TEXT NOT NULL,
+          worktree_id TEXT,
+          provider TEXT NOT NULL,
+          conversation_id TEXT,
+          status TEXT NOT NULL CHECK (status IN ('starting', 'running', 'idle', 'stopped', 'orphaned')),
+          pane_target TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          ended_at TEXT
+        );
+        CREATE INDEX agent_sessions_project_branch_idx ON agent_sessions(project_id, branch);
+        CREATE INDEX agent_sessions_run_idx ON agent_sessions(run_id);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

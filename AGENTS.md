@@ -27,10 +27,10 @@ those live in the documents referenced below, which are the source of truth.
   selection by phase, authentication, permission, token economy, troubleshooting
 - [`docs/issues.md`](docs/issues.md) — GitHub and local providers, conflict
   resolution, hierarchy discovery and multi-issue queues
-- [`docs/storage.md`](docs/storage.md) — the global tree, the project id,
-  `tasks.json`, `session.json`, telemetry and the legacy migration
-- [`docs/web-monitor.md`](docs/web-monitor.md) — the dashboard, its HTTP API and
-  the single-instance server
+- [`docs/storage.md`](docs/storage.md) — the global tree, the project id, the
+  project registry, `tasks.json`, `session.json`, telemetry and the legacy migration
+- [`docs/web-monitor.md`](docs/web-monitor.md) — the dashboard, its HTTP API, the
+  single-instance server and serving several projects at once
 - [`docs/resilience.md`](docs/resilience.md) — failure taxonomy, retry table,
   failover, watchdog, journal and decomposition
 - [`docs/verification.md`](docs/verification.md) — the acceptance contract, the
@@ -119,6 +119,8 @@ the code, and was learned the hard way.
 | Runtime modes (headless / interactive / sandbox) | [`packages/issue-flow/src/runtime/AGENTS.md`](packages/issue-flow/src/runtime/AGENTS.md) |
 | Worktree isolation, its binding and its rollback | [`packages/issue-flow/src/runtime/worktree/AGENTS.md`](packages/issue-flow/src/runtime/worktree/AGENTS.md) |
 | The tmux multiplexer: sessions, windows, panes and the two defences | [`packages/issue-flow/src/runtime/tmux/AGENTS.md`](packages/issue-flow/src/runtime/tmux/AGENTS.md) |
+| Getting text into an agent running as a TUI | [`packages/issue-flow/src/runtime/terminal/AGENTS.md`](packages/issue-flow/src/runtime/terminal/AGENTS.md) |
+| The link between a conversation and what it is for | [`packages/issue-flow/src/agents/session/AGENTS.md`](packages/issue-flow/src/agents/session/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
 | Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |

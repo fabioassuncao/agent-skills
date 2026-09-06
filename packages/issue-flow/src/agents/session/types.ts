@@ -1,0 +1,64 @@
+import type { AgentPhase, AgentProviderId } from '../types.js';
+
+/**
+ * The durable half of an agent session.
+ *
+ * §27 of the absorption plan separates seven concepts that are easy to conflate.
+ * This is one of them, and the definition is narrow on purpose:
+ *
+ * - the **`AgentConversation`** — the model's history — is owned by the
+ *   provider, on disk under `~/.claude` or `~/.codex`. This project never
+ *   copies it and never parses it to reconstruct state.
+ * - the **`RuntimeSession`** — worktree, ports, services, container — is owned
+ *   by `src/runtime/`.
+ * - the **`tmux` session** is owned by the multiplexer and is ephemeral.
+ * - an **`AgentSession`**, this, is the *link* between a conversation and what
+ *   it is being used for, plus whether it is alive. It is the only one of the
+ *   four this project persists, and it exists so that reopening a worktree can
+ *   resume the same conversation instead of starting a new one.
+ *
+ * `runId`, `phase` and `storyId` are **nullable** (ADR-16). A session opened
+ * without an issue, a plan or a workflow is the same entity with those fields
+ * empty — which is what makes a free session possible without inventing a
+ * second execution model.
+ */
+
+export type AgentSessionStatus = 'starting' | 'running' | 'idle' | 'stopped' | 'orphaned';
+
+export interface AgentSession {
+  /** Issue Flow's own id for the link. Never the provider's. */
+  id: string;
+  /** Run this session belongs to. `null` for a free session. */
+  runId: string | null;
+  /** Phase it was opened for. `null` for a free session. */
+  phase: AgentPhase | null;
+  /** Story it is working on. `null` when it is not story-scoped. */
+  storyId: string | null;
+  branch: string;
+  /** Worktree it runs in. `null` in `headless`, which has no worktree. */
+  worktreeId: string | null;
+  provider: AgentProviderId;
+  /**
+   * The provider's own conversation id.
+   *
+   * `null` until the provider reports one. It is what `--resume` takes, so a
+   * session without it can be reopened but not continued.
+   */
+  conversationId: string | null;
+  status: AgentSessionStatus;
+  /** `session:window.pane`. `null` when the session is not in a pane. */
+  paneTarget: string | null;
+  createdAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+}
+
+/** A session with no run, phase or story: opened directly by a person. */
+export function isFreeSession(session: AgentSession): boolean {
+  return session.runId === null && session.phase === null && session.storyId === null;
+}
+
+/** Whether the session is one a caller could still talk to. */
+export function isLiveSession(session: AgentSession): boolean {
+  return session.status === 'starting' || session.status === 'running' || session.status === 'idle';
+}

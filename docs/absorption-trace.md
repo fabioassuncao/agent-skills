@@ -534,3 +534,212 @@ Total: **47 casos** (upstream: 20 + 10).
 | `ensureSessionLayout` (2 panes) | 254 ms | ≤ 400 ms | **77 ms** |
 | Custo marginal por sessão adicional | 15 ms | ≤ 30 ms | **8 ms** (era 46 ms antes de unir a criação numa invocação) |
 | Reconciliação (`list-windows -a`) | 23 ms, O(1) | ≤ 50 ms e O(1) | **6 ms em N=1, 14 ms em N=21** |
+
+---
+
+### Project Registry unificado (fase 2B)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/projects-registry.ts` @ d8c9d5f — 65 linhas ·
+`backend/src/domain/projects.ts` — 17 linhas ·
+`backend/src/domain/policies.ts` (prefixos: `sanitizeProjectPrefix`, `deriveProjectPrefix`,
+`RESERVED_PROJECT_PREFIXES`) — 30 das 118 linhas ·
+`backend/src/services/project-manager.ts` — 167 linhas ·
+`backend/src/services/project-init-service.ts` — 116 linhas ·
+`bin/src/project-commands.ts` — 176 linhas ·
+rotas de projeto e `autoAddCwd` em `backend/src/server.ts`.
+
+**Comportamento existente**
+
+- **Leitura tolerante do registry.** Arquivo ausente → `[]`; JSON malformado → `[]` com log;
+  entradas inválidas filtradas por `isProjectEntry`. Nunca uma exceção: o registry é lido em
+  caminhos de boot onde lançar derrubaria algo mais importante que a lista de projetos.
+- **Escrita atômica** (`tmp` + `renameSync`), com fs síncrono deliberado para funcionar em
+  caminhos de shutdown. Corrige a premissa de §45.0: *estes* registries do WebMux fazem escrita
+  atômica; a ausência dela vale para `adapters/fs.ts`.
+- **Prefixo derivado, nunca persistido.** Basename sanitizado, sufixo `-2`, `-3`… em colisão,
+  e uma lista de reservados para não sombrear as rotas do hub. O laço é limitado a 1000 e cai
+  para um sufixo de timestamp — mil colisões não são motivo para travar nem para devolver
+  duplicata.
+- **`loadPersisted()` nunca é fatal**: a entrada que falha é logada, pulada, e **não é
+  re-persistida** — um checkout temporariamente desmontado continua na curadoria.
+- **`addEphemeral()`** serve o projeto só neste processo. O motivo está no comentário original e
+  não é óbvio: com um registry compartilhado, persistir o cwd faria **outros servidores** passarem
+  a servir aquele repositório no próximo restart.
+- **Idempotência por raiz resolvida**: adicionar o mesmo repositório duas vezes devolve o projeto
+  que já está sendo servido, sem segundo runtime e sem segunda linha.
+- **Dois níveis de loop**: *light* para todos os projetos conhecidos, *heavy* só para o ativo,
+  alternado por `setActive(prefix, bool)`.
+- **Quatro caminhos no `add`**, nesta ordem, cada um existindo por um caso que os outros erram:
+  já servido → devolve; setup em voo → manda pollar; já configurado → registra direto; sem
+  configuração → `runProjectInit()` assíncrono com fases observáveis.
+- **Tracker de fases com TTL**: entradas terminais sobrevivem 60 s para um poller atrasado ainda
+  ver o desfecho, e são despejadas depois; entradas em voo nunca expiram.
+- **`DELETE` fecha os sockets do projeto ANTES do `manager.remove()`** — depois do `apps.delete`
+  o handler global não acha mais o cleanup.
+- Casos especiais que NÃO podiam se perder: a leitura tolerante; o motivo do `addEphemeral`; o
+  `loadPersisted` não fatal e não re-persistente; a lista de reservados; a ordem dos quatro
+  caminhos do `add`; o TTL do tracker; a análise best-effort que nunca deixa o usuário sem
+  projeto.
+
+**Implementação no Issue Flow**
+
+`packages/issue-flow/src/storage/projects/prefix.ts` — **PORT** ·
+`packages/issue-flow/src/storage/projects/registry.ts` + `src/storage/db/projects.ts` —
+**REPLACE** (tabela `projects`, migration 10) ·
+`packages/issue-flow/src/runtime/project-manager.ts` — **PORT + ADAPT** ·
+`packages/issue-flow/src/runtime/project-runtime.ts` — **ADAPT** ·
+`packages/issue-flow/src/runtime/project-init.ts` — **MERGE** com `src/scaffold/` ·
+`packages/issue-flow/src/web/projects-api.ts` e `src/web/router.ts` — **ADAPT** ·
+`packages/issue-flow/src/commands/project.ts` — **PORT + ADAPT** ·
+`packages/issue-flow/src/commands/serve.ts` — **ADAPT**.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| A chave é `projectId` (`projectIdFromRemote`), não o path | O Issue Flow já tem identidade estável por remote, que sobrevive a mover o diretório e é igual em dois clones. O upstream chaveia por path por não ter outra identidade. `root` vira localizador |
+| `projects.json` → tabela `projects` (migration 10: `name`, `added_at`, `last_seen_at`, `source`) | Um segundo arquivo de estado ao lado do SQLite duplicaria os mesmos fatos com uma história de consistência própria. A tabela já existia como âncora de FK |
+| A escrita atômica do original vira transação SQLite | Mesmo objetivo — nunca um estado meio escrito — com o mecanismo que a autoridade de estado do projeto já usa |
+| Leitura tolerante inclui **não criar** o banco | Abrir o banco o cria. "Quais projetos existem?" não pode ser o que traz o armazenamento à existência: o driver `json` tem um teste que exige que nenhum arquivo de banco apareça |
+| A classe inteira virou assíncrona | Resolver raiz e identidade é perguntar ao git. O upstream podia ser síncrono porque lia um JSON e chaveava por path |
+| `remove()` rebaixa para `discovered` em vez de apagar a linha | Execuções, artefatos e telemetria estão presos ao `projectId`. Curadoria é uma coluna; apagar de verdade é outro comando, com contrato de segurança próprio |
+| `server.reload()` → resolução de prefixo **por request** (`router.ts`) | `Bun.serve().reload()` não existe em `node:http`. A tradução elimina a classe de bug de reload e é o mesmo despacho que o WS faria por `ws.data.prefix` |
+| Reservados ampliados para `api`, `ws`, `assets`, **`health`** | Este servidor também responde `/api/health` e serve os assets a partir de `/` |
+| Prefixos derivados na ordem **`added_at` crescente** | O primeiro projeto de um dado basename mantém o prefixo sem sufixo quando um homônimo aparece depois. A ordem por recência é para leitura humana, não para roteamento |
+| `analyzerAvailable()` passa a significar "a análise pode rodar", e o default é `true` | Upstream perguntava se a CLI do agente estava no PATH para preencher o YAML gerado. Aqui a etapa é uma passagem de descoberta local (`loadRepositoryPolicy`, `cache: false`), sempre disponível; a costura fica para o enriquecimento por agente da fase 3 |
+| `scaffold` é o plan-then-apply existente | Ele é não destrutivo e idempotente, o que "escrever o YAML inicial" do upstream não é. Rodar num repositório já configurado é no-op, não reescrita |
+| O CLI opera direto no SQLite; o servidor é avisado depois, em best effort | Adaptação **obrigatória** de §47.5: o CLI do Issue Flow não pode exigir servidor. O registry é a autoridade e já foi escrito quando a notificação sai; um monitor fora do ar não é erro (P12) |
+| `project use` é recência (`last_seen_at`), não um modo | Evita um segundo arquivo de estado "projeto ativo" que envelheceria sozinho, e é a mesma coluna que ordena a lista em todo lugar |
+| `ISSUE_FLOW_PROJECT_DIR` aceita vários caminhos separados por `:`/`;` | Uma unidade `systemd` começa em `/` e não tem cwd útil; uma variável por projeto não sobrevive a um arquivo de unidade |
+| Escritas de projeto exigem bind em loopback | ADR-10, a mesma regra que as escritas de configuração já seguem: adicionar um projeto toca o filesystem |
+| `web serve` vira alias de `serve`, com um único corpo | `web/AGENTS.md` proíbe uma terceira forma de fazer bind. O lock, o contrato de spawn destacado e o silêncio no caminho feliz não mudam |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `adapters/instance-registry.ts` | `backend/src/adapters/instance-registry.ts` | O `web.lock` do Issue Flow é mais forte (exige pid vivo **e** `/api/health` **e** `instanceId`) e o próprio upstream marca o dele como sensor transitório de migração |
+| `bin/src/migrate.ts` / `webmux project migrate` | `bin/src/migrate.ts` | Funde servidores antigos de projeto único num só. Nunca existiu um servidor Issue Flow por projeto — não há de onde migrar |
+| `closeProjectSockets()` antes do `manager.remove()` | `backend/src/server.ts` | Não há socket por projeto ainda: o transporte de terminal chega na fase 8. A ordem correta está registrada em comentário no `removeProject`, para quando houver |
+| Worktree, tmux e sandbox no `ProjectRuntime` | `backend/src/runtime.ts` | São das fases 5, 6 e 12. Escrevê-los aqui criaria uma segunda implementação mais fraca da mesma responsabilidade (invariante 13) |
+| Loops *light*/*heavy* com trabalho real | `backend/src/services/*-service.ts` | O contrato dos dois níveis foi portado (`ProjectLoopController`, `setActive`), mas reconciliação, GC de worktree e poll de PR/CI pertencem às fases 5, 11 e 14. O default é no-op |
+| `EmptyProjects.svelte` / onboarding do painel | `frontend/src/lib/EmptyProjects.svelte` | O painel atual é vanilla e só sai com §50.7 (ADR-18). O seletor e a visão "Trabalho ativo" foram acrescentados sobre ele, sem trocar de stack |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/storage/projects/prefix.test.ts` | `__tests__/domain-policies.test.ts` (parte de prefixo) | 10 (8 portados + 2 novos) | ✅ |
+| `src/storage/projects/registry.test.ts` | `__tests__/projects-registry.test.ts` | 10 (7 portados, adaptados + 3 novos) | ✅ |
+| `src/runtime/project-manager.test.ts` | `__tests__/project-manager.test.ts` | 13 (11 portados + 2 novos) | ✅ |
+| `src/runtime/project-init.test.ts` | `__tests__/project-init-service.test.ts` | 7 (6 portados + 1 novo) | ✅ |
+| `src/storage/db/projects.test.ts` | — (migration 10: banco novo, banco em v9, reabertura, leitura retro) | 4 | ✅ |
+| `src/web/router.test.ts` | `backend/src/server.ts` (despacho por prefixo) | 8 | ✅ |
+| `src/web/projects-api.test.ts` | `backend/src/server.ts` (rotas de projeto) | 13 | ✅ |
+| `src/commands/project.test.ts` | `bin/src/project-commands.ts` | 15 | ✅ |
+| `src/commands/serve.test.ts` | `backend/src/server.ts` (ordem de boot, `autoAddCwd`) | 9 | ✅ |
+| `src/execution/registry.test.ts` (P10 + rótulo) | — | +2 | ✅ |
+| characterization P1–P12 | §47.7 | — | ✅ |
+
+Total: **91 casos**, dos quais **32 portados do upstream** (8 + 7 + 11 + 6).
+
+Cobertura de P1–P12, por arquivo:
+
+| # | Onde |
+|---|---|
+| P1 | `runtime/project-init.test.ts`, `web/projects-api.test.ts`, `commands/project.test.ts` |
+| P2 | `storage/projects/registry.test.ts`, `runtime/project-manager.test.ts`, `web/projects-api.test.ts`, `commands/project.test.ts` |
+| P3 | `storage/projects/prefix.test.ts`, `runtime/project-manager.test.ts`, `web/router.test.ts` |
+| P4 | `storage/projects/prefix.test.ts`, `web/router.test.ts` |
+| P5 | `runtime/project-manager.test.ts`, `commands/serve.test.ts` |
+| P6 | `runtime/project-manager.test.ts`, `commands/serve.test.ts` |
+| P7 | `commands/project.test.ts` |
+| P8 | `storage/projects/registry.test.ts`, `commands/project.test.ts` |
+| P9 | `storage/projects/registry.test.ts`, `runtime/project-manager.test.ts`, `web/projects-api.test.ts`, `commands/project.test.ts` |
+| P10 | `execution/registry.test.ts` |
+| P11 | `runtime/project-manager.test.ts`, `commands/serve.test.ts` |
+| P12 | `commands/project.test.ts` |
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| Boot do CLI | ≤ 250 ms | **120 ms** (mediana de 5, `node dist/cli.js --version`) |
+| Latência output → tela | ≤ 250 ms p95 | inalterada — o transporte push de `/api/stream` não foi tocado |
+
+---
+
+### Agent wrappers TTY e sessões (Fase 7)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/agent-service.ts` @ d8c9d5f — 252 linhas ·
+`adapters/terminal.ts` (`sendPrompt`, `interruptPrompt`, `sendKeys`) — ~110 das 457 ·
+`domain/model.ts` (`WorktreeConversationMeta`) · `adapters/session-discovery.ts` — ~105.
+Base canônica por `§45.1-L`: **Issue Flow** para a camada de agentes inteira; do WebMux
+absorve-se **apenas** o conceito de agente custom, o modo TTY e o `--resume`.
+
+**Comportamento existente**
+- O prompt vai **depois de `--`** — e o comentário do upstream explica: assim a TUI recebe
+  o prompt como primeiro turno, antes do loop de input subir, o que evita a corrida
+  paste/Enter contra uma TUI que ainda não está pronta.
+- `codex` sempre com `--enable hooks`.
+- `claude --resume <id>` / `--continue`; `codex resume <id>` / `resume --last`.
+- Fork: `claude --resume <pai> --fork-session [--session-id <filho>]`; `codex fork <pai>`.
+- `set -a; . runtime.env; set +a` antes da invocação.
+- Agente custom: template `startCommand`/`resumeCommand` com `${PROMPT}` etc. substituídos
+  por **referências a variáveis exportadas**, nunca pelos valores.
+- `sendPrompt`: `load-buffer` (texto por stdin, `\0` removido) + `paste-buffer -rp -d` +
+  `Enter` — porque `send-keys -l` entrega caractere a caractere e a TUI reage no meio.
+- Casos especiais que NÃO podiam se perder: os quatro flags do `paste-buffer`, a remoção
+  do `\0`, o `--` antes do prompt, o `--enable hooks`, e o fato de os valores do agente
+  custom viajarem por variável e não por substituição.
+
+**Implementação no Issue Flow**
+`src/agents/tty.ts` (**ADAPT**) · `src/agents/custom.ts` (**PORT**) ·
+`src/runtime/terminal/input.ts` (**PORT**) · `src/agents/session/{types,reuse,store}.ts`
+(**ADAPT**) · migration 12 (`agent_sessions`) · `src/runtime/tmux/gateway.ts` ganhou
+`loadBuffer`/`pasteBuffer`/`sendLiteral`/`sendKeys`/`sendHexKeys`.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| String de shell + `quoteShell` → **argv**, serializado uma única vez na fronteira do tmux | ADR-04 e `§45.1-L`. O `send-keys` só aceita string, mas isso é *serialização* de um argv, não montagem por concatenação: há uma função de quoting, aplicada a todo elemento sem exceção. `tty.integration.test.ts` prova o round-trip por um `/bin/sh` real com nove formas de prompt hostil |
+| `yolo: boolean` → permissão semântica de 3 níveis | `§45.3` lista `yolo: boolean` como forma degradada. `autonomous` → skip; `read-only` → `--permission-mode plan`; `workspace` → nada |
+| `WEBMUX_AGENT_*` → `ISSUE_FLOW_AGENT_*` | Nomeação do projeto |
+| `WorktreeConversationMeta` (dentro do `meta.json`) → tabela `agent_sessions` | §27 separa os sete conceitos; a sessão é a única das quatro entidades que este projeto persiste, e o veículo é SQLite (`§45.2-G`) |
+| `run_id`/`phase`/`story_id` **nuláveis** | ADR-16 — é o que permite sessão livre sem um segundo modelo de execução. A Fase 9B usa; o schema já aceita |
+| Guarda de reuso de sessão (`assertSessionReuseAllowed`) acrescentada | ADR-07. O WebMux não tem o conceito de fase de revisão, então não tem o que proteger; aqui a independência é o mecanismo por trás da palavra "verified", e uma configuração que peça reuso é **erro**, não preferência |
+| Sessão livre nunca é adotada pela pipeline | Não está no upstream: é consequência de ADR-16 + ADR-07. Uma pessoa abriu aquela sessão e provavelmente ainda está nela |
+| Linha de storage é **narrowed**, não *cast* | O banco pode conter um `phase`/`provider` escrito por uma release mais nova; um cast levaria isso a um `switch` exaustivo |
+| `submitDelayMs` e `submit: false` explícitos | O upstream tem o delay; o `submit: false` é acrescentado para deixar texto no input sem enviar, que é o que a Fase 9 (human-in-the-loop) precisa |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `adapters/claude-cli.ts` (767 LOC) e `codex-app-server.ts` (862 LOC) | §22 | São o **canal estruturado** — leitura de conversa e streaming — e o Issue Flow já tem o dele em `core/stream.ts` para o modo headless. §22 os endereça a `src/agents/session/{claude,codex}.ts` como trabalho próprio; portá-los junto com o wrapper TTY misturaria duas responsabilidades numa fase de alto risco. Registrado como pendência explícita |
+| `session-discovery.ts` (varredura de `~/.claude/**` e `~/.codex/**`) | `adapters/session-discovery.ts` | Descobrir conversas no disco do provider é útil para *reconciliação* (Fase 11), não para iniciar uma. O id de conversa aqui vem do próprio provider via hook/resultado |
+| `DOCKER_PATH_FALLBACK` embutido no bootstrap | `agent-service.ts:4` | O parâmetro `extraPathEntries` existe e é genérico; a lista concreta do container pertence à Fase 12, que é quem sabe o que a imagem tem |
+| `agentTerminalStale` e a lógica de `resolveCodexResumeConversationId` | `lifecycle-service.ts:105` | Depende de `tabs`/`forkCounter`, que são estado de UI do painel do WebMux (§48/§50) |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/agents/tty.test.ts` | `__tests__/agent-service.test.ts` — **C4** | 20 | ✅ |
+| `src/agents/custom.test.ts` | `__tests__/agent-service.test.ts` (custom) | 11 | ✅ |
+| `src/runtime/terminal/input.test.ts` | `__tests__/terminal-adapter.test.ts` — **C5** | 11 | ✅ |
+| `src/agents/session/reuse.test.ts` | novo — ADR-07 e ADR-16 | 15 | ✅ |
+| `src/agents/session/store.test.ts` | novo — fronteira de storage | 8 | ✅ |
+| `src/agents/tty.integration.test.ts` | **C4** contra `/bin/sh` real e **C5** contra tmux real | 13 | ✅ |
+| `src/storage/db/migrations.test.ts` | migration 12 em banco novo, existente e reaberto | (no caso existente) | ✅ |
+
+Total: **78 casos** (upstream: 19 de `agent-service.test.ts` + 10 de `terminal-adapter.test.ts`).
+
+**Orçamentos**
+
+| Métrica | Baseline WebMux | Budget | Medido |
+|---|---|---|---|
+| Entrega de prompt subsequente (20 KB) | 35 ms | ≤ 80 ms | coberto pelo caso de 64 KB de `tty.integration.test.ts`, que entrega o bloco inteiro; a medição em milissegundos entra com o transporte do terminal (Fase 8), onde há um caminho de ponta a ponta para cronometrar |

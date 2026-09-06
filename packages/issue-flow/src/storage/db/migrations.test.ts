@@ -138,7 +138,7 @@ describe('SQLite migrations', () => {
       first
         .prepare('INSERT INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)')
         .run('project', '/repo', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
-      for (const table of ['agent_events', 'worktrees']) {
+      for (const table of ['agent_events', 'worktrees', 'agent_sessions']) {
         expect(
           first
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
@@ -247,6 +247,49 @@ describe('SQLite migrations', () => {
           '2026-01-01T00:00:05.000Z',
         ),
       ).toThrow();
+
+      const insertSession = upgraded.prepare(
+        `INSERT INTO agent_sessions
+           (id, project_id, run_id, phase, story_id, branch, worktree_id, provider,
+            conversation_id, status, pane_target, created_at, updated_at, ended_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      // A free session: run, phase and story all null (ADR-16). The schema has
+      // to accept it, because that is what makes one model serve both modes.
+      insertSession.run(
+        'sess-free',
+        'project',
+        null,
+        null,
+        null,
+        'feature',
+        null,
+        'claude',
+        'conv-1',
+        'idle',
+        null,
+        '2026-01-01T00:00:06.000Z',
+        '2026-01-01T00:00:06.000Z',
+        null,
+      );
+      expect(() =>
+        insertSession.run(
+          'sess-bad',
+          'project',
+          null,
+          null,
+          null,
+          'feature',
+          null,
+          'claude',
+          null,
+          'exploded',
+          null,
+          '2026-01-01T00:00:07.000Z',
+          '2026-01-01T00:00:07.000Z',
+          null,
+        ),
+      ).toThrow();
     } finally {
       upgraded.close();
     }
@@ -261,6 +304,12 @@ describe('SQLite migrations', () => {
       expect(reopened.prepare('SELECT branch FROM worktrees').all<{ branch: string }>()).toEqual([
         { branch: 'feature' },
       ]);
+      expect(
+        reopened.prepare('SELECT id, run_id FROM agent_sessions').all<{
+          id: string;
+          run_id: string | null;
+        }>(),
+      ).toEqual([{ id: 'sess-free', run_id: null }]);
     } finally {
       reopened.close();
     }
