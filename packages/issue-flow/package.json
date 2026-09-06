@@ -1,6 +1,6 @@
 {
   "name": "issue-flow",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Unified CLI for orchestrating the full issue-flow pipeline via Claude Code, Codex CLI, Cursor CLI or Antigravity CLI",
   "type": "module",
   "bin": {
@@ -53,7 +53,7 @@
     "github"
   ],
   "license": "MIT",
-  "author": "F\u00e1bio Assun\u00e7\u00e3o",
+  "author": "Fábio Assunção",
   "homepage": "https://github.com/fabioassuncao/issue-flow#readme",
   "bugs": {
     "url": "https://github.com/fabioassuncao/issue-flow/issues"
