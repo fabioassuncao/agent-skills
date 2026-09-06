@@ -979,7 +979,10 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     // panel's relative `app.css` against `/`, which is the *other* panel.
     if (path === '/legacy') {
       res.statusCode = 301;
-      res.setHeader('Location', `${projectRoute.prefix === null ? '' : `/${projectRoute.prefix}`}/legacy/`);
+      res.setHeader(
+        'Location',
+        `${projectRoute.prefix === null ? '' : `/${projectRoute.prefix}`}/legacy/`,
+      );
       res.end();
       return;
     }
