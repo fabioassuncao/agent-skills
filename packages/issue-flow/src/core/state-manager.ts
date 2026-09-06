@@ -6,6 +6,8 @@ import { reconcileInterruptedExecutions } from '../telemetry/reconcile.js';
 import type { LastError, PipelineState, TaskPlan, UserStory } from '../types.js';
 import { writeFileAtomic } from '../utils/fs.js';
 import { type ClaudeUsage, sumUsage } from './metrics.js';
+import { eligibleStories } from './task-plan.js';
+import { DEFAULT_MAX_CORRECTION_CYCLES, DEFAULT_PIPELINE_STATE } from './workflow-contract.js';
 
 /**
  * Get the current ISO timestamp.
@@ -82,13 +84,7 @@ export async function saveTaskPlan(path: string, plan: TaskPlan): Promise<void> 
  * present and stay out of the file entirely when the phases never ran.
  */
 export function initializeState(plan: TaskPlan): TaskPlan {
-  const defaultPipeline: PipelineState = {
-    prdCompleted: false,
-    jsonCompleted: false,
-    executionCompleted: false,
-    reviewCompleted: false,
-    prCreated: false,
-  };
+  const defaultPipeline: PipelineState = DEFAULT_PIPELINE_STATE;
 
   return {
     ...plan,
@@ -97,7 +93,7 @@ export function initializeState(plan: TaskPlan): TaskPlan {
     lastAttemptAt: plan.lastAttemptAt ?? null,
     lastError: plan.lastError ?? null,
     correctionCycle: plan.correctionCycle ?? 0,
-    maxCorrectionCycles: plan.maxCorrectionCycles ?? 3,
+    maxCorrectionCycles: plan.maxCorrectionCycles ?? DEFAULT_MAX_CORRECTION_CYCLES,
     lastReviewFindings: plan.lastReviewFindings ?? null,
     pipeline: plan.pipeline ? { ...defaultPipeline, ...plan.pipeline } : defaultPipeline,
   };
@@ -125,9 +121,8 @@ export function allStoriesPass(plan: TaskPlan): boolean {
 
 /**
  * The story `execute` should work on next: the highest-priority (lowest
- * `priority` number) story with `passes: false`. This is the exact same rule
- * `prompts/execute.md` gives the agent ("pick the highest priority user
- * story where `passes: false`") — kept here as a single, pure, exported
+ * `priority` number) story with `passes: false` whose dependencies passed. This is the exact same rule
+ * `prompts/execute.md` gives the agent ("work on the CLI-selected eligible story") — kept here as a single, pure, exported
  * helper so the engine's `iteration:start` publication and the terminal
  * renderer read the same computed identity instead of two independent
  * heuristics.
@@ -136,7 +131,7 @@ export function allStoriesPass(plan: TaskPlan): boolean {
  * already passes (or the plan has none).
  */
 export function selectActiveStory(stories: readonly UserStory[]): UserStory | undefined {
-  return [...stories].filter((story) => !story.passes).sort((a, b) => a.priority - b.priority)[0];
+  return eligibleStories(stories)[0];
 }
 
 /**

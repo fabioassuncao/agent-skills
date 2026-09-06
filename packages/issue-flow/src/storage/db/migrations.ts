@@ -369,6 +369,15 @@ export const migrations: readonly Migration[] = [
         CREATE INDEX executions_run_id_idx ON executions(run_id);
       `),
   },
+  {
+    version: 8,
+    name: 'explicit issue closure authorization',
+    up: (database) =>
+      database.exec(`
+      ALTER TABLE pipelines ADD COLUMN close_issue INTEGER CHECK (close_issue IN (0, 1));
+      ALTER TABLE pipelines ADD COLUMN issue_closed_at TEXT;
+    `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

@@ -1,4 +1,4 @@
-import type { PipelinePhase } from '../../core/pipeline.js';
+import { PIPELINE_PHASES, type PipelinePhase } from '../../core/pipeline.js';
 import type { SessionPublisher } from '../../core/session-state.js';
 import type { ExecutionPlan } from '../../execution/types.js';
 import type { ResolvedIssue } from '../../issues/types.js';
@@ -8,8 +8,10 @@ import type { RunSummaryPrReview } from '../../ui/summary.js';
 import type { PrQueueContext } from '../pr.js';
 
 /** Runnable phase lists (excluding 'init' which is handled separately). */
-export const RUNNABLE_PHASES: PipelinePhase[] = ['prd', 'plan', 'execute', 'review', 'pr'];
-export const RUNNABLE_PHASES_NO_BRANCH: PipelinePhase[] = ['prd', 'plan', 'execute', 'review'];
+export const RUNNABLE_PHASES: PipelinePhase[] = PIPELINE_PHASES.filter((phase) => phase !== 'init');
+export const RUNNABLE_PHASES_NO_BRANCH: PipelinePhase[] = RUNNABLE_PHASES.filter(
+  (phase) => phase !== 'pr',
+);
 export const RUNNABLE_PHASES_WITH_PR_REVIEW: PipelinePhase[] = [...RUNNABLE_PHASES, 'pr-review'];
 
 /**
@@ -27,7 +29,7 @@ export const RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW: PipelinePhase[] = ['pr', 'pr-
 
 /**
  * What the `pr-review` phase left behind, for the steps that run after it: the
- * automatic issue close, the highlighted warning and the final summary.
+ * authorized issue close, the highlighted warning and the final summary.
  *
  * Same shape the summary consumes: `requestedChanges` drives the close
  * suppression and is true on exit code 2 even when the plan is gone.
@@ -80,6 +82,7 @@ export interface IssueRunResult {
 
 /** Options `run` accepts on top of the phase selection ones. */
 export interface RunPipelineOptions {
+  closeIssue?: boolean;
   /** `--yes`: accept the discovered hierarchy without confirmation. */
   yes?: boolean;
   /** `--only`: run just the issues informed, skipping discovery. */

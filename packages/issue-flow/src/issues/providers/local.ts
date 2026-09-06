@@ -181,11 +181,14 @@ export class LocalFileIssueProvider implements IssueProvider {
     };
   }
 
-  async create(draft: IssueDraft): Promise<Issue> {
+  async create(draft: IssueDraft, options?: { localOnly?: boolean }): Promise<Issue> {
     // An explicit id is how a mirror keeps the identifier of the Issue it
     // mirrors: allocating a fresh one would make `issue-flow run <n>` see two
     // unrelated Issues instead of one demand in two places.
-    const id = draft.id === undefined ? String(await this.allocateNumber()) : normalizeId(draft.id);
+    const id =
+      draft.id === undefined
+        ? String(await this.allocateNumber(options?.localOnly))
+        : normalizeId(draft.id);
     const paths = await this.paths(id);
 
     await mkdir(paths.issueDir, { recursive: true });
@@ -274,8 +277,11 @@ export class LocalFileIssueProvider implements IssueProvider {
    * what makes a naive `localMax + 1` collide the moment someone opens an Issue
    * on GitHub.
    */
-  async allocateNumber(): Promise<number> {
-    const [local, remote] = await Promise.all([this.highestLocalNumber(), highestRemoteNumber()]);
+  async allocateNumber(localOnly = false): Promise<number> {
+    const [local, remote] = await Promise.all([
+      this.highestLocalNumber(),
+      localOnly ? Promise.resolve(0) : highestRemoteNumber(),
+    ]);
     return Math.max(local, remote) + 1;
   }
 

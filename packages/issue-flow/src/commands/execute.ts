@@ -13,6 +13,7 @@ import { getPackageVersion } from '../version.js';
 import { ensureWebMonitor } from '../web/lock.js';
 
 export interface ExecuteOptions {
+  inPipeline?: boolean;
   issue?: string;
   maxIterations?: number;
   retryLimit?: number;
@@ -43,6 +44,7 @@ export async function runExecute(
 
   const config = createConfig({
     issueNumber: options.issue,
+    inPipeline: options.inPipeline,
     maxIterations,
     retryLimit: options.retryLimit,
     retryForever: options.retryForever,

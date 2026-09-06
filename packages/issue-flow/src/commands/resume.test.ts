@@ -3,10 +3,17 @@ import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInitialSnapshot, type SessionEvent } from '../core/session-state.js';
-import { saveTaskPlan } from '../core/state-manager.js';
+import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getPlanRepository, saveSessionEvent } from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import type { TaskPlan } from '../types.js';
+
+vi.mock('../issues/context.js', () => ({
+  resolveCommandIssue: vi.fn(async () => ({ ok: true, resolved: { source: 'local' } })),
+}));
+vi.mock('../issues/registry.js', () => ({
+  getProvider: vi.fn(() => ({ get: async () => ({ state: 'closed' }) })),
+}));
 
 vi.mock('./run.js', () => ({ runPipeline: vi.fn(async () => 0) }));
 
@@ -161,6 +168,41 @@ describe('resume picks the phase up where it stopped', () => {
     // `prd` and `plan` are marked complete in the plan, so the pipeline is
     // handed `execute` — the phases before it are not run again.
     expect(from).toBe('execute');
+  });
+
+  it('finishes an authorized pending closure without invoking pipeline agents', async () => {
+    await writeIssue(
+      '42',
+      plan({
+        closeIssue: true,
+        lastError: { category: 'issue_closure', message: 'lost response', at: '2026-09-05' },
+        pipeline: {
+          prdCompleted: true,
+          jsonCompleted: true,
+          executionCompleted: true,
+          reviewCompleted: true,
+          prCreated: true,
+        },
+        userStories: [
+          {
+            id: 'A',
+            title: 'A',
+            description: '',
+            acceptanceCriteria: [],
+            priority: 1,
+            passes: true,
+            notes: '',
+          },
+        ],
+      }),
+    );
+    expect(await runResume('42')).toBe(0);
+    expect(mockRunPipeline).not.toHaveBeenCalled();
+    expect(await loadTaskPlan((await resolveIssuePaths('42')).tasksFile)).toMatchObject({
+      issueClosedAt: expect.any(String),
+      lastError: null,
+      issueStatus: 'completed',
+    });
   });
 
   it('does nothing when every phase is already complete', async () => {

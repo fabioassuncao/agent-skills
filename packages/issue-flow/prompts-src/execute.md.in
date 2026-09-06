@@ -6,12 +6,12 @@ You are an autonomous coding agent working on a software project.
 
 1. Read the PRD at `__PRD_FILE__`
 2. Read the progress log at `__PROGRESS_FILE__` (check Codebase Patterns section first)
-3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create it from `__BASE_BRANCH__`.
+3. Verify the attached checkout matches `branchName`. If `noBranch=true`, never switch/create a branch: report a mismatch. Otherwise use the planned branch, creating it from `__BASE_BRANCH__` only when safe.
 4. Treat the issue as unresolved if **any** `userStories[].passes` is `false`, **or** if the PRD's top-level `lastReviewFindings` is non-null — that second condition holds even when every story already passes (see "Correction Findings from a Failed Review" below).
-5. If `lastReviewFindings` is non-null, address it first (see below); otherwise pick the **highest priority** user story where `passes: false`
+5. If `lastReviewFindings` is non-null, address it first (see below); otherwise work on the CLI-selected eligible story: __ACTIVE_STORY__
 6. Implement that single user story
 7. Run the quality checks that cover the files you changed (typecheck/lint/test for those paths). The orchestrator runs the full suite at the end of execute and again in review.
-8. Update CLAUDE.md files if you discover reusable patterns (see below)
+8. Preserve durable knowledge in existing repository documentation (see below)
 9. If checks pass, commit the files belonging to this story with message: `__COMMIT_MESSAGE__`
 10. Update the PRD to set `passes: true` for the completed story
 11. Append your progress to `__PROGRESS_FILE__`
@@ -48,12 +48,7 @@ The learnings section is required only when the iteration discovered something r
 
 If you discover a **reusable pattern** that future iterations should know, add it to the `## Codebase Patterns` section at the TOP of `__PROGRESS_FILE__` (create it if it doesn't exist). This section should consolidate the most important learnings:
 
-```
-## Codebase Patterns
-- Example: Use `sql<number>` template for aggregations
-- Example: Always use `IF NOT EXISTS` for migrations
-- Example: Export types from actions.ts for UI components
-```
+
 
 Only add patterns that are **general and reusable**, not story-specific details.
 
@@ -96,8 +91,7 @@ If these fields don't exist in the task plan (older format), ignore them — the
 After completing a user story or addressing `lastReviewFindings`, check if ALL stories have `passes: true` **and** `lastReviewFindings` is `null`.
 
 If ALL stories are complete and passing and there are no pending review findings, first update the task plan metadata:
-- Set `issueStatus` to `completed`
-- Set `completedAt` to the current ISO timestamp
+- __EXECUTION_SCOPE__
 - Set `lastAttemptAt` to the current ISO timestamp
 - Clear `lastError`
 - If `pipeline` object exists, set `pipeline.executionCompleted` to `true`
@@ -110,7 +104,7 @@ If you need to stop for user guidance or another non-transient blocker, record i
 
 ## Important
 
-- Work on ONE story per iteration unless `__STORIES_PER_ITERATION__` is greater than 1, in which case you may close that many related stories that touch the same files, in one session. The default is 1.
+- Work on ONE story per iteration unless `__STORIES_PER_ITERATION__` is greater than 1, in which case you may close that many related stories with satisfied dependencies in one session. The default is 1.
 - Commit frequently
 - Keep CI green
 - Read the Codebase Patterns section in `__PROGRESS_FILE__` before starting

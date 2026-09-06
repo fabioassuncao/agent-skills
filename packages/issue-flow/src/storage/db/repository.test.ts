@@ -8,6 +8,7 @@ import {
   exportStoredState,
   findHighestStoredUserStoryNumber,
   ingestAgentPlan,
+  ingestGeneratedPlan,
   listStoredExecutions,
   loadStoredPlan,
   loadStoredQueue,
@@ -70,6 +71,24 @@ describe('SQLite plan repository', () => {
   });
 
   afterEach(() => resetPlanRepositories());
+
+  it('persists closure choices but refuses authorization or confirmation from generated output', async () => {
+    await saveStoredPlan(context, { ...plan(), closeIssue: false });
+    await writeFile(
+      context.tasksPath,
+      JSON.stringify({ ...plan(), closeIssue: true, issueClosedAt: 'forged' }),
+    );
+    await ingestGeneratedPlan(context);
+    expect(await loadStoredPlan(context)).toMatchObject({ closeIssue: false });
+    expect((await loadStoredPlan(context)).issueClosedAt).toBeUndefined();
+    await saveStoredPlan(context, { ...plan(), closeIssue: true, issueClosedAt: 'confirmed' });
+    await writeFile(context.tasksPath, JSON.stringify(plan()));
+    await ingestGeneratedPlan(context);
+    expect(await loadStoredPlan(context)).toMatchObject({
+      closeIssue: true,
+      issueClosedAt: 'confirmed',
+    });
+  });
 
   it('reingests agent passes and notes after telemetry closes its execution', async () => {
     const execution = {

@@ -51,11 +51,23 @@ interface IssueState {
   paths: ReturnType<typeof getIssuePaths>;
 }
 
-async function project(): Promise<ProjectPaths | null> {
+async function project(json = false): Promise<ProjectPaths | null> {
   try {
-    return await resolveProjectPaths();
+    return await resolveProjectPaths(json ? { notice: console.error } : {});
   } catch (err) {
-    printError(`Not inside a usable project: ${err instanceof Error ? err.message : String(err)}`);
+    const message = `Not inside a usable project: ${err instanceof Error ? err.message : String(err)}`;
+    if (json)
+      console.log(
+        JSON.stringify({
+          schemaVersion: 1,
+          error: { code: 'project_unavailable', message },
+          owner: null,
+          ownerStale: null,
+          issues: [],
+          queues: [],
+        }),
+      );
+    else printError(message);
     return null;
   }
 }
@@ -184,7 +196,7 @@ export interface StatusOptions {
  * queue*. Reading them together is the whole command.
  */
 export async function runStatus(issue?: string, options: StatusOptions = {}): Promise<number> {
-  const paths = await project();
+  const paths = await project(options.json);
   if (paths === null) return 1;
 
   const lock = await readRunLock(paths.runLockFile);
@@ -195,9 +207,10 @@ export async function runStatus(issue?: string, options: StatusOptions = {}): Pr
   const queues = await allQueues(paths);
 
   if (options.json === true) {
-    printInfo(
+    console.log(
       JSON.stringify(
         {
+          schemaVersion: 1,
           owner: lock,
           ownerStale: lock === null ? null : isRunLockStale(lock),
           issues: issues.map((state) => ({

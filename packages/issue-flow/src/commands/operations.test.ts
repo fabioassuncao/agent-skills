@@ -216,9 +216,10 @@ describe('status', () => {
     await writeLock();
     await writeIssue('42', plan());
 
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => {});
     await expect(runStatus(undefined, { json: true })).resolves.toBe(0);
-
-    const payload = JSON.parse(output());
+    const payload = JSON.parse(stdout.mock.calls.map(([line]) => line).join('\n'));
+    stdout.mockRestore();
     expect(payload.owner.pid).toBe(process.pid);
     expect(payload.issues[0]).toMatchObject({ id: '42', issueStatus: 'in_progress' });
   });

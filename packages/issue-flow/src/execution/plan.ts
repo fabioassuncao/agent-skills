@@ -426,3 +426,14 @@ export function setQueuePullRequest(
 ): ExecutionPlan {
   return { ...plan, pullRequest };
 }
+
+/** Completed implementation can still owe PR delivery, review or explicit closure. */
+export function queueNeedsFinalization(plan: ExecutionPlan): boolean {
+  return (
+    (!plan.noBranch && (!plan.pullRequest || (plan.prReview && !plan.prReviewCompleted))) ||
+    (plan.closeIssue === true &&
+      plan.issues.some(
+        (entry) => entry.status === 'completed' && !(plan.closedIssueIds ?? []).includes(entry.id),
+      ))
+  );
+}

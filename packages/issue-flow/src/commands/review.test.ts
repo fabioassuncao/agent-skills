@@ -142,6 +142,26 @@ describe('runReview — persisting review outcome to tasks.json', () => {
     return JSON.parse(await readFile(tasksPath, 'utf-8'));
   }
 
+  it.each([
+    'No result',
+    '<review-result>STATUS: UNKNOWN</review-result>',
+    '<review-result>STATUS: PASS</review-result> trailing',
+  ])('rejects invalid protocol without discarding previous findings: %s', async (output) => {
+    await writeFile(
+      tasksPath,
+      JSON.stringify(makePlan({ lastReviewFindings: '- Previous finding' })),
+    );
+    headlessOutput.current = output;
+    expect(await runReview('42', makeResolved())).toBe(1);
+    expect(await readPlan()).toMatchObject({
+      pipeline: { reviewCompleted: false },
+      lastReviewFindings: '- Previous finding',
+      lastError: { category: 'review_protocol' },
+      issueStatus: 'in_progress',
+      completedAt: null,
+    });
+  });
+
   it('on FAIL, persists the findings and flips reviewCompleted to false', async () => {
     headlessOutput.current = [
       '<review-result>',

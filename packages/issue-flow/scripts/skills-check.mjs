@@ -123,7 +123,7 @@ export async function validateSkill(root) {
     if (file !== 'SKILL.md' && file.endsWith('/SKILL.md')) errors.push(`Nested Skill: ${file}`);
     if (!['.md', '.mjs', '.js'].includes(extname(file))) continue;
     const text = await readFile(join(root, file), 'utf8');
-    if (/<!-- contract:|\.md\.in\b|(?:\.\.\/)+_shared\//.test(text))
+    if (/<!-- (?:contract|generated):|\.md\.in\b|(?:\.\.\/)+_shared\//.test(text))
       errors.push(`${file}: unresolved source dependency`);
     if (file.endsWith('.md')) {
       const tree = fromMarkdown(text);

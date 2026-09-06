@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { checkArtifactCli } from './artifacts-cli-test.mjs';
 import { artifactRoot, files, packageRoot } from './skills-build.mjs';
 
 // Exercise the actual npm payload, with neither Skill source nor installed Skills.
@@ -38,6 +39,7 @@ try {
   );
   const installed = join(runtime, 'node_modules/issue-flow');
   const cli = join(installed, 'dist/cli.js');
+  await checkArtifactCli(cli, root);
   const env = { ...process.env, ISSUE_FLOW_HOME: join(root, 'state'), NO_COLOR: '1' };
   assert.match(
     execFileSync(process.execPath, [cli, '--help'], { env, encoding: 'utf8' }),

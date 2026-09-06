@@ -21,7 +21,12 @@ import type { ClaudeResult, EngineConfig, ResolvedPaths, TaskPlan, UserStory } f
 import { printError, printInfo, printRetry, printSuccess, printWarning } from '../ui/logger.js';
 import { printIterationHeader } from '../ui/progress.js';
 import { printStartupHeader, printSummaryBox } from '../ui/summary.js';
-import { committedStoryIds, getBaseBranch, isWorkingTreeClean } from '../utils/git.js';
+import {
+  committedStoryIds,
+  getBaseBranch,
+  getCurrentBranch,
+  isWorkingTreeClean,
+} from '../utils/git.js';
 import { applyAcceptanceToPlan, resolveIssueDir, runAcceptanceGate } from '../verify/gate.js';
 import { executeClaude } from './executor.js';
 import { divideUsage } from './metrics.js';
@@ -50,6 +55,7 @@ import {
   setLastError,
   trimErrorMessage,
 } from './state-manager.js';
+import { inspectTaskPlan } from './task-plan.js';
 import {
   getInactivityTimeout,
   getOutputCallback,
@@ -57,6 +63,7 @@ import {
   getStoryUpdateCallback,
   isVerbose,
 } from './verbose.js';
+import { executionCompletion } from './workflow-contract.js';
 
 /**
  * Emit a message through the output callback if available, otherwise console.log.
@@ -312,6 +319,18 @@ async function trackBranch(plan: TaskPlan, lastBranchFile: string): Promise<void
  * 5. Main loop: iterate, execute Claude, handle results
  * 6. Print summary
  */
+async function validateExecutionInput(plan: TaskPlan): Promise<string | null> {
+  const result = inspectTaskPlan(plan);
+  if (!result.ok) return result.errors.map((error) => `${error.code}: ${error.message}`).join('\n');
+  if (plan.userStories.length === 0) return 'Task plan has no stories';
+  if (plan.noBranch === true) {
+    const branch = await getCurrentBranch().catch(() => '');
+    if (!branch || branch !== plan.branchName)
+      return `Current branch must match ${plan.branchName}; refusing to switch in no-branch mode`;
+  }
+  return null;
+}
+
 export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Promise<number> {
   // Load task plan
   if (!existsSync(paths.prdFile)) {
@@ -323,6 +342,12 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   }
 
   let plan = await loadTaskPlan(paths.prdFile);
+  const closure = { closeIssue: plan.closeIssue, issueClosedAt: plan.issueClosedAt };
+  const inputError = await validateExecutionInput(plan);
+  if (inputError) {
+    printError(inputError);
+    return 1;
+  }
   plan = initializeState(plan);
   await saveTaskPlan(paths.prdFile, plan);
 
@@ -333,7 +358,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // the review found.
   if (plan.issueStatus === 'completed' && allStoriesPass(plan) && !hasPendingCorrection(plan)) {
     emitLog(`Issue already marked complete in ${paths.prdFile}`);
-    return 0;
+    return finishWithAcceptance(config, paths, plan);
   }
 
   // Warn if marked complete but stories still pending
@@ -353,7 +378,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // Check if all stories already pass
   if (allStoriesPass(plan) && !hasPendingCorrection(plan)) {
     emitLog('All user stories already pass. Marking issue as completed.');
-    plan = markIssueCompleted(plan);
+    plan = executionCompletion(markIssueCompleted(plan), config.inPipeline === true);
     await saveTaskPlan(paths.prdFile, plan);
     return finishWithAcceptance(config, paths, plan);
   }
@@ -427,9 +452,11 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
       async () => {
         // Re-read plan to get latest state
         plan = await loadTaskPlan(paths.prdFile);
+        const inputError = await validateExecutionInput(plan);
+        if (inputError) throw new Error(`Invalid task plan: ${inputError}`);
         // Publish the plan before naming its active story. This covers direct
         // `issue-flow execute` runs and resumes that never pass through the
-        // plan runner, while retaining the empty-plan no-op contract.
+        // plan runner, after validating the task graph.
         if (plan.userStories.length > 0) {
           getSessionPublisher().publish({
             type: 'stories:update',
@@ -445,7 +472,9 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         // prompts/execute.md gives the agent. Computed once, here, and shared by
         // the published event and the verbose terminal header, so every surface
         // agrees on who is active instead of each deriving its own heuristic.
-        const activeStoryId = selectActiveStory(plan.userStories)?.id;
+        const activeStoryId = hasPendingCorrection(plan)
+          ? undefined
+          : selectActiveStory(plan.userStories)?.id;
         getSessionPublisher().publish({
           type: 'iteration:start',
           at: isoNow(),
@@ -460,6 +489,10 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
         // Apply placeholders to prompt
         const prompt = applyPlaceholders(promptTemplate, {
+          __ACTIVE_STORY__: activeStoryId ?? 'Address pending review findings',
+          __EXECUTION_SCOPE__: config.inPipeline
+            ? 'This is one pipeline phase: keep issueStatus=in_progress and completedAt=null.'
+            : 'Standalone execution may mark the issue completed after verification.',
           __PRD_FILE__: paths.prdFile,
           __PROGRESS_FILE__: paths.progressFile,
           ...policy,
@@ -497,6 +530,9 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         const repository = getPlanRepository(paths.prdFile);
         if (repository !== undefined) {
           plan = await ingestAgentPlan(repository);
+        } else {
+          plan = { ...(await loadTaskPlan(paths.prdFile)), ...closure };
+          await saveTaskPlan(paths.prdFile, plan);
         }
         const seconds = elapsedSecondsSince(startedAtMs);
 
@@ -599,6 +635,11 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     }
 
     plan = await loadTaskPlan(paths.prdFile);
+    const outputError = await validateExecutionInput(plan);
+    if (outputError) {
+      printError(`Invalid execution result: ${outputError}`);
+      return 1;
+    }
     plan = clearLastError(plan, iterationStartedAt);
     await saveTaskPlan(paths.prdFile, plan);
 
@@ -646,7 +687,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     if (result.output.includes('<promise>COMPLETE</promise>')) {
       plan = await loadTaskPlan(paths.prdFile);
       if (allStoriesPass(plan) && !hasPendingCorrection(plan)) {
-        plan = markIssueCompleted(plan);
+        plan = executionCompletion(markIssueCompleted(plan), config.inPipeline === true);
         await saveTaskPlan(paths.prdFile, plan);
 
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -716,5 +757,9 @@ async function finishWithAcceptance(
     await saveTaskPlan(paths.prdFile, applied.plan);
     return 1;
   }
+  await saveTaskPlan(
+    paths.prdFile,
+    executionCompletion(markIssueCompleted(applied.plan), config.inPipeline === true),
+  );
   return 0;
 }

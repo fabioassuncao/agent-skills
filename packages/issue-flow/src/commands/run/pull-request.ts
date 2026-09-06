@@ -1,10 +1,8 @@
 import { loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
 import type { ExecutionPlan } from '../../execution/types.js';
-import { getProvider } from '../../issues/registry.js';
-import type { IssueSource } from '../../issues/types.js';
 import { resolveIssuePaths } from '../../storage/resolve.js';
 import type { PullRequestRef } from '../../types.js';
-import { printInfo, printWarning } from '../../ui/logger.js';
+import { printWarning } from '../../ui/logger.js';
 import type { PrQueueContext } from '../pr.js';
 
 /**
@@ -104,23 +102,4 @@ export async function propagatePullRequest(plan: ExecutionPlan): Promise<PullReq
   }
 
   return pullRequest;
-}
-
-/**
- * Close an Issue through whoever owns it.
- *
- * A provider without `close()` (a read-only origin) has nothing to do here, so
- * the step is simply skipped, and a failure is a warning: the work is done
- * either way, and an Issue left open is a nuisance, not a broken pipeline.
- */
-export async function closeIssue(issueNumber: string, source: IssueSource): Promise<void> {
-  try {
-    const provider = getProvider(source);
-    if (provider.close !== undefined) {
-      printInfo('Closing issue...');
-      await provider.close(issueNumber);
-    }
-  } catch {
-    printWarning('Failed to close issue automatically');
-  }
 }

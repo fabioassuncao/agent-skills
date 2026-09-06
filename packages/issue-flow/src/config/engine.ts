@@ -19,6 +19,7 @@ export const DEFAULTS = {
 export function createConfig(options: Partial<EngineConfig>): EngineConfig {
   return {
     issueNumber: options.issueNumber,
+    inPipeline: options.inPipeline,
     maxIterations: options.maxIterations,
     retryLimit: options.retryLimit ?? DEFAULTS.retryLimit,
     retryForever: options.retryForever ?? DEFAULTS.retryForever,

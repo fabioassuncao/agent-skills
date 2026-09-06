@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { publishGitState } from '../../core/session-git.js';
 import type { SessionPublisher } from '../../core/session-state.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
+import { DEFAULT_MAX_CORRECTION_CYCLES } from '../../core/workflow-contract.js';
 import type { ResolvedIssue } from '../../issues/types.js';
 import { getPlanRepository, ingestGeneratedPlan } from '../../storage/db/repository.js';
 import { printWarning } from '../../ui/logger.js';
@@ -12,6 +13,7 @@ import { type PrQueueContext, runPr } from '../pr.js';
 import { runPrReview } from '../pr-review.js';
 import { runPrd } from '../prd.js';
 import { runReview } from '../review.js';
+import { persistClosureChoice } from './closure.js';
 import { adoptQueueBranch } from './multi-issue.js';
 import { publishInstrumentedPhaseEnd, publishStorySeed, readPrReviewOutcome } from './publish.js';
 import { ensureRepositoryWritable } from './session.js';
@@ -24,6 +26,7 @@ export interface BranchExecutionState {
 }
 
 export interface BuildRunnersInput {
+  closureChoice?: boolean;
   issueNumber: string;
   tasksPath: string;
   publisher: SessionPublisher;
@@ -74,6 +77,7 @@ function createPlanRunner(
     if (repository !== undefined && existsSync(tasksPath)) {
       await ingestGeneratedPlan(repository);
     }
+    await persistClosureChoice(tasksPath, input.closureChoice);
     // Read the newly-created plan once: publish its stories immediately so
     // the first execute iteration never points at a story absent from the
     // snapshot, and persist phase-selection modes from the same object.
@@ -117,7 +121,7 @@ function createReviewRunner(input: BuildRunnersInput): () => Promise<void> {
     input;
   return async () => {
     // Read maxCorrectionCycles
-    let maxCycles = 3;
+    let maxCycles = DEFAULT_MAX_CORRECTION_CYCLES;
     try {
       const plan = await loadTaskPlan(tasksPath);
       maxCycles = plan.maxCorrectionCycles;
@@ -126,6 +130,13 @@ function createReviewRunner(input: BuildRunnersInput): () => Promise<void> {
     }
 
     let code = await runReview(issueNumber, resolvedIssue);
+
+    // A malformed protocol is not a technical finding for the fixer.
+    if (code !== 0 && (await loadTaskPlan(tasksPath)).lastError?.category === 'review_protocol') {
+      throw new Error(
+        'Review returned an invalid result; resume review after correcting its output.',
+      );
+    }
 
     // Auto-correction loop on failure
     let cycle = 0;
@@ -146,6 +157,7 @@ function createReviewRunner(input: BuildRunnersInput): () => Promise<void> {
       // Re-execute
       const execCode = await runExecute(undefined, {
         issue: issueNumber,
+        inPipeline: true,
         commitScope: queueCommitScope,
         ...executeRetry,
       });
@@ -155,6 +167,9 @@ function createReviewRunner(input: BuildRunnersInput): () => Promise<void> {
 
       // Re-review
       code = await runReview(issueNumber, resolvedIssue);
+      if (code !== 0 && (await loadTaskPlan(tasksPath)).lastError?.category === 'review_protocol') {
+        throw new Error('Review returned an invalid result; no correction was scheduled.');
+      }
     }
 
     if (code !== 0) {
@@ -239,6 +254,7 @@ export function buildInstrumentedPhaseRunners(input: BuildRunnersInput): {
       () =>
         runExecute(undefined, {
           issue: issueNumber,
+          inPipeline: true,
           commitScope: queueCommitScope,
           ...executeRetry,
         }),

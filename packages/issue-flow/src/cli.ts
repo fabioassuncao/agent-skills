@@ -372,6 +372,8 @@ withUserStoryNumberingOptions(
               'Run pipeline on current branch without creating a new branch or PR',
             )
             .option('--pr-review', 'Review the created Pull Request after the pr phase')
+            .option('--close-issue', 'Close issues after successful delivery; remember this choice')
+            .option('--no-close-issue', 'Revoke automatic issue closure')
             .option('-y, --yes', 'Run the whole discovered hierarchy without confirmation')
             .option('--cascade', 'Run the children of a container, without implementing it')
             .option('--only', 'Run just the issues informed, without their hierarchy')
@@ -405,6 +407,7 @@ withUserStoryNumberingOptions(
       from?: string;
       branch?: boolean;
       prReview?: boolean;
+      closeIssue?: boolean;
       yes?: boolean;
       only?: boolean;
       continue?: boolean;
@@ -440,6 +443,7 @@ withUserStoryNumberingOptions(
       phases.noBranch,
       phases.prReview,
       {
+        closeIssue: options.closeIssue,
         yes: scope.yes,
         only: scope.only,
         cascade: scope.cascade,
@@ -465,16 +469,56 @@ withIssueOptions(
       .description('Resume an interrupted pipeline from the phase it stopped at')
       .argument('[issue]', 'Issue to resume. Omitted: the most recently attempted one')
       .option('--all', 'Resume every unfinished issue of this project, in order')
+      .option('--close-issue', 'Close issues after successful delivery; remember this choice')
+      .option('--no-close-issue', 'Revoke automatic issue closure')
       .option('--mode <mode>', 'Execution mode: auto | manual', 'auto'),
   ),
-).action(async (issue: string | undefined, options: { all?: boolean; mode?: string }) => {
-  const { runResume } = await import('./commands/resume.js');
-  const code = await runResume(issue, {
-    ...(options.all === undefined ? {} : { all: options.all }),
-    ...(options.mode === undefined ? {} : { mode: options.mode }),
+).action(
+  async (
+    issue: string | undefined,
+    options: { all?: boolean; mode?: string; closeIssue?: boolean },
+  ) => {
+    const { runResume } = await import('./commands/resume.js');
+    const code = await runResume(issue, {
+      ...(options.closeIssue === undefined ? {} : { closeIssue: options.closeIssue }),
+      ...(options.all === undefined ? {} : { all: options.all }),
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+    });
+    process.exit(code);
+  },
+);
+
+// Explicit-file inspection works outside a repository and without an agent.
+const artifactsCommand = program
+  .command('artifacts')
+  .description('Inspect local artifacts without changing files or CLI state');
+// Argument failures are part of this machine-readable command's contract too.
+if (process.argv.includes('--json')) {
+  artifactsCommand.configureOutput({ writeErr: () => {} }).exitOverride((error) => {
+    if (error.exitCode === 0) process.exit(0);
+    console.log(
+      JSON.stringify({
+        schemaVersion: 1,
+        ok: false,
+        data: null,
+        errors: [{ code: 'arguments', path: '', message: error.message }],
+      }),
+    );
+    process.exit(1);
   });
-  process.exit(code);
-});
+}
+for (const operation of ['plan', 'issue']) {
+  const command = artifactsCommand.command(operation).argument('[file]', 'Artifact path');
+  if (operation === 'issue') command.argument('[metadata]', 'Optional metadata.json');
+  command.option('--json', 'Emit a versioned JSON inspection').allowExcessArguments(false);
+  command.action(async (...args: unknown[]) => {
+    const file = args[0] as string | undefined;
+    const metadata = operation === 'issue' ? (args[1] as string | undefined) : undefined;
+    const options = args[operation === 'issue' ? 2 : 1] as { json?: boolean };
+    const { runArtifacts } = await import('./commands/artifacts.js');
+    process.exit(await runArtifacts(operation, file, metadata, options.json));
+  });
+}
 
 // ── status / runs / logs / pause / cancel ───────────────────────────────────
 // The operation surface of a long run. Every one of them reads state that
