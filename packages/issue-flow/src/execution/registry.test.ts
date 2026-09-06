@@ -80,6 +80,62 @@ describe('listLiveRuns', () => {
     expect(runs.every((run) => run.status === 'running')).toBe(true);
   });
 
+  // §31.3: above the default ceiling a run holds a lock under `locks/`, not the
+  // project one. `ps` reading only `run.lock` would go blind exactly when there
+  // is more than one run to see.
+  it('lists the per-unit locks a parallel project holds', async () => {
+    await mkdir(join(tmp, 'projects', 'alpha', 'locks'), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'locks', '42.lock'),
+      JSON.stringify(lock({ target: '42' })),
+    );
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'locks', '43.lock'),
+      JSON.stringify(lock({ target: '43' })),
+    );
+
+    const runs = await listLiveRuns({ env: env() });
+    expect(runs.map((run) => run.target).sort()).toEqual(['42', '43']);
+    expect(runs.every((run) => run.projectId === 'alpha')).toBe(true);
+  });
+
+  it('lists the project lock and a unit lock side by side', async () => {
+    await mkdir(join(tmp, 'projects', 'alpha', 'locks'), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'run.lock'),
+      JSON.stringify(lock({ target: '10' })),
+    );
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'locks', '42.lock'),
+      JSON.stringify(lock({ target: '42' })),
+    );
+
+    const runs = await listLiveRuns({ env: env() });
+    expect(runs.map((run) => run.target).sort()).toEqual(['10', '42']);
+  });
+
+  // The directory is absent in every project that never raised the ceiling,
+  // which is the ordinary case and not a failure.
+  it('is unbothered by a project with no locks directory', async () => {
+    await mkdir(join(tmp, 'projects', 'alpha'), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'run.lock'),
+      JSON.stringify(lock({ target: '10' })),
+    );
+    await expect(listLiveRuns({ env: env() })).resolves.toHaveLength(1);
+  });
+
+  it('ignores files under locks/ that are not locks', async () => {
+    await mkdir(join(tmp, 'projects', 'alpha', 'locks'), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'locks', '42.lock'),
+      JSON.stringify(lock({ target: '42' })),
+    );
+    await writeFile(join(tmp, 'projects', 'alpha', 'locks', 'README.md'), 'notes\n');
+
+    await expect(listLiveRuns({ env: env() })).resolves.toHaveLength(1);
+  });
+
   it('names a kill -9 leftover as orphan, never as running', async () => {
     await mkdir(join(tmp, 'projects', 'gone'), { recursive: true });
     await writeFile(

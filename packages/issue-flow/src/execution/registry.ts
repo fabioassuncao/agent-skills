@@ -8,6 +8,7 @@ import {
   getIssuePaths,
   PROJECTS_DIR_NAME,
   RUN_LOCK_FILENAME,
+  UNIT_LOCKS_DIR_NAME,
 } from '../storage/paths.js';
 import { createProjectRegistry, type ProjectRegistry } from '../storage/projects/registry.js';
 import type { RunLock } from '../storage/schemas.js';
@@ -47,14 +48,43 @@ export function classifyRunLock(lock: RunLock): LiveRunStatus {
 }
 
 /**
- * Every run.lock under the global projects tree, enriched from indexed SQLite
+ * Every run lock under the global projects tree, enriched from indexed SQLite
  * run/snapshot rows. The lock remains the source of truth for existence and
  * liveness; the database only fills phase and progress.
+ *
+ * "Every lock" means both shapes a run can hold (§31.3): the project-wide
+ * `run.lock`, and — once `runtime.maxConcurrent` is above 1 — one lock per
+ * execution unit under `locks/`. Reading only the first would make `ps` blind
+ * exactly when there is more than one run to see.
  */
 export interface ListLiveRunsOptions extends GetGlobalRootOptions {
   storageDriver?: 'sqlite' | 'json';
   /** Project labels. Injected for tests; reads are tolerant and never throw. */
   registry?: ProjectRegistry;
+}
+
+/**
+ * Where a run's lock can be, for one project.
+ *
+ * `run.lock` is the project-wide one, always looked for. `locks/*.lock` is the
+ * per-unit shape, which only exists once a project has actually run with a
+ * raised `runtime.maxConcurrent` — a missing directory is the ordinary case and
+ * means no unit lock has ever been taken here, not an error.
+ */
+async function runLockFilesOf(
+  projectsDir: string,
+  projectId: string,
+): Promise<Array<{ projectId: string; lockFile: string }>> {
+  const files = [join(projectsDir, projectId, RUN_LOCK_FILENAME)];
+  const unitDir = join(projectsDir, projectId, UNIT_LOCKS_DIR_NAME);
+  try {
+    for (const name of await readdir(unitDir)) {
+      if (name.endsWith('.lock')) files.push(join(unitDir, name));
+    }
+  } catch {
+    // No directory: this project has never taken a per-unit lock.
+  }
+  return files.map((lockFile) => ({ projectId, lockFile }));
 }
 
 export async function listLiveRuns(options: ListLiveRunsOptions = {}): Promise<LiveRun[]> {
@@ -86,9 +116,12 @@ export async function listLiveRuns(options: ListLiveRunsOptions = {}): Promise<L
   const byProjectIssue = new Map(
     stored.map((session) => [`${session.projectId}:${session.issueId}`, session]),
   );
+  const candidates = (
+    await Promise.all(projectIds.map((projectId) => runLockFilesOf(projectsDir, projectId)))
+  ).flat();
+
   const runs = await Promise.all(
-    projectIds.map(async (projectId) => {
-      const lockFile = join(projectsDir, projectId, RUN_LOCK_FILENAME);
+    candidates.map(async ({ projectId, lockFile }) => {
       const lock = await readRunLock(lockFile);
       if (lock === null) return null;
       const session =
