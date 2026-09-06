@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
+import { parseDocumentResult } from '../core/document-result.js';
 import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
-import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
+import { runPhaseWithRetry } from '../core/phase-runner.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
@@ -10,6 +11,7 @@ import type { ResolvedIssue } from '../issues/types.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printSuccess } from '../ui/logger.js';
+import { writeFileAtomic } from '../utils/fs.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Promise<number> {
@@ -30,11 +32,10 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
     // what keeps the rendered prompt identical to the pre-policy one.
     ...(await resolvePolicyPlaceholders({ phase: 'prd' })),
     __ISSUE_NUMBER__: issueNumber,
-    __PRD_PATH__: prdPath,
     // Absolute: the analysis lives in the global storage, outside the working
     // directory the agent is started in.
     __ANALYSIS_PATH__: paths.analysisFile,
-    ...issuePlaceholders(resolution.resolved),
+    ...issuePlaceholders(resolution.resolved, paths.issueFile),
   });
 
   const outcome = await runPhaseWithRetry({
@@ -52,11 +53,11 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
         // json (not text) so the CLI reports usage: the envelope's `result`
         // field carries the same assistant text this phase already consumed.
         outputFormat: 'json',
-        allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
+        allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
         addDirs: [paths.issueDir],
         statusMessage: `Generating PRD for issue #${issueNumber}...`,
         phase: 'prd',
-        permission: 'workspace',
+        permission: 'read-only',
       });
       // One event per attempt; the reducer sums them into the phase total.
       publishPhaseMetrics('prd', result.cost, startedAtMs, result.agent?.provider);
@@ -69,16 +70,14 @@ export async function runPrd(issue: string, resolvedIssue?: ResolvedIssue): Prom
         };
       }
 
-      // Verify the file was created. A brief grace period absorbs a lag
-      // between the Write tool completing and this process seeing it; if it
-      // still isn't there, treat it as recoverable and let the phase retry.
       try {
-        const content = await readFileWithGrace(prdPath);
-        if (content.length < 10) {
-          return { ok: false, transient: true, error: 'PRD file was created but appears empty' };
-        }
-      } catch {
-        return { ok: false, transient: true, error: `PRD file was not created at ${prdPath}` };
+        await writeFileAtomic(prdPath, parseDocumentResult(result.result, 'prd'));
+      } catch (error) {
+        return {
+          ok: false,
+          transient: true,
+          error: `Invalid PRD output: ${(error as Error).message}`,
+        };
       }
 
       return { ok: true };

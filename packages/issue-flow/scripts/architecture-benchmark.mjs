@@ -22,6 +22,7 @@ const report = {
   measurement: 'estimated tokens = ceil(characters / 4); no model invocation',
   skills: [],
   prompts: [],
+  promptVariants: [],
   projection: null,
   contracts: [],
 };
@@ -59,6 +60,26 @@ for (const name of await files(join(repoRoot, 'packages/issue-flow/prompts'))) {
     metricsAfter: metrics(await readFile(join(repoRoot, path), 'utf8')),
     before: estimate(before(path)),
     after: estimate(await readFile(join(repoRoot, path), 'utf8')),
+  });
+}
+const conditionalVariant = (text, key, enabled) =>
+  text.replace(
+    new RegExp(`\\n?<!-- if:${key} -->\\n([\\s\\S]*?)<!-- /if -->\\n?`, 'g'),
+    enabled ? '\n$1' : '\n',
+  );
+for (const [name, key] of [
+  ['execute.md', '__CORRECTION_MODE__'],
+  ['pr-review.md', '__ISSUE_CONTEXT__'],
+]) {
+  const text = await readFile(join(repoRoot, 'packages/issue-flow/prompts', name), 'utf8');
+  const omitted = conditionalVariant(text, key, false);
+  const included = conditionalVariant(text, key, true);
+  report.promptVariants.push({
+    name,
+    condition: key,
+    omitted: metrics(omitted),
+    included: metrics(included),
+    savedEstimatedTokens: estimate(included) - estimate(omitted),
   });
 }
 for (const name of await files(join(repoRoot, 'skills-src/_shared'))) {

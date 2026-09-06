@@ -412,8 +412,9 @@ describe('runPrReview', () => {
     expect((await readIndex(standaloneDir)).rounds).toHaveLength(1);
     // The unrelated plan on disk is left untouched.
     expect((await readPlan()).prReview).toBeUndefined();
-    expect(String(headless.options?.prompt)).toContain('#none');
-    expect(String(headless.options?.prompt)).toContain('(none)');
+    expect(String(headless.options?.prompt)).not.toContain('Associated Issue Flow context');
+    expect(String(headless.options?.prompt)).not.toContain('#none');
+    expect(String(headless.options?.prompt)).not.toContain('(none)');
     expect(headless.options?.addDirs).toEqual([standaloneDir]);
   });
 

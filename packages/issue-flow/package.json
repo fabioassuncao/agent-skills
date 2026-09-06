@@ -28,6 +28,7 @@
     "skills:test": "node --test scripts/skills.test.mjs",
     "skills:install-test": "node scripts/skills-install-test.mjs",
     "skills:eval": "node scripts/skills-eval.mjs",
+    "skills:benchmark": "node scripts/skills-benchmark.mjs",
     "skills:cli-test": "node scripts/skills-cli-test.mjs",
     "build:cli": "tsup",
     "context:measure": "node scripts/architecture-benchmark.mjs"

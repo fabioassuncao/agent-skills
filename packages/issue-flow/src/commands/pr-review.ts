@@ -229,6 +229,7 @@ export async function runPrReview(prArg?: string, opts: PrReviewOptions = {}): P
           reportPath: join(dir, reportFileName(target.number, previous.round)),
         })
       : '',
+    __ISSUE_CONTEXT__: issue === undefined ? '' : 'enabled',
     __PR_NUMBER__: String(target.number),
     __ISSUE_NUMBER__: issue ?? NO_ISSUE,
     __TASKS_PATH__: tasksPath ?? NO_PATH,

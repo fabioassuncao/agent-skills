@@ -37,4 +37,4 @@ Use existing tasks.json fields: branchName is the actual/planned branch; noBranc
 
 A change to current may rebind a pending plan only when the user explicitly selected it and inspection confirms no implementation commits, verified stories or PR belong to the former branch. Otherwise explain the mismatch and ask how to handle existing work before reassociating it. Changing new/current later is a deliberate new choice, never a repair for checkout failure.
 
-Keep this conversational state in the existing local artifacts. Do not create a CLI session, write its internal state, or promise resumability between the two interfaces.
+Keep this conversational state in the resolved shared artifacts. Do not create a CLI session or write its internal runtime state; reconcile tasks.json so a later CLI invocation can continue from verified portable state.

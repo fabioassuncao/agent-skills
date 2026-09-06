@@ -20,6 +20,7 @@ const PLACEHOLDERS = [
   '__PR_HEAD__',
   '__PR_BASE__',
   '__PREVIOUS_REVIEW__',
+  '__ISSUE_CONTEXT__',
 ] as const;
 
 let template: string;

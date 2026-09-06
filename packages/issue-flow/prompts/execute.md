@@ -24,6 +24,7 @@ Implement the selected story or resolve pending review findings in this reposito
    previous entries. Put durable repository knowledge in its existing documentation,
    linking it from AGENTS.md when appropriate, without duplicating instruction files.
 
+<!-- if:__CORRECTION_MODE__ -->
 ## Correction findings
 
 Validate each finding against code and requirements. Make focused corrections rather
@@ -33,6 +34,7 @@ than reimplementing completed stories. Commit fixes using `__FIX_COMMIT_MESSAGE_
 Clear `lastReviewFindings` only after every finding is addressed or rejected with
 recorded evidence. If work remains, keep the findings and record what remains in
 progress. A fresh review still decides whether the corrected work passes.
+<!-- /if -->
 
 ## Completion and blockers
 

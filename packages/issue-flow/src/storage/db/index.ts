@@ -11,6 +11,23 @@ export function getDatabasePath(options: GetGlobalRootOptions = {}): string {
 
 export interface OpenIssueFlowDatabaseOptions extends OpenDatabaseOptions, GetGlobalRootOptions {}
 
+const projectDatabaseOptions = new Map<string, OpenIssueFlowDatabaseOptions>();
+
+export function registerProjectDatabaseOptions(
+  projectId: string,
+  options: OpenIssueFlowDatabaseOptions,
+): void {
+  projectDatabaseOptions.set(projectId, options);
+}
+
+export function databaseOptionsForProject(projectId: string): OpenIssueFlowDatabaseOptions {
+  return projectDatabaseOptions.get(projectId) ?? {};
+}
+
+export function resetProjectDatabaseOptions(): void {
+  projectDatabaseOptions.clear();
+}
+
 export async function openIssueFlowDatabase(
   options: OpenIssueFlowDatabaseOptions = {},
 ): Promise<DatabaseDriver> {

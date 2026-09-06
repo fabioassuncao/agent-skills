@@ -12,7 +12,11 @@ import type {
   ProvidersHealth,
   UserStoryNumberingDecision,
 } from '../schemas.js';
-import { type OpenIssueFlowDatabaseOptions, openIssueFlowDatabase } from './index.js';
+import {
+  databaseOptionsForProject,
+  type OpenIssueFlowDatabaseOptions,
+  openIssueFlowDatabase,
+} from './index.js';
 
 /** Identity needed to address one plan in the shared SQLite database. */
 export interface PlanRepositoryContext {
@@ -591,7 +595,21 @@ export async function materializePlan(
   plan?: TaskPlan,
 ): Promise<void> {
   const projection = plan ?? (await loadStoredPlan(context));
-  await writeFileAtomic(context.tasksPath, `${JSON.stringify(projection, null, 2)}\n`);
+  const content = `${JSON.stringify(projection, null, 2)}\n`;
+  await writeFileAtomic(context.tasksPath, content);
+  const sha256 = createHash('sha256').update(content).digest('hex');
+  await withDatabase(
+    (database) =>
+      database
+        .prepare(
+          `INSERT INTO migrated_artifacts (source_path, sha256, migrated_at, table_counts_json)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(source_path) DO UPDATE SET sha256 = excluded.sha256,
+             migrated_at = excluded.migrated_at, table_counts_json = excluded.table_counts_json`,
+        )
+        .run(context.tasksPath, sha256, new Date().toISOString(), '{}'),
+    context.databaseOptions,
+  );
 }
 
 /** Persist a queue's coordination state before refreshing its readable projection. */
@@ -1350,7 +1368,7 @@ export async function listStoredExecutions(input: {
       )
       .all<{ payload_json: string }>(...values)
       .map((row) => JSON.parse(row.payload_json) as ExecutionRecord);
-  }, input.databaseOptions);
+  }, input.databaseOptions ?? databaseOptionsForProject(input.projectId));
 }
 
 export interface StoredUserStoryNumber {
@@ -1379,7 +1397,7 @@ export async function findHighestStoredUserStoryNumber(input: {
     return row === undefined
       ? null
       : { number: row.story_number, issueId: row.issue_id, storyId: row.id };
-  }, input.databaseOptions);
+  }, input.databaseOptions ?? databaseOptionsForProject(input.projectId));
 }
 
 /** A stable, JSON-friendly diagnostic export that never exposes SQL to callers. */

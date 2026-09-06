@@ -8,6 +8,12 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs
+import { execFileSync } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join as join3, resolve as resolve2 } from "node:path";
+
 // packages/issue-flow/src/core/artifact-files.ts
 import { readFile } from "node:fs/promises";
 
@@ -15381,23 +15387,222 @@ async function inspectArtifact(operation, path, metadataPath) {
   }
 }
 
+// packages/issue-flow/src/storage/artifact-paths.ts
+import { join } from "node:path";
+var ISSUES_DIR_NAME = "issues";
+var SESSION_FILENAME = "session.json";
+var EVENTS_FILENAME = "events.jsonl";
+var ROTATED_EVENTS_FILENAME = "events.1.jsonl";
+var PRD_FILENAME = "prd.md";
+var TASKS_FILENAME = "tasks.json";
+var VERIFY_FILENAME = "verify.json";
+var RUN_LOG_FILENAME = "run.log";
+var ROTATED_RUN_LOG_FILENAME = "run.log.1";
+function normalizeIssueIdentifier(issueNumber) {
+  const normalized = String(issueNumber).trim().replace(/^#/, "");
+  if (normalized.length === 0) throw new Error("Issue identifier cannot be empty");
+  if (/[/\\]/.test(normalized) || normalized === "." || normalized === "..") {
+    throw new Error(`Invalid issue identifier: '${issueNumber}'`);
+  }
+  return normalized;
+}
+function resolveIssueArtifactPaths(projectDir, issueNumber) {
+  const issueDir = join(projectDir, ISSUES_DIR_NAME, normalizeIssueIdentifier(issueNumber));
+  return {
+    issueDir,
+    issueFile: join(issueDir, "issue.md"),
+    metadataFile: join(issueDir, "metadata.json"),
+    prdFile: join(issueDir, PRD_FILENAME),
+    tasksFile: join(issueDir, TASKS_FILENAME),
+    progressFile: join(issueDir, "progress.txt"),
+    analysisFile: join(issueDir, "analysis.md"),
+    sessionFile: join(issueDir, SESSION_FILENAME),
+    eventsFile: join(issueDir, EVENTS_FILENAME),
+    rotatedEventsFile: join(issueDir, ROTATED_EVENTS_FILENAME),
+    runLogFile: join(issueDir, RUN_LOG_FILENAME),
+    rotatedRunLogFile: join(issueDir, ROTATED_RUN_LOG_FILENAME),
+    decompositionFile: join(issueDir, "decomposition.md"),
+    verifyFile: join(issueDir, VERIFY_FILENAME),
+    lastBranchFile: join(issueDir, ".last-branch"),
+    archiveDir: join(issueDir, "archive"),
+    prReviewDir: join(issueDir, "pr-review")
+  };
+}
+
+// packages/issue-flow/src/storage/artifact-storage.ts
+import { readFile as readFile2, stat, writeFile } from "node:fs/promises";
+import { join as join2 } from "node:path";
+var WORKSPACE_STORAGE_DIR = ".issue-flow";
+var WORKSPACE_IGNORE_BLOCK = [
+  "# Issue Flow operational storage (managed)",
+  "/issues/",
+  "/queues/",
+  "/issue-flow.db",
+  "/issue-flow.db-*",
+  "/run.lock",
+  "/providers.json",
+  "/metadata.json",
+  "/backups/",
+  "/.gitignore"
+].join("\n");
+async function directoryExists(path) {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+function selectArtifactStorage(projectRoot, globalRoot, projectId, workspaceSelected) {
+  return workspaceSelected ? { storageMode: "workspace", projectDir: join2(projectRoot, WORKSPACE_STORAGE_DIR) } : { storageMode: "global", projectDir: join2(globalRoot, "projects", projectId) };
+}
+async function ensureWorkspaceStorageIgnored(projectRoot) {
+  const path = join2(projectRoot, WORKSPACE_STORAGE_DIR, ".gitignore");
+  let current = "";
+  try {
+    current = await readFile2(path, "utf8");
+  } catch (error51) {
+    if (error51.code !== "ENOENT") throw error51;
+  }
+  if (WORKSPACE_IGNORE_BLOCK.split("\n").slice(1).every((line) => current.includes(line)))
+    return;
+  const prefix = current.length === 0 ? "" : `${current.trimEnd()}
+
+`;
+  await writeFile(path, `${prefix}${WORKSPACE_IGNORE_BLOCK}
+`, "utf8");
+}
+
+// packages/issue-flow/src/storage/project-identity.ts
+import { createHash as createHash2 } from "node:crypto";
+import { basename, resolve } from "node:path";
+var SLUG_MAX_LENGTH = 32;
+var HASH_LENGTH = 12;
+var FALLBACK_SLUG = "project";
+function slugify2(name) {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, SLUG_MAX_LENGTH).replace(/-+$/g, "");
+  return slug === "" ? FALLBACK_SLUG : slug;
+}
+function normalizeRemoteUrl(url2) {
+  if (typeof url2 !== "string") return null;
+  const trimmed = url2.trim();
+  if (trimmed === "") return null;
+  let authority;
+  let path;
+  const scheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.exec(trimmed);
+  if (scheme) {
+    const rest = trimmed.slice(scheme[0].length);
+    const slash = rest.indexOf("/");
+    if (slash === -1) return null;
+    authority = rest.slice(0, slash);
+    path = rest.slice(slash + 1);
+  } else {
+    const colon = trimmed.indexOf(":");
+    if (colon === -1) return null;
+    authority = trimmed.slice(0, colon);
+    path = trimmed.slice(colon + 1);
+  }
+  const at = authority.lastIndexOf("@");
+  if (at !== -1) authority = authority.slice(at + 1);
+  const host = authority.replace(/:\d+$/, "").toLowerCase();
+  if (host === "") return null;
+  const normalizedPath = path.replace(/[?#].*$/, "").replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "").replace(/\/+$/, "").toLowerCase();
+  return normalizedPath === "" ? null : `${host}/${normalizedPath}`;
+}
+function projectIdFromRemote(remote, projectRoot) {
+  const seed = remote ? `remote:${remote}` : `path:${resolve(projectRoot)}`;
+  const name = remote ? remote.split("/").pop() ?? "" : basename(resolve(projectRoot));
+  const hash2 = createHash2("sha256").update(seed).digest("hex").slice(0, HASH_LENGTH);
+  return `${slugify2(name)}-${hash2}`;
+}
+
 // packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs
+function git(args2, cwd) {
+  try {
+    return execFileSync("git", args2, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+async function resolveArtifacts(issueId) {
+  const projectRoot = git(["rev-parse", "--show-toplevel"], process.cwd());
+  if (!projectRoot) throw new Error("Not inside a Git repository");
+  const remote = normalizeRemoteUrl(git(["remote", "get-url", "origin"], projectRoot));
+  const projectId = projectIdFromRemote(remote, projectRoot);
+  const globalRoot = resolve2(process.env.ISSUE_FLOW_HOME?.trim() || join3(homedir(), ".issue-flow"));
+  const selected = selectArtifactStorage(
+    projectRoot,
+    globalRoot,
+    projectId,
+    await directoryExists(join3(projectRoot, WORKSPACE_STORAGE_DIR, "issues"))
+  );
+  if (selected.storageMode === "workspace") await ensureWorkspaceStorageIgnored(projectRoot);
+  return {
+    ...selected,
+    projectId,
+    issuesDir: join3(selected.projectDir, "issues"),
+    paths: resolveIssueArtifactPaths(selected.projectDir, issueId)
+  };
+}
 var args = process.argv.slice(2);
 var json2 = args.includes("--json");
 var context = args.includes("--context");
 var positional = args.filter((arg) => arg !== "--json" && arg !== "--context");
 if (positional[0] === "--help") {
   console.log(
-    "issue <issue.md> [metadata.json]: parse/hash and validate metadata. plan <tasks.json>: validate schema and dependencies. Add --json for a versioned inspection with next eligible story. For plan, --context selects current execution facts without history. Read-only; exit 1 on invalid input."
+    "resolve <id>: return the active CLI/Skill artifact paths. prepare <id>: create its directory. reconcile <id>: validate a Skill-updated tasks.json for the next CLI import. issue <issue.md> [metadata.json]: parse/hash and validate metadata. plan <tasks.json>: validate schema and dependencies. Add --json for versioned output; plan --context selects current execution facts."
   );
 } else {
   const [operation, path, metadata] = positional;
-  const result = positional.length > 3 || context && operation !== "plan" ? {
-    schemaVersion: 1,
-    ok: false,
-    data: null,
-    errors: [{ code: "arguments", path: "", message: "Invalid arguments" }]
-  } : await inspectArtifact(context ? "context" : operation, path, metadata);
+  let result;
+  if (["resolve", "prepare", "reconcile"].includes(operation)) {
+    try {
+      if (!path || metadata || positional.length !== 2 || context)
+        throw new Error("Expected one issue id");
+      const project = await resolveArtifacts(path);
+      const { paths } = project;
+      if (operation === "prepare") await mkdir(paths.issueDir, { recursive: true });
+      if (operation === "reconcile") {
+        const inspected = await inspectArtifact("plan", paths.tasksFile);
+        if (!inspected.ok) result = inspected;
+      }
+      result ??= {
+        schemaVersion: 1,
+        ok: true,
+        data: {
+          storageMode: project.storageMode,
+          projectId: project.projectId,
+          projectDir: project.projectDir,
+          issuesDir: project.issuesDir,
+          paths
+        },
+        errors: []
+      };
+    } catch (error51) {
+      result = {
+        schemaVersion: 1,
+        ok: false,
+        data: null,
+        errors: [
+          {
+            code: "artifact_storage",
+            path: path ?? "",
+            message: error51 instanceof Error ? error51.message : String(error51)
+          }
+        ]
+      };
+    }
+  } else {
+    result = positional.length > 3 || context && operation !== "plan" ? {
+      schemaVersion: 1,
+      ok: false,
+      data: null,
+      errors: [{ code: "arguments", path: "", message: "Invalid arguments" }]
+    } : await inspectArtifact(context ? "context" : operation, path, metadata);
+  }
   if (json2 || context) console.log(JSON.stringify(result));
   else if (!result.ok) console.error(result.errors.map((error51) => error51.message).join("\n"));
   else if (operation === "plan")

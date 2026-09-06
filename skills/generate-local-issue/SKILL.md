@@ -9,7 +9,7 @@ compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ fo
 
 # Generate Local Issue
 
-Use this Skill only for its requested responsibility. Work in the consumer project, honoring its instructions and existing authorization. Resource links below belong to this installed Skill; project inputs and outputs belong to the consumer repository.
+Work in the consumer repository, honor its instructions and current authorization, and resolve the links below from this installed Skill directory.
 
 ## Workflow
 

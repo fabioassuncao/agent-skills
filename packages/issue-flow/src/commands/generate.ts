@@ -5,19 +5,18 @@ import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { ensureProvidersRegistered } from '../issues/bootstrap.js';
-import { localIssueRef } from '../issues/context.js';
 import { IssueDraftParseError, parseIssueDraft } from '../issues/draft.js';
 import { createMissingLabels, reconcileLabels } from '../issues/label-policy.js';
 import { getProvider } from '../issues/registry.js';
 import type { Issue, IssueDraft, IssueGenerateTarget } from '../issues/types.js';
 import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
-import { resolveProjectPaths } from '../storage/resolve.js';
+import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
 
 /** Human-readable pointer to a created Issue. */
-function issueLocation(issue: Issue): string {
-  return issue.remoteRef ?? localIssueRef(issue.id);
+async function issueLocation(issue: Issue): Promise<string> {
+  return issue.remoteRef ?? (await resolveIssuePaths(issue.id)).issueFile;
 }
 
 /**
@@ -100,7 +99,7 @@ async function createBoth(draft: IssueDraft): Promise<Issue[]> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `GitHub issue created at ${issueLocation(remote)}, but the local mirror was not written: ` +
+      `GitHub issue created at ${await issueLocation(remote)}, but the local mirror was not written: ` +
         `${message}. Nothing else was persisted; re-run with --local to create the mirror.`,
     );
   }
@@ -192,7 +191,7 @@ export async function runGenerate(
   }
 
   for (const issue of created) {
-    printSuccess(`Issue created (${issue.source}): ${issueLocation(issue)}`);
+    printSuccess(`Issue created (${issue.source}): ${await issueLocation(issue)}`);
   }
   return 0;
 }

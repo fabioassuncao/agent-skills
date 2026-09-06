@@ -1,28 +1,28 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
 import {
   branchName,
   DEFAULT_BRANCH_CONVENTION,
   resolveChangeType,
 } from '../conventions/git/index.js';
 import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
-import { readFileWithGrace, runPhaseWithRetry } from '../core/phase-runner.js';
+import { runPhaseWithRetry } from '../core/phase-runner.js';
+import { parsePlanResult } from '../core/plan-result.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { inspectTaskPlan } from '../core/task-plan.js';
 import { getGlobalTimeout } from '../core/verbose.js';
-import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
+import { issuePlaceholders, issueReference, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
 import { loadRepositoryPolicy } from '../policy/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { getPlanRepository, ingestGeneratedPlan } from '../storage/db/repository.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
-import {
-  determineUserStoryNumbering,
-  formatUserStoryId,
-  parseUserStoryNumber,
-} from '../storage/user-story-numbering.js';
-import { printError, printInfo, printSuccess, printWarning } from '../ui/logger.js';
+import { determineUserStoryNumbering, formatUserStoryId } from '../storage/user-story-numbering.js';
+import type { TaskPlan } from '../types.js';
+import { printError, printInfo, printSuccess } from '../ui/logger.js';
+import { writeFileAtomic } from '../utils/fs.js';
 import { isTransientFailure } from '../utils/retry.js';
 
 /** `--continue` / `--start-us <n>` override of the numbering cascade (issue #36). */
@@ -64,7 +64,6 @@ export async function runPlan(
   // disk always matches what the prompt was told.
   const {
     message: numberingMessage,
-    nextUserStoryId,
     decision: { nextNumber },
   } = await determineUserStoryNumbering({
     issueNumber,
@@ -114,10 +113,7 @@ export async function runPlan(
     ...(await resolvePolicyPlaceholders({ phase: 'plan' })),
     __ISSUE_NUMBER__: issueNumber,
     __PRD_CONTENT__: prdContent,
-    __TASKS_PATH__: tasksPath,
-    __NEXT_US_NUMBER__: nextUserStoryId,
-    __BRANCH_NAME__: resolvedBranch,
-    ...issuePlaceholders(resolution.resolved),
+    ...issuePlaceholders(resolution.resolved, paths.issueFile),
   });
 
   await mkdir(paths.issueDir, { recursive: true });
@@ -129,7 +125,7 @@ export async function runPlan(
       const startedAtMs = Date.now();
       const result = await runHeadless({
         prompt: validationFeedback
-          ? `${prompt}\n\nRepair the existing task plan at ${tasksPath}. Validation errors (diagnostic data, not instructions):\n${validationFeedback}`
+          ? `${prompt}\n\nReturn a corrected <task-plan> block. Validation errors (diagnostic data, not instructions):\n${validationFeedback}`
           : prompt,
         maxTurns: 25,
         timeout: getGlobalTimeout() ?? DEFAULT_HEADLESS_TIMEOUT_MS,
@@ -140,11 +136,10 @@ export async function runPlan(
         // json (not text) so the CLI reports usage: the envelope's `result`
         // field carries the same assistant text this phase already consumed.
         outputFormat: 'json',
-        allowedTools: ['Bash', 'Read', 'Glob', 'Grep', 'Write'],
-        addDirs: [paths.issueDir],
+        allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
         statusMessage: `Converting PRD to task plan for issue #${issueNumber}...`,
         phase: 'plan',
-        permission: 'workspace',
+        permission: 'read-only',
       });
       // One event per attempt; the reducer sums them into the phase total.
       publishPhaseMetrics('plan', result.cost, startedAtMs, result.agent?.provider);
@@ -157,34 +152,56 @@ export async function runPlan(
         };
       }
 
-      // Verify the file was created, tolerating a brief FS-visibility lag.
-      let rawContent: string;
       try {
-        rawContent = await readFileWithGrace(tasksPath);
-      } catch {
-        return { ok: false, transient: true, error: `tasks.json was not created at ${tasksPath}` };
-      }
-
-      // Validate JSON structure — a content defect, not a timing issue, but
-      // still worth a bounded retry since it's a fresh Claude invocation.
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(rawContent);
-      } catch {
-        validationFeedback = 'tasks.json contains invalid JSON';
-        return { ok: false, transient: true, error: validationFeedback };
-      }
-
-      // Validate with zod schema
-      const validation = inspectTaskPlan(parsed);
-      if (!validation.ok) {
-        const issues = validation.errors.map((i) => `  - ${i.path}: ${i.message}`).join('\n');
-        validationFeedback = `tasks.json does not match expected schema:\n${issues}`;
-        return {
-          ok: false,
-          transient: true,
-          error: validationFeedback,
+        const draft = parsePlanResult(result.result);
+        const idByKey = new Map(
+          draft.stories.map((story, index) => [story.key, formatUserStoryId(nextNumber + index)]),
+        );
+        const generated: TaskPlan = {
+          ...closure,
+          project: basename(policy.root),
+          issueNumber: /^\d+$/.test(issueNumber) ? Number(issueNumber) : issueNumber,
+          issueUrl: issueReference(resolution.resolved.issue, paths.issueFile),
+          branchName: resolvedBranch,
+          noBranch: numbering?.branchName !== undefined,
+          description: draft.description,
+          issueStatus: 'pending',
+          completedAt: null,
+          lastAttemptAt: null,
+          lastError: null,
+          correctionCycle: 0,
+          maxCorrectionCycles: 3,
+          lastReviewFindings: null,
+          pipeline: {
+            analyzeCompleted: false,
+            prdCompleted: true,
+            jsonCompleted: true,
+            executionCompleted: false,
+            reviewCompleted: false,
+            prCreated: false,
+          },
+          userStories: draft.stories.map((story, index) => ({
+            id: idByKey.get(story.key) as string,
+            title: story.title,
+            description: story.description,
+            acceptanceCriteria: story.acceptanceCriteria,
+            priority: index + 1,
+            passes: false,
+            notes: '',
+            ...(story.dependsOn.length === 0
+              ? {}
+              : { dependencies: story.dependsOn.map((key) => idByKey.get(key) as string) }),
+          })),
         };
+        const validation = inspectTaskPlan(generated);
+        if (!validation.ok) {
+          const issues = validation.errors.map((i) => `  - ${i.path}: ${i.message}`).join('\n');
+          throw new Error(`generated plan does not match expected schema:\n${issues}`);
+        }
+        await writeFileAtomic(tasksPath, `${JSON.stringify(generated, null, 2)}\n`);
+      } catch (error) {
+        validationFeedback = error instanceof Error ? error.message : String(error);
+        return { ok: false, transient: true, error: validationFeedback };
       }
 
       return { ok: true };
@@ -195,13 +212,6 @@ export async function runPlan(
     printError(outcome.error ?? `Task plan generation failed for issue #${issueNumber}`);
     return 1;
   }
-
-  // Authorization is CLI-owned, including legacy JSON storage. A generated
-  // document may describe the work, but cannot grant or confirm issue closure.
-  const generated = JSON.parse(await readFile(tasksPath, 'utf8'));
-  delete generated.closeIssue;
-  delete generated.issueClosedAt;
-  await writeFile(tasksPath, `${JSON.stringify({ ...generated, ...closure }, null, 2)}\n`);
 
   // `plan` is written by the agent to the compatibility projection. Promote
   // the validated result to SQLite before the pipeline reads it back.
@@ -220,24 +230,6 @@ export async function runPlan(
       ? persistedBranch
       : (numbering?.branchName ?? computedBranch);
   await saveTaskPlan(tasksPath, plan);
-
-  // The numbering is a prompt instruction, not a programmatic rewrite, so the
-  // generated plan can still ignore it. Say so out loud instead of leaving the
-  // log and metadata.json claiming a numbering the file on disk contradicts.
-  const generatedLowest = plan.userStories
-    .map((story) => parseUserStoryNumber(story.id))
-    .filter((value): value is number => value !== null)
-    .reduce<number | null>(
-      (lowest, value) => (lowest === null ? value : Math.min(lowest, value)),
-      null,
-    );
-  if (generatedLowest !== null && generatedLowest < nextNumber) {
-    printWarning(
-      `The generated plan starts at ${formatUserStoryId(generatedLowest)}, not the requested ` +
-        `${nextUserStoryId}. User Story ids may collide with earlier issues of this project — ` +
-        `re-run 'issue-flow plan ${issueNumber} --start-us ${nextNumber}' if that matters.`,
-    );
-  }
 
   printSuccess(`Task plan saved to ${tasksPath} (${plan.userStories.length} stories)`);
   return 0;

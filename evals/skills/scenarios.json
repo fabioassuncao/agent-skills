@@ -222,6 +222,248 @@
       ]
     },
     {
+      "id": "analyze-issue-implicit-holdout",
+      "skill": "analyze-issue",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Trace the likely cause and affected modules for issues/91/issue.md, list open questions, and stop before changing code.",
+      "rubric": [
+        "Select from intent rather than an exact Skill name.",
+        "Do not confuse investigation before implementation with review after implementation."
+      ]
+    },
+    {
+      "id": "analyze-issue-overlap-holdout",
+      "skill": "analyze-issue",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "The patch is complete. Compare it with issue 91 and fresh test results, then report whether the issue is resolved.",
+      "rubric": [
+        "Prefer review-issue for completed work.",
+        "Do not select analyze-issue merely because an issue is mentioned."
+      ]
+    },
+    {
+      "id": "generate-prd-implicit-holdout",
+      "skill": "generate-prd",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Turn this feature request into a product specification with user stories and testable acceptance criteria. Do not implement it.",
+      "rubric": [
+        "Recognize requirements and specification authoring without relying on the PRD acronym.",
+        "Select generate-prd."
+      ]
+    },
+    {
+      "id": "generate-prd-overlap-holdout",
+      "skill": "generate-prd",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "The requirements document already exists at issues/91/prd.md; turn it into an ordered tasks.json without rewriting it.",
+      "rubric": [
+        "Prefer convert-prd-to-json for an existing requirements document.",
+        "Do not regenerate the PRD."
+      ]
+    },
+    {
+      "id": "convert-prd-to-json-implicit-holdout",
+      "skill": "convert-prd-to-json",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Break the accepted product specification into a dependency-ordered machine-readable task plan and preserve completed stories.",
+      "rubric": [
+        "Recognize plan conversion without relying on the Skill name.",
+        "Select convert-prd-to-json."
+      ]
+    },
+    {
+      "id": "convert-prd-to-json-overlap-holdout",
+      "skill": "convert-prd-to-json",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "tasks.json is ready and validated. Implement its pending stories and run the repository checks.",
+      "rubric": [
+        "Prefer execute-tasks once the plan exists.",
+        "Do not select conversion for execution."
+      ]
+    },
+    {
+      "id": "execute-tasks-implicit-holdout",
+      "skill": "execute-tasks",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Continue the two unfinished stories in issues/91/tasks.json, verify each one, and record progress.",
+      "rubric": [
+        "Recognize continuation of an existing plan.",
+        "Select execute-tasks."
+      ]
+    },
+    {
+      "id": "execute-tasks-overlap-holdout",
+      "skill": "execute-tasks",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "Start from this raw bug report and take it through requirements, planning, implementation, and final review.",
+      "rubric": [
+        "Prefer resolve-issue for the complete workflow.",
+        "Do not select execute-tasks before a plan exists."
+      ]
+    },
+    {
+      "id": "create-pr-implicit-holdout",
+      "skill": "create-pr",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Publish the verified changes on my current branch as a GitHub pull request using this repository's title and body conventions.",
+      "rubric": [
+        "Recognize PR publication without relying on the command name.",
+        "Select create-pr."
+      ]
+    },
+    {
+      "id": "create-pr-overlap-holdout",
+      "skill": "create-pr",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "PR #91 already exists. Assess whether it is safe to merge and return findings without changing anything.",
+      "rubric": [
+        "Prefer review-pr for an existing PR.",
+        "Do not create a second PR."
+      ]
+    },
+    {
+      "id": "review-issue-implicit-holdout",
+      "skill": "review-issue",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Compare the finished implementation and fresh checks with every acceptance criterion in local issue 91, then give a resolution verdict.",
+      "rubric": [
+        "Recognize post-implementation issue verification.",
+        "Select review-issue."
+      ]
+    },
+    {
+      "id": "review-issue-overlap-holdout",
+      "skill": "review-issue",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "Investigate this open issue before coding: identify likely files, constraints, risks, and unanswered questions.",
+      "rubric": [
+        "Prefer analyze-issue for pre-implementation investigation.",
+        "Do not select review-issue merely because verification may happen later."
+      ]
+    },
+    {
+      "id": "review-pr-implicit-holdout",
+      "skill": "review-pr",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Is GitHub PR #91 merge-ready? Inspect the whole diff for correctness and regressions and return findings only.",
+      "rubric": [
+        "Recognize merge-readiness assessment.",
+        "Select review-pr."
+      ]
+    },
+    {
+      "id": "review-pr-overlap-holdout",
+      "skill": "review-pr",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "Ignore any PR metadata and verify whether local issue 91 itself is resolved against its acceptance criteria.",
+      "rubric": [
+        "Prefer review-issue because the reviewed object is the issue.",
+        "Do not select review-pr from incidental PR language."
+      ]
+    },
+    {
+      "id": "generate-issue-implicit-holdout",
+      "skill": "generate-issue",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Put this CSV export request into the GitHub backlog, checking for duplicates before publishing it.",
+      "rubric": [
+        "Recognize remote issue authoring without relying on the word generate.",
+        "Select generate-issue."
+      ]
+    },
+    {
+      "id": "generate-issue-overlap-holdout",
+      "skill": "generate-issue",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "Do not file a backlog item. Fix this supplied bug report end to end and verify the implementation.",
+      "rubric": [
+        "Prefer resolve-issue for immediate end-to-end work.",
+        "Do not select issue publication."
+      ]
+    },
+    {
+      "id": "generate-local-issue-implicit-holdout",
+      "skill": "generate-local-issue",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Record this demand as portable offline issue files under issues/; there is no remote tracker or authentication.",
+      "rubric": [
+        "Recognize the local destination from context.",
+        "Select generate-local-issue."
+      ]
+    },
+    {
+      "id": "generate-local-issue-overlap-holdout",
+      "skill": "generate-local-issue",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "Create this item in the repository's GitHub issue tracker and return the published URL.",
+      "rubric": [
+        "Prefer generate-issue for a remote destination.",
+        "Do not create local issue files."
+      ]
+    },
+    {
+      "id": "init-repository-implicit-holdout",
+      "skill": "init-repository",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "This repository lacks issue templates, a pull request template, and agent guidance. Add only the missing convention files and preserve existing policy.",
+      "rubric": [
+        "Recognize repository convention initialization.",
+        "Select init-repository."
+      ]
+    },
+    {
+      "id": "init-repository-overlap-holdout",
+      "skill": "init-repository",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "Scaffold a new React application with routing, authentication, and a component library.",
+      "rubric": [
+        "No Issue Flow Skill fits application scaffolding.",
+        "Do not select init-repository."
+      ]
+    },
+    {
+      "id": "resolve-issue-implicit-holdout",
+      "skill": "resolve-issue",
+      "kind": "positive",
+      "split": "holdout",
+      "prompt": "Fix the bug described in issues/91/issue.md from requirements through implementation and verified completion; keep publication local.",
+      "rubric": [
+        "Recognize an end-to-end fix request without relying on the Skill name.",
+        "Select resolve-issue."
+      ]
+    },
+    {
+      "id": "resolve-issue-overlap-holdout",
+      "skill": "resolve-issue",
+      "kind": "negative",
+      "split": "holdout",
+      "prompt": "The requirements and tasks.json already exist. Only implement the pending stories and stop after their checks pass.",
+      "rubric": [
+        "Prefer execute-tasks for one requested phase.",
+        "Do not select the end-to-end orchestrator."
+      ]
+    },
+    {
       "id": "analyze-local",
       "skill": "analyze-issue",
       "kind": "behavior",
@@ -339,6 +581,9 @@
         "README.md": "# Fixture\nJavaScript ESM project. Verify with node --test. Do not introduce dependencies. Local-only repository; no remote.\n\nThe base branch is main.\n",
         "issues/42/prd.md": "# Handle empty input\n\nIssue: 42 (local). Intended branch: fix/42-empty-input.\n\n## US-001: Normalize absent strings\nReturn an empty string for null and undefined and trim strings. Numbers remain unsupported.\n\nAcceptance: node --test passes all cases, including null and undefined.\n",
         "issues/42/tasks.json": "{\"project\": \"fixture\", \"issueNumber\": 42, \"issueUrl\": \"\", \"branchName\": \"fix/42-empty-input\", \"description\": \"Handle empty input\", \"issueStatus\": \"pending\", \"completedAt\": null, \"lastAttemptAt\": null, \"lastError\": null, \"correctionCycle\": 0, \"maxCorrectionCycles\": 3, \"lastReviewFindings\": null, \"pipeline\": {\"prdCompleted\": true, \"jsonCompleted\": true, \"executionCompleted\": false, \"reviewCompleted\": false, \"prCreated\": false}, \"userStories\": [{\"id\": \"US-001\", \"title\": \"Normalize absent strings\", \"description\": \"Return empty string for null and undefined\", \"acceptanceCriteria\": [\"node --test passes including null and undefined\"], \"priority\": 1, \"passes\": false, \"notes\": \"\"}]}"
+      },
+      "git": {
+        "initialBranch": "fix/42-empty-input"
       },
       "assertions": [
         {

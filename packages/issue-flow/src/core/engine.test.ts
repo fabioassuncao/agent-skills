@@ -750,6 +750,17 @@ describe('runEngine — commit scope in the prompt', () => {
 
     const prompt = mockExecuteClaude.mock.calls[0]?.[0] ?? '';
     expect(prompt).toContain('feat(issue-42): [Story ID] - [Story Title]');
+    expect(prompt).not.toContain('fix(issue-42): address review findings');
+  });
+
+  it('loads correction instructions only while review findings are pending', async () => {
+    const plan = makePlan({ lastReviewFindings: 'Address the failing edge case' });
+    await writeFile(paths.prdFile, JSON.stringify(plan, null, 2), 'utf-8');
+
+    await runEngine({ ...baseConfig, commitScope: 'issue-42' }, paths);
+
+    const prompt = mockExecuteClaude.mock.calls[0]?.[0] ?? '';
+    expect(prompt).toContain('## Correction findings');
     expect(prompt).toContain('fix(issue-42): address review findings');
   });
 });

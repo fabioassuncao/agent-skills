@@ -2,26 +2,21 @@
 
 You are generating a Product Requirements Document (PRD) for issue #__ISSUE_NUMBER__ in this repository.
 
-The issue content is already resolved and given below — do NOT fetch it, and do
-not assume it lives on GitHub.
+The issue content is already resolved; do not fetch it or assume it is on GitHub.
 
 - Source: __ISSUE_SOURCE__
 - Reference: __ISSUE_URL__
 - Title: __ISSUE_TITLE__
 - Labels: __ISSUE_LABELS__
 
-Issue body:
-
 <issue-body>
 __ISSUE_BODY__
 </issue-body>
 
-Steps:
-1. If the file __ANALYSIS_PATH__ exists, read it for additional context
-2. Analyze the codebase to understand the context
-3. Generate a structured PRD
+If __ANALYSIS_PATH__ exists, read it for additional context. Analyze the codebase
+and return exactly one final block with this structure:
 
-Save the PRD to __PRD_PATH__ with this structure:
+<prd>
 
 # PRD: [Issue Title]
 
@@ -42,8 +37,9 @@ Save the PRD to __PRD_PATH__ with this structure:
 
 ## Dependencies
 [External dependencies or prerequisites]
+</prd>
 
-IMPORTANT: You MUST write the PRD to the file path above. Do not just output it.
+Do not write the artifact yourself. The orchestrator validates and persists the block.
 
 <!-- if:__REPO_POLICY__ -->
 ## Repository policy

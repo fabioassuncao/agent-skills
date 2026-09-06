@@ -1,6 +1,6 @@
 ---
 name: resolve-issue
-description: "Resolve GitHub issues, local documents or supplied demands through requirements, task planning, implementation, verification and authorized PR delivery. Use for an end-to-end issue request or resuming that workflow. Manual mode stops after planning. Not for a request limited to analysis, review or a single phase."
+description: "Fix, implement or resolve a GitHub issue, local document or supplied demand through requirements, task planning, implementation, verification and authorized PR delivery. Use for an end-to-end request or to resume that workflow. Manual mode stops after planning. Not for work limited to analysis, review or one phase."
 license: MIT
 compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ for bundled helpers, Git for repository operations, and authenticated GitHub access only for remote work.
 ---
@@ -9,7 +9,7 @@ compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ fo
 
 # Resolve Issue
 
-Use this Skill only for its requested responsibility. Work in the consumer project, honoring its instructions and existing authorization. Resource links below belong to this installed Skill; project inputs and outputs belong to the consumer repository.
+Work in the consumer repository, honor its instructions and current authorization, and resolve the links below from this installed Skill directory.
 
 ## Workflow
 

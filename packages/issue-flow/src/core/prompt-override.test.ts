@@ -111,6 +111,8 @@ describe('applyConditionalSections', () => {
     const result = applyConditionalSections(template, {
       __REMOTE_DISCOVERY__: '',
       __PREVIOUS_REVIEW__: '',
+      __CORRECTION_MODE__: '',
+      __ISSUE_CONTEXT__: '',
       __REPO_POLICY__: 'x',
     });
 
@@ -130,6 +132,8 @@ describe('rendered prompts without a policy', () => {
     return {
       __REMOTE_DISCOVERY__: '',
       __PREVIOUS_REVIEW__: '',
+      __CORRECTION_MODE__: '',
+      __ISSUE_CONTEXT__: '',
       ...emptyPolicyPlaceholders(),
       ...conventionPlaceholders(null, 'main'),
     };

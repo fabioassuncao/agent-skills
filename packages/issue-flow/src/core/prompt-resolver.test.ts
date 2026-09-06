@@ -93,7 +93,7 @@ describe('loadPrompt', () => {
   it('should load the analyze prompt template', async () => {
     const content = await loadPrompt('analyze');
     expect(content).toContain('__ISSUE_NUMBER__');
-    expect(content).toContain('__ANALYSIS_PATH__');
+    expect(content).toContain('<issue-analysis>');
   });
 
   it('should load the review prompt template', async () => {

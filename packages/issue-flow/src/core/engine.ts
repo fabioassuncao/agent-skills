@@ -501,6 +501,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         // Apply placeholders to prompt
         const prompt = applyPlaceholders(promptTemplate, {
           __EXECUTION_CONTEXT__: JSON.stringify(executionContext(plan)),
+          __CORRECTION_MODE__: hasPendingCorrection(plan) ? 'enabled' : '',
           __ACTIVE_STORY__: activeStoryId ?? 'Address pending review findings',
           __EXECUTION_SCOPE__: config.inPipeline
             ? 'This is one pipeline phase: keep issueStatus=in_progress and completedAt=null.'

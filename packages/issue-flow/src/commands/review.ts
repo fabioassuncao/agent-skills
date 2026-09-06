@@ -50,7 +50,7 @@ export async function runReview(issue: string, resolvedIssue?: ResolvedIssue): P
     __TASKS_PATH__: tasksPath,
     __PROGRESS_FILE__: paths.progressFile,
     __VERIFY_PATH__: paths.verifyFile,
-    ...issuePlaceholders(resolution.resolved),
+    ...issuePlaceholders(resolution.resolved, paths.issueFile),
   });
 
   const startedAtMs = Date.now();

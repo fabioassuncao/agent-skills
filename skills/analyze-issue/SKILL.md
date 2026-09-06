@@ -1,6 +1,6 @@
 ---
 name: analyze-issue
-description: "Analyze a GitHub issue, local issue file or supplied demand to identify scope, affected code, constraints and unanswered questions before implementation. Use for issue analysis; not for reviewing completed work or implementing it."
+description: "Investigate or triage a GitHub issue, local issue file or supplied demand before implementation. Use to identify scope, affected code, constraints and unanswered questions; not for reviewing completed work or implementing it."
 license: MIT
 compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ for bundled helpers, Git for repository operations, and authenticated GitHub access only for remote work.
 ---
@@ -9,7 +9,7 @@ compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ fo
 
 # Analyze Issue
 
-Use this Skill only for its requested responsibility. Work in the consumer project, honoring its instructions and existing authorization. Resource links below belong to this installed Skill; project inputs and outputs belong to the consumer repository.
+Work in the consumer repository, honor its instructions and current authorization, and resolve the links below from this installed Skill directory.
 
 ## Workflow
 
@@ -29,3 +29,4 @@ Use this Skill only for its requested responsibility. Work in the consumer proje
 Paths in commands are relative to this Skill root. Execute by absolute resolved path while keeping the consumer project as the working directory. Use helpers as documented; consult `--help` only if needed. No helper installs the Issue Flow CLI.
 
 - [scripts/optional-cli.mjs](scripts/optional-cli.mjs)
+- [scripts/artifacts.mjs](scripts/artifacts.mjs)

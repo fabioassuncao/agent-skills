@@ -2,26 +2,21 @@
 
 You are analyzing issue #__ISSUE_NUMBER__ for this repository.
 
-The issue content is already resolved and given below — do NOT fetch it, and do
-not assume it lives on GitHub.
+The issue content is already resolved; do not fetch it or assume it is on GitHub.
 
 - Source: __ISSUE_SOURCE__
 - Reference: __ISSUE_URL__
 - Title: __ISSUE_TITLE__
 - Labels: __ISSUE_LABELS__
 
-Issue body:
-
 <issue-body>
 __ISSUE_BODY__
 </issue-body>
 
-Steps:
-1. Analyze the codebase to understand the affected areas, tech stack, and architecture
-2. Identify the scope, complexity, and key files/modules involved
-3. Produce a structured analysis
+Analyze the codebase, identify affected areas, architecture, scope, complexity,
+risks and key files. Return exactly one final block with this structure:
 
-Save your analysis to __ANALYSIS_PATH__ with this structure:
+<issue-analysis>
 
 # Issue Analysis: #__ISSUE_NUMBER__
 
@@ -39,8 +34,9 @@ Save your analysis to __ANALYSIS_PATH__ with this structure:
 
 ## Implementation Notes
 [Key considerations, risks, dependencies]
+</issue-analysis>
 
-IMPORTANT: You MUST write the analysis to the file path above. Do not just output it.
+Do not write the artifact yourself. The orchestrator validates and persists the block.
 
 <!-- if:__REPO_POLICY__ -->
 ## Repository policy

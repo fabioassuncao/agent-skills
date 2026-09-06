@@ -19,6 +19,21 @@ import {
 
 export const corpusPath = join(repoRoot, 'evals/skills/scenarios.json');
 const fixtureRoot = join(repoRoot, 'evals/skills/fixtures');
+export const evalProviders = ['claude', 'codex', 'cursor', 'antigravity'];
+
+const runnerExports = {
+  claude: 'ClaudeCodeRunner',
+  codex: 'CodexRunner',
+  cursor: 'CursorRunner',
+  antigravity: 'AntigravityRunner',
+};
+
+const skillInstallDirectories = {
+  claude: '.claude/skills',
+  codex: '.agents/skills',
+  cursor: '.cursor/skills',
+  antigravity: '.agents/skills',
+};
 
 // References keep shared synthetic capabilities in one source while each run
 // still receives a complete isolated copy. No external fixture imports at runtime.
@@ -69,6 +84,10 @@ export function validateCorpus(corpus, names) {
     ids.add(scenario.id);
     assert.ok(names.includes(scenario.skill));
     assert.ok(['positive', 'negative', 'behavior'].includes(scenario.kind));
+    assert.ok(
+      scenario.split === undefined || ['development', 'holdout'].includes(scenario.split),
+      `${scenario.id}: invalid split`,
+    );
     assert.ok(scenario.prompt?.trim());
     const cliFixture = scenario.cliReview ?? scenario.cliExecute;
     assert.ok(!(scenario.cliReview && scenario.cliExecute));
@@ -113,6 +132,15 @@ export function validateCorpus(corpus, names) {
       assert.ok(
         corpus.scenarios.some((s) => s.skill === name && s.kind === kind),
         `${name}: missing ${kind}`,
+      );
+  for (const name of names)
+    for (const kind of ['positive', 'negative'])
+      assert.ok(
+        corpus.scenarios.some(
+          (scenario) =>
+            scenario.skill === name && scenario.kind === kind && scenario.split === 'holdout',
+        ),
+        `${name}: missing holdout ${kind}`,
       );
 }
 
@@ -230,13 +258,19 @@ async function main() {
     return;
   }
   const provider = option('--agent', 'claude');
-  if (!['claude', 'codex'].includes(provider))
-    throw new Error('Supported eval runners: claude, codex');
+  if (!evalProviders.includes(provider))
+    throw new Error(`Supported eval runners: ${evalProviders.join(', ')}`);
+  const withoutSkill = args.includes('--without-skill');
   const ids = option('--scenario', '').split(',').filter(Boolean);
+  const split = option('--split', null);
+  if (split && !['development', 'holdout'].includes(split))
+    throw new Error('--split must be development or holdout');
   const selected = corpus.scenarios.filter(
     (s) =>
       (!ids.length || ids.includes(s.id)) &&
-      (!args.includes('--kind') || s.kind === option('--kind')),
+      (!args.includes('--kind') || s.kind === option('--kind')) &&
+      (!split || (s.split ?? 'development') === split) &&
+      (!withoutSkill || s.kind === 'behavior'),
   );
   if (!selected.length || ids.some((id) => !selected.some((s) => s.id === id)))
     throw new Error('No matching scenarios or unknown scenario ID');
@@ -244,6 +278,7 @@ async function main() {
     option('--output', join(packageRoot, '.cache/skills-evals', `${Date.now()}-${provider}.json`)),
   );
   const baseline = option('--baseline', null);
+  if (withoutSkill && baseline) throw new Error('--without-skill and --baseline are separate arms');
   if (baseline && !/^[a-f0-9]{7,40}$/.test(baseline))
     throw new Error('--baseline must be a commit SHA');
   const cache = join(packageRoot, '.cache/skills-evals');
@@ -251,7 +286,7 @@ async function main() {
   const adapterPath = join(cache, `runner-${provider}.mjs`);
   await build({
     stdin: {
-      contents: `export { ${provider === 'claude' ? 'ClaudeCodeRunner' : 'CodexRunner'} as Runner } from './src/agents/${provider}.ts'; export { applyPlaceholders } from './src/core/prompt-resolver.ts'; export { executionContext } from './src/core/task-plan.ts'; export { taskPlanSchema } from './src/schemas.ts';`,
+      contents: `export { ${runnerExports[provider]} as Runner } from './src/agents/${provider}.ts'; export { applyPlaceholders } from './src/core/prompt-resolver.ts'; export { executionContext } from './src/core/task-plan.ts'; export { taskPlanSchema } from './src/schemas.ts';`,
       resolveDir: packageRoot,
       loader: 'ts',
     },
@@ -282,6 +317,7 @@ async function main() {
     provider,
     version,
     baseline,
+    arm: withoutSkill ? 'without-skill' : baseline ? 'baseline' : 'candidate',
     mode: 'catalogue selection + explicit isolated behavior (not native discovery certification)',
     corpusHash: createHash('sha256').update(JSON.stringify(corpus)).digest('hex'),
     results: [],
@@ -294,10 +330,11 @@ async function main() {
     const started = Date.now();
     let stage = 'setup';
     try {
-      const installed = join(root, provider === 'claude' ? '.claude/skills' : '.agents/skills');
+      const installed = join(root, skillInstallDirectories[provider]);
       await mkdir(installed, { recursive: true });
       const cliFixture = scenario.cliReview ?? scenario.cliExecute;
-      const wanted = cliFixture ? [] : scenario.kind === 'behavior' ? [scenario.skill] : names;
+      const wanted =
+        cliFixture || withoutSkill ? [] : scenario.kind === 'behavior' ? [scenario.skill] : names;
       const catalogue = [];
       const hashes = {};
       for (const name of wanted) {
@@ -318,11 +355,12 @@ async function main() {
         hashes[name] = digest.digest('hex');
       }
       const gitBefore = await prepareGitFixture(root, scenario);
-      let prompt =
-        scenario.kind === 'behavior'
+      let prompt = withoutSkill
+        ? `Perform the following task in this disposable fixture repository without Issue Flow Skills or its CLI. Do not contact external services or mutate anything outside this repository.\n\n${scenario.prompt}`
+        : scenario.kind === 'behavior'
           ? `Read ${join(installed, scenario.skill, 'SKILL.md')} and perform the following task in this disposable fixture repository. Use only this installed Skill, not personal copies or sibling skills. The Issue Flow CLI is unavailable for this scenario. Do not contact external services or mutate anything outside this repository.\n\n${scenario.prompt}`
           : `Select the best Skill for the request from this catalogue of names/descriptions, or null if none fits. This is a selection evaluation: do not execute the request or use tools. Return only JSON {"skill": "name"} or {"skill": null}.\n${JSON.stringify(catalogue.map(({ name, description }) => ({ name, description })))}\nRequest: ${scenario.prompt}`;
-      if (cliFixture) {
+      if (cliFixture && !withoutSkill) {
         const path = `packages/issue-flow/prompts/${scenario.cliExecute ? 'execute' : 'review'}.md`;
         const template = baseline
           ? execFileSync('git', ['show', `${baseline}:${path}`], {
@@ -370,7 +408,9 @@ async function main() {
           phase: 'review',
           workingDirectory: root,
           permission:
-            scenario.kind === 'behavior' && !scenario.cliReview ? 'workspace' : 'read-only',
+            provider === 'cursor' || (scenario.kind === 'behavior' && !scenario.cliReview)
+              ? 'workspace'
+              : 'read-only',
           allowedTools:
             scenario.kind === 'behavior' ? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'] : [],
           maxTurns: 24,
@@ -385,8 +425,8 @@ async function main() {
           model: null,
           claude: { ignoreUserConfig: true, strictMcpConfig: true },
           codex: { ignoreUserConfig: true, skipGitRepoCheck: true, sandbox: 'workspace-write' },
-          cursor: {},
-          antigravity: {},
+          cursor: { sandbox: 'enabled' },
+          antigravity: { sandbox: true, executeTimeout: '3m' },
           origin: { provider: 'cli', model: 'default' },
         },
       );
@@ -404,6 +444,8 @@ async function main() {
         skill: scenario.skill,
         surface: cliFixture ? 'cli-prompt' : 'skill',
         kind: scenario.kind,
+        split: scenario.split ?? 'development',
+        arm: withoutSkill ? 'without-skill' : baseline ? 'baseline' : 'candidate',
         status: !run.success ? 'HARNESS_ERROR' : failures.length ? 'FAIL' : 'PASS',
         durationMs: Date.now() - started,
         agent: { ...run.agent, model: run.agent.model ?? observed.model },

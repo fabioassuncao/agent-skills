@@ -2,7 +2,7 @@
 
 # Portable task plan
 
-Read execution-options when creating, executing or resuming a configured plan. Read this reference for its JSON format. The JSON contract is validated by the bundled `scripts/artifacts.mjs plan <tasks.json>`, compiled from the CLI's canonical schema. The script is read-only. Preserve unknown fields during updates; never replace a plan with the validator's parsed output.
+Read execution-options when creating, executing or resuming a configured plan. Read this reference for its JSON format. The JSON contract is validated by the bundled `scripts/artifacts.mjs plan <tasks.json>`, compiled from the CLI's canonical schema. Validation and inspection are read-only; `reconcile <id>` validates the finished Skill update at the cross-interface boundary so the next CLI resolution can import it. Preserve unknown fields during updates; never replace a plan with the validator's parsed output.
 
 ```json
 {

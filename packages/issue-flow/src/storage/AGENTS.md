@@ -1,6 +1,7 @@
 # src/storage
 
-Global storage layer (`~/.issue-flow`). Consumed by the pipeline commands through
+Resolved artifact storage layer (global by default, workspace-local by explicit
+directory opt-in). Consumed by the pipeline commands through
 `resolveIssuePaths()` (`analyze`, `prd`, `plan`, `review`, `pr`, `pr-review`, `run` and `execute`)
 and by `LocalFileIssueProvider`, which resolves `issue.md` / `metadata.json` the same way.
 
@@ -32,8 +33,10 @@ The boundary with standalone Skill artifacts is documented in
   current repository, resolves the storage mode, triggers the legacy migration (project-level *and*
   per-issue) and caches the answer for the process. A command that calls `getIssuePaths()` itself
   skips the migration and reads an empty directory.
-- `resolve.ts` still creates nothing: a call site that writes keeps its own
-  `mkdir(paths.issueDir, { recursive: true })`.
+- `resolve.ts` never creates `.issue-flow/issues/` or an issue directory: a call
+  site that writes keeps its own `mkdir(paths.issueDir, { recursive: true })`.
+  When that opt-in directory already exists, resolution may create/update only
+  `.issue-flow/.gitignore` with scoped operational-state rules.
 - **This is enforced, not merely agreed on.** `handmade-issue-paths.test.ts` scans every
   non-test `src/**/*.ts` for a `join(...)` that names the `issues` segment itself and fails on it;
   only `paths.ts` and `compat.ts` are exempt. There is no `getIssueDir()` any more — it was removed

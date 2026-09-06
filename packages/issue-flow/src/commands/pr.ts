@@ -300,7 +300,7 @@ export async function runPr(
       ? issueClosesLines(queue.issues)
       : issueClosesLine(resolution.resolved.issue, issueNumber, planComplete),
     __MULTI_ISSUE_CONTEXT__: multiIssueContext(queue),
-    ...issuePlaceholders(resolution.resolved),
+    ...issuePlaceholders(resolution.resolved, paths.issueFile),
   });
 
   let headlessOutput = '';

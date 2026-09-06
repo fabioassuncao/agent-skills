@@ -9,8 +9,8 @@ import type { TaskPlan } from '../types.js';
  * every artifact they read or write is resolved through `resolveIssuePaths()`,
  * so it lands under the global storage and never under `<repoRoot>/issues/`.
  * They are tested together because the fixture — a temporary repo root, a
- * temporary `ISSUE_FLOW_HOME`, and a headless stub that plays the agent's role
- * of writing the file — is identical for all three.
+ * temporary `ISSUE_FLOW_HOME`, and a headless stub that returns each phase's
+ * structured result — is identical for all three.
  */
 
 // getProjectRoot() and getRemoteUrl() both shell out through execa; the mock
@@ -33,14 +33,24 @@ vi.mock('execa', () => ({
 // built (including `addDirs`) and may write the artifact the phase expects.
 const headlessStub = vi.hoisted(() => ({
   run: async (_options: unknown): Promise<void> => {},
-  result: '',
+  result: null as string | null,
   cost: null as Record<string, number> | null,
 }));
 vi.mock('../core/headless.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../core/headless.js')>()),
   runHeadless: vi.fn(async (options: unknown) => {
     await headlessStub.run(options);
-    return { success: true, result: headlessStub.result, cost: headlessStub.cost, error: null };
+    const status = (options as { statusMessage?: string }).statusMessage ?? '';
+    const result =
+      headlessStub.result ??
+      (status.startsWith('Analyzing')
+        ? '<issue-analysis>\n# Analysis of the issue\n</issue-analysis>'
+        : status.startsWith('Generating PRD')
+          ? '<prd>\n# PRD for issue 42\n</prd>'
+          : status.startsWith('Converting PRD')
+            ? semanticPlanResult()
+            : 'done');
+    return { success: true, result, cost: headlessStub.cost, error: null };
   }),
 }));
 
@@ -142,6 +152,19 @@ function makePlan(): TaskPlan {
   };
 }
 
+function semanticPlanResult(duplicate = false): string {
+  const plan = makePlan();
+  const stories = plan.userStories.map((story) => ({
+    key: story.id,
+    title: story.title,
+    description: story.description,
+    acceptanceCriteria: story.acceptanceCriteria,
+    dependsOn: [],
+  }));
+  if (duplicate) stories.push({ ...stories[0]! });
+  return `<task-plan>\n${JSON.stringify({ description: plan.description, stories })}\n</task-plan>`;
+}
+
 let temps: string[] = [];
 let repoRoot: string;
 let globalHome: string;
@@ -189,7 +212,7 @@ beforeEach(async () => {
 
   resetStorageResolutionCache();
   headlessStub.run = async () => {};
-  headlessStub.result = '';
+  headlessStub.result = null;
   headlessStub.cost = null;
   vi.clearAllMocks();
 });
@@ -229,13 +252,15 @@ describe('runAnalyze', () => {
     expect(lastAddDirs()).toEqual([paths.issueDir]);
   });
 
-  it('falls back to saving the headless output when no file was created', async () => {
+  it('persists the validated document returned by the headless phase', async () => {
     const paths = await expectedPaths(42);
-    headlessStub.result = 'Analysis produced inline instead of written to disk';
+    headlessStub.result = '<issue-analysis>\n# Inline analysis\n\nValidated.\n</issue-analysis>';
 
     await expect(runAnalyze('42', makeResolved())).resolves.toBe(0);
 
-    await expect(readFile(paths.analysisFile, 'utf-8')).resolves.toBe(headlessStub.result);
+    await expect(readFile(paths.analysisFile, 'utf-8')).resolves.toBe(
+      '# Inline analysis\n\nValidated.\n',
+    );
     expect(await exists(join(repoRoot, 'issues'))).toBe(false);
   });
 
@@ -243,7 +268,7 @@ describe('runAnalyze', () => {
     const paths = await expectedPaths(42);
     await mkdir(paths.issueDir, { recursive: true });
     await writeFile(paths.tasksFile, JSON.stringify(makePlan(), null, 2), 'utf-8');
-    headlessStub.result = 'inline analysis';
+    headlessStub.result = '<issue-analysis>\n# Inline analysis\n</issue-analysis>';
 
     await runAnalyze('42', makeResolved());
 
@@ -267,15 +292,13 @@ describe('runPrd', () => {
     expect(lastAddDirs()).toEqual([paths.issueDir]);
   });
 
-  // Three attempts, each spending the readFileWithGrace budget (~1.1s) before
-  // giving up — the retry backoff itself is stubbed out above.
-  it('reports the global path when the PRD was not created', { timeout: 20_000 }, async () => {
-    const paths = await expectedPaths(42);
+  it('rejects a malformed PRD result after the retry budget', { timeout: 20_000 }, async () => {
+    headlessStub.result = 'missing protocol block';
 
     await expect(runPrd('42', makeResolved())).resolves.toBe(1);
 
     const errors = mockPrintError.mock.calls.map(([line]) => line).join('\n');
-    expect(errors).toContain(paths.prdFile);
+    expect(errors).toContain('Invalid PRD output');
   });
 
   // The prompt used to name `issues/<N>/analysis.md` relative to the repository;
@@ -323,7 +346,7 @@ describe('runPlan', () => {
     expect(plan.pipeline.jsonCompleted).toBe(true);
     expect(await exists(join(repoRoot, 'issues'))).toBe(false);
     expect(successOutput()).toContain(paths.tasksFile);
-    expect(lastAddDirs()).toEqual([paths.issueDir]);
+    expect(lastAddDirs()).toBeUndefined();
   });
 
   it('passes the PRD content of the global tree into the prompt', async () => {
@@ -338,7 +361,7 @@ describe('runPlan', () => {
 
     const prompt = mockRunHeadless.mock.calls.at(-1)?.[0].prompt ?? '';
     expect(prompt).toContain('# PRD marker 8f21');
-    expect(prompt).toContain(paths.tasksFile);
+    expect(prompt).not.toContain(paths.tasksFile);
   });
 
   it('returns concrete validation feedback to the next planning attempt', async () => {
@@ -347,16 +370,13 @@ describe('runPlan', () => {
     await writeFile(paths.prdFile, '# PRD', 'utf8');
     let attempts = 0;
     headlessStub.run = async () => {
-      const plan = makePlan();
-      if (++attempts === 1) plan.userStories.push({ ...plan.userStories[0]! });
-      await writeFile(paths.tasksFile, JSON.stringify(plan));
+      headlessStub.result = semanticPlanResult(++attempts === 1);
     };
     expect(await runPlan('42', makeResolved())).toBe(0);
     expect(attempts).toBe(2);
     const prompts = mockRunHeadless.mock.calls.map(([options]) => options.prompt);
-    expect(prompts[0]).not.toContain('Duplicate story ID');
-    expect(prompts[1]).toContain('Duplicate story ID');
-    expect(prompts[1]).toContain(paths.tasksFile);
+    expect(prompts[0]).not.toContain('Duplicate story key');
+    expect(prompts[1]).toContain('Duplicate story key');
   });
 
   it('names the global path when the PRD is missing', async () => {
@@ -378,9 +398,7 @@ describe('runPlan', () => {
     resetStorageResolutionCache();
 
     headlessStub.run = async (options) => {
-      const paths = await expectedPaths(42);
-      await writeFile(paths.tasksFile, JSON.stringify(makePlan(), null, 2), 'utf-8');
-      expect((options as { addDirs?: string[] }).addDirs).toEqual([paths.issueDir]);
+      expect((options as { addDirs?: string[] }).addDirs).toBeUndefined();
     };
 
     await expect(runPlan('42', makeResolved())).resolves.toBe(0);
@@ -431,17 +449,19 @@ describe('metrics of the documentation phases', () => {
     const paths = await expectedPaths(42);
     await mkdir(paths.issueDir, { recursive: true });
     await writeFile(paths.prdFile, '# PRD for issue 42', 'utf-8');
-    headlessStub.result = 'inline analysis';
+    headlessStub.result = '<issue-analysis>\n# Inline analysis\n</issue-analysis>';
 
     await runAnalyze('42', makeResolved());
     expect(mockRunHeadless.mock.calls.at(-1)?.[0].outputFormat).toBe('json');
 
+    headlessStub.result = null;
     headlessStub.run = async () => {
       await writeFile(paths.prdFile, '# PRD for issue 42', 'utf-8');
     };
     await runPrd('42', makeResolved());
     expect(mockRunHeadless.mock.calls.at(-1)?.[0].outputFormat).toBe('json');
 
+    headlessStub.result = null;
     headlessStub.run = async () => {
       await writeFile(paths.tasksFile, JSON.stringify(makePlan(), null, 2), 'utf-8');
     };
@@ -451,7 +471,7 @@ describe('metrics of the documentation phases', () => {
 
   it('publishes the invocation usage against its own phase', async () => {
     const paths = await expectedPaths(42);
-    headlessStub.result = 'inline analysis';
+    headlessStub.result = '<issue-analysis>\n# Inline analysis\n</issue-analysis>';
     headlessStub.cost = { inputTokens: 8, outputTokens: 2, cacheReadTokens: 1_000, costUsd: 0.03 };
 
     await expect(runAnalyze('42', makeResolved())).resolves.toBe(0);
@@ -471,7 +491,7 @@ describe('metrics of the documentation phases', () => {
   });
 
   it('publishes nothing, and still succeeds, when the CLI reports no usage', async () => {
-    headlessStub.result = 'inline analysis';
+    headlessStub.result = '<issue-analysis>\n# Inline analysis\n</issue-analysis>';
     headlessStub.cost = null;
 
     await expect(runAnalyze('42', makeResolved())).resolves.toBe(0);
@@ -485,6 +505,7 @@ describe('metrics of the documentation phases', () => {
   // user paid for — the reducer's summing is what turns them into the total.
   it('publishes one event per attempt of a retrying phase', { timeout: 20_000 }, async () => {
     headlessStub.cost = { inputTokens: 5, costUsd: 0.01 };
+    headlessStub.result = 'missing protocol block';
 
     await expect(runPrd('42', makeResolved())).resolves.toBe(1);
 

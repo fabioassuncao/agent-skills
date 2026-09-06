@@ -74,8 +74,8 @@ prompt_bundle() { # promptDir outFile
 write_claude_stub() { # binDir
   cat >"$1/claude" <<'STUB'
 #!/usr/bin/env bash
-# Deterministic stand-in for the Claude Code CLI: records the prompt it was
-# given and writes whatever artifact the phase expects.
+# Deterministic stand-in for the Claude Code CLI: records the prompt and emits
+# each phase's public result protocol. The CLI owns deterministic file writes.
 if [ "${1:-}" = "--version" ]; then
   echo "0.0.0 (smoke stub)"
   exit 0
@@ -90,6 +90,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Autonomous execution sends the prompt on stdin to avoid command-line limits;
+# document phases use `-p` for headless read-only runs.
+[ -z "$prompt" ] && prompt=$(cat)
+
 mkdir -p "$SMOKE_PROMPT_DIR"
 index=$(ls -1 "$SMOKE_PROMPT_DIR" | wc -l | tr -d ' ')
 printf '%s' "$prompt" >"$SMOKE_PROMPT_DIR/$index.txt"
@@ -98,55 +102,47 @@ first_line=$(printf '%s' "$prompt" | head -n 1)
 
 case "$first_line" in
   "You are analyzing issue"*)
-    # analyze saves the headless output when the agent writes no file, so the
-    # prompt itself lands in analysis.md and can be asserted on.
-    printf '%s' "$prompt"
+    body=$(printf '%s' "$prompt" | sed 's|<issue-analysis>|[issue-analysis]|g; s|</issue-analysis>|[/issue-analysis]|g')
+    printf '<issue-analysis>\n%s\n</issue-analysis>\n' "$body"
     ;;
 
   "You are generating a Product Requirements Document"*)
-    path=$(printf '%s' "$prompt" | sed -n 's|^Save the PRD to \(.*\) with this structure:.*|\1|p' | tail -n 1)
-    mkdir -p "$(dirname "$path")"
-    printf '%s' "$prompt" >"$path"
-    echo "PRD written to $path"
+    body=$(printf '%s' "$prompt" | sed 's|<prd>|[prd]|g; s|</prd>|[/prd]|g')
+    printf '<prd>\n%s\n</prd>\n' "$body"
     ;;
 
   "You are converting a PRD"*)
-    path=$(printf '%s' "$prompt" | sed -n 's|^Create a tasks\.json file at \(.*\) with this exact structure:.*|\1|p' | tail -n 1)
-    number=$(basename "$(dirname "$path")")
-    mkdir -p "$(dirname "$path")"
-    cat >"$path" <<JSON
+    cat <<'JSON'
+<task-plan>
 {
-  "project": "smoke",
-  "issueNumber": "$number",
-  "branchName": "issue/$number-smoke",
   "description": "Smoke task plan",
-  "issueStatus": "in_progress",
-  "completedAt": null,
-  "lastAttemptAt": null,
-  "lastError": null,
-  "correctionCycle": 0,
-  "maxCorrectionCycles": 3,
-  "pipeline": {
-    "prdCompleted": true,
-    "jsonCompleted": true,
-    "executionCompleted": false,
-    "reviewCompleted": false,
-    "prCreated": false
-  },
-  "userStories": [
+  "stories": [
     {
-      "id": "US-001",
+      "key": "already-implemented",
       "title": "Already implemented",
       "description": "Pre-passing story so the execution loop terminates at once.",
       "acceptanceCriteria": ["Nothing to do"],
-      "priority": 1,
-      "passes": true,
-      "notes": ""
+      "dependsOn": []
     }
   ]
 }
+</task-plan>
 JSON
-    echo "task plan written to $path"
+    ;;
+
+  "# Execute the current task"*)
+    path=$(printf '%s' "$prompt" | sed -n 's|^This is a read-only projection of `\([^`]*\)`.*|\1|p' | tail -n 1)
+    node -e '
+      const fs = require("node:fs");
+      const path = process.argv[1];
+      const plan = JSON.parse(fs.readFileSync(path, "utf8"));
+      for (const story of plan.userStories) {
+        story.passes = true;
+        story.notes = "Verified by the smoke harness.";
+      }
+      fs.writeFileSync(path, `${JSON.stringify(plan, null, 2)}\n`);
+    ' "$path"
+    echo "<promise>COMPLETE</promise>"
     ;;
 
   "You are reviewing whether"*)
