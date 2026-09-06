@@ -1336,11 +1336,11 @@ wall clock em milissegundos), na máquina do porte (macOS 25.5, Node v22.22.1, t
 | Reconciliação (`list-windows -a`) | 23 ms, O(1) | ≤ 50 ms **e O(1)** | **6 ms em N=1, 14 ms em N=21** | `gateway.integration.test.ts` |
 | Reconexão de terminal | 28 ms + replay | ≤ 100 ms | **26 ms** | `src/web/terminal-ws.integration.test.ts` |
 | Boot do CLI | n/a | ≤ 250 ms | **100 ms** (antes da absorção: 135–192) | `node dist/cli.js --version`, mediana de 5 |
+| T0→T4 (worktree pronta + agente iniciado) | n/a | ≤ 600 ms | **181–279 ms** | `src/agents/session/open.integration.test.ts` |
 
-Sem medição própria nesta entrega: **T0→T4** e **entrega de prompt subsequente de 20 KB**,
-que exigem um agente real iniciando num pane; a entrega de prompt está coberta
-funcionalmente pelo caso de 64 KB de `src/agents/tty.integration.test.ts`, que prova que o
-bloco inteiro chega. **Contexto re-ingerido por story após a 1ª invocação** continua sendo
+Sem medição própria nesta entrega: **entrega de prompt subsequente de 20 KB**, que exige um
+agente real já rodando num pane; está coberta funcionalmente pelo caso de 64 KB de
+`src/agents/tty.integration.test.ts`, que prova que o bloco inteiro chega. **Contexto re-ingerido por story após a 1ª invocação** continua sendo
 invariante de arquitetura (a conversa é reaproveitada via `--resume`, exceto onde ADR-07
 proíbe) e não uma métrica de tempo.
 
