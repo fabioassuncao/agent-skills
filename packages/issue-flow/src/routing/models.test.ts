@@ -4,6 +4,7 @@ import {
   CLAUDE_CAPABILITIES,
   CODEX_CAPABILITIES,
   CURSOR_CAPABILITIES,
+  OPENCODE_CAPABILITIES,
 } from '../agents/types.js';
 import { MODEL_CATALOG, modelsFor } from './models.js';
 
@@ -14,6 +15,7 @@ describe('MODEL_CATALOG', () => {
       'codex-cli': CODEX_CAPABILITIES,
       'cursor-cli': CURSOR_CAPABILITIES,
       'antigravity-cli': ANTIGRAVITY_CAPABILITIES,
+      'opencode-cli': OPENCODE_CAPABILITIES,
     };
     for (const [harness, caps] of Object.entries(capabilities)) {
       expect(MODEL_CATALOG[harness]).toBeDefined();
@@ -23,6 +25,14 @@ describe('MODEL_CATALOG', () => {
         'strong',
       ]);
     }
+    expect(
+      MODEL_CATALOG['opencode-cli']?.every((entry) => !entry.id?.startsWith('anthropic/')),
+    ).toBe(true);
+    expect(MODEL_CATALOG['opencode-cli']?.map((entry) => entry.id)).toEqual([
+      'opencode-go/mimo-v2.5',
+      'opencode-go/qwen3.8-flash',
+      'opencode-go/gpt-5.6-luna',
+    ]);
   });
 
   it('collapses the model axis when selection is unsupported', () => {

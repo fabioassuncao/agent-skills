@@ -423,8 +423,14 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     if (path === '/api/config') {
       const sessionId = requestUrl.searchParams.get('session');
       const snapshot = sessionId === null ? undefined : source.get(sessionId);
-      const providers = ['claude', 'codex', 'cursor', 'antigravity'] as const;
-      const harnesses = ['claude-code', 'codex-cli', 'cursor-cli', 'antigravity-cli'] as const;
+      const providers = ['claude', 'codex', 'cursor', 'antigravity', 'opencode'] as const;
+      const harnesses = [
+        'claude-code',
+        'codex-cli',
+        'cursor-cli',
+        'antigravity-cli',
+        'opencode-cli',
+      ] as const;
       const probe = options.probeAvailability ?? probeAgent;
       const availability = await Promise.all(providers.map((provider) => probe(provider)));
       respondJson(res, 200, {

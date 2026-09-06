@@ -14,6 +14,7 @@ const selection: AgentSelection = {
     codex: {},
     cursor: {},
     antigravity: {},
+    opencode: {},
     origin: { provider: 'default', model: 'default' },
   },
   healthFile: null,
@@ -23,7 +24,7 @@ const selection: AgentSelection = {
 };
 
 function availability(
-  id: 'claude' | 'codex' | 'cursor' | 'antigravity',
+  id: 'claude' | 'codex' | 'cursor' | 'antigravity' | 'opencode',
   patch: Partial<AgentAvailability> = {},
 ): AgentAvailability {
   return {

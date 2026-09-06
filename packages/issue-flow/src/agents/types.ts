@@ -8,8 +8,18 @@
 
 import type { ClaudeUsage } from '../core/metrics.js';
 
-/** Providers the pipeline can invoke. A fifth would add a file, not a refactor. */
-export type AgentProviderId = 'claude' | 'codex' | 'cursor' | 'antigravity';
+/** Providers the pipeline can invoke. A sixth would add a file, not a refactor. */
+export type AgentProviderId = 'claude' | 'codex' | 'cursor' | 'antigravity' | 'opencode';
+
+export const AGENT_PROVIDER_IDS: readonly AgentProviderId[] = [
+  'claude',
+  'codex',
+  'cursor',
+  'antigravity',
+  'opencode',
+];
+
+export const AGENT_PROVIDER_LIST = AGENT_PROVIDER_IDS.join(', ');
 
 /** The eight invocations that actually call an agent. `init` is not one of them. */
 export type AgentPhase =
@@ -38,7 +48,7 @@ export function isAgentPhase(value: string): value is AgentPhase {
 }
 
 export function isAgentProviderId(value: string): value is AgentProviderId {
-  return value === 'claude' || value === 'codex' || value === 'cursor' || value === 'antigravity';
+  return (AGENT_PROVIDER_IDS as readonly string[]).includes(value);
 }
 
 /**
@@ -122,7 +132,7 @@ export interface AgentRunResult {
 }
 
 /**
- * What a runner can do. Declared so a fourth provider adds a file, not a
+ * What a runner can do. Declared so a new provider adds a file, not a
  * refactor. The core asks "does this invocation need extraDirectories?",
  * never "which provider is this?".
  */
@@ -189,6 +199,13 @@ export interface AntigravitySettings {
   minVersion?: string;
 }
 
+export interface OpenCodeSettings {
+  /** Provider-specific reasoning effort, e.g. high, max, minimal. */
+  variant?: string;
+  minVersion?: string;
+  maxPromptBytes?: number;
+}
+
 /** One layer of the agent block — default or a single phase. */
 export interface AgentBlock {
   provider?: AgentProviderId;
@@ -197,6 +214,7 @@ export interface AgentBlock {
   codex?: CodexSettings;
   cursor?: CursorSettings;
   antigravity?: AntigravitySettings;
+  opencode?: OpenCodeSettings;
 }
 
 export interface AgentConfig {
@@ -206,6 +224,7 @@ export interface AgentConfig {
   codex: CodexSettings;
   cursor: CursorSettings;
   antigravity: AntigravitySettings;
+  opencode: OpenCodeSettings;
   phases: Partial<Record<AgentPhase, AgentBlock>>;
 }
 
@@ -219,6 +238,7 @@ export interface ResolvedAgentSettings {
   codex: CodexSettings;
   cursor: CursorSettings;
   antigravity: AntigravitySettings;
+  opencode: OpenCodeSettings;
   origin: {
     provider: AgentOrigin;
     model: AgentOrigin;
@@ -321,6 +341,28 @@ export const ANTIGRAVITY_CAPABILITIES: AgentCapabilities = {
   readOnlyMode: 'native',
 };
 
+export const OPENCODE_CAPABILITIES: AgentCapabilities = {
+  extraDirectories: 'flag',
+  addDirs: true,
+  toolAllowlist: false,
+  maxTurns: false,
+  osSandbox: false,
+  modelSelection: true,
+  modelDiscovery: true,
+  usage: 'tokens-only',
+  reportsUsage: true,
+  reportsCost: false,
+  sessionResume: true,
+  authProbe: 'text',
+  bareModelAliases: false,
+  promptChannel: 'argv',
+  nativeTimeout: false,
+  contextFileName: 'AGENTS.md',
+  contextFileMaxBytes: null,
+  toolNameCase: 'lowercase',
+  readOnlyMode: 'native',
+};
+
 export const AGENT_SCHEMA_VERSION = 1;
 
 /**
@@ -338,5 +380,6 @@ export interface AgentCliOverrides {
   codex?: CodexSettings;
   cursor?: CursorSettings;
   antigravity?: AntigravitySettings;
+  opencode?: OpenCodeSettings;
   phases?: Partial<Record<AgentPhase, AgentBlock>>;
 }

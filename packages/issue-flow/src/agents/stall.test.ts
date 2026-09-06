@@ -8,6 +8,7 @@ vi.mock('execa', () => ({
 import { execa } from 'execa';
 import { AntigravityRunner } from './antigravity.js';
 import { CursorRunner } from './cursor.js';
+import { OpenCodeRunner } from './opencode.js';
 import type { AgentInvocation, AgentRunner, ResolvedAgentSettings } from './types.js';
 
 type ExecaResult = Awaited<ReturnType<typeof execa>>;
@@ -22,6 +23,7 @@ function settings(provider: ResolvedAgentSettings['provider']): ResolvedAgentSet
     codex: {},
     cursor: {},
     antigravity: {},
+    opencode: {},
     origin: { provider: 'default', model: 'default' },
   };
 }
@@ -84,6 +86,11 @@ const CASES: Array<{ name: string; runner: () => AgentRunner; firstLine: string 
     name: 'antigravity',
     runner: () => new AntigravityRunner(),
     firstLine: JSON.stringify({ type: 'assistant', text: 'working' }),
+  },
+  {
+    name: 'opencode',
+    runner: () => new OpenCodeRunner(),
+    firstLine: JSON.stringify({ type: 'text', part: { type: 'text', text: 'working' } }),
   },
 ];
 

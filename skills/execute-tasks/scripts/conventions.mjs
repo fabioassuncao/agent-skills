@@ -35,7 +35,13 @@ var DEFAULT_LABEL_TYPE_MAP = {
   architecture: "feat",
   investigation: "chore"
 };
-var FORBIDDEN_PROVIDER_NAMES = ["claude", "codex", "cursor", "antigravity"];
+var FORBIDDEN_PROVIDER_NAMES = [
+  "claude",
+  "codex",
+  "cursor",
+  "antigravity",
+  "opencode"
+];
 function isChangeType(value) {
   return CHANGE_TYPES.includes(value);
 }

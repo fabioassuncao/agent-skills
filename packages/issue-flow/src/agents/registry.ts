@@ -3,6 +3,7 @@ import { AntigravityRunner } from './antigravity.js';
 import { ClaudeCodeRunner, cacheHarnessVersion, peekHarnessVersion } from './claude.js';
 import { CodexRunner } from './codex.js';
 import { CursorRunner } from './cursor.js';
+import { OpenCodeRunner } from './opencode.js';
 import type { AgentProviderId, AgentRunner } from './types.js';
 
 const runners = new Map<AgentProviderId, AgentRunner>();
@@ -25,6 +26,7 @@ export function ensureRunnersRegistered(): void {
   if (!registered.has('codex')) registerRunner(new CodexRunner());
   if (!registered.has('cursor')) registerRunner(new CursorRunner());
   if (!registered.has('antigravity')) registerRunner(new AntigravityRunner());
+  if (!registered.has('opencode')) registerRunner(new OpenCodeRunner());
 }
 
 /**

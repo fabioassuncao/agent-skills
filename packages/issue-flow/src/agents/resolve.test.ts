@@ -3,7 +3,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadAgentConfig, setAgentCliOverrides } from '../config.js';
 import { resetStorageResolutionCache } from '../storage/resolve.js';
-import { hasExplicitAgentSelection, parseAgentPhaseFlag, resolveAgentFor } from './resolve.js';
+import {
+  applyOpenCodeGoModel,
+  hasExplicitAgentSelection,
+  parseAgentPhaseFlag,
+  resolveAgentFor,
+} from './resolve.js';
 
 const warn = (): void => undefined;
 
@@ -24,6 +29,10 @@ describe('parseAgentPhaseFlag', () => {
     expect(parseAgentPhaseFlag('review=antigravity:gemini-3.5-flash-medium')).toEqual({
       phase: 'review',
       block: { provider: 'antigravity', model: 'gemini-3.5-flash-medium' },
+    });
+    expect(parseAgentPhaseFlag('review=opencode:opencode-go/qwen3.8-flash')).toEqual({
+      phase: 'review',
+      block: { provider: 'opencode', model: 'opencode-go/qwen3.8-flash' },
     });
     expect(() => parseAgentPhaseFlag('review=unknown')).toThrow(/Unknown agent provider/);
   });
@@ -112,6 +121,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
       codex: {},
       cursor: {},
       antigravity: { effort: 'medium' as const },
+      opencode: {},
       phases: { plan: { provider: 'antigravity' as const, model: 'gemini-3.5-flash-low' } },
     };
     const plan = await resolveAgentFor('plan', { config });
@@ -138,6 +148,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
         codex: {},
         cursor: {},
         antigravity: {},
+        opencode: {},
         phases: { plan: { provider: 'codex' } },
       },
       cli: { forceProvider: 'claude' },
@@ -157,6 +168,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
       codex: {},
       cursor: {},
       antigravity: {},
+      opencode: {},
       phases: {},
     };
     const review = await resolveAgentFor('review', { config, cli });
@@ -198,11 +210,70 @@ describe('loadAgentConfig / resolveAgentFor', () => {
         codex: { sandbox: 'danger-full-access' },
         cursor: {},
         antigravity: {},
+        opencode: {},
         phases: {},
       },
     });
     expect(resolved.provider).toBe('claude');
     expect(resolved.codex.sandbox).toBe('danger-full-access');
+  });
+
+  it('resolves opencode as a phase overlay and via --agent', async () => {
+    const config = {
+      provider: 'claude' as const,
+      model: null,
+      claude: {},
+      codex: {},
+      cursor: {},
+      antigravity: {},
+      opencode: { variant: 'high' as const },
+      phases: {
+        review: { provider: 'opencode' as const, model: 'opencode-go/qwen3.8-flash' },
+      },
+    };
+    const review = await resolveAgentFor('review', { config });
+    const plan = await resolveAgentFor('plan', { config });
+    expect(review.provider).toBe('opencode');
+    expect(review.model).toBe('opencode-go/qwen3.8-flash');
+    expect(review.opencode.variant).toBe('high');
+    expect(plan.provider).toBe('claude');
+
+    const forced = await resolveAgentFor('plan', {
+      config,
+      cli: { forceProvider: 'opencode' },
+    });
+    expect(forced.provider).toBe('opencode');
+    expect(forced.model).toBe('opencode-go/qwen3.8-flash');
+    expect(forced.origin.provider).toBe('cli');
+    expect(forced.origin.model).toBe('default');
+
+    const analyze = await resolveAgentFor('analyze', {
+      config,
+      cli: { forceProvider: 'opencode' },
+    });
+    expect(analyze.model).toBe('opencode-go/mimo-v2.5');
+    const mergeReady = await resolveAgentFor('pr-review', {
+      config,
+      cli: { forceProvider: 'opencode' },
+    });
+    expect(mergeReady.model).toBe('opencode-go/gpt-5.6-luna');
+  });
+
+  it('does not override an explicit OpenCode model pin', () => {
+    const pinned = applyOpenCodeGoModel(
+      {
+        provider: 'opencode',
+        model: 'opencode-go/kimi-k2.7-code',
+        claude: {},
+        codex: {},
+        cursor: {},
+        antigravity: {},
+        opencode: {},
+        origin: { provider: 'cli', model: 'cli' },
+      },
+      { phase: 'execute', taskClass: 'bugfix', risk: 'low' },
+    );
+    expect(pinned.model).toBe('opencode-go/kimi-k2.7-code');
   });
 
   it('treats a phase override as explicit only for that phase', () => {
@@ -213,6 +284,7 @@ describe('loadAgentConfig / resolveAgentFor', () => {
       codex: {},
       cursor: {},
       antigravity: {},
+      opencode: {},
       phases: { review: { provider: 'codex' as const } },
     };
     expect(hasExplicitAgentSelection(config, {}, 'review')).toBe(true);

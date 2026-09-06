@@ -1,6 +1,6 @@
 import type { AgentCapabilities } from '../agents/types.js';
 
-export const MODEL_CATALOG_VERSION = '1';
+export const MODEL_CATALOG_VERSION = '3';
 
 export type ModelTier = 'fast' | 'mid' | 'strong';
 
@@ -35,6 +35,13 @@ export const MODEL_CATALOG: Record<string, readonly ModelEntry[]> = {
     { id: 'gemini-3.5-flash-low', tier: 'fast', relativeCost: 1, relativeLatency: 1 },
     { id: 'gemini-3.5-flash-medium', tier: 'mid', relativeCost: 2.5, relativeLatency: 1.4 },
     { id: 'gemini-3.5-pro-high', tier: 'strong', relativeCost: 6, relativeLatency: 2 },
+  ],
+  // OpenCode Go: relative cost tracks 5h quota intensity, kept in the 1–8
+  // band so preferredTier still wins over raw request-count ratios.
+  'opencode-cli': [
+    { id: 'opencode-go/mimo-v2.5', tier: 'fast', relativeCost: 1, relativeLatency: 1 },
+    { id: 'opencode-go/qwen3.8-flash', tier: 'mid', relativeCost: 2.5, relativeLatency: 1.3 },
+    { id: 'opencode-go/gpt-5.6-luna', tier: 'strong', relativeCost: 5, relativeLatency: 1.8 },
   ],
 };
 

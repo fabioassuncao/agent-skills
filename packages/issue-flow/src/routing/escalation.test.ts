@@ -4,10 +4,13 @@ import {
   classifyAttempt,
   detectNonConvergence,
   failureFingerprint,
+  nextEscalationModel,
   nextModelTier,
   nextRung,
   unusedHarness,
 } from './escalation.js';
+import { MODEL_CATALOG } from './models.js';
+import { OPENCODE_GO_MODELS } from './opencode-go.js';
 
 function check(id: string, status: CheckResult['status'], output = 'failed'): CheckResult {
   return {
@@ -57,6 +60,30 @@ describe('nextModelTier', () => {
     expect(nextModelTier('fast', [], catalog)?.id).toBe('mid');
     expect(nextModelTier('fast', ['mid'], catalog)?.id).toBe('strong');
     expect(nextModelTier('mid', ['strong'], catalog)).toBeNull();
+  });
+});
+
+describe('nextEscalationModel', () => {
+  it('climbs the OpenCode Go ladder instead of the Anthropic triplete', () => {
+    const catalog = MODEL_CATALOG['opencode-cli'] ?? [];
+    expect(
+      nextEscalationModel({
+        harness: 'opencode-cli',
+        currentModel: OPENCODE_GO_MODELS.codingCheap,
+        current: 'mid',
+        tried: [],
+        catalog,
+      })?.id,
+    ).toBe(OPENCODE_GO_MODELS.default);
+    expect(
+      nextEscalationModel({
+        harness: 'opencode-cli',
+        currentModel: OPENCODE_GO_MODELS.escalate,
+        current: 'strong',
+        tried: [],
+        catalog,
+      })?.id,
+    ).toBe(OPENCODE_GO_MODELS.specialist);
   });
 });
 

@@ -1,3 +1,4 @@
+import { type OpenCodeGoInput, resolveOpenCodeGoModel } from '../routing/opencode-go.js';
 import { getTrackedOrigins } from './origins.js';
 import {
   AGENT_PHASES,
@@ -27,6 +28,7 @@ export function mergeAgentBlocks(base: AgentBlock, overlay: AgentBlock | undefin
     codex: { ...base.codex, ...dropUndefined(overlay.codex ?? {}) },
     cursor: { ...base.cursor, ...dropUndefined(overlay.cursor ?? {}) },
     antigravity: { ...base.antigravity, ...dropUndefined(overlay.antigravity ?? {}) },
+    opencode: { ...base.opencode, ...dropUndefined(overlay.opencode ?? {}) },
   };
 }
 
@@ -66,6 +68,7 @@ export async function resolveAgentFor(
     codex: config.codex,
     cursor: config.cursor,
     antigravity: config.antigravity,
+    opencode: config.opencode,
   };
 
   const phaseBlock = mergeAgentBlocks(config.phases[phase] ?? {}, cli.phases?.[phase]);
@@ -87,6 +90,10 @@ export async function resolveAgentFor(
     modelOrigin = 'cli';
   }
 
+  if (provider === 'opencode' && model === null) {
+    model = resolveOpenCodeGoModel({ phase }).model;
+  }
+
   return {
     provider,
     model,
@@ -94,6 +101,7 @@ export async function resolveAgentFor(
     codex: merged.codex ?? {},
     cursor: merged.cursor ?? {},
     antigravity: merged.antigravity ?? {},
+    opencode: merged.opencode ?? {},
     origin: { provider: providerOrigin, model: modelOrigin },
   };
 }
@@ -172,7 +180,7 @@ export function parseAgentPhaseFlag(value: string): { phase: AgentPhase; block: 
   const [providerRaw, ...modelParts] = rest.split(':');
   if (!providerRaw || !isAgentProviderId(providerRaw)) {
     throw new Error(
-      `Unknown agent provider "${providerRaw ?? ''}". Valid providers: claude, codex, cursor, antigravity.`,
+      `Unknown agent provider "${providerRaw ?? ''}". Valid providers: claude, codex, cursor, antigravity, opencode.`,
     );
   }
   const model = modelParts.length > 0 ? modelParts.join(':') : undefined;
@@ -183,6 +191,19 @@ export function parseAgentPhaseFlag(value: string): { phase: AgentPhase; block: 
       ...(model ? { model } : {}),
     },
   };
+}
+
+/** Fill or refine the OpenCode Go model only when the user did not pin one. */
+export function applyOpenCodeGoModel(
+  settings: ResolvedAgentSettings,
+  input: OpenCodeGoInput,
+): ResolvedAgentSettings {
+  if (settings.provider !== 'opencode' || settings.origin.model !== 'default') {
+    return settings;
+  }
+  const model = resolveOpenCodeGoModel(input).model;
+  if (model === settings.model) return settings;
+  return { ...settings, model };
 }
 
 /** Whether any layer other than the baked default has spoken. */

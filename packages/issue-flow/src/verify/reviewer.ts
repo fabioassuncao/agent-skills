@@ -10,6 +10,7 @@ const VENDOR: Record<string, string> = {
   codex: 'openai',
   cursor: 'cursor',
   antigravity: 'google',
+  opencode: 'opencode',
 };
 
 export interface ReviewFinding {

@@ -107,7 +107,7 @@ function withGlobalOptions(cmd: Command): Command {
       )
       .option(
         '--agent <provider>',
-        'Run every phase on this agent (claude|codex|cursor|antigravity)',
+        'Run every phase on this agent (claude|codex|cursor|antigravity|opencode)',
       )
       .option('--agent-model <model>', 'Override the model for every phase')
       .option(
@@ -136,7 +136,9 @@ function resolveAgentOverrides(opts: Record<string, unknown>): AgentCliOverrides
   const overrides: AgentCliOverrides = {};
   if (typeof opts.agent === 'string') {
     if (!isAgentProviderId(opts.agent)) {
-      throw new InvalidArgumentError('Must be one of: claude, codex, cursor, antigravity.');
+      throw new InvalidArgumentError(
+        'Must be one of: claude, codex, cursor, antigravity, opencode.',
+      );
     }
     overrides.forceProvider = opts.agent;
   }
@@ -970,7 +972,7 @@ agentCommand.action(async (options: { json?: boolean }) => {
 agentCommand
   .command('use')
   .description('Write an agent preference to config.json or .issue-flow.json')
-  .argument('<provider>', 'claude, codex, cursor or antigravity')
+  .argument('<provider>', 'claude, codex, cursor, antigravity or opencode')
   .option('--model <model>', 'Model identifier for this preference')
   .option('--global', 'Write to ~/.issue-flow/config.json (default)')
   .option('--project', 'Write to .issue-flow.json in the repository')

@@ -7,6 +7,7 @@ import {
 import { getSessionPublisher } from '../core/session-publisher.js';
 import { isoNow } from '../core/state-manager.js';
 import { type ClassifiedFailure, classify, type FailureKind } from '../resilience/errors.js';
+import { analyzeTask } from '../routing/analyze.js';
 import { evaluateCeilings } from '../routing/budget.js';
 import { decideRouting } from '../routing/decide.js';
 import { bindDiagnosticContext, writeDiagnostic } from '../storage/diagnostics.js';
@@ -21,7 +22,7 @@ import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
 import { ensureCursorStorageGrant } from './permissions.js';
 import { runnerFor } from './registry.js';
-import { hasExplicitAgentSelection, resolveAgentFor } from './resolve.js';
+import { applyOpenCodeGoModel, hasExplicitAgentSelection, resolveAgentFor } from './resolve.js';
 import { applyRoutingDecision, routingRecommendationLine } from './routing-application.js';
 import { type AgentSelection, selectAgentForInvocation } from './select.js';
 import type { AgentInvocation, AgentProviderId, AgentRunResult } from './types.js';
@@ -64,6 +65,8 @@ export function declaredAgentIdentity(provider: AgentProviderId): {
       return { harness: 'cursor-cli', vendor: 'cursor' };
     case 'antigravity':
       return { harness: 'antigravity-cli', vendor: 'google' };
+    case 'opencode':
+      return { harness: 'opencode-cli', vendor: 'opencode' };
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;
@@ -130,6 +133,12 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       readiness = null;
     }
   }
+  const issue = getSessionPublisher().snapshot().issue;
+  const routingSignals = {
+    title: issue.title ?? undefined,
+    body: issue.description ?? undefined,
+    labels: issue.labels,
+  };
   const routingDecision = decideRouting({
     phase: invocation.phase,
     actualHarness: originalIdentity.harness,
@@ -141,11 +150,24 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     skipScore: hasExplicitAgentSelection(agentCfg, getAgentCliOverrides(), invocation.phase),
     requiresExtraDirectories: (invocation.addDirs?.length ?? 0) > 0,
     readiness,
+    signals: routingSignals,
+    correctionCycle: invocation.correctionCycle,
   });
   const recommendation = routingRecommendationLine(routingDecision, invocation.phase);
   if (recommendation !== null) printInfo(recommendation);
   const routed = await applyRoutingDecision(selection, routingDecision, invocation.phase);
   selection = routed.selection;
+  const analyzed = analyzeTask(routingSignals);
+  const goSettings = applyOpenCodeGoModel(selection.settings, {
+    phase: invocation.phase,
+    taskClass: analyzed.taskClass,
+    risk: analyzed.risk,
+    profile: routingCfg.profile,
+    correctionCycle: invocation.correctionCycle,
+  });
+  if (goSettings !== selection.settings) {
+    selection = { ...selection, settings: goSettings };
+  }
   if (routed.warning !== null) {
     writeDiagnostic({
       level: 'warning',

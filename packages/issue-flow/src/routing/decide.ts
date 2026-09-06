@@ -5,10 +5,12 @@ import {
   CLAUDE_CAPABILITIES,
   CODEX_CAPABILITIES,
   CURSOR_CAPABILITIES,
+  OPENCODE_CAPABILITIES,
 } from '../agents/types.js';
 import { analyzeTask } from './analyze.js';
 import { filterEligible } from './capabilities.js';
 import { MODEL_CATALOG_VERSION, modelsFor } from './models.js';
+import { OPENCODE_GO_POLICY_VERSION, resolveOpenCodeGoModel } from './opencode-go.js';
 import { RECOMMENDED_POLICY_VERSION, recommendedFor } from './policy.js';
 import { PRIORS_VERSION } from './priors.js';
 import { pickSelected, scoreCandidates } from './score.js';
@@ -19,6 +21,7 @@ const CAPS = {
   'codex-cli': CODEX_CAPABILITIES,
   'cursor-cli': CURSOR_CAPABILITIES,
   'antigravity-cli': ANTIGRAVITY_CAPABILITIES,
+  'opencode-cli': OPENCODE_CAPABILITIES,
 } as const;
 
 const PROVIDER: Record<string, string> = {
@@ -26,6 +29,7 @@ const PROVIDER: Record<string, string> = {
   'codex-cli': 'codex',
   'cursor-cli': 'cursor',
   'antigravity-cli': 'antigravity',
+  'opencode-cli': 'opencode',
 };
 
 export function decideRouting(input: {
@@ -41,11 +45,12 @@ export function decideRouting(input: {
   policy?: 'recommended';
   /** Injected inventory — router stays pure (no probes). */
   readiness?: ReadinessSnapshot | null;
+  correctionCycle?: number;
 }): RoutingDecision | null {
   if (input.mode === 'off') return null;
   const analyzed = analyzeTask(input.signals ?? {});
   const profile = input.profile ?? 'balanced';
-  const policyVersion = `${PRIORS_VERSION}:${MODEL_CATALOG_VERSION}:${input.policy === 'recommended' ? RECOMMENDED_POLICY_VERSION : 'adaptive'}`;
+  const policyVersion = `${PRIORS_VERSION}:${MODEL_CATALOG_VERSION}:${input.policy === 'recommended' ? RECOMMENDED_POLICY_VERSION : 'adaptive'}:${OPENCODE_GO_POLICY_VERSION}`;
 
   if (input.skipScore) {
     return {
@@ -74,7 +79,12 @@ export function decideRouting(input: {
 
   const scored = scoreCandidates(
     (Object.keys(CAPS) as (keyof typeof CAPS)[]).flatMap((harness) => {
-      const providerId = PROVIDER[harness] as 'claude' | 'codex' | 'cursor' | 'antigravity';
+      const providerId = PROVIDER[harness] as
+        | 'claude'
+        | 'codex'
+        | 'cursor'
+        | 'antigravity'
+        | 'opencode';
       const readiness =
         input.readiness === undefined || input.readiness === null
           ? null
@@ -119,6 +129,17 @@ export function decideRouting(input: {
     }),
   );
   const selected = pickSelected(scored);
+  if (selected.harness === 'opencode-cli') {
+    const go = resolveOpenCodeGoModel({
+      phase: input.phase,
+      taskClass: analyzed.taskClass,
+      risk: analyzed.risk,
+      profile,
+      correctionCycle: input.correctionCycle,
+    });
+    selected.model = go.model;
+    selected.reasonCodes.push(...go.reasonCodes);
+  }
   return {
     policyVersion,
     profile,
