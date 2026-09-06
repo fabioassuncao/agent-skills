@@ -23,6 +23,36 @@ single warning, a busy port (`EADDRINUSE`) just skips the server, and killing th
 server or closing the browser mid-run has no effect on the execution. With
 `--web` off, the terminal output and behaviour are byte-for-byte identical.
 
+## Two panels, one server
+
+There are two dashboards during the frontend migration, and both are served by
+the same `node:http` process — no second server (§48.2).
+
+| Panel | Source | Built by | Served at |
+|-------|--------|----------|-----------|
+| The Svelte panel | `packages/issue-flow/web/src/` | `npm run build:web` (Vite) → `web/dist/` | `/` |
+| The current panel | `packages/issue-flow/web/public/` | nothing — three static files | `/legacy/` |
+
+The old panel is **not** removed until the three checklists of §50.7 are green
+(ADR-18); until then it is also the rollback path. Both read the same colour
+tokens, and a test fails if the two copies drift.
+
+The new panel asks `GET /api/health` before it renders anything and offers only
+the surfaces the answer announces. That is what lets one build serve both a
+monitor a pipeline run bound inline — which serves executions and nothing else —
+and a standalone `issue-flow serve` with projects, worktrees and terminals: the
+first one says so, instead of showing empty lists that read as a failure. A
+capability is never inferred from a version number, because the assets on screen
+can be newer than the process serving them.
+
+The server loads both directories at startup and overlays the dashboard on the
+legacy mount: where a build exists, `/` is the Svelte panel and `/assets/<file>`
+are its hashed bundles; where none does — a source checkout that never ran
+`npm run build:web` — `/` stays the previous panel rather than 404ing.
+`/legacy/` is always the previous panel, and `/legacy` without the trailing
+slash answers `301`, because its `app.css` is a relative reference that would
+otherwise resolve against the other panel.
+
 ## The dashboard
 
 With two or more active sessions, the panel opens on the executions dashboard —
@@ -163,10 +193,9 @@ implies `--web`, gracefully stops the previous verified monitor, and starts a
 new detached process through the entry point of the CLI handling the command.
 Without it, the normal reuse behaviour above is unchanged.
 
-The distinction matters after upgrading Issue Flow: `web/public` is not copied
-through a separate frontend build. The server reads `index.html`, `app.css` and
-`app.js` once at startup and retains them in memory, together with its status
-ETag cache. A process started by an older package therefore keeps serving that
+The distinction matters after upgrading Issue Flow: the panel files are not
+copied through a separate deployment step. The server reads them once at startup
+and retains them in memory, together with its status ETag cache. A process started by an older package therefore keeps serving that
 older UI even if the package files on disk are later replaced. Restarting the
 process invalidates those process-local caches. There is no web build cache on
 disk, service worker or HTTP browser cache to delete; responses use
@@ -298,7 +327,8 @@ runs in the pipeline.
 
 | Route | Returns |
 |-------|---------|
-| `GET /` | The dashboard |
+| `GET /` | The dashboard (Svelte panel) |
+| `GET /legacy/` | The previous dashboard, kept until §50.7 is green (ADR-18) |
 | `GET /api/health` | Liveness, PID, version and instance identity used by ownership/restart probes |
 | `GET /api/sessions` | Every active session, with the summary fields the dashboard cards need |
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
@@ -310,6 +340,8 @@ runs in the pipeline.
 | `POST /api/projects` | Add a project by `{ "path": "…" }`; loopback only |
 | `DELETE /api/projects/:prefix` | Stop serving a project and demote it to `discovered`; loopback only |
 | `GET /api/project-inits` | Phases of the setups currently in flight |
+| `GET /api/terminal/token` | Credential the panel presents on the terminal WebSocket handshake; loopback only |
+| `WS /ws/terminal?token=…&session=…` | The terminal transport (`src/web/terminal-ws.ts`); refuses a missing token or a foreign `Origin` |
 
 The snapshot's `agent` section carries what the agent's own
 [lifecycle hooks](agents.md#lifecycle-hooks) reported — `lifecycle`

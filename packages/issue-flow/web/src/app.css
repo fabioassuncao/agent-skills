@@ -1,0 +1,183 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/*
+  ADAPT of `frontend/src/app.css` from windmill-labs/webmux @ d8c9d5f.
+
+  The upstream declares thirteen literal hex values inside `@theme`. ADR-19
+  reverses the direction: the Issue Flow role tokens are the source of truth,
+  Tailwind is the mechanism that consumes them, and no utility class ever
+  carries a literal colour. `tokens.css` is a byte-for-byte copy of the palette
+  layer of `web/public/app.css` — `tokens.test.ts` fails if the two drift, which
+  is the only way this stays true while both panels exist (ADR-18).
+
+  Because the tokens are CSS custom properties that change value under
+  `prefers-color-scheme` and `[data-theme]`, the `@theme` entries below are
+  references, not values: `bg-surface` resolves through `var(--surface)` at
+  paint time, so a theme switch repaints without rebuilding anything.
+
+  `inline` is required here. Without it Tailwind copies the *declaration* into
+  its own `:root`, which would freeze the light values and make the dark theme
+  a no-op — the failure is silent and only shows up as a light panel on a dark
+  system.
+*/
+
+@theme inline {
+  /* Surfaces. The upstream's four (`surface`/`sidebar`/`topbar`/`hover`) map
+     onto the three Issue Flow roles plus the page ground: a card, the ground
+     the sidebar and top bar sit on, and the neutral recess used for hover. */
+  --color-bg: var(--surface-page);
+  --color-surface: var(--surface);
+  --color-sidebar: var(--surface-page);
+  --color-topbar: var(--surface-page);
+  --color-hover: var(--surface-sunken);
+  --color-active: var(--state-run-surface);
+  --color-edge: var(--border);
+  --color-edge-strong: var(--border-strong);
+
+  /* Text. `primary`/`muted` are the upstream's names; `subtle` is the third
+     hierarchy the Issue Flow palette already measured. */
+  --color-primary: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+
+  /* Accent, and the text that goes on top of a solid accent or state fill.
+     `--color-accent-text` is what replaces every `text-white` in the upstream:
+     white on a light-theme accent is fine, but white on the dark theme's light
+     fills is 2.98:1. */
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+
+  /* State. The upstream's `danger`/`success`/`warning` are the Issue Flow
+     `error`/`ok`/`warn` roles under their own names; `run` had no upstream
+     equivalent and `merged` had no Issue Flow equivalent (see below). */
+  --color-danger: var(--state-error);
+  --color-danger-surface: var(--state-error-surface);
+  --color-success: var(--state-ok);
+  --color-success-surface: var(--state-ok-surface);
+  --color-warning: var(--state-warn);
+  --color-warning-surface: var(--state-warn-surface);
+  --color-run: var(--state-run);
+  --color-run-surface: var(--state-run-surface);
+  --color-merged: var(--state-merged);
+  --color-merged-surface: var(--state-merged-surface);
+
+  --color-focus-ring: var(--focus-ring);
+}
+
+/*
+  One role the Issue Flow palette did not have: a merged pull request.
+
+  It is not "ok" — a merged PR is not a passing state, and painting it green
+  next to a green check is exactly the confusion the closed vocabulary exists to
+  prevent. Both pairs are calculated (WCAG 2.x relative luminance), not
+  eyeballed, and are recorded in `web/AGENTS.md` alongside the other eighteen:
+  5.98:1 light, 8.18:1 dark, against a 4.5:1 minimum.
+
+  Declared in `:root` for the light value and overridden in the two twin dark
+  blocks, exactly like every other token — never defined only inside a `@media`
+  or a `[data-theme]`.
+*/
+:root {
+  --state-merged: #6d28d9;
+  --state-merged-surface: #ede9fe;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --state-merged: #c4b5fd;
+    --state-merged-surface: #2a2140;
+  }
+}
+
+/* Twin of the block above — same list of overrides, they change together. */
+:root[data-theme='dark'] {
+  --state-merged: #c4b5fd;
+  --state-merged-surface: #2a2140;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--surface-page);
+  color: var(--text);
+}
+
+input[type='search']::-webkit-search-decoration,
+input[type='search']::-webkit-search-cancel-button,
+input[type='search']::-webkit-search-results-button,
+input[type='search']::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+}
+
+/* dialog styling (no tailwind equivalents for ::backdrop) */
+dialog[open] {
+  margin: auto;
+}
+dialog::backdrop {
+  background: var(--overlay);
+}
+
+dialog textarea {
+  font-family: inherit;
+}
+
+dialog textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/*
+  Keyboard focus is distinguishable from hover, everywhere.
+
+  Carried over from the current panel: one shared `:focus-visible` rule draws
+  the ring, and hover only ever changes colour, border or background. A
+  component that swaps its border on hover still needs the ring on focus.
+*/
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: var(--radius-pill);
+  animation: spin 0.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* xterm overrides */
+.xterm {
+  height: 100%;
+  width: 100%;
+}
+
+.xterm .xterm-viewport {
+  overscroll-behavior-y: contain;
+}
+
+/* Mobile layout */
+@media (max-width: 768px) {
+  /* Prevent overscroll/bounce on iOS */
+  html,
+  body {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100dvh;
+  }
+}

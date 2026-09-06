@@ -39,7 +39,10 @@
   "files": {
     "includes": [
       "src/**/*.ts",
+      "web/src/**/*.ts",
+      "web/*.config.ts",
       "web/public/**/*.js",
+      "../issue-flow-contract/src/**/*.ts",
       "scripts/**/*.mjs",
       "*.config.ts",
       "!!**/dist",

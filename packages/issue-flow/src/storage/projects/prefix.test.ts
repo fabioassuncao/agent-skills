@@ -52,7 +52,13 @@ describe('deriveProjectPrefix', () => {
   });
 
   it('keeps every hub route in the reserved set', () => {
-    expect([...RESERVED_PROJECT_PREFIXES].sort()).toEqual(['api', 'assets', 'health', 'ws']);
+    expect([...RESERVED_PROJECT_PREFIXES].sort()).toEqual([
+      'api',
+      'assets',
+      'health',
+      'legacy',
+      'ws',
+    ]);
   });
 
   it('splits on the Windows separator too', () => {

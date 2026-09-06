@@ -18,13 +18,16 @@
  * never collide with one, or `/<prefix>/…` would shadow the hub route.
  *
  * Wider than the upstream set (`api`, `ws`, `assets`) because this server also
- * answers `/api/health` at the root and serves its assets from `/`.
+ * answers `/api/health` at the root, serves the dashboard bundle from
+ * `/assets/`, and keeps the previous panel at `/legacy/` until the three blocks
+ * of §50.7 are green (ADR-18).
  */
 export const RESERVED_PROJECT_PREFIXES: ReadonlySet<string> = new Set([
   'api',
   'ws',
   'assets',
   'health',
+  'legacy',
 ]);
 
 /** Fallback label when a basename sanitizes to nothing usable. */

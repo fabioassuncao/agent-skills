@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -113,8 +113,18 @@ export interface WebServerOptions {
   version?: string;
   /** Stable identity for this server process. Default: a fresh UUID at startup. */
   instanceId?: string;
-  /** Directory holding index.html/app.css/app.js. Default: auto-resolved. */
+  /**
+   * Directory holding the previous panel (index.html/app.css/app.js), served
+   * at `/legacy/`. Default: auto-resolved.
+   */
   publicDir?: string;
+  /**
+   * Directory holding the built dashboard (index.html + assets/), served at
+   * `/`. Default: auto-resolved. Absent or unbuilt falls back to the previous
+   * panel at `/`, so a source checkout that never ran `npm run build:web`
+   * still has a monitor.
+   */
+  dashboardDir?: string;
   /** Info logger. Default: printInfo. */
   info?: (message: string) => void;
   /** Warning logger. Default: printWarning. */
@@ -354,23 +364,89 @@ function resolveSessionSource(options: WebServerOptions): SessionSource {
   return publisherSessionSource(options.publisher ?? new NullPublisher());
 }
 
-const STATIC_ROUTES: Record<string, { file: string; contentType: string }> = {
-  '/': { file: 'index.html', contentType: 'text/html; charset=utf-8' },
-  '/app.css': { file: 'app.css', contentType: 'text/css; charset=utf-8' },
-  '/app.js': { file: 'app.js', contentType: 'text/javascript; charset=utf-8' },
+const HTML_TYPE = 'text/html; charset=utf-8';
+const CSS_TYPE = 'text/css; charset=utf-8';
+const JS_TYPE = 'text/javascript; charset=utf-8';
+
+/**
+ * The previous panel: three files, no build step.
+ *
+ * It is mounted twice on purpose. `/legacy/` is where it lives from now on
+ * (ADR-18 keeps it until the three blocks of §50.7 are green, and it is also
+ * the rollback path); `/`, `/app.css` and `/app.js` stay as a fallback for a
+ * package whose dashboard was never built — a source checkout that has not run
+ * `npm run build:web` still gets a working monitor rather than a 404.
+ *
+ * Its `index.html` references `app.css`, `app.js` and `status.json` by
+ * *relative* path, which is what lets the same bytes work under both mounts
+ * with no rewriting: at `/legacy/` the browser resolves them to
+ * `/legacy/app.css` and `/legacy/app.js`.
+ */
+const LEGACY_ROUTES: Record<string, { file: string; contentType: string }> = {
+  '/legacy/': { file: 'index.html', contentType: HTML_TYPE },
+  '/legacy/app.css': { file: 'app.css', contentType: CSS_TYPE },
+  '/legacy/app.js': { file: 'app.js', contentType: JS_TYPE },
+  '/': { file: 'index.html', contentType: HTML_TYPE },
+  '/app.css': { file: 'app.css', contentType: CSS_TYPE },
+  '/app.js': { file: 'app.js', contentType: JS_TYPE },
 };
 
+function contentTypeForAsset(file: string): string | null {
+  if (file.endsWith('.js')) return JS_TYPE;
+  if (file.endsWith('.css')) return CSS_TYPE;
+  if (file.endsWith('.html')) return HTML_TYPE;
+  return null;
+}
+
 /** Assets are read once at startup; missing files simply 404. */
-async function loadStaticAssets(publicDir: string | null): Promise<Map<string, StaticAsset>> {
+async function loadLegacyAssets(publicDir: string | null): Promise<Map<string, StaticAsset>> {
   const assets = new Map<string, StaticAsset>();
   if (publicDir === null) return assets;
-  for (const [route, { file, contentType }] of Object.entries(STATIC_ROUTES)) {
+  for (const [route, { file, contentType }] of Object.entries(LEGACY_ROUTES)) {
     try {
       const body = await readFile(join(publicDir, file), 'utf-8');
       assets.set(route, { body, contentType });
     } catch {
       // Asset not present (e.g. UI not built yet) — route answers 404.
     }
+  }
+  return assets;
+}
+
+/**
+ * The built dashboard: `index.html` plus hash-named files under `assets/`.
+ *
+ * The names carry a content hash, so they cannot be listed ahead of time the
+ * way the legacy trio can — the directory is read instead. Anything that is not
+ * JS, CSS or HTML is skipped rather than guessed at: the bundle embeds its own
+ * fonts and images as data URIs, so a binary here would mean the build changed
+ * shape, and answering it with the wrong `Content-Type` is worse than 404.
+ *
+ * Returns an empty map when there is no build, which is what makes the legacy
+ * fallback above kick in.
+ */
+async function loadDashboardAssets(dashboardDir: string | null): Promise<Map<string, StaticAsset>> {
+  const assets = new Map<string, StaticAsset>();
+  if (dashboardDir === null) return assets;
+
+  let index: string;
+  try {
+    index = await readFile(join(dashboardDir, 'index.html'), 'utf-8');
+  } catch {
+    return assets;
+  }
+  assets.set('/', { body: index, contentType: HTML_TYPE });
+
+  try {
+    const entries = await readdir(join(dashboardDir, 'assets'));
+    for (const file of entries) {
+      const contentType = contentTypeForAsset(file);
+      if (contentType === null) continue;
+      const body = await readFile(join(dashboardDir, 'assets', file), 'utf-8');
+      assets.set(`/assets/${file}`, { body, contentType });
+    }
+  } catch {
+    // No assets directory: an index-only build still serves.
   }
   return assets;
 }
@@ -427,11 +503,17 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const instanceId = options.instanceId ?? randomUUID();
   const startedAtMs = Date.now();
 
-  // The UI ships at the package root as web/public/ (sibling of prompts/),
-  // resolved the same way from src/ and from the published dist/ layout.
-  const assets = await loadStaticAssets(
+  // Both panels ship at the package root under web/ (sibling of prompts/),
+  // resolved the same way from src/ and from the published dist/ layout. The
+  // dashboard entries are applied over the legacy ones, so `/` is the new panel
+  // wherever a build exists and the old one wherever it does not (ADR-18).
+  const legacyAssets = await loadLegacyAssets(
     options.publicDir ?? resolvePackageDir(join('web', 'public')),
   );
+  const dashboardAssets = await loadDashboardAssets(
+    options.dashboardDir ?? resolvePackageDir(join('web', 'dist')),
+  );
+  const assets = new Map([...legacyAssets, ...dashboardAssets]);
 
   const source = resolveSessionSource(options);
   let terminal: TerminalWebSocketHandle | null = null;
@@ -890,6 +972,15 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
           ...(agentSessions?.writable ? ['session:open'] : []),
         ],
       });
+      return;
+    }
+
+    // `/legacy` without the trailing slash would make the browser resolve the
+    // panel's relative `app.css` against `/`, which is the *other* panel.
+    if (path === '/legacy') {
+      res.statusCode = 301;
+      res.setHeader('Location', `${projectRoute.prefix === null ? '' : `/${projectRoute.prefix}`}/legacy/`);
+      res.end();
       return;
     }
 

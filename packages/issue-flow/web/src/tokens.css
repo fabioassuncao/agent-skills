@@ -1,0 +1,153 @@
+/* Interface do monitoramento web do issue-flow.
+   Autocontida: sem fontes externas, sem CDN — funciona offline. */
+
+/* ---- Paleta ----
+
+   Tokens nomeados por papel (superfície, texto, borda, acento, estado, foco),
+   nunca por local de uso: mexer na hierarquia visual não exige inventar uma cor
+   por componente. `:root` carrega a paleta clara **inteira** — nenhum token
+   pode ter sua única definição dentro de um `@media` ou de um `[data-theme]`,
+   ou o tema oposto fica sem ele. */
+
+:root {
+  /* Esquema dos controles nativos. Os blocos de tema escuro abaixo o
+     sobrescrevem. */
+  color-scheme: light;
+
+  /* Superfície: página, cartão elevado e recesso neutro. */
+  --surface-page: #f4f5f7;
+  --surface: #ffffff;
+  --surface-sunken: #e5e7eb;
+
+  /* Texto. `--text-subtle` está reservado para uma terceira hierarquia
+     (legendas, metadados) que o painel ainda não usa — mas já cumpre 4,5:1
+     sobre as três superfícies, para poder ser usado sem nova auditoria.
+     Os três são medidos contra a superfície mais escura do tema claro
+     (`--surface-sunken`); ver a tabela de contraste em `web/AGENTS.md`. */
+  --text: #1a1f27;
+  --text-muted: #4b5563;
+  --text-subtle: #5f6773;
+
+  /* Borda. `--border-strong` está reservado para separadores que precisem
+     vencer o ruído de uma lista densa; hoje nenhum precisa. */
+  --border: #e2e5ea;
+  --border-strong: #c7ccd4;
+
+  /* Acento. `--accent-text` é o texto sobre um preenchimento sólido de acento
+     ou de estado (hoje: o banner de desconexão). */
+  --accent: #4f46e5;
+  --accent-text: #ffffff;
+
+  /* Estado: a cor do texto/ícone e a superfície que a acompanha no badge.
+     No tema claro as quatro cores ficam no nível 700 da escala — é o mais
+     claro que atende 4,5:1 sobre a própria superfície do badge. O limiar é
+     4,5:1 e não 3:1 porque `.badge` é `--font-size-sm`/600, abaixo de texto
+     grande. */
+  --state-ok: #15803d;
+  --state-ok-surface: #dcfce7;
+  --state-run: #1d4ed8;
+  --state-run-surface: #dbeafe;
+  --state-warn: #b45309;
+  --state-warn-surface: #fef3c7;
+  --state-error: #b91c1c;
+  --state-error-surface: #fee2e2;
+
+  /* Foco por teclado: o anel de `:focus-visible`. Precisa de 3:1 contra o que
+     estiver adjacente (a superfície ao redor do anel), não de 4,5:1 — é um
+     componente gráfico, não texto. */
+  --focus-ring: #4f46e5;
+
+  /* Escalas visuais fechadas. Componentes escolhem um degrau existente em vez
+     de criar valores locais; isso mantém a densidade previsível nos dois temas. */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.875rem;
+  --font-size-base: 0.9375rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.25rem;
+
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+
+  --radius-small: 6px;
+  --radius-medium: 10px;
+  --radius-pill: 999px;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  --overlay: rgb(0 0 0 / 0.45);
+}
+
+/* ---- Tema escuro ----
+
+   Dois blocos gêmeos: o do sistema e o forçado pelo controle do painel.
+   **Os dois carregam exatamente a mesma lista de overrides e precisam mudar
+   juntos** — mexeu em um, mexa no outro. Só entram aqui os tokens cujo valor
+   muda; o que é igual nos dois temas fica só em `:root`.
+
+   O guarda `:not([data-theme='light'])` é o que faz a escolha manual vencer o
+   sistema: com o SO em escuro e o tema forçado em claro, o `@media` não
+   sobrescreve nada.
+
+   `color-scheme` vai dentro de cada bloco (e não no `<html>` nem num `<meta>`)
+   porque é ele que manda nos controles nativos — `<select>`, `<progress>`,
+   barras de rolagem — e precisa acompanhar o tema efetivo, não o do SO. */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --surface-page: #0f1218;
+    --surface: #171c24;
+    --surface-sunken: #262d38;
+    --text: #e5e9f0;
+    --text-muted: #9aa1ad;
+    --text-subtle: #8f97a5;
+    --border: #262d38;
+    --accent: #818cf8;
+    /* No escuro os preenchimentos sólidos (acento e estado) são claros, então
+       o texto sobre eles inverte — branco sobre `--state-error` daria 2,98:1
+       no banner de desconexão. */
+    --accent-text: #0f1218;
+    --state-ok: #4ade80;
+    --state-ok-surface: #14301f;
+    --state-run: #60a5fa;
+    --state-run-surface: #172a45;
+    --state-warn: #fbbf24;
+    --state-warn-surface: #3a2d10;
+    --state-error: #f87171;
+    --state-error-surface: #3b1a1a;
+    --focus-ring: #818cf8;
+    --shadow: none;
+    --overlay: rgb(0 0 0 / 0.65);
+  }
+}
+
+/* Gêmeo do bloco acima — mesma lista de overrides, mudam juntos. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-page: #0f1218;
+  --surface: #171c24;
+  --surface-sunken: #262d38;
+  --text: #e5e9f0;
+  --text-muted: #9aa1ad;
+  --text-subtle: #8f97a5;
+  --border: #262d38;
+  --accent: #818cf8;
+  /* Ver o comentário do bloco gêmeo acima. */
+  --accent-text: #0f1218;
+  --state-ok: #4ade80;
+  --state-ok-surface: #14301f;
+  --state-run: #60a5fa;
+  --state-run-surface: #172a45;
+  --state-warn: #fbbf24;
+  --state-warn-surface: #3a2d10;
+  --state-error: #f87171;
+  --state-error-surface: #3b1a1a;
+  --focus-ring: #818cf8;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
+}

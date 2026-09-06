@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { Server } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -396,7 +396,12 @@ describe('startWebServer', () => {
     await writeFile(join(dir, 'app.css'), 'body {}');
     await writeFile(join(dir, 'app.js'), 'console.log(1);');
 
-    const handle = await start({ publicDir: dir });
+    // No dashboard build: the previous panel keeps `/`, which is the fallback
+    // that leaves a source checkout without `npm run build:web` usable.
+    const handle = await start({
+      publicDir: dir,
+      dashboardDir: join(tmpdir(), 'issue-flow-no-dashboard'),
+    });
 
     const index = await fetch(`${handle.url}/`);
     expect(index.status).toBe(200);
@@ -408,25 +413,88 @@ describe('startWebServer', () => {
 
     const js = await fetch(`${handle.url}/app.js`);
     expect(js.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+
+    // ADR-18: the same bytes are also mounted at /legacy/, which is where they
+    // stay once a dashboard build takes over `/`.
+    const legacyIndex = await fetch(`${handle.url}/legacy/`);
+    expect(legacyIndex.status).toBe(200);
+    expect(await legacyIndex.text()).toBe('<html>monitor</html>');
+    expect((await fetch(`${handle.url}/legacy/app.css`)).status).toBe(200);
+    expect((await fetch(`${handle.url}/legacy/app.js`)).status).toBe(200);
+
+    // Without the trailing slash the browser would resolve the panel's relative
+    // `app.css` against `/` — the other panel.
+    const redirect = await fetch(`${handle.url}/legacy`, { redirect: 'manual' });
+    expect(redirect.status).toBe(301);
+    expect(redirect.headers.get('location')).toBe('/legacy/');
+  });
+
+  it('lets the dashboard build take over / and keeps the previous panel at /legacy/', async () => {
+    // The heart of ADR-18: one server, two panels, and the new one is the
+    // default surface the moment a build exists.
+    const legacyDir = await mkdtemp(join(tmpdir(), 'issue-flow-legacy-'));
+    const dashboardDir = await mkdtemp(join(tmpdir(), 'issue-flow-dashboard-'));
+    tmpDirs.push(legacyDir, dashboardDir);
+    await writeFile(join(legacyDir, 'index.html'), '<html>old</html>');
+    await writeFile(join(legacyDir, 'app.css'), 'body {}');
+    await writeFile(join(legacyDir, 'app.js'), 'console.log(1);');
+    await mkdir(join(dashboardDir, 'assets'), { recursive: true });
+    await writeFile(join(dashboardDir, 'index.html'), '<html>new</html>');
+    await writeFile(join(dashboardDir, 'assets', 'index-abc123.js'), 'export default 1;');
+    await writeFile(join(dashboardDir, 'assets', 'index-abc123.css'), '.a{}');
+    await writeFile(join(dashboardDir, 'assets', 'logo.bin'), 'binary');
+
+    const handle = await start({ publicDir: legacyDir, dashboardDir });
+
+    expect(await (await fetch(`${handle.url}/`)).text()).toBe('<html>new</html>');
+    expect(await (await fetch(`${handle.url}/legacy/`)).text()).toBe('<html>old</html>');
+    expect(await (await fetch(`${handle.url}/legacy/app.js`)).text()).toBe('console.log(1);');
+
+    const asset = await fetch(`${handle.url}/assets/index-abc123.js`);
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    expect((await fetch(`${handle.url}/assets/index-abc123.css`)).headers.get('content-type')).toBe(
+      'text/css; charset=utf-8',
+    );
+
+    // A file the build is not expected to emit is not guessed at: answering it
+    // with the wrong Content-Type is worse than not answering.
+    expect((await fetch(`${handle.url}/assets/logo.bin`)).status).toBe(404);
   });
 
   it('serves the real UI assets when no publicDir is given (default resolution)', async () => {
     const handle = await start();
 
+    // ADR-18: `/` is the built dashboard. It is a module bundle, so the shell
+    // references hashed files under /assets/ rather than app.css/app.js.
     const index = await fetch(`${handle.url}/`);
     expect(index.status).toBe(200);
     const html = await index.text();
     expect(html).toContain('issue-flow');
-    expect(html).toContain('app.css');
-    expect(html).toContain('app.js');
+    expect(html).toMatch(/\/assets\/index-[^"']+\.js/);
     // Self-contained UI: no external resources, works offline.
     expect(html).not.toMatch(/https?:\/\/(?!github)/);
 
-    const css = await fetch(`${handle.url}/app.css`);
+    const bundle = /\/assets\/(index-[^"']+\.js)/.exec(html)?.[1];
+    expect(bundle).toBeDefined();
+    const bundleResponse = await fetch(`${handle.url}/assets/${bundle}`);
+    expect(bundleResponse.status).toBe(200);
+    expect(bundleResponse.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+
+    // ...and the previous panel is intact at /legacy/, byte for byte.
+    const legacy = await fetch(`${handle.url}/legacy/`);
+    expect(legacy.status).toBe(200);
+    const legacyHtml = await legacy.text();
+    expect(legacyHtml).toContain('issue-flow');
+    expect(legacyHtml).toContain('app.css');
+    expect(legacyHtml).toContain('app.js');
+    expect(legacyHtml).not.toMatch(/https?:\/\/(?!github)/);
+
+    const css = await fetch(`${handle.url}/legacy/app.css`);
     expect(css.status).toBe(200);
     expect(await css.text()).toContain('[hidden] {\n  display: none !important;\n}');
 
-    const js = await fetch(`${handle.url}/app.js`);
+    const js = await fetch(`${handle.url}/legacy/app.js`);
     expect(js.status).toBe(200);
     const jsText = await js.text();
     expect(jsText).toContain('api/status');
@@ -440,7 +508,10 @@ describe('startWebServer', () => {
   });
 
   it('answers 404 JSON for unknown routes, missing assets and non-GET methods', async () => {
-    const handle = await start({ publicDir: join(tmpdir(), 'does-not-exist') });
+    const handle = await start({
+      publicDir: join(tmpdir(), 'does-not-exist'),
+      dashboardDir: join(tmpdir(), 'does-not-exist-either'),
+    });
 
     for (const request of [
       fetch(`${handle.url}/nope`),
