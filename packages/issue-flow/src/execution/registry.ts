@@ -9,6 +9,7 @@ import {
   PROJECTS_DIR_NAME,
   RUN_LOCK_FILENAME,
 } from '../storage/paths.js';
+import { createProjectRegistry, type ProjectRegistry } from '../storage/projects/registry.js';
 import type { RunLock } from '../storage/schemas.js';
 import { readSessionFile } from '../storage/session-file.js';
 
@@ -16,6 +17,14 @@ export type LiveRunStatus = 'running' | 'unsignaled' | 'orphan';
 
 export interface LiveRun {
   projectId: string;
+  /**
+   * The project's label from the registry, `null` when it has none.
+   *
+   * Additive on purpose: a consumer that only knew `projectId` keeps working,
+   * and one that can show a name no longer has to print a slug plus a hash at
+   * the user (§47.5).
+   */
+  projectName: string | null;
   target: string;
   pid: number;
   host: string;
@@ -44,6 +53,8 @@ export function classifyRunLock(lock: RunLock): LiveRunStatus {
  */
 export interface ListLiveRunsOptions extends GetGlobalRootOptions {
   storageDriver?: 'sqlite' | 'json';
+  /** Project labels. Injected for tests; reads are tolerant and never throw. */
+  registry?: ProjectRegistry;
 }
 
 export async function listLiveRuns(options: ListLiveRunsOptions = {}): Promise<LiveRun[]> {
@@ -56,6 +67,15 @@ export async function listLiveRuns(options: ListLiveRunsOptions = {}): Promise<L
   } catch {
     return [];
   }
+
+  const registry =
+    options.registry ??
+    createProjectRegistry({
+      databaseOptions: options.env === undefined ? {} : { env: options.env },
+    });
+  const names = new Map(
+    (await registry.list()).map((project) => [project.id, project.name] as const),
+  );
 
   const stored =
     options.storageDriver === 'json'
@@ -86,7 +106,7 @@ export async function listLiveRuns(options: ListLiveRunsOptions = {}): Promise<L
                     },
             )
           : byProjectIssue.get(`${projectId}:${lock.target}`);
-      return enrichRun(projectId, lockFile, lock, session);
+      return enrichRun(projectId, names.get(projectId) ?? null, lockFile, lock, session);
     }),
   );
 
@@ -97,12 +117,14 @@ export async function listLiveRuns(options: ListLiveRunsOptions = {}): Promise<L
 
 function enrichRun(
   projectId: string,
+  projectName: string | null,
   lockFile: string,
   lock: RunLock,
   session: StoredSession | undefined,
 ): LiveRun {
   return {
     projectId,
+    projectName,
     target: lock.target,
     pid: lock.pid,
     host: lock.host,

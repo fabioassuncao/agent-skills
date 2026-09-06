@@ -851,25 +851,104 @@ withIssueOptions(
 });
 
 // ── web ─────────────────────────────────────────────────────────────────────
+// ── serve ───────────────────────────────────────────────────────────────────
+// The canonical name for the machine-wide monitor. `web serve` stays as its
+// alias (§47.4): the command, the lock and the detached-spawn contract are
+// unchanged, so nothing that already spells `web serve` has to be rewritten.
+program
+  .command('serve')
+  .description('Serve every registered project on one dashboard')
+  .option('--port <n>', 'Web server port (default: 3737)', parseInteger)
+  .option('--host <h>', 'Web server host (default: 0.0.0.0)')
+  .option('--refresh <s>', 'Suggested UI polling interval in seconds', parseInteger)
+  .option(
+    '--project <path>',
+    'Serve an extra repository for this process only (repeatable)',
+    (value: string, previous: string[] = []) => [...previous, value],
+  )
+  .action(
+    async (options: { port?: number; host?: string; refresh?: number; project?: string[] }) => {
+      const { runServe } = await import('./commands/serve.js');
+      const code = await runServe(options);
+      // On success this process stays alive for as long as the server is bound
+      // (server.ts binds it with unref: false) — only a failure exits here.
+      if (code !== 0) {
+        process.exit(code);
+      }
+    },
+  );
+
+// ── project ─────────────────────────────────────────────────────────────────
+// Reads and writes the registry in SQLite directly: these commands work with
+// no server running (§47.5), which is the one adaptation the upstream CLI —
+// a pure HTTP client — could not have.
+const projectCommand = program
+  .command('project')
+  .description('Curate the projects the dashboard serves');
+
+projectCommand
+  .command('ls')
+  .alias('list')
+  .description('List known projects, curated and discovered')
+  .option('--json', 'Emit the list as JSON')
+  .action(async (options: { json?: boolean }) => {
+    const { runProjectLs } = await import('./commands/project.js');
+    process.exit(await runProjectLs(options));
+  });
+
+projectCommand
+  .command('add')
+  .description('Add a project (defaults to the current repository)')
+  .argument('[path]', 'Repository path', '.')
+  .action(async (path: string) => {
+    const { runProjectAdd } = await import('./commands/project.js');
+    process.exit(await runProjectAdd(path));
+  });
+
+projectCommand
+  .command('rm')
+  .alias('remove')
+  .description('Stop curating a project; its runs and history are preserved')
+  .argument('<project>', 'Project id, served prefix or path')
+  .action(async (target: string) => {
+    const { runProjectRm } = await import('./commands/project.js');
+    process.exit(await runProjectRm(target));
+  });
+
+projectCommand
+  .command('use')
+  .description('Mark a project as the most recently used one')
+  .argument('<project>', 'Project id, served prefix or path')
+  .action(async (target: string) => {
+    const { runProjectUse } = await import('./commands/project.js');
+    process.exit(await runProjectUse(target));
+  });
+
+// ── web ─────────────────────────────────────────────────────────────────────
 const webCommand = program.command('web').description('Manage the web monitoring server');
 
 webCommand
   .command('serve')
-  .description(
-    'Run the web monitor server in the foreground (internal — spawned detached by --web)',
-  )
+  .description('Alias of `issue-flow serve` (internal — spawned detached by --web)')
   .option('--port <n>', 'Web server port (default: 3737)', parseInteger)
   .option('--host <h>', 'Web server host (default: 0.0.0.0)')
   .option('--refresh <s>', 'Suggested UI polling interval in seconds', parseInteger)
-  .action(async (options: { port?: number; host?: string; refresh?: number }) => {
-    const { runWebServe } = await import('./commands/web.js');
-    const code = await runWebServe(options);
-    // On success this process stays alive for as long as the server is bound
-    // (server.ts binds it with unref: false) — only a failure exits here.
-    if (code !== 0) {
-      process.exit(code);
-    }
-  });
+  .option(
+    '--project <path>',
+    'Serve an extra repository for this process only (repeatable)',
+    (value: string, previous: string[] = []) => [...previous, value],
+  )
+  .action(
+    async (options: { port?: number; host?: string; refresh?: number; project?: string[] }) => {
+      const { runWebServe } = await import('./commands/web.js');
+      const code = await runWebServe(options);
+      // On success this process stays alive for as long as the server is bound
+      // (server.ts binds it with unref: false) — only a failure exits here.
+      if (code !== 0) {
+        process.exit(code);
+      }
+    },
+  );
 
 webCommand
   .command('stop')
@@ -953,7 +1032,6 @@ conventionsCommand
   .option('--scope <scope>', 'Optional scope')
   .requiredOption('--subject <text>', 'Commit subject')
   .option('--issue <n>', 'Issue number for the Refs trailer')
-  .option('--story <id>', 'Story id (US-010)')
   .option('--breaking <text>', 'Breaking change description')
   .option('--json', 'Emit JSON')
   .action(
@@ -962,7 +1040,6 @@ conventionsCommand
       scope?: string;
       subject: string;
       issue?: string;
-      story?: string;
       breaking?: string;
       json?: boolean;
     }) => {

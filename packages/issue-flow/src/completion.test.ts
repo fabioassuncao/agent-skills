@@ -135,8 +135,11 @@ describe('Commander completion integration', () => {
   it('derives root and nested suggestions with descriptions from the registered tree', () => {
     expect(protocol('db', '')).toContain('export\tExport structured SQLite state as readable JSON');
     expect(protocol('web', '')).toContain(
-      'serve\tRun the web monitor server in the foreground (internal — spawned detached by --web)',
+      'serve\tAlias of `issue-flow serve` (internal — spawned detached by --web)',
     );
+    // The multi-project surface completes too, and `project ls` is the one
+    // subcommand that has to work with no server running.
+    expect(protocol('project', '')).toContain('ls\tList known projects, curated and discovered');
     expect(protocol('routing', '')).toContain('use\tEnable an embedded routing policy');
     expect(protocol('run', '--a')).toContain(
       '--agent\tRun every phase on this agent (claude|codex|cursor|antigravity|opencode)',

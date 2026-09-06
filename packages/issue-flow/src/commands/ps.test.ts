@@ -5,6 +5,7 @@ import { formatPsTable, liveRunJsonSchema } from './ps.js';
 function run(overrides: Partial<LiveRun> = {}): LiveRun {
   return {
     projectId: 'alpha',
+    projectName: null,
     target: '63',
     pid: 11,
     host: 'mac',
@@ -37,6 +38,16 @@ describe('formatPsTable', () => {
     expect(lines[2]).toContain('(bg)');
   });
 
+  it('prefers the registry label over the raw project id', () => {
+    const lines = formatPsTable([run({ projectId: 'alpha-9f2c1d4e5b6a', projectName: 'Alpha' })]);
+    expect(lines[1]).toContain('Alpha');
+    expect(lines[1]).not.toContain('alpha-9f2c1d4e5b6a');
+  });
+
+  it('falls back to the project id when the registry has no label', () => {
+    expect(formatPsTable([run({ projectId: 'alpha', projectName: null })])[1]).toContain('alpha');
+  });
+
   it('explains an empty machine', () => {
     expect(formatPsTable([])[0]).toMatch(/No issue-flow run/);
   });
@@ -49,6 +60,7 @@ describe('liveRunJsonSchema', () => {
       runs: [
         {
           projectId: 'alpha',
+          projectName: 'Alpha',
           target: '63',
           pid: 11,
           host: 'mac',

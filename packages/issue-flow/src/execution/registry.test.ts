@@ -7,6 +7,7 @@ import { createInitialSnapshot } from '../core/session-state.js';
 import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
+import { createProjectRegistry } from '../storage/projects/registry.js';
 import { classifyRunLock, listLiveRuns } from './registry.js';
 
 const HOST = 'test-host';
@@ -155,5 +156,41 @@ describe('listLiveRuns', () => {
       expect.objectContaining({ projectId: 'json-project', issue: 63, phase: 'execute' }),
     ]);
     expect(existsSync(join(tmp, 'issue-flow.db'))).toBe(false);
+  });
+
+  // P10 — two projects executing at the same time.
+  it('P10: lists concurrent runs from two projects, each with its own lock and label', async () => {
+    const registry = createProjectRegistry({ databaseOptions: { env: env() } });
+    await registry.register({ id: 'alpha', root: '/repo/alpha', name: 'Alpha' });
+    await registry.register({ id: 'beta', root: '/repo/beta', name: 'Beta' });
+
+    for (const [projectId, target] of [
+      ['alpha', '10'],
+      ['beta', '20'],
+    ]) {
+      await mkdir(join(tmp, 'projects', projectId), { recursive: true });
+      await writeFile(
+        join(tmp, 'projects', projectId, 'run.lock'),
+        JSON.stringify(lock({ target })),
+      );
+    }
+
+    const runs = await listLiveRuns({ env: env() });
+
+    expect(runs.map((run) => [run.projectId, run.projectName, run.status])).toEqual([
+      ['alpha', 'Alpha', 'running'],
+      ['beta', 'Beta', 'running'],
+    ]);
+    // `run.lock` is per project, so two projects never contend for one file —
+    // which is what makes concurrent execution possible at all.
+    expect(new Set(runs.map((run) => run.lockFile)).size).toBe(2);
+  });
+
+  it('falls back to the raw project id when the registry has no label', async () => {
+    await mkdir(join(tmp, 'projects', 'unlabelled'), { recursive: true });
+    await writeFile(join(tmp, 'projects', 'unlabelled', 'run.lock'), JSON.stringify(lock()));
+
+    const runs = await listLiveRuns({ env: env() });
+    expect(runs[0]?.projectName).toBeNull();
   });
 });
