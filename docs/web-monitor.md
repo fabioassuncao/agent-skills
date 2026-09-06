@@ -1,4 +1,6 @@
-# Web monitoring
+# CLI web monitoring
+
+[CLI guide](cli.md) · [Project overview](../README.md)
 
 `run` and `execute` accept `--web`: a local HTTP server serves a self-contained,
 dashboard showing live progress — current phase and activity, user

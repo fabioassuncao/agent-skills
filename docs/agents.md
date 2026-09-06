@@ -1,6 +1,8 @@
-# Agents
+# CLI agents
 
-Issue Flow runs the pipeline through a coding agent. The default is
+[CLI guide](cli.md) · [Project overview](../README.md)
+
+The Issue Flow CLI runs the pipeline through a coding agent. The default is
 **Claude Code**. **Codex CLI** (`codex exec`), **Cursor CLI**
 (`cursor-agent`) and **Antigravity CLI** (`agy`) are the alternatives.
 Selection is explicit and, when you want it, **per phase**. The same

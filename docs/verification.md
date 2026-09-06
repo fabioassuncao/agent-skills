@@ -1,4 +1,6 @@
-# Verification, routing and escalation
+# CLI verification, routing and escalation
+
+[CLI guide](cli.md) · [Project overview](../README.md)
 
 Three mechanisms answer three different questions about a run:
 

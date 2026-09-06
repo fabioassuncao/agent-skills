@@ -1,4 +1,6 @@
-# Command reference
+# CLI command reference
+
+[CLI guide](cli.md) · [Project overview](../README.md)
 
 Every command of the `issue-flow` CLI, with the flags it really accepts. Run
 `issue-flow <command> --help` for the same list from the binary you have
@@ -73,7 +75,7 @@ the first incomplete phase when pipeline state already exists. A failing
 
 | Flag | Description |
 |------|-------------|
-| `--mode <auto\|manual>` | Recorded in the run header and blocks `--background`. It does **not** stop the CLI pipeline after the artifacts — that behaviour belongs to the portable [`resolve-issue` Skill](skills-and-agents.md#use-without-the-cli) |
+| `--mode <auto\|manual>` | Recorded in the run header and blocks `--background`. It does **not** stop the CLI pipeline after the artifacts — that behaviour belongs to the portable [`resolve-issue` Skill](../skills/README.md#other-ways-to-work) |
 | `--from <phase>` | Start at a specific phase instead of the first incomplete one |
 | `--no-branch` | Run on the current branch: no branch is created and no PR is opened. Persisted in `tasks.json`; the persisted value wins on resume |
 | `--pr-review` | Review the created Pull Request after `pr`. Resolved as **flag > `prReview.enabled` in `tasks.json` > off**, and persisted once opted in. Combining it with `--no-branch` fails with exit code `1` |
@@ -446,7 +448,7 @@ never ask and never write an agent preference.
 > available interactively through the
 > [`init-repository`](../skills/init-repository/SKILL.md) Skill. It discovers
 > conventions directly and uses bundled scaffold renderers; this CLI command is
-> an [optional integration](skills-and-agents.md#artifacts-and-optional-cli-integration).
+> an [optional integration](../skills/README.md#optional-cli-enrichment).
 
 ### `agent` — resolved agent and model per phase
 

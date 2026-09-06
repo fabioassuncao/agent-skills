@@ -1,4 +1,6 @@
-# Resilience
+# CLI resilience
+
+[CLI guide](cli.md) · [Project overview](../README.md)
 
 Everything that decides *whether to try again, and after how long*. A six-hour
 unattended run fails for a dozen reasons that have nothing to do with the code

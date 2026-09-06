@@ -1,5 +1,7 @@
 # Agent Skills compatibility
 
+[Skills guide](../skills/README.md) · [Installation options](../skills/README.md#installation-options-and-compatibility)
+
 Documentation checked **2026-09-05**. `O` = official support; `N` = normative format; `G` = guidance; `E` = host extension; `X` = experimental; `H` = host-dependent; `—` = unspecified; `?` = not established. Format support does not guarantee correct behavior by every model.
 
 | Capability | Agent Skills Spec | Claude Code | Codex | Cursor | OpenCode | Antigravity | Gemini CLI | Copilot |

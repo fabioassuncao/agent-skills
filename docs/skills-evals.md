@@ -1,5 +1,7 @@
 # Behavioral Skill evals
 
+[Contributing](../CONTRIBUTING.md) · [Authoring Skills](skills.md)
+
 Structural validity does not prove useful behavior. This development-only runner addresses [issue #111](https://github.com/fabioassuncao/issue-flow/issues/111) using the existing Claude and Codex adapters. Evaluators, harness libraries and scenarios are not shipped in Skills or the npm runtime package.
 
 ## Run

@@ -1,457 +1,115 @@
 # Issue Flow
 
-**Turn an issue into a reviewed Pull Request, without sitting in front of it.**
+**A reusable development workflow, from issue to reviewed Pull Request.**
+
+Issue Flow takes a GitHub or local issue through requirements, task planning,
+implementation, verification and Pull Request delivery. It makes the steps
+between a request and a reviewed change explicit: what to build, how to break
+it into tasks, what evidence to collect and when the work is ready for a PR.
+
+Start with its portable **Agent Skills** in your coding agent. They provide the
+complete workflow or individual steps without installing the Issue Flow CLI.
+An independent, experimental CLI is also available for unattended orchestration,
+persistent execution state and monitoring.
 
 > [!WARNING]
-> **Experimental project, under active development.** Issue Flow was built mostly
-> with the help of AI coding agents, and it has not been audited. Expect bugs,
-> incomplete implementations, regressions and possibly undiscovered security
-> flaws. **Do not use it on real projects, production environments, critical
-> systems or repositories with sensitive information** — today it is meant for
-> testing, evaluation and disposable repositories. Keep backups and review every
-> change it produces. Token consumption is not optimized yet.
-> Full notice: [**Project status**](docs/project-status.md).
+> **The whole project is experimental, including the Skills.** Skills are the
+> recommended starting point, not a guarantee of production readiness. Use
+> disposable or recoverable repositories for evaluation; real projects,
+> production, critical systems and sensitive repositories are not recommended.
+> Read the [project status](docs/project-status.md) for risks and precautions.
 
-Issue Flow provides an independent CLI and portable Agent Skills. The CLI orchestrates the whole path — analyse, plan, implement,
-verify, review, deliver — by driving a coding agent in headless mode. It works
-with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the default),
-[Codex CLI](https://developers.openai.com/codex/noninteractive), Cursor CLI and
-[Antigravity CLI](https://antigravity.google/docs/cli/getting-started/), one
-agent per phase if you want. The issue can live on GitHub or as plain files in
-the global storage.
+## How it works
 
-Its eleven [Agent Skills](docs/skills-and-agents.md), including the full
-`resolve-issue` workflow, run directly in compatible coding agents without the CLI.
-
-```bash
-npx issue-flow init      # check prerequisites and repository conventions
-npx issue-flow run 42    # prd → plan → execute → review → pr
-npx issue-flow run 42 --web   # …and watch it live in the browser
+```text
+Issue Flow
+├── Recommended: Agent Skills in your coding agent
+│   └── A complete workflow or individually selected steps
+└── Experimental alternative: CLI
+    └── Headless orchestration, persistent state, queues and monitoring
 ```
 
-![The Issue Flow web monitor showing a running pipeline: issue summary, repository, progress, the story being executed, resilience state, per-phase tokens and cost, user stories, commits and logs](docs/screenshots/painel-execucao.png)
+Both paths start with an issue from **GitHub or local files**:
 
----
-
-## Table of contents
-
-- [Project status: experimental](#project-status-experimental)
-- [What it does](#what-it-does)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [The pipeline](#the-pipeline)
-- [Watching a run](#watching-a-run)
-- [Commands at a glance](#commands-at-a-glance)
-- [Where things are written](#where-things-are-written)
-- [Configuration](#configuration)
-- [Agents](#agents)
-- [Adapting to your repository](#adapting-to-your-repository)
-- [Unattended runs](#unattended-runs)
-- [Agent Skills](#agent-skills)
-- [Limitations and things worth knowing](#limitations-and-things-worth-knowing)
-- [Documentation](#documentation)
-- [Development](#development)
-
-## Project status: experimental
-
-Issue Flow is **experimental and under active development**, and it was developed
-mostly with the help of AI coding agents — Claude Code and Codex among them.
-Bugs, unexpected behaviour, incomplete implementations and regressions are
-likely, and there is a real possibility of vulnerabilities or security flaws that
-have not been found yet — which matters here, because the tool drives an agent
-with write access to your working tree, runs commands declared by the repository
-and talks to GitHub with your credentials.
-
-**At this stage we do not recommend using it on real projects, production
-environments, critical systems or repositories containing sensitive
-information.** The recommended use today is testing, experimentation, evaluating
-the tool, and disposable or easily recoverable projects. Keep backups, run it on
-a dedicated branch, and review carefully every change it produces.
-
-**Token efficiency is still being improved.** Depending on the task, the model,
-the harness and the flow being executed, a run can consume significantly more
-tokens than necessary. Cost optimization, model selection, context usage and the
-balance between quality, speed and token consumption are part of the roadmap.
-
-None of this means the tool is unusable — it is used to develop itself. It means
-these limitations describe the **current stage of maturity** of the project, and
-they are what the roadmap is aimed at. The full notice, with the precautions
-worth taking, is in [**Project status**](docs/project-status.md).
-
-## What it does
-
-- **A full issue-to-PR pipeline.** `prd` → `plan` → `execute` → `review` → `pr`,
-  each phase a headless agent invocation with a prompt of its own. Every phase is
-  also a standalone command.
-- **An iterative execute loop.** Each iteration is a fresh agent instance that
-  picks the highest-priority pending user story, implements it, runs quality
-  checks and commits.
-- **Objective verification before the LLM judges.** An
-  [acceptance contract](docs/verification.md) — typecheck, lint, tests — runs at
-  the end of `execute` and again before the `review` verdict. An empty contract
-  finishes `unverified`, never green.
-- **Multiple agents, one per phase.** A cheap model for `plan`, a strong one for
-  `review`, whatever you want for `execute` — [selected explicitly](docs/agents.md),
-  never inferred from which binary happens to be installed.
-- **Resilience built for six-hour runs.** A [failure taxonomy](docs/resilience.md)
-  that tells a rate limit from a failing test, per-kind retry budgets, provider
-  failover with circuit breakers, an inactivity watchdog and an append-only event
-  journal.
-- **Multi-issue queues.** Point it at an Epic and it discovers sub-issues and
-  dependencies, orders them, runs them on one branch and opens one Pull Request.
-- **A live web monitor.** Read-only, offline, one card per active run across
-  every project on the machine.
-- **Issues from GitHub or from files.** The `local` provider needs nothing beyond
-  git — no network, no remote, no `gh`.
-- **It adapts to your repository.** Issue templates, labels, PR template, base
-  branch, commit and branch conventions are [discovered, not imposed](docs/conventions.md).
-
-## Requirements
-
-These requirements apply to the CLI. Skill requirements are listed in
-[Skills and the CLI](docs/skills-and-agents.md#use-without-the-cli).
-
-- **Node.js** ≥ 22.13.0
-- **Git**, available in `PATH`, inside a repository
-- **A coding agent.** Claude Code (`npm install -g @anthropic-ai/claude-code`) by
-  default; Codex CLI (`codex`), Cursor CLI (`cursor-agent`) and Antigravity CLI
-  (`agy`) are opt-in alternatives — see [Agents](docs/agents.md)
-- **GitHub CLI** (`gh`), authenticated — required only for GitHub issues. A run
-  on [local issues](docs/issues.md) does not need it
-
-`npx issue-flow init` verifies all of it and tells you what is missing
-(`npx issue-flow init --local` when the issue lives outside GitHub).
-
-## Installation
-
-For the CLI:
-
-```bash
-npx issue-flow run 42          # run directly, no install
-npm install -g issue-flow      # or install globally
+```mermaid
+flowchart LR
+    I[Issue] --> R[Requirements]
+    R --> T[Task plan]
+    T --> E[Implementation and checks]
+    E --> V[Review against acceptance criteria]
+    V -->|Corrections needed| E
+    V -->|Pass| P[Authorized PR delivery]
 ```
 
-For Agent Skills, install directly from Git into your coding agent:
+GitHub hosts issues, discussions and Pull Requests. Agent Skills provide reusable
+instructions and resources; the host agent performs the work in your repository.
+The CLI drives agent processes itself. Neither interface requires the other.
+
+The workflow respects the repository's [conventions](docs/conventions.md).
+Planning-only and local-only work can stop before implementation or publication.
+Review the changes and evidence before merging; automated review does not replace
+human review. Skills and the CLI have separate execution state, so choose one
+interface for a run.
+
+## Start with Agent Skills — recommended
+
+Open the repository you want to work on in a compatible coding agent. Install the
+complete workflow from that project's directory; this example targets Codex:
 
 ```bash
 npx skills add fabioassuncao/issue-flow --skill resolve-issue -a codex
 ```
 
-See [Agent Skills](#agent-skills) for discovery and selection, and the
-[installation guide](docs/skills-and-agents.md#install-skills) for user scope,
-updates and testing a local checkout before publication.
+Select the installed Skill in your agent and ask:
 
-## The pipeline
-
-```mermaid
-flowchart TB
-    A["init<br/>prerequisites"] --> B["prd"]
-    B --> C["plan"]
-    C --> D["execute"]
-    D --> V{"acceptance<br/>contract"}
-    V -- "a fatal check failed" --> X["stop"]
-    V -- "passed / unverified" --> R["review<br/>contract + LLM verdict"]
-    R --> F{"PASS?"}
-    F -- "no, cycles left" --> D
-    F -- "no, exhausted" --> X
-    F -- "yes" --> G["pr"]
-    G --> J{"--pr-review?"}
-    J -- "yes" --> K["pr-review"]
-    J -- "no" --> L["done"]
-    K --> L
+```text
+Use resolve-issue for GitHub issue 42 in manual mode.
 ```
 
-| Phase | What it produces |
-|-------|------------------|
-| `init` | A pass/fail gate on the environment. Nothing is written |
-| `prd` | `prd.md` — the requirements, derived from the issue |
-| `plan` | `tasks.json` — ordered user stories with acceptance criteria |
-| `execute` | Commits, one story at a time, each with quality checks |
-| `review` | A `PASS`/`FAIL` conformance verdict against the acceptance criteria |
-| `pr` | The Pull Request, with a summary and a test plan |
-| `pr-review` | Optional. A whole-PR review — diff, architecture, risks, coverage |
+Replace `42` with an issue in that repository. Manual mode produces requirements
+and a task plan, then stops before implementation. Inspect them before asking
+the agent to continue through implementation, verification and PR creation.
 
-A failing `review` triggers correction cycles (re-execute + re-review) up to
-`maxCorrectionCycles` (3 by default). `analyze` exists as a standalone
-deep-analysis command and is deliberately **not** part of `run`.
+**[Start the Skills guide](skills/README.md)** for prerequisites, the complete
+first-issue walkthrough, individual Skills, local issues and installation options.
+See [host compatibility](docs/skills-compatibility.md) for other coding agents.
+Installing `resolve-issue` alone is enough for the full workflow.
 
-Each phase can be run on its own — `issue-flow prd 42`, `issue-flow plan 42` — and
-`run` resumes from the first incomplete phase automatically.
+## Try the CLI — experimental
+
+Use the CLI when evaluating unattended execution, persistent recovery, multi-issue
+queues, per-phase agent selection or the live monitor. After completing the
+[CLI prerequisites](docs/cli.md#requirements-and-installation), run from your
+consumer repository:
 
 ```bash
-issue-flow run 42 --from execute   # start at a given phase
-issue-flow run 42 --no-branch      # current branch, no branch creation, no PR
-issue-flow run 42 --pr-review      # add the whole-PR review at the end
-issue-flow run 42,43,50            # a queue: one branch, one PR
-issue-flow resume                  # continue an interrupted run, explicitly
+npx issue-flow init
+npx issue-flow run 42
 ```
 
-Full reference: [**Commands**](docs/commands.md).
+`run` starts the full pipeline, including PR creation. Installing the CLI does
+not install Skills. **[Read the CLI guide](docs/cli.md)** for setup, outputs,
+monitoring, limitations and the command reference.
 
-## Watching a run
+## Documentation and contributing
 
-`--web` starts a local dashboard. It is a single server per machine,
-detached from any one run, and it shows every active pipeline from every project
-at once:
-
-```bash
-issue-flow run 42 --web              # http://localhost:3737
-issue-flow run 42 --restart-web      # replace an older detached monitor
-issue-flow run 42 --web --host 127.0.0.1   # this machine only
-issue-flow web stop
-```
-
-| | |
+| I want to… | Start here |
 |---|---|
-| ![Executions dashboard](docs/screenshots/painel-execucoes.png) | ![Kanban of user stories](docs/screenshots/painel-kanban.png) |
-| One card per active run | Stories by status, with a shared detail drawer |
+| Use Agent Skills | [Skills guide](skills/README.md) |
+| Choose a compatible agent | [Skill compatibility](docs/skills-compatibility.md) |
+| Experiment with the CLI | [CLI guide and reference map](docs/cli.md) |
+| Contribute documentation, Skills or code | [Contributing](CONTRIBUTING.md) |
+| Understand the architecture | [Architecture and code organization](docs/code-organization.md) |
+| Understand repository conventions | [Conventions](docs/conventions.md) and [Git naming](docs/git-conventions.md) |
+| Evaluate maturity and risks | [Project status](docs/project-status.md) |
+| See what changed | [Changelog](CHANGELOG.md) |
 
-The panel binds to `0.0.0.0` by default and warns about it. Full documentation —
-tabs, the HTTP API, remote access, single-instance behaviour:
-[**Web monitoring**](docs/web-monitor.md).
-
-For the terminal, five commands read the state of a run without touching it:
-
-```bash
-issue-flow ps        # every live run on this machine
-issue-flow status    # what is running, in which phase, since when
-issue-flow runs      # history: how each issue ended, and why
-issue-flow history 42 # phases, invocations and verdicts for one issue
-issue-flow logs --follow
-issue-flow usage 42 --by harness   # tokens and cost per invocation
-```
-
-## Commands at a glance
-
-| Command | What it does |
-|---------|--------------|
-| `run <issues...>` | The full pipeline, for one issue or a queue |
-| `resume [issue]` | Continue an interrupted pipeline, explicitly |
-| `generate` | Draft and create an issue on GitHub, locally, or both |
-| `init` | Check prerequisites and report (or create) missing conventions |
-| `analyze`, `prd`, `plan`, `execute`, `review`, `pr`, `pr-review` | The phases, standalone |
-| `status`, `ps`, `runs`, `history`, `logs`, `usage`, `pause`, `cancel` | Operate a running pipeline |
-| `agent`, `policy`, `conventions`, `routing` | Inspect what was resolved, and why |
-| `web serve`, `web stop` | The monitoring server |
-
-Every flag is documented in [**Commands**](docs/commands.md).
-
-## Where things are written
-
-**CLI pipeline artifacts** live in a
-machine-wide storage tree keyed by a deterministic project id:
-
-```
-~/.issue-flow/projects/<project-id>/issues/42/
-  prd.md          tasks.json      progress.txt
-  session.json    events.jsonl    pr-review/
-  issue.md        metadata.json   # local issues only
-```
-
-Two clones of the same repository share the same project id, so history follows
-the repository rather than the folder. `ISSUE_FLOW_HOME` relocates the whole
-tree — useful for CI and sandboxes. A legacy `<projectRoot>/issues/` directory
-from an earlier release is copied in automatically on first use and then left
-read-only.
-
-Full layout, `tasks.json` and `session.json` field reference, token/cost
-accounting and the migration: [**Storage and artifacts**](docs/storage.md).
-
-**Skill artifacts** default to `<projectRoot>/issues/<id>/`, with explicit
-paths also supported. They have no CLI session, database or telemetry lifecycle.
-See [the storage boundary](docs/skills-and-agents.md#artifacts-and-optional-cli-integration);
-a run cannot be resumed across the two surfaces.
-
-## Configuration
-
-Everything resolves through one ladder: **CLI flag > environment variable >
-`.issue-flow.json` > `~/.issue-flow/config.json` > default**. Nothing is
-mandatory.
-
-```json
-{
-  "agent":      { "provider": "claude", "phases": { "plan": { "provider": "codex" } } },
-  "issues":     { "preferredProvider": "github" },
-  "verify":     { "level": "L1" },
-  "web":        { "enabled": true, "host": "127.0.0.1" },
-  "resilience": { "profile": "continuous" }
-}
-```
-
-Full reference — every key, every default, every environment variable:
-[**Configuration**](docs/configuration.md).
-
-## Agents
-
-The default is Claude Code, and with no `agent` configuration the argv is exactly
-what it always was. The other three are opt-in, per phase if you want:
-
-```bash
-issue-flow agent                                   # what resolved, and from which layer
-issue-flow run 42 --agent codex                    # everything on Codex
-issue-flow run 42 --agent-phase plan=codex \
-                  --agent-phase review=claude:claude-sonnet-5
-```
-
-Permission is semantic (`read-only` / `workspace` / `autonomous`) and each runner
-translates it to its own sandbox flags. Claude reports USD; Codex and Antigravity
-report tokens only; Cursor reports neither — so a mixed run prints one cost line
-per agent instead of a single misleading total.
-
-Install, authentication (including CI), the permission matrix, the token-economy
-guide and troubleshooting: [**Agents**](docs/agents.md).
-
-## Adapting to your repository
-
-Most repositories already decided how issues are titled, which labels exist, what
-a Pull Request body looks like and which branch is the base. Issue Flow discovers
-those decisions and follows them:
-
-```bash
-issue-flow policy          # what was discovered, and where each value came from
-issue-flow init --apply    # create only what is genuinely missing
-```
-
-Discovery covers Issue Templates and Forms (including the organization's), Issue
-Types, the real labels, the PR template, `CODEOWNERS`, `AGENTS.md` / `CLAUDE.md`
-and the branch/commit conventions declared by commitlint, release-please,
-semantic-release or Changesets. **Labels are never created** and nothing that
-exists is ever overwritten.
-
-Prompts can be extended per repository with
-`.issue-flow/prompts/<name>.append.md`.
-
-See [**Conventions**](docs/conventions.md) and
-[**Git conventions**](docs/git-conventions.md).
-
-## Unattended runs
-
-```bash
-issue-flow run 42 --continuous --background
-```
-
-`--continuous` names an intent — *keep going without me* — and expands to the six
-behaviours it implies: network and rate limits retried forever, wider budgets for
-the other transient failures, provider failover, a queue that skips a failing
-issue, the event journal, and the inactivity watchdog. Every one of them stays
-individually settable, and an explicit flag always wins.
-
-What no profile, file or flag can do is buy a retry for a failure that needs a
-person: a failing test, a missing credential, a mistyped flag and a repository
-stuck mid-merge are clamped to zero attempts.
-
-See [**Resilience**](docs/resilience.md).
-
-## Agent Skills
-
-Install one Skill, a selected set, or the portable full workflow independently:
-
-```bash
-npx skills add fabioassuncao/issue-flow --list
-npx skills add fabioassuncao/issue-flow --skill review-issue -a codex
-npx skills add fabioassuncao/issue-flow --skill resolve-issue -a claude-code codex
-npx skills add fabioassuncao/issue-flow --skill '*' -a opencode
-```
-
-Each generated directory contains all its references and bundled helpers.
-The CLI is optional; shared rules come from canonical sources at build time.
-A thin Claude subagent adapter can be installed separately. See
-[Skills and the CLI](docs/skills-and-agents.md), the
-[agent compatibility matrix](docs/skills-compatibility.md), and
-[contributor guide](docs/skills.md).
-
-## Limitations and things worth knowing
-
-The maturity of the project as a whole — and where it should not be used yet —
-is in [**Project status**](docs/project-status.md). What follows is the list of
-design decisions and sharp edges worth knowing about.
-
-- **CLI artifacts are machine-local.** They live under `~/.issue-flow`, not in the
-  repository, so they are not shared through git. Local issues are machine-local
-  too — use `generate --both` to keep the demand on GitHub as well.
-- **The CLI and the Skills do not share execution state.** The Skills, including
-  portable `resolve-issue`, write to `<projectRoot>/issues/<id>/`; the CLI writes
-  to `~/.issue-flow`. A run started on one surface cannot be resumed on the
-  other — pick one per issue.
-- **`--mode manual` is not a CLI planning mode.** On the CLI it is recorded in the
-  run header and refuses `--background`; it does not stop the pipeline after the
-  artifacts. That behaviour belongs to the portable `resolve-issue` Skill.
-- **Per-story cost is an approximation.** The harness reports usage per
-  invocation, not per story. When one iteration completes several stories, its
-  tokens and cost are split evenly among them.
-- **USD cost only appears when the harness reports it.** `null` means *not
-  reported*, never zero, and Issue Flow does not estimate a price unless you turn
-  estimation on explicitly.
-- **The `web` key of the global `config.json` is not read yet.** Web settings
-  resolve CLI > env > `.issue-flow.json` > default.
-- **Dependency discovery from issue text is heuristic.** Structured sub-issues and
-  GitHub Issue Dependencies are exact; the textual fallback is deliberately
-  conservative and flags what only it found.
-- **`--pr-review` is read-only by policy, not by sandbox.** Write tools are
-  excluded and the prompt forbids edits, but Bash stays available for `git`/`gh`
-  inspection.
-- **Routing stays shadow by default.** `recommend` prints the harness/model
-  target and `active` applies it only when that phase has no explicit agent
-  selection. The embedded token-economy policy is opt-in.
-- **Execution control in the web panel is read-only.** On loopback only, a
-  capability-gated form may save global harness/model preferences per phase and
-  routing mode/profile/policy for future runs; it never changes the active run.
-
-## Documentation
-
-| Document | What it covers |
-|----------|----------------|
-| [Project status](docs/project-status.md) | What experimental means here: risks, where not to use it, token consumption |
-| [Commands](docs/commands.md) | Every command and flag, and the exit codes |
-| [Configuration](docs/configuration.md) | The precedence ladder, every key, every environment variable |
-| [Agents](docs/agents.md) | Claude, Codex, Cursor, Antigravity: selection, auth, permission, token economy |
-| [Issue sources](docs/issues.md) | GitHub vs. local, conflicts, hierarchies and queues |
-| [Storage and artifacts](docs/storage.md) | The global tree, `tasks.json`, `session.json`, tokens and cost, migration |
-| [Web monitoring](docs/web-monitor.md) | The dashboard, the HTTP API, remote access |
-| [Resilience](docs/resilience.md) | Failure taxonomy, retries, failover, watchdog, journal, decomposition |
-| [Verification and routing](docs/verification.md) | Acceptance contract, independent reviewer, shadow router, escalation |
-| [Conventions](docs/conventions.md) | How the repository's own conventions are discovered and applied |
-| [Git conventions](docs/git-conventions.md) | Branch, commit and Pull Request title |
-| [Agent Skills](docs/skills-and-agents.md) | Independent usage, installation and optional CLI integration |
-| [Skill authoring](docs/skills.md) | Sources, generated artifacts, sync, checks and isolation |
-| [Skill compatibility](docs/skills-compatibility.md) | Official host support and observed installation behavior |
-| [Skill evals](docs/skills-evals.md) | Behavioral scenarios, runners and evidence |
-| [Contributing](packages/issue-flow/CONTRIBUTING.md) | Environment, scripts, local testing, release process |
-| [Changelog](CHANGELOG.md) | Version history |
-
-Dated investigations that produced knowledge rather than rules live in
-[`docs/research/`](docs/research/).
-
-## Development
-
-```bash
-cd packages/issue-flow
-npm install
-npm run skills:sync    # regenerate Skills and packaged prompt contracts
-npm run skills:check   # read-only drift and portability check
-npm run skills:test    # isolated artifacts and helper behavior
-npm run skills:eval -- --check  # scenario validation; no model calls
-npm run build          # tsup → dist/
-npm run typecheck
-npm test
-npm run smoke          # end-to-end, against deterministic stand-ins for claude and gh
-npm run check          # biome (read-only) + typecheck — gate local do CI
-npm run fix            # biome --write + typecheck (muta arquivos)
-```
-
-Installer, packed CLI and optional live-model checks are documented in the
-[Skill validation guide](docs/skills.md#sync-check-and-test).
-
-`npm run smoke` builds the CLI and drives it inside throwaway git repositories
-against deterministic stand-ins for `claude` and `gh` — no network, no tokens.
-Pass `--keep` to inspect the generated workspaces.
-
-Releases are published manually to npm by a maintainer; the procedure is in
-[CONTRIBUTING.md → Release process](packages/issue-flow/CONTRIBUTING.md#release-process).
-
-Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/) for
-autonomous agent loops.
+Report problems or propose work through the repository's
+[issue templates](https://github.com/fabioassuncao/issue-flow/issues/new/choose).
+Dated investigations live in [research](docs/research/); they are evidence,
+not current operating instructions.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The autonomous execution loop draws on
+[Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).

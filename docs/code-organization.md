@@ -1,19 +1,68 @@
-# Code organization
+# Architecture and code organization
 
-Where each responsibility lives inside `packages/issue-flow`, and when a
-file is already too big. Describes what the repository **already is** —
-not an imported architecture.
+Issue Flow exposes a recommended Agent Skills workflow and an independent,
+experimental CLI. This document maps their sources, runtime boundaries and
+module responsibilities.
 
 See also [`AGENTS.md`](../AGENTS.md) (index) and
-[`packages/issue-flow/CONTRIBUTING.md`](../packages/issue-flow/CONTRIBUTING.md).
+the [Contributing guide](../CONTRIBUTING.md).
 
-## The seventeen directories under `src/`
+## Repository overview
+
+| Location | Responsibility |
+|---|---|
+| `skills-src/` | Authored Skill entry points, procedures, shared references and resource manifest |
+| `skills/` | Committed, self-contained Skill distribution; its README is the user guide |
+| `agents/` | Optional host-specific adapters, currently the Claude `resolve-issue` adapter |
+| `packages/issue-flow/src/` | CLI implementation and canonical pure rules bundled for Skills |
+| `packages/issue-flow/prompts-src/` | Authored CLI prompt templates |
+| `packages/issue-flow/prompts/` | Generated, committed CLI runtime prompts |
+| `packages/issue-flow/scripts/` | Generation, validation, packaging, smoke and release tooling |
+| `packages/issue-flow/web/public/` | Packaged monitoring dashboard |
+| `evals/skills/` | Versioned behavioral scenarios |
+| `.github/` | Issue and PR templates and CI checks |
+| `docs/` | Human-facing guides, references and dated research |
+
+## Generation and runtime boundaries
+
+```text
+Skill sources ─────────┐
+Shared contracts ──────┼── skills:sync ──┬── skills/<name>/ → current agent
+Pure rules/helpers ───┤                └── packaged prompts → CLI runtime
+CLI prompt templates ─┘
+```
+
+Shared resources are composed at build time. An installed Skill reads its own
+bundled instructions and helpers; it does not need this source checkout or the
+CLI package. `resolve-issue` bundles phase procedures and runs in the current
+agent without requiring subagents. The optional Claude adapter points to that
+same Skill rather than owning another workflow.
+
+The CLI loads its own prompts and invokes configured agent processes. It owns
+the persistent execution lifecycle: sessions, locks, queues, independent reviewer
+routing, recovery and telemetry. It has no runtime dependency on installed Skills.
+See [source and distribution](skills.md#source-and-distribution) for generation
+ownership and checks; `build` compiles the CLI and does not perform `skills:sync`.
+
+| Interface | Execution and state |
+|---|---|
+| [Agent Skills](../skills/README.md) | Current host's tools and permissions; artifacts default to the consumer project's `issues/<id>/`; resumption verifies artifacts and Git evidence |
+| [CLI](cli.md) | Agent process orchestration; global storage under `~/.issue-flow`, canonical SQLite data and session/telemetry projections |
+
+These are separate lifecycles. Shared task formats do not make sessions
+transferable; a run cannot be resumed across interfaces. Skills can optionally
+consult an installed CLI for policy discovery, with direct discovery as fallback.
+See [Skill limits](../skills/README.md#artifacts-resumption-and-limits) and
+[CLI storage](storage.md).
+
+## Directories under `src/`
 
 | Directory | Layer |
 |---|---|
 | `agents/` | Adapters for external CLIs (Claude, Codex, Cursor, Antigravity) and selection by phase |
 | `benchmark/` | Real / synthetic corpus and measurement arms |
 | `commands/` | One function per CLI subcommand; thin orchestration only |
+| `config/` | Domain-specific configuration loading and overrides, exposed through `config.ts` |
 | `conventions/` | Default taxonomy and the only implementation of branch / commit / PR naming |
 | `core/` | Execute loop, session snapshot, journal, metrics instrumentation |
 | `execution/` | Multi-issue queue plan, confirm, order and live-run registry |
