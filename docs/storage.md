@@ -1,16 +1,21 @@
-# CLI storage and artifacts
+# Storage and artifacts
 
 [CLI guide](cli.md) · [Project overview](../README.md)
 
-The Issue Flow CLI keeps pipeline artifacts in a machine-wide storage layer
-rooted at `~/.issue-flow`. Plans, sessions and telemetry are machine-local and
-do not need to be committed or ignored in the consumer repository. Implementation
-phases still edit and commit the project's code.
+Issue Flow uses one artifact resolver for the CLI and the portable Agent Skills.
+By default it stores operational artifacts outside the repository, under
+`~/.issue-flow`. If `<workspace>/.issue-flow/issues/` already exists, that
+directory explicitly selects workspace-local storage for both interfaces. An
+ordinary run never creates this opt-in directory and never copies state between
+the two stores.
 
-Agent Skills use a separate [artifact layout](../skills/README.md#artifacts-resumption-and-limits)
-under the consumer project's `issues/<id>/` by default. The database, sessions,
-telemetry and migration described here belong to the CLI; they are not Skill
-runtime requirements or a supported way to transfer a Skill run to the CLI.
+Artifacts such as PRDs, task plans, progress and reviews are operational state
+and must not be committed. Global storage is already outside Git. Workspace
+storage maintains a scoped `.issue-flow/.gitignore` that ignores `issues/`,
+queues, SQLite files, locks, provider/project metadata and backups while leaving
+other `.issue-flow` content, such as prompt overrides, eligible for versioning.
+The CLI alone owns sessions, locks, telemetry and orchestration; `tasks.json`
+and the readable documents form the portable continuation boundary.
 
 - [Directory tree](#directory-tree)
 - [SQLite database](#sqlite-database)
@@ -49,6 +54,26 @@ runtime requirements or a supported way to transfer a Skill run to the CLI.
 ```
 
 `queues/` only exists once a run really coordinates more than one issue.
+
+The workspace-local variant has the same project-level shape without the
+`projects/<project-id>/` segment:
+
+```text
+<workspace>/.issue-flow/
+  .gitignore
+  issue-flow.db
+  metadata.json
+  providers.json
+  run.lock
+  issues/<id>/
+  queues/<id>/
+  backups/
+```
+
+Existence of `<workspace>/.issue-flow/issues/` is the complete opt-in signal.
+Removing or adding it changes the selected store on the next process; Issue Flow
+does not merge, copy or choose per artifact. The same store remains active for
+the whole process.
 
 ## SQLite database
 
@@ -165,11 +190,12 @@ identified by path can never collide with one identified by remote.
 ISSUE_FLOW_HOME=/tmp/issue-flow-ci npx issue-flow run 42
 ```
 
-`ISSUE_FLOW_HOME` is the single seam through which the root is resolved: set it
-and *every* path above moves with it. A relative value is resolved against the
-current working directory. Use it to isolate CI runs, sandboxes and test suites
-from the real `$HOME` — Issue Flow's own tests point it at a temporary directory
-for exactly this reason. Unset, the root is `~/.issue-flow`.
+`ISSUE_FLOW_HOME` relocates the default global root. A relative value is resolved
+against the current working directory. Use it to isolate CI runs, sandboxes and
+test suites from the real `$HOME` — Issue Flow's own tests point it at a
+temporary directory for exactly this reason. Unset, the root is
+`~/.issue-flow`. An existing workspace `.issue-flow/issues/` remains the more
+specific explicit store selection and therefore does not move with this value.
 
 ## `~/.issue-flow/web.lock`
 
@@ -680,18 +706,23 @@ When files are actually copied, the CLI prints the source directory, the
 destination and how many files moved, plus a reminder that the legacy directory
 was left untouched. A run that copies nothing prints nothing.
 
-An existing global directory always wins. The check also runs **per issue**, not
-only per project: an issue that appears under `<projectRoot>/issues/` after the
-project was migrated is picked up the first time it is resolved.
+Workspace storage, when explicitly selected by an existing
+`.issue-flow/issues/`, wins as a whole and disables this legacy migration. In
+global mode, an existing global destination wins. The legacy check also runs
+**per issue**, not only per project: an issue that appears under
+`<projectRoot>/issues/` after the project was migrated is picked up the first
+time it is resolved.
 
-These consequences concern legacy CLI artifacts. A Skill using the same default
-`issues/` path still owns its local files. The migration can copy files from
-that path too; a successful copy does not establish supported cross-surface
-resumption or keep the two execution states synchronized.
+The legacy `<projectRoot>/issues/` directory is never an active Skill store.
+Both surfaces resolve the same new location. A Skill that updates a valid
+`tasks.json` runs the bundled `reconcile` helper; the next CLI process also
+detects the changed projection by SHA-256 and imports it into SQLite. CLI writes
+materialize the same readable projection for a later Skill. Process sessions,
+locks and telemetry remain CLI-only and are not transferred.
 
 Two consequences are worth knowing:
 
-- **CLI artifacts are no longer shareable through git.** If your project used to
+- **Issue artifacts are no longer shareable through git.** If your project used to
   commit `issues/` to review `prd.md` or `tasks.json`, those files now live under
   `~/.issue-flow` on the machine that ran the pipeline. The committed copies stay
   valid as a historical record, but stop being updated.
@@ -726,4 +757,6 @@ after consolidated delivery and the requested review succeed. Confirmation is
 persisted per member, so a retry reads provider state and skips confirmed closes.
 A closure failure exits 1 and remains resumable. `resume <queue-or-member>` resumes
 queue-owned work together; `resume --all` also considers pending queue delivery.
-These fields do not enable cross-resumption between CLI and portable Skills.
+These fields do not turn a Skill invocation into a resumable CLI process. The
+portable artifact state can continue across interfaces; process ownership and
+runtime telemetry cannot.

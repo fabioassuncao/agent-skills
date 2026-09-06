@@ -27,7 +27,7 @@ skills/<name>/       packages/issue-flow/prompts/
 
 Edit the sources, never a generated copy. `.gitattributes` marks distribution files and packaged prompts as generated for review. Commit sources **and** generated `skills/` and `prompts/` together. The Git repository is directly installable without a postinstall/build hook. `.md.in` prevents installers recursively discovering a second source copy of each Skill. Root `skills/README.md` is the authored user guide and `skills/AGENTS.md` is an authored index, both excluded from generation; neither is a required dependency of an installed Skill. `skills-src/AGENTS.md` points contributors to this contract.
 
-Version sources, the manifest, dependency lockfile, tests, scenarios and documentation. Ignore package `node_modules/`, `dist/` and `.cache/`. Local `issues/` work is not ignored by this repository's committed `.gitignore` files; inspect artifacts before staging. Generated distribution files are intentionally **not ignored**. Dated, selected synthetic eval reports under `docs/research/` are committed evidence; routine runner output stays in the ignored cache. See [eval evidence](skills-evals.md#contracts-and-interpretation) before retaining a report.
+Version sources, the manifest, dependency lockfile, tests, scenarios and documentation. Ignore package `node_modules/`, `dist` and `.cache/`. Consumer issue artifacts are operational state and are never committed: the default store is outside the repository, while an opted-in `.issue-flow/issues/` store maintains its own scoped ignore file. Generated Skill distribution files in this repository are intentionally **not ignored**. Dated, selected synthetic eval reports under `docs/research/` are committed evidence; routine runner output stays in the ignored cache. See [eval evidence](skills-evals.md#contracts-and-interpretation) before retaining a report.
 
 `manifest.json` maps each artifact-relative destination to one repository-relative source. Shared references are copied at build time. The orchestrator receives phase procedures from the very same files used by the individual Skills. There are eleven independent artifacts, not eleven author-maintained copies of shared rules.
 
@@ -41,7 +41,7 @@ Small prose contracts with real parity requirements (repository decisions, PR me
 
 The existing generator also renders `<!-- generated:workflow -->` from `src/core/workflow-contract.ts`. This one fixed directive produces the phase contract in the plan reference. Phase order and persisted field mapping come from the same module used by the CLI; domain-specific operations remain in their existing modules. Generated Markdown carries a provenance header; CLI prompt rendering removes that header before invoking an agent.
 
-`artifacts.mjs plan <tasks.json> --json` returns a versioned inspection with the next eligible story and blocking dependencies. Its implementation is the same source as `issue-flow artifacts plan`; both inspect explicit files without migrating or reconciling storage. The portable helper works when the CLI is absent. Its legacy invocation without `--json` retains `{valid, stories}`. Do not read the whole bundled JavaScript into context; execute its documented operation. `--help` is conditional, not a mandatory extra call. Reuse policy already established in the same execution until scope, instructions, configuration or checkout changes.
+`artifacts.mjs resolve <id> --json` selects the shared CLI/Skill store; `prepare <id>` creates only the selected issue directory; `reconcile <id>` validates an updated task plan so the next CLI resolution can import its changed SHA-256 projection. `artifacts.mjs plan <tasks.json> --json` remains a read-only versioned inspection with the next eligible story and blocking dependencies. Its implementation is the same source as `issue-flow artifacts`; the portable bundle works when the CLI is absent. Its legacy plan invocation without `--json` retains `{valid, stories}`. Do not read the whole bundled JavaScript into context; execute its documented operation. `--help` is conditional, not a mandatory extra call. Reuse policy already established in the same execution until scope, instructions, configuration or checkout changes.
 
 Add `--context` to select the current execution facts: objective, branch choice, remaining IDs, active story with criteria and dependency status, findings, blocker and correction budget. This is a read-only projection, not a replacement plan. Update the original JSON while preserving other fields; retrieve additional stories or PRD sections when the current decision needs them. The CLI execute builder imports the same `executionContext` function directly. Progress logs remain intact: consult durable patterns and the latest relevant entries, searching older entries only for a specific unresolved question.
 
@@ -66,6 +66,7 @@ npm run skills:sync     # regenerate after source changes
 npm run skills:check
 npm run skills:test
 npm run skills:eval -- --check
+npm run skills:benchmark -- --agents claude,codex,cursor --scenario analyze-local,execute-regression --repeat 2 --baseline <sha> --without-skill
 npm run check
 npm test
 npm run build
@@ -87,13 +88,15 @@ The generator assembles expected bytes before writing, rejects conflicting/escap
 
 Checks cover YAML, names/types/lengths, resource links and anchors, code-path references, escaping paths, symlinks, unresolved generation directives, external JavaScript imports, unexpected files, known proprietary tool instructions and silent CLI invocations. The parser uses a Markdown AST and a real YAML parser. Project-specific lints are stricter than the standard where portability requires it. Static analysis cannot prove the meaning of every sentence or dynamically constructed path; review and behavioral evals cover those limits.
 
+The behavior corpus keeps development and holdout selection prompts separate. Each Skill has explicit, implicit, negative and overlapping-intent coverage. Use `skills:benchmark` for repeated candidate, Git-baseline and behavior-without-Skill arms; keep paid harness runs on demand and retain only dated synthetic evidence that supports a decision. A merge or description rewrite needs stable quality across near neighbors before token savings count as an improvement.
+
 Isolation tests copy each Skill to a temporary directory, validate the closure there, and run every helper without the repository. Behavioral helper tests exercise parsing/hashing, schema errors, naming precedence, non-destructive scaffold output and optional CLI failures. Installer tests use pinned Vercel Skills against a disposable Git checkout, compare every installed file byte-for-byte and validate installed references. Global tests use a disposable Docker user rather than changing your personal Skill collection. Slow model evals are separate and opt-in; [their format and interpretation](skills-evals.md) matter as much as a green score.
 
 ## Add or change a Skill
 
 1. Create `skills-src/<name>/SKILL.md.in` and its focused procedure. Define positive/negative triggering and observable outcomes first.
 2. Add its explicit resources to `manifest.json`. Reuse a source only when the underlying rule truly must remain equivalent. Avoid copying sibling artifacts or referencing repository implementation at execution time.
-3. Put a pure helper entry in `scripts/skill-entries/` only for a deterministic capability worth sharing with the CLI. Helpers should provide `--help`, useful errors and no implicit writes.
+3. Put a helper entry in `scripts/skill-entries/` only for a deterministic capability worth sharing with the CLI. Helpers should provide `--help`, useful errors and make every mutating operation explicit (`prepare` and `reconcile` are the storage examples).
 4. Add positive, negative and behavior cases to `evals/skills/scenarios.json`; add meaningful helper/isolation regression coverage when appropriate.
 5. Sync, check, test and install the new directory alone. Inspect its actual dependencies. Update the capability index and audit when responsibility changes.
 

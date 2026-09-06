@@ -8,7 +8,9 @@ configuration at all, every default reproduces the behaviour of a plain
 
 These settings configure the CLI runtime. Agent Skills use their current host's
 configuration and repository instructions; they do not require `.issue-flow.json`
-or a global CLI configuration. See [optional CLI enrichment](../skills/README.md#optional-cli-enrichment).
+or a global CLI configuration. Their portable artifact helper does honor
+`ISSUE_FLOW_HOME`, so CLI and Skills resolve the same default store. See
+[optional CLI enrichment](../skills/README.md#optional-cli-enrichment).
 
 - [The precedence ladder](#the-precedence-ladder)
 - [`.issue-flow.json`](#issue-flowjson) — per project
@@ -331,7 +333,7 @@ upwards only.
 
 | Variable | Overrides |
 |----------|-----------|
-| `ISSUE_FLOW_HOME` | The whole storage root — see [Storage](storage.md#issue_flow_home) |
+| `ISSUE_FLOW_HOME` | The default global storage root; an existing workspace `.issue-flow/issues/` selects local storage — see [Storage](storage.md#issue_flow_home) |
 | `ISSUE_FLOW_WEB`, `ISSUE_FLOW_WEB_PORT`, `ISSUE_FLOW_WEB_HOST`, `ISSUE_FLOW_WEB_REFRESH`, `ISSUE_FLOW_WEB_LOG_LIMIT` | The `web` key |
 | `ISSUE_FLOW_AGENT`, `ISSUE_FLOW_AGENT_MODEL` | The `agent` key. There are **no** per-phase variables |
 | `ISSUE_FLOW_CODEX_SANDBOX`, `ISSUE_FLOW_CODEX_REASONING_EFFORT`, `ISSUE_FLOW_CODEX_IGNORE_USER_CONFIG` | Codex runner settings |

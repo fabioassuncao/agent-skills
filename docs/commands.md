@@ -16,13 +16,15 @@ installed.
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
 - [Exit codes](#exit-codes)
 
-Artifacts live in the [global storage](storage.md), never in your working tree:
+Artifacts live in the [resolved operational store](storage.md), never as tracked working-tree files:
 
 ```
 ~/.issue-flow/projects/<project-id>/issues/42/
+# or, when .issue-flow/issues/ already exists:
+<workspace>/.issue-flow/issues/42/
 ```
 
-Below, that path is abbreviated to `~/.issue-flow/…/issues/42/`.
+Below, that active path is abbreviated to `<store>/issues/42/`.
 
 ## Global flags
 
@@ -203,7 +205,7 @@ with `passes: false`, implements it, runs quality checks and commits.
 
 | Flag | Description |
 |------|-------------|
-| `--issue <n>` | Issue number — reads artifacts from `~/.issue-flow/…/issues/n/` |
+| `--issue <n>` | Issue number — reads artifacts from `<store>/issues/n/` |
 | `--max-iterations <n>` | Stop after N iterations. Also accepted as a positional argument |
 | `--retry-limit <n>` / `--retry-forever` | Transient-failure budget |
 | `--web` and the other web flags | [Web monitoring](web-monitor.md) |
@@ -273,14 +275,14 @@ reviews a guessed PR. For sources 2–4 in an interactive terminal it asks for a
 earlier report nor drops entries from `index.json`:
 
 ```
-~/.issue-flow/…/issues/42/pr-review/    # …/issues/pr-184/pr-review/ with no --issue
+<store>/issues/42/pr-review/    # …/issues/pr-184/pr-review/ with no --issue
   pr-184-round-1.md
   pr-184-round-2.md
   index.json
 ```
 
 With no `--issue`, the Pull Request number becomes the issue identifier of the
-directory (`pr-184`): the global storage accepts non-numeric identifiers, so a
+directory (`pr-184`): the artifact store accepts non-numeric identifiers, so a
 review with no associated issue still gets a first-class directory.
 
 The Markdown report always carries the same eight sections: executive summary,
@@ -398,7 +400,7 @@ persisted by the selected provider(s). With no destination flag, the
 | Flag | Destination |
 |------|-------------|
 | `--github` | GitHub only |
-| `--local` | `issue.md` + `metadata.json` under `~/.issue-flow/…/issues/<n>/`, no GitHub discovery; the configured drafting agent may require network |
+| `--local` | `issue.md` + `metadata.json` under `<store>/issues/<n>/`, no GitHub discovery; the configured drafting agent may require network |
 | `--both` | GitHub **and** a local mirror reusing the GitHub number, recording `remote.ref` and `remote.syncedContentHash` |
 
 The flags are mutually exclusive. With `--both` the remote issue is created
@@ -595,9 +597,9 @@ Manual mode does not turn the CLI pipeline into a planning-only workflow.
 ## `artifacts` — deterministic, explicit-file inspection
 
 ```bash
-issue-flow artifacts plan ./issues/42/tasks.json --json
-issue-flow artifacts plan ./issues/42/tasks.json --context --json
-issue-flow artifacts issue ./issues/42/issue.md ./issues/42/metadata.json --json
+issue-flow artifacts plan /path/to/tasks.json --json
+issue-flow artifacts plan /path/to/tasks.json --context --json
+issue-flow artifacts issue /path/to/issue.md /path/to/metadata.json --json
 ```
 
 Both commands work outside Git repositories and never initialize, migrate,

@@ -112,11 +112,13 @@ issue-flow resume                  # continue an interrupted run, explicitly
 
 Full reference: [**Commands**](commands.md).
 
-Pipeline artifacts are machine-local under
-`~/.issue-flow/projects/<project-id>/issues/<issue-id>/`, including the PRD,
-task plan and session projections. The repository's code changes and commits
-remain in the working tree. For SQLite storage, project identity, schemas,
-telemetry and legacy migration, see [Storage and artifacts](storage.md).
+Pipeline artifacts use the shared resolved store: normally
+`~/.issue-flow/projects/<project-id>/issues/<issue-id>/`, or
+`<workspace>/.issue-flow/issues/<issue-id>/` when that local opt-in already
+exists. They include the PRD, task plan and session projections and are never
+tracked source files. The repository's code changes and commits remain in the
+working tree. For selection, ignore policy, SQLite, identity, telemetry and
+legacy migration, see [Storage and artifacts](storage.md).
 
 ## Inspect artifacts without an agent
 

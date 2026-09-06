@@ -46,11 +46,12 @@ ownership and checks; `build` runs `skills:sync` and then `build:cli` (tsup). CI
 
 | Interface | Execution and state |
 |---|---|
-| [Agent Skills](../skills/README.md) | Current host's tools and permissions; artifacts default to the consumer project's `issues/<id>/`; resumption verifies artifacts and Git evidence |
-| [CLI](cli.md) | Agent process orchestration; global storage under `~/.issue-flow`, canonical SQLite data and session/telemetry projections |
+| [Agent Skills](../skills/README.md) | Current host's tools and permissions; shared artifact resolver; resumption verifies artifacts and Git evidence |
+| [CLI](cli.md) | Agent process orchestration; the same resolved artifact store, canonical SQLite data and session/telemetry projections |
 
-These are separate runtime state machines implementing shared methodology. Shared task formats do not make sessions
-transferable; a run cannot be resumed across interfaces. Skills can optionally
+These are separate runtime state machines implementing shared methodology. The
+readable artifact state can continue across interfaces; live sessions, locks and
+telemetry do not transfer. Skills can optionally
 consult an installed CLI for policy discovery, with direct discovery as fallback.
 See [Skill limits](../skills/README.md#artifacts-resumption-and-limits) and
 [CLI storage](storage.md).
@@ -60,11 +61,21 @@ See [Skill limits](../skills/README.md#artifacts-resumption-and-limits) and
 - `src/schemas.ts`: task-plan and issue-metadata shape.
 - `src/core/task-plan.ts`: dependency graph validation, eligible-story selection, compact inspection and execution context projection.
 - `src/core/artifact-files.ts`: explicit-file reads, parsing and hash/schema checks; no project resolution or storage initialization.
+- `src/core/document-result.ts` and `plan-result.ts`: strict final-block parsing for CLI model results and semantic plan validation; commands own the resulting file writes and deterministic metadata.
+- `src/storage/artifact-paths.ts`, `artifact-storage.ts` and `project-identity.ts`: pure/shared artifact layout, store selection, ignore policy and project identity used by both CLI and bundled Skill helper.
 - `src/core/workflow-contract.ts`: phase order, phase-to-state mapping and completion evidence. The builder renders its table into the portable plan reference; the CLI imports its constants directly.
 - `src/verify/review-result.ts`: strict issue-review result parsing. The authored protocol remains in `skills-src/_shared/issue-review-result.md` and is composed into both consumers.
 - `src/commands/run/closure.ts`: CLI-owned authorization, provider confirmation and resumable closure. This is not portable Skill session state.
 
 The existing `core`, `issues`, `conventions`, `scaffold` and `schemas.ts` locations are the shared layer. No new package, generic workflow engine or CLI-generated TypeScript directory is needed. The build packages pure code for independent consumers; it does not translate prose into executable decisions. Context inspection supplies facts; an agent still decides architecture, scope and whether evidence meets a requirement.
+
+CLI document phases keep judgment and persistence separate. `analyze` and `prd`
+accept exactly one final `<issue-analysis>` or `<prd>` block. `plan` accepts one
+`<task-plan>` containing description, stories, criteria and dependency keys.
+The command validates that result, derives story IDs, priorities, branch, issue
+metadata and lifecycle state, then writes the artifact atomically. These phases
+do not grant the agent file-write tools. Prompt fixtures and packed-CLI smoke
+tests must exercise these protocols rather than writing artifacts from a stub.
 
 ## Directories under `src/`
 
@@ -120,6 +131,10 @@ for independent Skill use. The CLI loads its own packaged resources at runtime.
 The [Skill source/artifact contract](skills.md) defines ownership, shared
 resources, generation and validation. Follow it when changing a shared rule or
 adding a workflow; the [eval guide](skills-evals.md) covers observable behavior.
+`scripts/skills-eval.mjs` owns one isolated harness run. `scripts/skills-benchmark.mjs`
+composes repeated candidate, baseline and no-Skill arms and only aggregates their
+recorded outputs. Both call the production agent adapters; neither is a second
+orchestration runtime or part of the distributed Skills.
 
 ## Size as a signal, not a hard rule
 

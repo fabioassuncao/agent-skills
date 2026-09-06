@@ -2,7 +2,7 @@
 
 [Contributing](../CONTRIBUTING.md) · [Authoring Skills](skills.md)
 
-Structural validity does not prove useful behavior. This development-only runner addresses [issue #111](https://github.com/fabioassuncao/issue-flow/issues/111) using the existing Claude and Codex adapters. Evaluators, harness libraries and scenarios are not shipped in Skills or the npm runtime package.
+Structural validity does not prove useful behavior. This development-only runner addresses [issue #111](https://github.com/fabioassuncao/issue-flow/issues/111) using the same Claude, Codex, Cursor and Antigravity adapters as the CLI. Evaluators, harness libraries and scenarios are not shipped in Skills or the npm runtime package.
 
 ## Run
 
@@ -15,21 +15,29 @@ npm run skills:eval -- --agent claude --scenario review-fresh-evidence,convert-s
 npm run skills:eval -- --agent codex --scenario review-fresh-evidence,convert-standalone
 npm run skills:eval -- --agent claude --kind positive
 npm run skills:eval -- --agent claude --kind negative
+npm run skills:eval -- --agent cursor --split holdout
 npm run skills:eval -- --agent claude --kind behavior --timeout 180000
 npm run skills:eval -- --agent claude --scenario convert-standalone --baseline 557bcec
+npm run skills:eval -- --agent codex --scenario convert-standalone --without-skill
+npm run skills:benchmark -- --agents claude,codex,cursor --scenario analyze-local,execute-regression --repeat 2 --baseline 557bcec --without-skill
 ```
 
 `--output <path>` selects the evidence JSON; the default is ignored `.cache/skills-evals/` in the package. Real runs require the selected harness installed/authenticated and consume its normal tokens. No model is silently selected. Provider/version and reported model/usage are recorded; a null model means the harness default was not identified. Each case gets a temporary Git fixture and copied Skill, removed afterward. Personal Skill installations and home directories are not replaced.
 
-`--check` validates versioned scenarios and coverage without a model. Main CI uses this inexpensive check. Real evals are **on demand**, non-gating until cost and variance have a measured baseline. Repeat cases with separate outputs before attributing a single failure to a regression. The CLI invocation is the on-demand mechanism; ordinary contributions need no model credentials.
+`--check` validates versioned scenarios and coverage without a model. Main CI uses this inexpensive check. Real evals are **on demand**, non-gating until cost and variance have a measured baseline. The CLI invocation is the on-demand mechanism; ordinary contributions need no model credentials.
+
+`skills:benchmark` runs at most one invocation at a time for each selected provider while providers run in parallel. The candidate arm is always present. `--baseline <sha>` adds the generated Skill or CLI prompt from that commit; `--without-skill` adds a no-Skill arm for behavior cases. `--repeat` measures variance and reverses arm order on alternating repetitions to reduce ordering bias. The command writes JSON evidence and a Markdown summary with pass rate, harness/verifier errors, wall time, tool calls and every usage field actually reported by the harness. Missing usage remains `null`; it is never treated as zero. A nonzero exit means at least one run failed or the environment prevented evaluation, while the report still separates those outcomes.
+Choose a bounded set with `--scenario` or `--split`; the default safety ceiling is
+120 model invocations. An intentional larger run must state
+`--max-invocations <n>` explicitly.
 
 ## Contracts and interpretation
 
-[`evals/skills/scenarios.json`](../evals/skills/scenarios.json), `schemaVersion: 1`, contains unique IDs, Skill, kind, user prompt, fixture, assertions and rubrics. Every Skill has positive, negative and behavior cases. Pressure cases cover stale evidence, invalid GENERAL findings and regression reproduction before correction.
+[`evals/skills/scenarios.json`](../evals/skills/scenarios.json), `schemaVersion: 1`, contains unique IDs, Skill, kind, user prompt, fixture, assertions and rubrics. Every Skill has positive, negative and behavior cases. Selection cases may declare `split: "development" | "holdout"`; omitted means development. Every Skill has an implicit positive and a near-neighbor/overlap negative in holdout so description edits can be checked against prompts that were not used to write them. Pressure cases cover stale evidence, invalid GENERAL findings and regression reproduction before correction.
 
 Positive/negative cases test **catalogue selection** from name/description: positive expects the nominated Skill; negative forbids it while allowing another Skill or none. They do not certify native automatic activation. Behavior cases explicitly load one installed Skill and inspect outcomes in the fixture. Assertions cover created files, JSON, preserved source, actions and final structured results. `manualReview: true` means automated success is only a smoke pass until the rubric is assessed. Required result fields are a machine-readable contract, not an exact-prose comparison. No chain-of-thought is evaluated or saved.
 
-Result schema version 1 records harness/version, baseline SHA, corpus/artifact hashes, duration, usage, final response, tool actions (full command/path fields when emitted), relevant artifacts, failed assertions and rubric. The runner never saves raw streams or thinking events. Only synthetic fixtures belong in the corpus/evidence; never add secrets or customer data.
+Result schema version 1 records harness/version, arm, baseline SHA, corpus/artifact hashes, duration, usage, final response, tool actions (full command/path fields when emitted), relevant artifacts, failed assertions and rubric. The runner never saves raw streams or thinking events. Only synthetic fixtures belong in the corpus/evidence; never add secrets or customer data.
 
 | Status | Meaning | Next step |
 |---|---|---|
@@ -39,6 +47,10 @@ Result schema version 1 records harness/version, baseline SHA, corpus/artifact h
 | `HARNESS_ERROR` | Missing binary, unsupported flag, authentication, timeout, process error or absent baseline artifact | Repair environment and rerun; do not score as Skill failure |
 
 Correct defective assertions and rerun the identical case. Do not weaken valid acceptance criteria to improve scores. Older evidence captured abbreviated normalized commands; the current observer retains emitted command/path fields without keeping thinking or unrelated payloads. Ordering claims still need rubric review. Global/enterprise skills and system instructions may remain visible despite project settings; explicit artifact selection is not proof of total host isolation.
+Cursor evals use its force mode plus the vendor sandbox only to trust the newly
+created disposable workspace; the production permission mapping is unchanged.
+Read-only outcomes in this harness are verified by assertions, so these runs do
+not certify Cursor's plan-mode permission boundary.
 
 ## Add a case
 
