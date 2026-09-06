@@ -34,7 +34,7 @@ If correctionCycle has reached maxCorrectionCycles (default 3), stop with preser
 
 ## Deliver
 
-After PASS, load create-pr only if delivery is pr and publication is part of the authorized flow. Pass the branch mode and full source-to-story mapping; current mode never permits a branch change to make publication possible. Persist a confirmed pullRequest {number,url,headBranch,createdAt}; set prCreated only after remote confirmation. If a PR is required but unavailable, report a blocked publication rather than calling the full flow complete.
+After PASS, load create-pr only if delivery is pr and publication is part of the authorized flow. Pass the branch mode and full source-to-story mapping; current mode never permits a branch change to make publication possible. Carry the metadata result from create-pr into the final report, including pending fields or unavailable verification; PR existence is not proof of metadata compliance. Persist a confirmed pullRequest {number,url,headBranch,createdAt}; set prCreated only after remote confirmation. If a PR is required but unavailable, report a blocked publication rather than calling the full flow complete.
 
 When prReview=true (including --pr-review) was requested, load review-pr after creation (or against the recorded PR on resume). Persist its report. REQUEST_CHANGES or malformed output leaves prReviewCompleted=false and the overall plan incomplete. Return blockers; do not close the issue. APPROVE/APPROVE_WITH_SUGGESTIONS marks that phase complete.
 

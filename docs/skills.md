@@ -37,7 +37,7 @@ Pure TypeScript modules remain canonical for Git conventions/default taxonomy, i
 
 Distributed helper scripts must remain readable and unminified, including bundled dependencies. Preserve indentation, descriptive identifiers, module source comments and legal notices so users can inspect the installed code. Larger artifacts are an accepted tradeoff for auditability. Each bundle's header identifies its canonical entry point and regeneration command; module comments identify the included source files. These repository paths are provenance information, not runtime dependencies. Change the original source and run `skills:sync`; do not format or edit generated copies manually. Regression tests check readable output alongside existing isolated execution tests.
 
-Small prose contracts with real parity requirements (repository decisions, evidence, publication, structured review results) are composed into CLI prompts using `<!-- contract:name -->`. The directive reads one `_shared/name.md` file at generation time. It is not a runtime template language or a plugin API. Existing CLI placeholders, conditional sections and user prompt overrides are preserved. A replacement prompt remains the consumer's maintenance responsibility.
+Small prose contracts with real parity requirements (repository decisions, PR metadata, evidence, publication, structured review results) are composed into CLI prompts using `<!-- contract:name -->`. The directive reads one `_shared/name.md` file at generation time. It is not a runtime template language or a plugin API. Existing CLI placeholders, conditional sections and user prompt overrides are preserved. A replacement prompt remains the consumer's maintenance responsibility.
 
 ## Format and disclosure
 
@@ -88,5 +88,7 @@ Isolation tests copy each Skill to a temporary directory, validate the closure t
 3. Put a pure helper entry in `scripts/skill-entries/` only for a deterministic capability worth sharing with the CLI. Helpers should provide `--help`, useful errors and no implicit writes.
 4. Add positive, negative and behavior cases to `evals/skills/scenarios.json`; add meaningful helper/isolation regression coverage when appropriate.
 5. Sync, check, test and install the new directory alone. Inspect its actual dependencies. Update the capability index and audit when responsibility changes.
+
+The shared `pr-metadata.md` contract is bundled into create-pr/resolve-issue and composed into the packaged CLI PR prompt. It governs metadata discovery, application and confirmation without adding runtime state or a universal label taxonomy.
 
 An integration with the CLI must classify the operation: direct capability (A, remove CLI dependence), optional optimization (B, bounded probe plus direct fallback), or exclusive runtime capability (C, explicit requirement and reconsider whether it belongs in a Skill). Current Skills have no category-C dependency. Locks, SQLite, persistent orchestration and lifecycle remain in the CLI. Do not hide a CLI download in a fallback or write to its internal state.

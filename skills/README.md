@@ -105,6 +105,30 @@ Read the changes and evidence before merging. Creating a PR does not itself
 authorize immediate issue closure. A failed check, unresolved review finding or
 failed required publication must be reported rather than presented as success.
 
+### PR labels and other metadata
+
+`create-pr` and the delivery phase of `resolve-issue` classify a new PR using the
+actual diff, applicable project rules and the target repository's existing label
+names/descriptions. Labels are applied automatically when supported; issue labels
+are evidence, not a list to copy. A consumer's vocabulary wins over Issue Flow's.
+No label is created implicitly to complete a PR.
+
+The template controls the body; labels, assignees, reviewers, milestone and project
+are separate fields. The latter fields need explicit values or concrete project
+rules. After creation, the agent checks the actual metadata and reports pending
+or unverified fields alongside the confirmed URL. A metadata failure does not
+justify creating a second PR. Ordinary reuse leaves metadata unchanged; explicitly
+requested updates preserve manual values unless removal/replacement was requested.
+
+The same [metadata contract](create-pr/references/pr-metadata.md) is bundled in the
+Skills and composed into the CLI's packaged PR prompt. Replacing that CLI prompt
+also makes maintaining these instructions the consumer's responsibility. In the
+CLI, the metadata assessment is part of the agent report (visible with
+`--verbose`); the existing `prCreated` state records publication, not a separate
+machine-verified metadata status. The
+[Issue Flow repository convention](../docs/git-conventions.md#pr-description-and-metadata)
+is one local application of the contract, not a required taxonomy for consumers.
+
 ## Choose a Skill
 
 Install individual Skills when you want to invoke one responsibility directly.

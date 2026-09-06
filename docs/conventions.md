@@ -125,9 +125,9 @@ of a container fails instead of implementing the document nobody approved.
 
 | Concept | Represent it as | Why |
 |---|---|---|
-| Documentation | `Task` + label `docs` | The work is a task; what varies is the area |
+| Documentation | `Task` + an existing documentation label | The work is a task; what varies is the area |
 | Maintenance, chore | `Task` | That is already what `Task` means |
-| Refactor, technical debt | `Task` + label `tech-debt` | A cross-cutting characteristic, not a nature |
+| Refactor, technical debt | `Task` + an existing refactoring/debt label | A cross-cutting characteristic, not a nature |
 | Security | the real type + label `security` | It cuts across every type |
 | Spike, investigation | `Research` | The same concept, different name |
 | Enhancement | `Feature` | A change to what the product does is a feature |
@@ -136,13 +136,18 @@ of a container fails instead of implementing the document nobody approved.
 
 ### Labels
 
-A small vocabulary, for what has no native representation — area, component and
+For issues, prefer a small vocabulary for what has no native representation — area, component and
 cross-cutting characteristic: `api`, `backend`, `frontend`, `database`, `infra`,
-`docs`, `security`, `tech-debt`, `blocked`, `good first issue`.
+`documentation`, `security`, `tech-debt`, `blocked`, `good first issue`. These are
+examples for discovery/fallback, not a requirement to create those names. In this
+repository the existing documentation label is `documentation`.
 
-There is deliberately no `priority`, `status`, `type` or size label: GitHub
-models all four. The one exception is `type:*`, proposed only for an organization
-with no Issue Types at all.
+Do not create duplicate priority/status/type/size labels when the project models
+those decisions with native Issue Types, Projects fields or other existing
+structure. A `type:*` fallback can be proposed for issues when native Issue Types
+are unavailable. PRs are classified separately: their applicable labels and
+other metadata follow [PR conventions](git-conventions.md#pr-description-and-metadata).
+Existing labels are not removed or migrated by this guidance.
 
 **Issue Flow never creates a label.** A suggestion the repository does not have is
 dropped with a warning. A team that deleted `high`/`medium`/`low` in favour of a

@@ -26,6 +26,7 @@ Use this Skill only for its requested responsibility. Work in the consumer proje
 - When reading, creating or updating a task plan: [plan-format](references/plan-format.md).
 - When naming branches, commits or PRs: [git-conventions](references/git-conventions.md).
 - Before implementing, reviewing or claiming completion: [evidence](references/evidence.md).
+- When creating a PR or explicitly updating its metadata: [pr-metadata](references/pr-metadata.md).
 - Before a remote mutation: [publication](references/publication.md).
 - When returning an issue review: [issue-review-result](references/issue-review-result.md).
 - When returning a PR review: [pr-review-result](references/pr-review-result.md).

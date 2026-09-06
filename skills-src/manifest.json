@@ -58,7 +58,8 @@
       "references/create-pr.md": "skills-src/create-pr/workflow.md",
       "scripts/optional-cli.mjs": "skills-src/_shared/optional-cli.mjs",
       "scripts/conventions.mjs": "packages/issue-flow/scripts/skill-entries/conventions.entry.mjs",
-      "references/execution-options.md": "skills-src/_shared/execution-options.md"
+      "references/execution-options.md": "skills-src/_shared/execution-options.md",
+      "references/pr-metadata.md": "skills-src/_shared/pr-metadata.md"
     },
     "review-issue": {
       "references/repository-policy.md": "skills-src/_shared/repository-policy.md",
@@ -140,7 +141,8 @@
       "references/create-pr.md": "skills-src/create-pr/workflow.md",
       "references/review-pr.md": "skills-src/review-pr/workflow.md",
       "THIRD_PARTY_LICENSES.txt": "packages/issue-flow/node_modules/zod/LICENSE",
-      "references/execution-options.md": "skills-src/_shared/execution-options.md"
+      "references/execution-options.md": "skills-src/_shared/execution-options.md",
+      "references/pr-metadata.md": "skills-src/_shared/pr-metadata.md"
     }
   }
 }
