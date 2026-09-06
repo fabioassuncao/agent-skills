@@ -2,7 +2,6 @@ import { loadRunConfig } from '../config.js';
 import { backgroundRejection } from '../execution/detach.js';
 import { ensureProvidersRegistered } from '../issues/bootstrap.js';
 import { mintInlineIssue } from '../issues/providers/inline.js';
-import { describeRunLockOwner } from '../storage/lock.js';
 import { printError, printInfo } from '../ui/logger.js';
 import { resolveRunDemand } from './run/demand.js';
 import { detachAfterConfirm, runQueue } from './run/multi-issue.js';
@@ -88,9 +87,7 @@ export async function runPipeline(
   // and a branch, so "a different issue" is not a different lock.
   const ownership = await claimRunOwnership(requested[0] as string, options.detachedChild === true);
   if (!ownership.ok) {
-    printError(
-      `Another issue-flow run owns this project: ${describeRunLockOwner(ownership.owner)}.`,
-    );
+    printError(ownership.refusal);
     printInfo('Wait for it to finish, or stop that process before running again.');
     return 1;
   }

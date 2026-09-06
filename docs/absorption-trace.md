@@ -1245,7 +1245,7 @@ em memória por tick do watchdog, com o refresh de banco atrás de um intervalo 
 
 ---
 
-### Paralelismo (Fase 16, fundação) e multi-agente com handoffs (Fase 17)
+### Paralelismo (Fase 16) e multi-agente com handoffs (Fase 17)
 
 **WebMux original**
 Nenhuma unidade portada. §31.1 é uma **constatação sobre o upstream**, não código a
@@ -1300,13 +1300,25 @@ Nenhum — não há unidade upstream nestas fases.
 |---|---|---|---|
 | Custo marginal por sessão adicional | 15 ms | ≤ 30 ms | **8 ms** (tmux, Fase 6) e **< 1 ms** (slot de execução, 5 simultâneos) |
 
-**Pendência conhecida**
-A fundação de paralelismo está pronta e testada, mas `src/execution/` e `src/commands/run.ts`
-ainda adquirem o `run.lock` de projeto diretamente. Trocar essa chamada por
-`acquireExecutionSlot()` é a última ligação da Fase 16, e ficou pendente porque
-`src/commands/run.ts` estava sendo alterado em paralelo pela Fase 15. Com `maxConcurrent: 1`
-— o default — as duas rotas são **idênticas**, então nenhum comportamento atual depende
-dessa ligação.
+**Ligação final** (feita depois que a Fase 15 liberou `src/commands/run.ts`)
+`claimRunOwnership` (`src/commands/run/session.ts`) passou a chamar
+`acquireExecutionSlot()` em vez de `acquireRunLock()` direto. É o único ponto em que um run
+pede a exclusão, e `runtime.maxConcurrent` é a única coisa que decide se o slot é o
+`run.lock` de projeto de sempre ou um lock por unidade. Três detalhes:
+
+- **`unitId` é a issue da invocação.** Uma fila é *um* run, não um por issue (§31.3), então
+  a primeira issue nomeia o slot que a invocação inteira segura.
+- **`detached` atravessa o slot.** Ele é o que distingue um dono em background de um
+  interativo, e é o que decide se retomar um lock parado é recuperação ou colisão;
+  `acquireExecutionSlot` o descartava, e passou a repassá-lo nos dois ramos.
+- **A recusa virou uma frase só** (`describeSlotRefusal`), porque agora há dois motivos
+  — dono vivo e teto atingido — e cada chamador imprimir o seu produziria duas redações.
+
+`src/commands/run/ownership.test.ts` fixa as duas metades: no teto padrão o arquivo é o
+mesmo de sempre e **nenhum** lock por unidade é criado; acima dele duas issues correm
+simultaneamente e a terceira é recusada nomeando `runtime.maxConcurrent`. Sem esse teste,
+uma ligação que continuasse usando o lock de projeto passaria em todo
+`runtime/concurrency.test.ts` e ainda assim faria o teto não ter efeito nenhum.
 
 ---
 
