@@ -2200,6 +2200,766 @@
         "Resolve must retain the recorded branchName and block a mismatch instead of recapturing main before calling execution."
       ],
       "manualReview": true
+    },
+    {
+      "id": "pr-metadata-backend-bug",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the completed null-input correction described directly here. There is no linked issue. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"backend\",\\s*\"bug\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-docs-only",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the API documentation clarification. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/docs/api.md b/docs/api.md\\n--- a/docs/api.md\\n+++ b/docs/api.md\\n@@ -1 +1 @@\\n-Run the server.\\n+Run the server with --port 8080; the API listens on that port.\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"documentation\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-grouped",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a single PR for #41 (move queue scheduling behind a new boundary) and #42 (document the boundary). Both are complete. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/controller.ts b/src/controller.ts\\n--- a/src/controller.ts\\n+++ b/src/controller.ts\\n@@ -1 +1 @@\\n-const run = tasks => tasks.forEach(execute);\\n+import { run } from \\\"./scheduler.js\\\";\\ndiff --git a/src/scheduler.js b/src/scheduler.js\\nnew file mode 100644\\n+export const run = tasks => tasks.forEach(execute);\\ndiff --git a/docs/architecture.md b/docs/architecture.md\\nnew file mode 100644\\n+The controller delegates queue scheduling to the scheduler.\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"architecture\",\\s*\"backend\",\\s*\"documentation\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-project-vocabulary",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the null-input correction. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"kind/defect\",\n      \"description\": \"Corrections of defective behavior\"\n    },\n    {\n      \"name\": \"area/service\",\n      \"description\": \"Server implementation\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"area/service\",\\s*\"kind/defect\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-stale-issue-labels",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for #41, whose current issue labels are bug, backend, high and blocked. The completed work only clarifies API usage. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/docs/api.md b/docs/api.md\\n--- a/docs/api.md\\n+++ b/docs/api.md\\n@@ -1 +1 @@\\n-Run the server.\\n+Run the server with --port 8080; the API listens on that port.\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"documentation\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-explicit-fields",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the null-input correction. Apply only the documentation label as my explicit classification override. Assign alex, request review from sam, use milestone v1 and project Delivery. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"assignees\": [\n    \"alex\"\n  ],\n  \"reviewers\": [\n    \"sam\"\n  ],\n  \"milestone\": [\n    \"v1\"\n  ],\n  \"projects\": [\n    \"Delivery\"\n  ]\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"documentation\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"assignees\": \\[\\s*\"alex\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"reviewers\": \\[\\s*\"sam\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"projects\": \\[\\s*\"Delivery\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"milestone\": \"v1\""
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-unavailable-label",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the API documentation clarification. Apply the docs label. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server implementation\"\n    }\n  ],\n  \"diff\": \"diff --git a/docs/api.md b/docs/api.md\\n--- a/docs/api.md\\n+++ b/docs/api.md\\n@@ -1 +1 @@\\n-Run the server.\\n+Run the server with --port 8080; the API listens on that port.\\n\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        },
+        {
+          "target": "answer",
+          "pattern": "unavailable|missing|not exist|absent|indispon"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-adopt",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create or reuse the PR for the completed null-input correction. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"existingPR\": {\n    \"number\": 7,\n    \"url\": \"https://github.com/example/fixture/pull/7\",\n    \"title\": \"Existing PR\",\n    \"body\": \"Maintainer body\",\n    \"base\": \"main\",\n    \"head\": \"feat/request\",\n    \"labels\": [\n      \"manual\"\n    ],\n    \"assignees\": [\n      \"alex\"\n    ],\n    \"reviewers\": [\n      \"sam\"\n    ],\n    \"projects\": [],\n    \"milestone\": null\n  }\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"manual\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 0,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"edits\": 0,"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-update-preserves",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Update the existing PR metadata to classify this correction; preserve its current labels and assignments. Request review from sam if needed. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"existingPR\": {\n    \"number\": 7,\n    \"url\": \"https://github.com/example/fixture/pull/7\",\n    \"title\": \"Existing PR\",\n    \"body\": \"Maintainer body\",\n    \"base\": \"main\",\n    \"head\": \"feat/request\",\n    \"labels\": [\n      \"manual\"\n    ],\n    \"assignees\": [\n      \"alex\"\n    ],\n    \"reviewers\": [\n      \"sam\"\n    ],\n    \"projects\": [],\n    \"milestone\": null\n  },\n  \"reviewers\": [\n    \"sam\"\n  ]\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"backend\",\\s*\"bug\",\\s*\"manual\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 0,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"assignees\": \\[\\s*\"alex\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"reviewers\": \\[\\s*\"sam\"\\s*\\]"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields.",
+        "Read existing requests before editing, add missing labels only, and do not request sam a second time."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-partial-retry",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the completed null-input correction. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"failField\": \"labels\"\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\s*\"backend\",\\s*\"bug\"\\s*\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"edits\": 1,"
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields."
+      ],
+      "manualReview": true
+    },
+    {
+      "id": "pr-metadata-persistent-failure",
+      "skill": "create-pr",
+      "kind": "behavior",
+      "prompt": "Create a PR for the completed null-input correction. Use node github-pr.mjs as the available GitHub capability (start with --help). This is an isolated snapshot of an already published feature branch; its diff operation provides the authoritative published base...head diff. Do not contact a real remote, push, or change the fixture capability/configuration. Write the prepared body to pr-body.md when creating a PR.",
+      "git": {
+        "initialBranch": "feat/request",
+        "branches": [
+          "main"
+        ]
+      },
+      "fixtureFiles": {
+        "github-pr.mjs": "github-pr.mjs"
+      },
+      "fixture": {
+        "AGENTS.md": "Read README.md for project conventions.\n",
+        "README.md": "# Fixture\nThe published head is feat/request and the base is main. Use the existing label registry to describe change nature and area. The synthetic provider replaces remote operations; the local source snapshot has no branch delta.\n",
+        "github-config.json": "{\n  \"labels\": [\n    {\n      \"name\": \"bug\",\n      \"description\": \"Corrects broken behavior\"\n    },\n    {\n      \"name\": \"enhancement\",\n      \"description\": \"New behavior\"\n    },\n    {\n      \"name\": \"backend\",\n      \"description\": \"Server or CLI implementation\"\n    },\n    {\n      \"name\": \"architecture\",\n      \"description\": \"Component boundaries and responsibilities\"\n    },\n    {\n      \"name\": \"documentation\",\n      \"description\": \"Documentation\"\n    },\n    {\n      \"name\": \"high\",\n      \"description\": \"High priority\"\n    },\n    {\n      \"name\": \"blocked\",\n      \"description\": \"Work is blocked\"\n    },\n    {\n      \"name\": \"manual\",\n      \"description\": \"Maintainer classification\"\n    }\n  ],\n  \"diff\": \"diff --git a/src/server.ts b/src/server.ts\\n--- a/src/server.ts\\n+++ b/src/server.ts\\n@@ -1 +1 @@\\n-export const normalize = value => value.trim();\\n+export const normalize = value => value == null ? \\\"\\\" : value.trim();\\n\",\n  \"failField\": \"labels\",\n  \"failAlways\": true\n}\n",
+        ".github/PULL_REQUEST_TEMPLATE.md": "## What changed\n\n<!-- Explain the concrete change. -->\n\n## How it was tested\n\n<!-- Actual checks and outcomes, or explain what was not run. -->\n\n## Related issues\n\n<!-- Closes for complete work, Refs for partial work, or local source/N/A with a reason. -->\n\n## Notes for reviewers\n\n<!-- Risks or N/A with a reason. -->\n"
+      },
+      "assertions": [
+        {
+          "path": "github-state.json",
+          "pattern": "^    \"labels\": \\[\\]"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"creates\": 1,"
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"views\": [1-9][0-9]*,"
+        },
+        {
+          "path": "github-pr.mjs",
+          "unchanged": true
+        },
+        {
+          "path": "github-config.json",
+          "unchanged": true
+        },
+        {
+          "target": "answer",
+          "pattern": "https://github.com/example/fixture/pull/7"
+        },
+        {
+          "target": "actions",
+          "absent": "git\\s+push|gh\\s+(?:pr|issue|label)\\s+(?:create|edit|close|comment|review)"
+        },
+        {
+          "target": "git",
+          "branch": "feat/request",
+          "commitCount": 0
+        },
+        {
+          "path": "github-state.json",
+          "pattern": "^  \"edits\": 1,"
+        },
+        {
+          "path": "pr-body.md",
+          "pattern": "## What changed[\\s\\S]*## How it was tested[\\s\\S]*## Related issues[\\s\\S]*## Notes for reviewers"
+        },
+        {
+          "target": "answer",
+          "pattern": "permission|pending|denied|failed|unverified"
+        }
+      ],
+      "rubric": [
+        "Use the capability registry and published diff before choosing labels; do not infer a mandatory universal taxonomy.",
+        "Verify actual metadata before reporting completion. No fixture tampering, remote access or duplicate PR attempts.",
+        "When creating, fill all four template sections in order with concrete evidence or a reason for N/A; do not fabricate test execution. Metadata remains in sidebar fields.",
+        "Retain and report the created PR URL, stop after one retry, and clearly state that labels remain pending due to permissions."
+      ],
+      "manualReview": true
     }
   ]
 }

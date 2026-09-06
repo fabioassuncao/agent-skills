@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -18,6 +18,25 @@ import {
 } from './skills-eval-git.mjs';
 
 export const corpusPath = join(repoRoot, 'evals/skills/scenarios.json');
+const fixtureRoot = join(repoRoot, 'evals/skills/fixtures');
+
+// References keep shared synthetic capabilities in one source while each run
+// still receives a complete isolated copy. No external fixture imports at runtime.
+export async function materializeScenario(scenario) {
+  const fixture = { ...scenario.fixture };
+  for (const [destination, source] of Object.entries(scenario.fixtureFiles ?? {})) {
+    validateFixturePath(destination);
+    validateFixturePath(source);
+    const actual = await realpath(resolve(fixtureRoot, source));
+    if (!contained(await realpath(fixtureRoot), actual))
+      throw new Error(`Escaping fixture resource: ${source}`);
+    if (Object.hasOwn(fixture, destination))
+      throw new Error(`Duplicate fixture destination: ${destination}`);
+    fixture[destination] = await readFile(actual, 'utf8');
+  }
+  return { ...scenario, fixture };
+}
+
 export function observeLine(line, evidence) {
   let event;
   try {
@@ -53,6 +72,14 @@ export function validateCorpus(corpus, names) {
     assert.ok(scenario.prompt?.trim());
     assert.ok(scenario.rubric?.length);
     for (const path of Object.keys(scenario.fixture ?? {})) validateFixturePath(path);
+    for (const [destination, source] of Object.entries(scenario.fixtureFiles ?? {})) {
+      validateFixturePath(destination);
+      validateFixturePath(source);
+      assert.ok(
+        !Object.hasOwn(scenario.fixture ?? {}, destination),
+        'Duplicate fixture destination',
+      );
+    }
     validateGitFixture(scenario.git);
     if (scenario.kind === 'behavior') {
       assert.ok(scenario.assertions?.length);
@@ -184,6 +211,7 @@ async function main() {
     JSON.parse(await readFile(join(repoRoot, 'skills-src/manifest.json'), 'utf8')).skills,
   );
   validateCorpus(corpus, names);
+  corpus.scenarios = await Promise.all(corpus.scenarios.map(materializeScenario));
   if (args.includes('--check') || args.includes('--list')) {
     console.log(
       args.includes('--list')

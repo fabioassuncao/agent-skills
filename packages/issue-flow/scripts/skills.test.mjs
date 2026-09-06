@@ -6,7 +6,13 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { artifactRoot, assemble, compare, files, repoRoot, sourceRoot } from './skills-build.mjs';
 import { frontmatter, validateSkill } from './skills-check.mjs';
-import { corpusPath, grade, observeLine, validateCorpus } from './skills-eval.mjs';
+import {
+  corpusPath,
+  grade,
+  materializeScenario,
+  observeLine,
+  validateCorpus,
+} from './skills-eval.mjs';
 import {
   gradeGit,
   prepareGitFixture,
@@ -80,6 +86,80 @@ test('eval corpus covers every Skill and rejects escaping fixtures and absent ou
   missing.scenarios = missing.scenarios.filter((s) => s.skill !== 'resolve-issue');
   assert.throws(() => validateCorpus(missing, names));
 });
+
+test('shared eval fixtures materialize inside the scenario and reject invalid references', async () => {
+  const scenario = { fixtureFiles: { 'github-pr.mjs': 'github-pr.mjs' } };
+  const materialized = await materializeScenario(scenario);
+  assert.equal(
+    materialized.fixture['github-pr.mjs'],
+    await readFile(join(repoRoot, 'evals/skills/fixtures/github-pr.mjs'), 'utf8'),
+  );
+  assert.equal(scenario.fixture, undefined);
+  await assert.rejects(materializeScenario({ fixtureFiles: { '../escape': 'github-pr.mjs' } }));
+  await assert.rejects(materializeScenario({ fixtureFiles: { safe: '../scenarios.json' } }));
+  await assert.rejects(materializeScenario({ fixtureFiles: { safe: 'missing.mjs' } }));
+  await assert.rejects(
+    materializeScenario({ ...scenario, fixture: { 'github-pr.mjs': 'duplicate' } }),
+  );
+});
+
+test('synthetic GitHub retains partially created PRs and the eval rejects claimed metadata', async () =>
+  temporary(async (root) => {
+    const corpus = JSON.parse(await readFile(corpusPath, 'utf8'));
+    const scenario = await materializeScenario(
+      corpus.scenarios.find((entry) => entry.id === 'pr-metadata-partial-retry'),
+    );
+    for (const name of ['github-pr.mjs', 'github-config.json'])
+      await writeFile(join(root, name), scenario.fixture[name]);
+    const bodyFile = join(root, 'pr-body.md');
+    await writeFile(bodyFile, 'A concrete description');
+    const invoke = (operation, input) =>
+      run(join(root, 'github-pr.mjs'), [operation, JSON.stringify(input ?? {})]);
+    const input = {
+      title: 'fix: handle null',
+      bodyFile,
+      base: 'main',
+      head: 'feat/request',
+      labels: ['bug', 'backend'],
+    };
+    assert.equal(invoke('create', input).status, 1);
+    const partial = JSON.parse(invoke('view').stdout);
+    assert.equal(partial.number, 7);
+    assert.deepEqual(partial.labels, []);
+    const labelRule = scenario.assertions.find((rule) => rule.pattern?.startsWith('^    "labels"'));
+    assert.equal(
+      (await grade({ kind: 'behavior', assertions: [labelRule] }, 'All labels applied', root, []))
+        .length,
+      1,
+    );
+    assert.equal(invoke('edit', { labels: ['bug', 'backend'] }).status, 0);
+    assert.deepEqual(JSON.parse(invoke('view').stdout).labels, ['backend', 'bug']);
+    assert.deepEqual(await grade({ kind: 'behavior', assertions: [labelRule] }, '', root, []), []);
+    assert.equal(invoke('create', input).status, 1);
+    const state = JSON.parse(await readFile(join(root, 'github-state.json'), 'utf8'));
+    assert.equal(state.creates, 1);
+    assert.equal(state.edits, 1);
+    assert.equal(state.pr.body, 'A concrete description');
+  }));
+
+test('synthetic GitHub adds to manual metadata and rejects unavailable labels', async () =>
+  temporary(async (root) => {
+    const corpus = JSON.parse(await readFile(corpusPath, 'utf8'));
+    const scenario = await materializeScenario(
+      corpus.scenarios.find((entry) => entry.id === 'pr-metadata-update-preserves'),
+    );
+    for (const name of ['github-pr.mjs', 'github-config.json'])
+      await writeFile(join(root, name), scenario.fixture[name]);
+    const invoke = (operation, input) =>
+      run(join(root, 'github-pr.mjs'), [operation, JSON.stringify(input ?? {})]);
+    assert.equal(invoke('edit', { labels: ['bug', 'backend'] }).status, 0);
+    assert.equal(invoke('edit', { labels: ['invented'] }).status, 1);
+    const pr = JSON.parse(invoke('view').stdout);
+    assert.deepEqual(pr.labels, ['backend', 'bug', 'manual']);
+    assert.deepEqual(pr.assignees, ['alex']);
+    assert.deepEqual(pr.reviewers, ['sam']);
+    assert.equal(pr.body, 'Maintainer body');
+  }));
 
 test('eval grader checks behavior, not just JSON syntax or a claimed pass', async () =>
   temporary(async (root) => {

@@ -204,6 +204,19 @@ describe('runPr — persisted Pull Request', () => {
     expect(prompt).not.toContain('__MULTI_ISSUE_CONTEXT__');
   });
 
+  it('delivers the shared metadata contract even without discovered repository policy', async () => {
+    headlessOutput.current = 'https://github.com/acme/repo/pull/128';
+    await runPr('42', makeResolved());
+
+    const shared = await readFile(
+      new URL('../../../../skills-src/_shared/pr-metadata.md', import.meta.url),
+      'utf8',
+    );
+    const prompt = String(headlessOptions.last?.prompt);
+    expect(prompt).toContain(shared.trim());
+    expect(prompt).not.toContain('<!-- contract:');
+  });
+
   it('lists every issue of a queue in the consolidated prompt', async () => {
     headlessOutput.current = 'https://github.com/acme/repo/pull/128';
 
@@ -402,6 +415,7 @@ describe('runPr — an open Pull Request is adopted, never duplicated (US-021)',
     expect(headlessOptions.last).toBeNull();
     for (const call of await invocations()) {
       expect(call).not.toContain('pr create');
+      expect(call).not.toContain('pr edit');
     }
     // And it asked the right question.
     expect(await invocations()).toContainEqual(

@@ -145,17 +145,19 @@ describe('rendered prompts without a policy', () => {
     }
   });
 
-  it('renders the pr prompt exactly as it did before the base branch was resolved', async () => {
-    // The non-regression claim of the base-branch fix: on a `main` repository,
-    // the three commands are byte for byte the ones that were hard-coded.
+  it('uses main for PR inspection and publication when no base is declared', async () => {
+    // The fallback base must reach both inspection and publication. Metadata
+    // selection requires the full diff, and the body is passed through a file.
     const promptsDir = resolvePackageDir('prompts') as string;
     const template = await readFile(join(promptsDir, 'pr.md'), 'utf-8');
 
     const rendered = applyPlaceholders(template, noPolicy());
 
     expect(rendered).toContain('git log main..HEAD --oneline');
-    expect(rendered).toContain('git diff main...HEAD --stat');
-    expect(rendered).toContain('gh pr create --title "..." --body "..." --base main');
+    expect(rendered).toContain('git diff main...HEAD\n');
+    expect(rendered).toContain(
+      'gh pr create --repo <owner/repo> --title <title> --body-file <file> --base main',
+    );
   });
 
   it('resolves the three commands against a develop base', async () => {
@@ -168,7 +170,7 @@ describe('rendered prompts without a policy', () => {
     });
 
     expect(rendered).toContain('git log develop..HEAD --oneline');
-    expect(rendered).toContain('git diff develop...HEAD --stat');
+    expect(rendered).toContain('git diff develop...HEAD\n');
     expect(rendered).toContain('--base develop');
     // The defect this replaces: `main` often exists in a develop-based
     // repository, so a hard-coded base fails silently rather than loudly.
