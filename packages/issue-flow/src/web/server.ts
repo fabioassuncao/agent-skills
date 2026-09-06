@@ -21,7 +21,7 @@ import { routingConfigInputSchema } from '../schemas.js';
 import { readDiagnostics } from '../storage/diagnostics.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 import { getPackageVersion } from '../version.js';
-import type { SessionDirectoryHandle } from './session-directory.js';
+import type { SessionDirectoryChange, SessionDirectoryHandle } from './session-directory.js';
 
 /**
  * HTTP server for the web monitoring mode. Plain node:http — no new runtime
@@ -37,6 +37,23 @@ import type { SessionDirectoryHandle } from './session-directory.js';
 
 /** Max length of `issueDescription` on GET /api/sessions (dashboard preview). */
 export const SESSION_LIST_DESCRIPTION_MAX = 280;
+
+/**
+ * Comment frames on an idle `/api/stream` connection, so an intermediary that
+ * reaps quiet sockets cannot silently turn the push transport back into the
+ * client's polling fallback.
+ */
+export const STREAM_HEARTBEAT_MS = 15_000;
+
+/**
+ * How often the legacy single-publisher backend is checked for a new version.
+ *
+ * This is the one source that cannot push: `SessionPublisher` exposes a
+ * monotonic `version()` and no notification. The read is an in-memory counter
+ * comparison, so a tick this short costs nothing and keeps the US-006 fallback
+ * inside the same output-to-screen budget as the directory-backed path.
+ */
+export const PUBLISHER_TICK_MS = 100;
 
 /** Collapse whitespace and truncate for the sessions list payload. */
 export function truncateSessionDescription(
@@ -126,9 +143,51 @@ interface SessionSource {
   /** A specific session by id, or undefined when it is not currently active. */
   get(sessionId: string): SessionSnapshot | undefined;
   events(sessionId: string): Promise<JournalEntry[] | undefined>;
+  /**
+   * Observe changes, returning an unsubscribe function. This is what makes
+   * `/api/stream` a push transport instead of a polling loop wearing a
+   * different content type.
+   */
+  subscribe(listener: (change: SessionSourceChange) => void): () => void;
+}
+
+/** Which sessions changed, in the shape both backends can produce. */
+interface SessionSourceChange {
+  added: string[];
+  updated: string[];
+  removed: string[];
+  revision: number;
 }
 
 function publisherSessionSource(publisher: SessionPublisher): SessionSource {
+  const listeners = new Set<(change: SessionSourceChange) => void>();
+  let timer: NodeJS.Timeout | null = null;
+  let lastVersion = publisher.version();
+  let lastSessionId = publisher.snapshot().sessionId;
+  let revision = 0;
+
+  const tick = (): void => {
+    const version = publisher.version();
+    const sessionId = publisher.snapshot().sessionId;
+    if (version === lastVersion && sessionId === lastSessionId) return;
+    revision += 1;
+    const change: SessionSourceChange = {
+      added: sessionId !== null && sessionId !== lastSessionId ? [sessionId] : [],
+      updated: sessionId !== null && sessionId === lastSessionId ? [sessionId] : [],
+      removed: lastSessionId !== null && lastSessionId !== sessionId ? [lastSessionId] : [],
+      revision,
+    };
+    lastVersion = version;
+    lastSessionId = sessionId;
+    for (const listener of listeners) {
+      try {
+        listener(change);
+      } catch {
+        // A subscriber must never be able to take the monitor down.
+      }
+    }
+  };
+
   return {
     list: () => {
       const snapshot = publisher.snapshot();
@@ -139,6 +198,22 @@ function publisherSessionSource(publisher: SessionPublisher): SessionSource {
       return snapshot.sessionId === sessionId ? snapshot : undefined;
     },
     events: async (sessionId) => (publisher.snapshot().sessionId === sessionId ? [] : undefined),
+    subscribe: (listener) => {
+      listeners.add(listener);
+      if (timer === null) {
+        lastVersion = publisher.version();
+        lastSessionId = publisher.snapshot().sessionId;
+        timer = setInterval(tick, PUBLISHER_TICK_MS);
+        timer.unref();
+      }
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0 && timer !== null) {
+          clearInterval(timer);
+          timer = null;
+        }
+      };
+    },
   };
 }
 
@@ -147,7 +222,47 @@ function directorySessionSource(handle: SessionDirectoryHandle): SessionSource {
     list: () => handle.sessions().map((entry) => entry.snapshot),
     get: (sessionId) => handle.getSession(sessionId)?.snapshot,
     events: (sessionId) => handle.events(sessionId),
+    subscribe: (listener) => handle.subscribe((change: SessionDirectoryChange) => listener(change)),
   };
+}
+
+/**
+ * Summary fields for the multi-session dashboard (issue #35): the full
+ * SessionSnapshot is already in memory, so the client can render cards from
+ * this single list without N× /api/status fetches. issueDescription is
+ * truncated — cards only need a short preview.
+ *
+ * `GET /api/sessions` and the `sessions` frame of `/api/stream` share this
+ * builder on purpose: two renderings of the same list would drift, and the
+ * pushed frame must be interchangeable with the fetched one so the client can
+ * fall back to polling without a second code path.
+ */
+function sessionListPayload(source: SessionSource): unknown[] {
+  return source.list().map((snapshot) => ({
+    sessionId: snapshot.sessionId,
+    issueNumber: snapshot.issue.number,
+    issueTitle: snapshot.issue.title,
+    issueDescription: truncateSessionDescription(snapshot.issue.description),
+    repositoryName: snapshot.repository.name,
+    currentPhase: snapshot.currentPhase,
+    progressPercent: snapshot.progress.percent,
+    elapsedSeconds: snapshot.elapsedSeconds,
+    status: snapshot.status,
+    startedAt: snapshot.startedAt,
+    updatedAt: snapshot.updatedAt,
+    // Resilience fields, for a card that has to answer "is this still moving"
+    // during a six-hour run. `updatedAt` is already the last activity; these
+    // two say how hard the run has had to work for it.
+    retries: snapshot.execution.retries,
+    correctionCycle: snapshot.execution.correctionCycle,
+    attempt: snapshot.resilience.attempt,
+    provider: snapshot.resilience.provider,
+    lastFailureKind: snapshot.resilience.lastFailureKind,
+    cooldownUntil: snapshot.resilience.cooldownUntil,
+    lastActivityAt: snapshot.resilience.lastActivityAt,
+    statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
+    eventsUrl: `/api/events?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
+  }));
 }
 
 function resolveSessionSource(options: WebServerOptions): SessionSource {
@@ -248,6 +363,96 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     return entry;
   };
 
+  // -------------------------------------------------------------------
+  // Push transport (absorption phase 1). The measured 3–8 s the dashboard used
+  // to take to show agent output was two polling hops stacked on top of each
+  // other: the server re-read SQLite every 3 s and the browser re-read the
+  // server every 5 s. `/api/stream` removes the second hop, and the storage
+  // watch in `session-directory.ts` removes the first.
+  //
+  // Server-Sent Events rather than WebSocket: this channel carries reduced JSON
+  // state in one direction only, so it needs no framing, no upgrade handshake
+  // and no dependency, and it reconnects on its own. The bidirectional
+  // WebSocket the terminal needs is a separate transport with separate
+  // requirements (backpressure, replay), and conflating the two would force
+  // both to carry the union of their constraints.
+  // -------------------------------------------------------------------
+  const streams = new Set<ServerResponse>();
+
+  const openStream = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    sessionId: string | null,
+  ): void => {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Connection', 'keep-alive');
+    // Defeat proxy-side response buffering, which would batch frames and
+    // reintroduce exactly the latency this route exists to remove.
+    res.setHeader('X-Accel-Buffering', 'no');
+    // Nothing here is compressible enough to be worth a flush boundary per frame.
+    res.flushHeaders?.();
+
+    const send = (event: string, data: unknown): void => {
+      if (res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    let lastList = '';
+    const pushList = (): void => {
+      const body = JSON.stringify(sessionListPayload(source));
+      if (body === lastList) return;
+      lastList = body;
+      if (!res.writableEnded) res.write(`event: sessions\ndata: ${body}\n\n`);
+    };
+
+    const pushStatus = (): void => {
+      if (sessionId === null) return;
+      const snapshot = source.get(sessionId);
+      if (snapshot === undefined) {
+        send('gone', { sessionId });
+        return;
+      }
+      send('status', snapshot);
+    };
+
+    send('hello', {
+      instanceId,
+      version,
+      session: sessionId,
+      heartbeatSeconds: Math.round(STREAM_HEARTBEAT_MS / 1000),
+    });
+    pushList();
+    pushStatus();
+
+    const unsubscribe = source.subscribe((change) => {
+      pushList();
+      if (sessionId === null) return;
+      if (
+        change.added.includes(sessionId) ||
+        change.updated.includes(sessionId) ||
+        change.removed.includes(sessionId)
+      ) {
+        pushStatus();
+      }
+    });
+
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(': ping\n\n');
+    }, STREAM_HEARTBEAT_MS);
+    heartbeat.unref();
+
+    streams.add(res);
+    const cleanup = (): void => {
+      if (!streams.delete(res)) return;
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    res.on('close', cleanup);
+    res.on('error', cleanup);
+    req.on('aborted', cleanup);
+  };
+
   const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     baseHeaders(res, instanceId);
 
@@ -319,6 +524,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       return;
     }
 
+    if (path === '/api/stream') {
+      openStream(req, res, requestUrl.searchParams.get('session'));
+      return;
+    }
+
     if (path === '/api/status' || path === '/status.json') {
       const sessionId = requestUrl.searchParams.get('session');
       let snapshot: SessionSnapshot | undefined;
@@ -363,39 +573,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     }
 
     if (path === '/api/sessions') {
-      // Summary fields for the multi-session dashboard (issue #35): the full
-      // SessionSnapshot is already in memory, so the client can render cards
-      // from this single list without N× /api/status fetches per poll.
-      // issueDescription is truncated — cards only need a short preview.
-      respondJson(
-        res,
-        200,
-        source.list().map((snapshot) => ({
-          sessionId: snapshot.sessionId,
-          issueNumber: snapshot.issue.number,
-          issueTitle: snapshot.issue.title,
-          issueDescription: truncateSessionDescription(snapshot.issue.description),
-          repositoryName: snapshot.repository.name,
-          currentPhase: snapshot.currentPhase,
-          progressPercent: snapshot.progress.percent,
-          elapsedSeconds: snapshot.elapsedSeconds,
-          status: snapshot.status,
-          startedAt: snapshot.startedAt,
-          updatedAt: snapshot.updatedAt,
-          // Resilience fields, for a card that has to answer "is this still
-          // moving" during a six-hour run. `updatedAt` is already the last
-          // activity; these two say how hard the run has had to work for it.
-          retries: snapshot.execution.retries,
-          correctionCycle: snapshot.execution.correctionCycle,
-          attempt: snapshot.resilience.attempt,
-          provider: snapshot.resilience.provider,
-          lastFailureKind: snapshot.resilience.lastFailureKind,
-          cooldownUntil: snapshot.resilience.cooldownUntil,
-          lastActivityAt: snapshot.resilience.lastActivityAt,
-          statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
-          eventsUrl: `/api/events?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
-        })),
-      );
+      respondJson(res, 200, sessionListPayload(source));
       return;
     }
 
@@ -468,9 +646,13 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         uptime: Math.round((Date.now() - startedAtMs) / 1000),
         version,
         refreshSeconds: options.refreshSeconds ?? 5,
+        // `stream:sessions` tells the UI it may stop polling. A monitor without
+        // it is an older instance this process reused (web/lock.ts), and the
+        // client must keep its interval — the capability list is the only
+        // truthful signal, since the served assets may be newer than the server.
         capabilities: isLoopbackHost(options.host)
-          ? ['config:agent:write', 'config:routing:write']
-          : [],
+          ? ['config:agent:write', 'config:routing:write', 'stream:sessions']
+          : ['stream:sessions'],
       });
       return;
     }
@@ -543,6 +725,16 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     new Promise<void>((resolve) => {
       process.removeListener('SIGINT', onSignal);
       process.removeListener('SIGTERM', onSignal);
+      // End the event streams explicitly. They are long-lived by construction,
+      // so leaving them to closeAllConnections() would drop the sockets without
+      // ever running their cleanup, leaking a subscription per viewer.
+      for (const stream of [...streams]) {
+        try {
+          stream.end();
+        } catch {
+          // Already destroyed — the 'close' handler did the cleanup.
+        }
+      }
       server.close(() => resolve());
       // Drop idle keep-alive connections so close() never hangs.
       server.closeAllConnections();

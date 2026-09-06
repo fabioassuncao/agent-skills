@@ -42,6 +42,11 @@ those live in the documents referenced below, which are the source of truth.
 - [`docs/skills.md`](docs/skills.md) — Skill sources, artifacts, sync and validation
 - [`docs/skills-compatibility.md`](docs/skills-compatibility.md) — official host support
 - [`docs/skills-evals.md`](docs/skills-evals.md) — behavioral scenarios and evidence
+- [`docs/provenance.md`](docs/provenance.md) — every unit absorbed from WebMux, with
+  origin, commit and strategy; the frozen upstream baseline lives here
+- [`docs/absorption-trace.md`](docs/absorption-trace.md) — the behavioural chain per
+  ported module: original, existing behaviour, adaptations, what was deliberately not
+  ported, and the parity tests
 
 ## Research
 

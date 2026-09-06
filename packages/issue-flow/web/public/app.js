@@ -3,6 +3,13 @@
 // Consome GET api/sessions, GET api/status (ETag/304), GET api/events e GET api/health;
 // todo texto dinâmico entra via textContent (nunca innerHTML com dados
 // do snapshot).
+//
+// A atualização chega por PUSH: o painel assina GET api/stream (Server-Sent
+// Events) e o servidor avisa quando o estado de alguma sessão muda. O
+// intervalo do seletor deixou de ser o caminho de entrega e virou apenas o
+// fallback de quando o stream não está conectado — era ele, somado ao poll de
+// 3 s do servidor, que produzia os 3–8 s medidos entre a saída do agente e a
+// tela.
 (() => {
   const REFRESH_OPTIONS = [3, 5, 10, 30];
   const PAUSED = 0;
@@ -156,6 +163,17 @@
     eventsUrl: null,
     // Se selectSession/clearSessionSelection chega durante um poll, reexecuta.
     pollAgain: false,
+  };
+
+  // Transporte push. `source` é o EventSource aberto; `connected` só é true
+  // entre o frame `hello` e o primeiro erro, e é o que desliga o timer de
+  // fallback. `sessionKey` guarda a sessão que a assinatura atual observa, para
+  // reconectar quando o usuário troca de execução.
+  const stream = {
+    source: null,
+    connected: false,
+    sessionKey: null,
+    supported: typeof window.EventSource === 'function',
   };
 
   // ---- Utilitários ----------------------------------------------------------
@@ -512,6 +530,8 @@
 
   function schedule() {
     clearTimer();
+    // Com o stream vivo, o servidor avisa: um timer aqui só repetiria trabalho.
+    if (stream.connected) return;
     if (document.hidden || state.refreshSeconds === PAUSED) return;
     const base = state.refreshSeconds * 1000;
     const backoff = base * 2 ** Math.min(state.failures, 5);
@@ -608,6 +628,69 @@
       return true;
     }
     return false;
+  }
+
+  function streamUrl() {
+    return state.detailSessionId
+      ? `api/stream?session=${encodeURIComponent(state.detailSessionId)}`
+      : 'api/stream';
+  }
+
+  function disconnectStream() {
+    if (stream.source !== null) {
+      stream.source.close();
+      stream.source = null;
+    }
+    stream.connected = false;
+    stream.sessionKey = null;
+  }
+
+  // Uma assinatura, um caminho de atualização: o frame não é aplicado
+  // diretamente na tela, ele acorda o mesmo poll() que o fallback usa. Ter duas
+  // rotinas de render — uma para o push, outra para o fetch — seria a segunda
+  // implementação da mesma responsabilidade, e é justamente onde as duas
+  // divergem sem ninguém perceber.
+  function connectStream() {
+    disconnectStream();
+    if (!stream.supported || state.refreshSeconds === PAUSED) return;
+    let source;
+    try {
+      source = new EventSource(streamUrl());
+    } catch (_err) {
+      return; // Sem push: o timer de fallback continua valendo.
+    }
+    stream.source = source;
+    stream.sessionKey = state.detailSessionId;
+
+    source.addEventListener('hello', () => {
+      stream.connected = true;
+      state.failures = 0;
+      els.banner.hidden = true;
+      clearTimer();
+    });
+
+    const wake = () => {
+      if (document.hidden) return;
+      requestPoll();
+    };
+    source.addEventListener('sessions', wake);
+    source.addEventListener('status', wake);
+    source.addEventListener('gone', wake);
+
+    source.onerror = () => {
+      // O EventSource reconecta sozinho; até lá o intervalo volta a valer, e é
+      // por isso que o seletor de refresh não desaparece da interface.
+      stream.connected = false;
+      schedule();
+    };
+  }
+
+  // A assinatura acompanha a sessão em foco: um `status` só chega para a
+  // sessão pedida no handshake.
+  function syncStreamSubscription() {
+    if (!stream.supported || state.refreshSeconds === PAUSED) return;
+    if (stream.source !== null && stream.sessionKey === state.detailSessionId) return;
+    connectStream();
   }
 
   function requestPoll() {
@@ -738,6 +821,7 @@
         state.pollAgain = false;
         poll();
       } else {
+        syncStreamSubscription();
         schedule();
       }
     }
@@ -2026,7 +2110,14 @@
     storeRefresh(state.refreshSeconds);
     buildRefreshSelect();
     clearTimer();
-    if (state.refreshSeconds !== PAUSED) poll();
+    // "pausar" precisa pausar de verdade: com o stream aberto o servidor
+    // continuaria empurrando, e o seletor viraria enfeite.
+    if (state.refreshSeconds === PAUSED) {
+      disconnectStream();
+      return;
+    }
+    connectStream();
+    poll();
   }
 
   async function init() {
@@ -2069,6 +2160,13 @@
       if (document.hidden) clearTimer();
       else poll();
     });
+    // O navegador pode ter congelado a conexão em background; voltar online é
+    // o momento certo de garantir que ela existe.
+    window.addEventListener('online', () => {
+      if (stream.connected) return;
+      connectStream();
+      poll();
+    });
 
     // Default do seletor vem da configuração do servidor (/api/health);
     // a escolha do usuário em localStorage tem precedência.
@@ -2093,6 +2191,7 @@
     buildRefreshSelect();
 
     window.setInterval(renderTimers, 1000);
+    connectStream();
     poll();
   }
 

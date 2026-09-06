@@ -6,7 +6,9 @@
 dashboard showing live progress — current phase and activity, user
 stories, resilience state, commits, pull requests, logs, tokens, cost and time
 estimates. It is off by default, works offline (no CDN, no external resource),
-and polls the server at a configurable interval.
+and receives updates **pushed** by the server over
+[`GET /api/stream`](#push-updates); the configurable interval is the fallback
+used only while that stream is down.
 
 ```bash
 issue-flow run 42 --web                            # http://localhost:3737
@@ -82,9 +84,9 @@ and lists the run's pipeline, retry, failure and failover events, with
 pipeline/resilience filters. When journaling is disabled or the files do not
 exist, it renders an empty state.
 
-Switching tabs never interrupts polling: both views are re-rendered on every
-refresh, so the Kanban is already current the moment it is opened, and an open
-drawer stays open across refreshes, updating in place.
+Switching tabs never interrupts the update loop: both views are re-rendered on
+every refresh, so the Kanban is already current the moment it is opened, and an
+open drawer stays open across refreshes, updating in place.
 
 ## Light and dark theme
 
@@ -217,16 +219,54 @@ no detached process. A warning is printed when this happens.
 ## Multiple sessions
 
 Because the server is decoupled from any one run, it cannot rely on that run's
-in-memory state. It polls indexed `runs`, `snapshots` and `events` rows in the
-global SQLite database every 3 seconds and keeps every recently-heartbeated one
-as an **active session**. While a run is live, a 10-second database heartbeat
-keeps it visible without changing the snapshot content or its ETag; after
-**90 seconds** without a heartbeat, the session is no longer
-reported.
+in-memory state. It reads indexed `runs`, `snapshots` and `events` rows from the
+global SQLite database and keeps every recently-heartbeated one as an **active
+session**. While a run is live, a 10-second database heartbeat keeps it visible
+without changing the snapshot content or its ETag; after **90 seconds** without
+a heartbeat, the session is no longer reported.
 
-Polling rather than `fs.watch` is deliberate: `fs.watch`'s `recursive` option is
-only reliable on macOS and Windows, while the `~/.issue-flow` tree is small and
-local.
+The read is triggered by a **watch on the storage root**, not by the interval:
+the pipeline process writes the snapshot and its ordered event in one SQLite
+transaction, and that write is what wakes the monitor, within
+milliseconds. The 3-second interval is still there, as the safety net for what
+a filesystem watch cannot see — the `json` compatibility driver, a database that
+did not exist yet when the monitor started, a platform where the watch stops
+firing.
+
+The watch is bound to the **directory**, not to `issue-flow.db-wal`: a WAL
+checkpoint deletes and recreates that file, and a watch bound to its inode would
+stop firing exactly once, silently. Non-recursive directory watching is also the
+one `fs.watch` mode every supported platform implements — `recursive` is only
+reliable on macOS and Windows, which is why the storage tree is never traversed
+that way.
+
+## Push updates
+
+`GET /api/stream` is a [Server-Sent Events](https://developer.mozilla.org/docs/Web/API/Server-sent_events)
+channel. It opens with a `hello` frame and the current session list, then emits
+a frame whenever session state actually changes — a heartbeat that does not
+change snapshot content produces nothing.
+
+| Frame | Payload |
+|-------|---------|
+| `hello` | `{ instanceId, version, session, heartbeatSeconds }` |
+| `sessions` | Exactly what `GET /api/sessions` would return |
+| `status` | The full snapshot of the session passed as `?session=<id>` |
+| `gone` | `{ sessionId }` — that session is no longer active |
+
+Pass `?session=<id>` to also receive `status` and `gone` for one session;
+without it the stream carries the dashboard list only. A comment frame every 15
+seconds keeps intermediaries from reaping an idle connection.
+
+`GET /api/health` advertises `stream:sessions` in `capabilities`. A monitor
+without it is an older instance the current CLI reused (see the single-instance
+lock above), and a client must keep its interval in that case — the served
+assets can be newer than the process serving them.
+
+The dashboard uses the stream as a **wake-up signal**, not as a second rendering
+path: a frame triggers the same refresh routine the interval would have, so
+there is one implementation of "apply the current state to the screen" rather
+than two that drift.
 
 ## HTTP API
 
@@ -238,6 +278,7 @@ local.
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
 | `GET /api/events?session=<id>` | Journal entries for that session |
 | `GET /api/config?session=<id>` | Captured effective configuration, resolved routing settings and the harness catalog with readiness (`installed`, `authentication`, `state`, models) |
+| `GET /api/stream[?session=<id>]` | [Server-Sent Events](#push-updates): state changes pushed as they happen |
 | `GET /api/diagnostics?session=<id>` | Correlated records from the global diagnostic log |
 | `POST /api/config/agent` | Save a global provider/model preference for future runs; loopback only |
 | `POST /api/config/routing` | Save global routing mode/profile/policy for future runs; loopback only |
@@ -302,7 +343,7 @@ Each setting resolves with the precedence **CLI flag > environment variable >
 | `--restart-web` | — | — | one-shot action; implies `--web` |
 | `--port <n>` | `ISSUE_FLOW_WEB_PORT` | `web.port` | `3737` |
 | `--host <h>` | `ISSUE_FLOW_WEB_HOST` | `web.host` | `0.0.0.0` |
-| `--refresh <s>` | `ISSUE_FLOW_WEB_REFRESH` | `web.refreshSeconds` | `5` |
+| `--refresh <s>` | `ISSUE_FLOW_WEB_REFRESH` | `web.refreshSeconds` | `5` (fallback interval only — updates arrive by push) |
 | `--web-log-limit <n>` | `ISSUE_FLOW_WEB_LOG_LIMIT` | `web.logLimit` | `200` |
 | `--web-no-logs` | — | `web.includeLogs` | logs included |
 

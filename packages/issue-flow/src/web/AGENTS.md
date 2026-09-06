@@ -58,19 +58,47 @@
 The standalone `web serve` process is decoupled from any one pipeline
 invocation, so it cannot hold a `SessionPublisher` in memory for "the" run
 being monitored — there may be zero, one or several running at once, each in
-its own process. `watchSessionDirectory()` instead **polls** the indexed
-`runs`, `snapshots` and `events` rows in `issue-flow.db` on a configurable
-interval (default `DEFAULT_POLL_INTERVAL_MS`) and keeps a `sessionId →
+its own process. `watchSessionDirectory()` instead reads the indexed `runs`,
+`snapshots` and `events` rows in `issue-flow.db` and keeps a `sessionId →
 ActiveSession` map. `SqliteSessionPublisher` writes the reduced snapshot and
 its ordered event in one transaction, then refreshes a quiet running session's
 database heartbeat every 10s; the 90s stale window tolerates three missed
 beats plus scheduler delays. `session.json` and JSONL remain compatibility
 projections only — the detached monitor must never traverse them.
 
-Polling rather than `fs.watch` is deliberate: `fs.watch`'s `recursive` option
-is only reliably supported on macOS and Windows, while the `~/.issue-flow`
-tree is small and local — a cheap poll behaves identically on every platform,
-which is what matters here more than sub-second latency.
+### What triggers a read
+
+The write itself does. `fs.watch` on the **storage root** (not on the database
+file) wakes the scan within `WATCH_DEBOUNCE_MS`, which is the cross-process
+notification this design has available: the writer is a different process, and
+its SQLite commit is the only event both sides already agree on. The debounce
+collapses the several filesystem events one logical commit produces (WAL, and
+the database file on checkpoint) into a single query.
+
+The watch is on the directory because a WAL checkpoint **deletes and recreates**
+`issue-flow.db-wal`: a watch bound to that inode would stop firing exactly once,
+silently, and the monitor would degrade to interval-only for the rest of its
+life without any error to notice. For the same reason the watcher's `error`
+handler drops the watcher instead of keeping a dead one, and the interval
+re-establishes it — which is also how a monitor started before the storage root
+existed recovers.
+
+`DEFAULT_POLL_INTERVAL_MS` survives as the **safety net**, not the delivery
+path: the `json` compatibility driver has no single file to watch, and
+`fs.watch`'s `recursive` option is only reliable on macOS and Windows, so the
+tree is never traversed that way.
+
+### Change notification
+
+`subscribe()` reports `{ added, updated, removed, revision }` after each scan.
+A session is *updated* only when its serialized snapshot differs from the
+previous one — the 10-second heartbeat bumps the row's `updatedAt` without
+changing content, and reporting that as a change would wake every connected
+viewer ten times a minute for nothing.
+
+Listeners are isolated: one that throws is swallowed, because a subscriber may
+never be able to take the monitor down. That is the same resilience contract the
+rest of this module has towards the pipeline.
 
 ## `server.ts`: one `SessionSource`, two backends
 
@@ -100,6 +128,28 @@ loopback bindings. Remote monitoring must never expose configuration mutation.
 `GET /api/events?session=<id>` reads the ordered SQLite event stream. The
 publisher-backed legacy source returns an empty history because it has no
 durable database session.
+
+### `/api/stream`: the push transport
+
+`SessionSource` carries a `subscribe()` of its own, so `/api/stream` is written
+against the same abstraction as every other route. The directory backend
+forwards `watchSessionDirectory`'s notifications; the legacy publisher backend
+has no notification to forward, so it compares `publisher.version()` on a
+`PUBLISHER_TICK_MS` timer — an in-memory counter read, started on the first
+subscriber and stopped with the last.
+
+Server-Sent Events rather than WebSocket: this channel carries reduced JSON in
+one direction, so it needs no framing, no upgrade handshake, no dependency, and
+it reconnects on its own. The bidirectional terminal transport has different
+requirements (backpressure, incremental replay) and is a separate channel —
+conflating them would force both to carry the union of their constraints.
+
+`sessionListPayload()` is shared by `GET /api/sessions` and the `sessions`
+frame on purpose: the pushed frame must be interchangeable with the fetched one,
+so a client that loses the stream falls back to polling without a second code
+path. `doClose()` ends the open streams explicitly before
+`closeAllConnections()`, which would otherwise drop the sockets without running
+their cleanup and leak one subscription per viewer.
 
 ETags are content-hashed (`sha1` of the serialized snapshot) rather than
 counter-based: a directory-backed session has no in-process publisher to hand

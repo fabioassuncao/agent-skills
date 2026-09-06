@@ -16,7 +16,11 @@ import {
   truncateSessionDescription,
   type WebServerHandle,
 } from './server.js';
-import type { ActiveSession, SessionDirectoryHandle } from './session-directory.js';
+import type {
+  ActiveSession,
+  SessionDirectoryChange,
+  SessionDirectoryHandle,
+} from './session-directory.js';
 
 const noop = (): void => {};
 const packageVersion = (createRequire(import.meta.url)('../../package.json') as { version: string })
@@ -520,21 +524,131 @@ function makeSnapshot(sessionId: string, issueNumber: number): SessionSnapshot {
   };
 }
 
-/** A `SessionDirectoryHandle` double backed by a fixed, in-memory list. */
-function fakeSessionDirectory(snapshots: SessionSnapshot[]): SessionDirectoryHandle {
-  const sessions: ActiveSession[] = snapshots.map((snapshot) => ({
+/**
+ * A `SessionDirectoryHandle` double backed by an in-memory list, with the push
+ * side driven by hand: `replace()` swaps the sessions and notifies subscribers
+ * exactly as a scan would, so a test can observe `/api/stream` without a real
+ * SQLite tree or a filesystem watch.
+ */
+function fakeSessionDirectory(snapshots: SessionSnapshot[]) {
+  let sessions: ActiveSession[] = snapshots.map((snapshot) => ({
     issueDir: '/fake/issue-dir',
     filePath: '/fake/issue-dir/session.json',
     snapshot,
     updatedAtMs: Date.now(),
   }));
-  return {
+  const listeners = new Set<(change: SessionDirectoryChange) => void>();
+  let revision = 0;
+  const handle: SessionDirectoryHandle & {
+    replace(next: SessionSnapshot[], change?: Partial<SessionDirectoryChange>): void;
+    subscriberCount(): number;
+  } = {
+    subscriberCount: () => listeners.size,
     sessions: () => sessions,
     getSession: (sessionId) => sessions.find((s) => s.snapshot.sessionId === sessionId),
     events: async (sessionId) =>
       sessions.some((s) => s.snapshot.sessionId === sessionId) ? [] : undefined,
     refresh: async () => {},
-    close: () => {},
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    revision: () => revision,
+    close: () => listeners.clear(),
+    replace: (next, change = {}) => {
+      sessions = next.map((snapshot) => ({
+        issueDir: '/fake/issue-dir',
+        filePath: '/fake/issue-dir/session.json',
+        snapshot,
+        updatedAtMs: Date.now(),
+      }));
+      revision += 1;
+      const payload: SessionDirectoryChange = {
+        added: [],
+        updated: [],
+        removed: [],
+        revision,
+        ...change,
+      };
+      for (const listener of listeners) listener(payload);
+    },
+  };
+  return handle;
+}
+
+/** One `event:`/`data:` frame of a Server-Sent Events response. */
+interface StreamFrame {
+  event: string;
+  data: unknown;
+}
+
+/**
+ * Read `/api/stream` and expose the frames as they arrive. `next(event)` waits
+ * for the next frame of a given type, so a test asserts on delivery order
+ * rather than on a timer.
+ */
+async function openEventStream(url: string) {
+  const controller = new AbortController();
+  const res = await fetch(url, {
+    signal: controller.signal,
+    headers: { accept: 'text/event-stream' },
+  });
+  const frames: StreamFrame[] = [];
+  const waiters: { event: string; resolve: (frame: StreamFrame) => void }[] = [];
+
+  const deliver = (frame: StreamFrame): void => {
+    const index = waiters.findIndex((waiter) => waiter.event === frame.event);
+    // A frame handed to a waiter is consumed; buffering it too would let the
+    // next `next()` call answer with a frame the test already asserted on.
+    if (index >= 0) waiters.splice(index, 1)[0]?.resolve(frame);
+    else frames.push(frame);
+  };
+
+  const reader = res.body?.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const pump = async (): Promise<void> => {
+    if (reader === undefined) return;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        const raw = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const event = /^event: (.+)$/m.exec(raw)?.[1];
+        const data = /^data: (.*)$/m.exec(raw)?.[1];
+        if (event !== undefined && data !== undefined) {
+          deliver({ event, data: JSON.parse(data) });
+        }
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+  };
+  void pump().catch(() => {});
+
+  return {
+    response: res,
+    frames,
+    next: (event: string, timeoutMs = 2000): Promise<StreamFrame> => {
+      const existing = frames.findIndex((frame) => frame.event === event);
+      if (existing >= 0) return Promise.resolve(frames.splice(existing, 1)[0] as StreamFrame);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(`no '${event}' frame in ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        waiters.push({
+          event,
+          resolve: (frame) => {
+            clearTimeout(timer);
+            resolve(frame);
+          },
+        });
+      });
+    },
+    close: () => controller.abort(),
   };
 }
 
@@ -639,5 +753,148 @@ describe('startWebServer — multi-session mode (directory-backed)', () => {
     expect(res.status).toBe(409);
     const payload = await res.json();
     expect(payload.sessions).toEqual(expect.arrayContaining(['sess-a', 'sess-b']));
+  });
+});
+
+describe('startWebServer — push transport (/api/stream, absorption phase 1)', () => {
+  const handles: WebServerHandle[] = [];
+  const streams: { close: () => void }[] = [];
+
+  afterEach(async () => {
+    for (const stream of streams.splice(0)) stream.close();
+    for (const handle of handles.splice(0)) await handle.close();
+  });
+
+  async function start(directory: ReturnType<typeof fakeSessionDirectory>) {
+    const handle = await startWebServer({
+      sessions: directory,
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+    return handle;
+  }
+
+  async function connect(url: string) {
+    const stream = await openEventStream(url);
+    streams.push(stream);
+    return stream;
+  }
+
+  it('answers as an event stream and opens with hello plus the current session list', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+
+    const stream = await connect(`${handle.url}/api/stream`);
+    expect(stream.response.status).toBe(200);
+    expect(stream.response.headers.get('content-type')).toBe('text/event-stream; charset=utf-8');
+    expect(stream.response.headers.get('cache-control')).toBe('no-store');
+    expect(stream.response.headers.get('x-accel-buffering')).toBe('no');
+
+    const hello = await stream.next('hello');
+    expect(hello.data).toMatchObject({ instanceId: handle.instanceId, session: null });
+
+    const sessions = (await stream.next('sessions')).data as { sessionId: string }[];
+    expect(sessions.map((entry) => entry.sessionId)).toEqual(['sess-a']);
+  });
+
+  it('pushes the session list on change without the client asking for it', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream`);
+    await stream.next('sessions');
+
+    directory.replace([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)], {
+      added: ['sess-b'],
+    });
+
+    const sessions = (await stream.next('sessions')).data as { sessionId: string }[];
+    expect(sessions.map((entry) => entry.sessionId).sort()).toEqual(['sess-a', 'sess-b']);
+  });
+
+  it('pushes a status frame only for the subscribed session', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream?session=sess-a`);
+
+    expect((await stream.next('hello')).data).toMatchObject({ session: 'sess-a' });
+    expect((await stream.next('status')).data).toMatchObject({ sessionId: 'sess-a' });
+
+    // A change that does not touch sess-a refreshes the list, never the status.
+    directory.replace([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)], {
+      updated: ['sess-b'],
+    });
+    await stream.next('sessions');
+    expect(stream.frames.some((frame) => frame.event === 'status')).toBe(false);
+
+    directory.replace([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)], {
+      updated: ['sess-a'],
+    });
+    expect((await stream.next('status')).data).toMatchObject({ sessionId: 'sess-a' });
+  });
+
+  it('announces a subscribed session that stopped being active', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream?session=sess-a`);
+    await stream.next('status');
+
+    directory.replace([], { removed: ['sess-a'] });
+    expect((await stream.next('gone')).data).toEqual({ sessionId: 'sess-a' });
+  });
+
+  it('pushes exactly what GET /api/sessions would return, so the fallback needs no second path', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream`);
+
+    const pushed = (await stream.next('sessions')).data;
+    const fetched = await (await fetch(`${handle.url}/api/sessions`)).json();
+    expect(pushed).toEqual(fetched);
+  });
+
+  it('releases the subscription when the client disconnects', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream`);
+    await stream.next('sessions');
+
+    stream.close();
+    // The subscription is dropped on the socket's close event, which is
+    // asynchronous relative to abort(); a bounded wait keeps the assertion
+    // about the contract rather than about scheduling.
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline && directory.subscriberCount() > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(directory.subscriberCount()).toBe(0);
+  });
+
+  it('advertises the push capability on /api/health so an older reused monitor is distinguishable', async () => {
+    const handle = await start(fakeSessionDirectory([]));
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('stream:sessions');
+  });
+
+  it('works over the legacy single-publisher backend, which cannot push on its own', async () => {
+    const publisher = makePublisher();
+    const handle = await startWebServer({
+      publisher,
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+
+    const stream = await connect(`${handle.url}/api/stream?session=session-1`);
+    await stream.next('status');
+
+    publisher.publish({ type: 'phase:start', at: '2026-08-03T12:00:05Z', phase: 'prd' });
+    expect((await stream.next('status')).data).toMatchObject({ currentPhase: 'prd' });
   });
 });
