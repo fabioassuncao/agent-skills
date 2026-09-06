@@ -1,6 +1,6 @@
 ---
 name: resolve-issue
-description: "Resolve an issue through requirements, task planning, implementation, verification and authorized PR delivery. Use for an end-to-end issue request or resuming that workflow. Manual mode stops after planning. Not for a request limited to analysis, review or a single phase."
+description: "Resolve GitHub issues, local documents or supplied demands through requirements, task planning, implementation, verification and authorized PR delivery. Use for an end-to-end issue request or resuming that workflow. Manual mode stops after planning. Not for a request limited to analysis, review or a single phase."
 license: MIT
 compatibility: Requires a coding agent with filesystem access; Node.js 22.13+ for bundled helpers, Git for repository operations, and authenticated GitHub access only for remote work.
 ---
@@ -17,6 +17,8 @@ Use this Skill only for its requested responsibility. Work in the consumer proje
 4. Return the requested artifact or evidence-based result; report material blockers without expanding the task.
 
 ## Resources to load when needed
+
+- When interpreting invocation choices or resuming a configured run: [execution-options](references/execution-options.md).
 
 - Only when an installed CLI can enrich policy/scaffold decisions: [cli-integration](references/cli-integration.md).
 - When reading, creating or updating a task plan: [plan-format](references/plan-format.md).

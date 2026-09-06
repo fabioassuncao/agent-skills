@@ -1,13 +1,13 @@
 # Execute a task plan
 
-Read plan-format, repository-policy and evidence. Locate the explicit plan or issues/<id>/tasks.json. Read the PRD, append-only progress log and lastReviewFindings. Validate the plan using the artifacts helper. Inspect git status and the current branch. Preserve unrelated work; do not silently switch away from a dirty tree or replace branchName.
+Read execution-options, plan-format, repository-policy, git-conventions and evidence. Locate the explicit plan or issues/<id>/tasks.json. Read the PRD, append-only progress log and lastReviewFindings. Validate the plan using the artifacts helper. Resolve recorded choices and apply the branch contract in git-conventions before any implementation edit. Require an attached checkout matching tasks.json.branchName. In current mode a mismatch blocks; never switch/create a branch. In new mode safely switch/create the planned branch and verify it, or report the blocker when unrelated work or unresolved base prevents that. Never silently replace branchName. Append the accepted execution choices and convention evidence to progress when starting execution.
 
 For each iteration:
 
 1. Choose the highest-priority unpassed story whose dependencies are satisfied. If pending findings exist, investigate them even when every story passes. Read the code and validate findings technically before changing it.
 2. Implement the requested behavior following project conventions. For bugs, reproduce the defect where feasible. Do not reduce acceptance criteria simply to make checks pass.
 3. Run relevant checks after the final change, including required browser verification using available capabilities. A missing required check remains unverified; record the blocker instead of marking passes=true.
-4. Stage only files belonging to the story and commit after checks pass, using repository conventions and the bundled naming helper as needed. Preserve unrelated user changes.
+4. Recheck that the captured/planned branch is still current. Stage only files belonging to the logical change and commit after checks pass, applying the resolved commit convention from git-conventions. Honor an explicit no-commit request. If project mode has no clear convention, preserve verified edits and ask before committing; do not silently use the fallback. Preserve unrelated user changes.
 5. Mark the verified story passes=true, append evidence to notes/progress.txt and update lastAttemptAt. Append a log entry with timestamp, story ID, changes, files, commands/results and useful learnings. Keep reusable patterns at the top without replacing prior entries.
 6. Continue immediately to the next eligible story within the authorized task. On a persistent check failure, unavailable capability, dependency cycle or material scope ambiguity, preserve work, set lastError with category/message/at and report the blocker.
 

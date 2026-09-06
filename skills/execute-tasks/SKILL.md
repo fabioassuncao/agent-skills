@@ -20,6 +20,8 @@ Use this Skill only for its requested responsibility. Work in the consumer proje
 
 ## Resources to load when needed
 
+- When interpreting invocation choices or resuming a configured run: [execution-options](references/execution-options.md).
+
 - Only when an installed CLI can enrich policy/scaffold decisions: [cli-integration](references/cli-integration.md).
 - When reading, creating or updating a task plan: [plan-format](references/plan-format.md).
 - When naming branches, commits or PRs: [git-conventions](references/git-conventions.md).

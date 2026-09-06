@@ -2,15 +2,25 @@
 
 This workflow runs in the current coding agent. Each phase below is a bundled procedure; load it on demand and perform it directly. No sibling Skill, subagent API, plugin, MCP server or external orchestration engine is required. Installing individual Skills remains useful for invoking just one phase.
 
-Read issue-input and repository-policy. Resolve origin once and pass the same issue context, branch and artifact paths to all phases. Respect explicit local/GitHub selection. A request merely to analyze or review does not activate this whole workflow.
+Read execution-options, issue-input and repository-policy. Normalize applicable invocation choices and record them with the requirements; every phase and correction round inherits the same accepted choices. Resolve origin once and pass the same issue context, branch and artifact paths to all phases. Respect explicit local/GitHub selection. A request merely to analyze or review does not activate this whole workflow.
 
-Modes: auto (default) continues through the authorized flow; manual produces PRD and plan and stops before implementation. --pr-review requests the final whole-PR review. Honor a request to work locally without publication. Auto does not override permissions, authorization, material ambiguity or irreversible-action boundaries.
+Mode and delivery follow execution-options. In particular current defaults to local delivery, manual stops after planning, and prReview/--pr-review requests the final whole-PR review only for authorized PR delivery. Auto does not override permissions, authorization, material ambiguity or irreversible-action boundaries.
+
+## Multiple demands
+
+Use issue-input to normalize and inspect all requested demands together. Identify dependencies, complementary changes, shared implementation and technical impact before choosing execution units. Related or small complementary demands can benefit from one plan; small size alone is not sufficient to combine unrelated work.
+
+Propose a concrete grouping with its rationale and await approval before consolidating it, unless that exact grouping was already authorized. While awaiting a decision, continue read-only analysis. If grouping is declined, or demands are independent, execute separate plans sequentially. Order by dependencies, then the user's order; report cycles or missing prerequisite work. Do not silently add linked issues or children to the authorized scope. Stop the sequence on a failed/blocked unit, preserving completed results.
+
+For an approved group, allocate a safe local group identifier under issues/<id>/ using issue-input, with one PRD/tasks/progress set. In the PRD map every story and acceptance criterion to its source demand(s); preserve that mapping in story notes and evidence. Keep each source's identity and completion separate. Do not manufacture a GitHub umbrella issue. Separate logical changes into suitable commits, including when they share a plan.
+
+Each separate unit in new mode gets its own planned branch from the resolved base. Never branch the next unit from unrelated unmerged implementation; if a prerequisite is not on the base, resolve that dependency before starting it. In current mode all units stay on the initially captured branch and retain separate plans/results. Respect artifact ownership and preserve work before any switch.
 
 ## Resume and plan
 
 Inspect git status, branch, local PRD, tasks, progress, review findings and recorded PR. Validate an existing plan. Missing legacy flags start false; verify claimed phases against their artifacts and Git evidence. Resume the earliest incomplete phase, including missing PRD/JSON and requested PR review after PR creation. Never treat prCreated alone as completion. A new manual invocation stays in planning even if old work exists; it does not resume execution.
 
-Reuse an existing intended branch; otherwise resolve the actual base and create a branch using the bundled conventions helper. Preserve unrelated dirty work. Do not pull, reset or overwrite a branch blindly. For planning-only manual use, record an intended branch without requiring a checkout. Archive/restart requires explicit authorization and a fresh archive destination.
+Read git-conventions and apply its branch contract. For a fresh current-mode plan, capture the current branch before any phase and record it as branchName with noBranch=true. On resume, retain the recorded branchName and require it to match the checkout before implementation; never recapture a different branch as a silent reassociation. Apply the explicit pending-plan rebinding exception in execution-options only when its conditions hold. Never create or switch branches in current mode. In new mode reuse the intended branch or resolve the actual base and prepare a dedicated branch. Manual planning records the choice without checkout; execution must enforce the matching checkout before implementation. Archive/restart requires explicit authorization and a fresh archive destination.
 
 Load generate-prd and convert-prd-to-json procedures. Set flags only after artifacts exist and validate. Analysis is optional when scope needs separate investigation; it is not a mandatory phase. Manual mode returns artifact paths, intended branch and unresolved decisions here.
 
@@ -24,9 +34,9 @@ If correctionCycle has reached maxCorrectionCycles (default 3), stop with preser
 
 ## Deliver
 
-After PASS, load create-pr only if publication is part of the authorized flow. Persist a confirmed pullRequest {number,url,headBranch,createdAt}; set prCreated only after remote confirmation. If a PR is required but unavailable, report a blocked publication rather than calling the full flow complete.
+After PASS, load create-pr only if delivery is pr and publication is part of the authorized flow. Pass the branch mode and full source-to-story mapping; current mode never permits a branch change to make publication possible. Persist a confirmed pullRequest {number,url,headBranch,createdAt}; set prCreated only after remote confirmation. If a PR is required but unavailable, report a blocked publication rather than calling the full flow complete.
 
-When --pr-review was requested, load review-pr after creation (or against the recorded PR on resume). Persist its report. REQUEST_CHANGES or malformed output leaves prReviewCompleted=false and the overall plan incomplete. Return blockers; do not close the issue. APPROVE/APPROVE_WITH_SUGGESTIONS marks that phase complete.
+When prReview=true (including --pr-review) was requested, load review-pr after creation (or against the recorded PR on resume). Persist its report. REQUEST_CHANGES or malformed output leaves prReviewCompleted=false and the overall plan incomplete. Return blockers; do not close the issue. APPROVE/APPROVE_WITH_SUGGESTIONS marks that phase complete.
 
 A verified local-only flow may complete without a PR, with prCreated=false and that choice recorded in progress. A published PR does not independently authorize immediate issue closure. Follow the user's explicit closure request, otherwise let the PR's authorized issue reference govern closure on merge. Local metadata closes only when requested.
 

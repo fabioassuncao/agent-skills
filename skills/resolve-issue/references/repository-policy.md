@@ -1,6 +1,6 @@
 # Repository policy
 
-Read this when a decision depends on conventions. Paths named below are inputs in the **consumer repository**, not dependencies in the Issue Flow source tree.
+Read this when a decision depends on conventions. Resolve invocation choices using execution-options before applying defaults. Paths named below are inputs in the **consumer repository**, not dependencies in the Issue Flow source tree.
 
 1. Locate the working repository and current scope. Read applicable AGENTS.md files from root to the affected directory, then their relevant documentation pointers. Follow CLAUDE.md or other agent entry points when present; a pointer is not an empty policy. Do not create provider-specific instruction files during ordinary work.
 2. Read CONTRIBUTING.md, applicable issue forms/templates, PR templates, CODEOWNERS and declared Git conventions. Inspect configuration as text; do not execute arbitrary configuration code. For monorepos, the most specific applicable instruction refines the root policy.
@@ -17,3 +17,11 @@ Prefer native fields over labels and textual prefixes. Do not reintroduce a type
 Cite document and section behind policy findings. Mandatory requirements, missing required fields and a wrong base may block; naming preferences alone are observations. CODEOWNERS informs review ownership, not a simulated approval gate.
 
 Optional CLI enrichment is described in the Skill's CLI integration reference. Its absence never prevents direct discovery. No network is necessary for local-only work; retrieving or publishing remote GitHub data does require remote access.
+
+## Commit convention discovery
+
+For commits, apply an explicit invocation rule/example first, then a convention declared by the consumer project, then a clearly established project convention, then the Issue Flow fallback. The invocation's commitConvention strategy is interpreted in git-conventions; an explicit issue-flow choice deliberately selects that fallback. Optional CLI policy enriches discovery but does not replace applicable project instructions or a user's choice. Its default values and an unavailable query are not evidence that the project has no convention.
+
+Inspect applicable AGENTS.md, CLAUDE.md, CONTRIBUTING.md and their documentation pointers, explicit policy.git.commitConvention, commitlint configuration, commit-msg hooks and relevant release/tool configuration. Read JavaScript configuration as text; do not execute it for discovery. Distinguish actual commit requirements from tools that only constrain PR titles or releases. Follow monorepo scope and record the source of each applicable rule. An explicit .issue-flow.json/environment override retains the existing policy precedence; unexplained conflicts with mandatory project instructions require clarification, not silent replacement.
+
+When declarations are incomplete, inspect a bounded recent git log in the relevant scope (up to 20 non-merge commits initially). Look for consistent message structure, language, scope and references. Exclude automated outliers and do not infer a mandatory convention from an isolated example or a mixed history. History can fill undeclared choices but cannot overturn a declaration. Report the files/sections or representative commits supporting the result. If the evidence is insufficient, say so; project mode asks before commit, auto uses the fallback when no project convention is established. When a project convention is established, compose a message consistent with it; do not add optional fallback trailers simply because the project is silent about trailers.

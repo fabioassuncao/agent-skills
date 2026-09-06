@@ -1,6 +1,6 @@
 # Review issue resolution
 
-Read issue-input, repository-policy, evidence and issue-review-result. Accept local/GitHub/supplied content without requiring another Skill. Determine requirements from the actual issue and relevant decisions; do not assume resolution from a closed issue or merged PR.
+Read execution-options and apply relevant accepted choices without activating implementation or publication. Read issue-input, repository-policy, evidence and issue-review-result. Accept local/GitHub/supplied content without requiring another Skill. Determine requirements from the actual issue and relevant decisions; do not assume resolution from a closed issue or merged PR.
 
 Inspect relevant implementation, callers, changes and regression risks. Discover checks from the repository and run those necessary to verify acceptance on the reviewed revision. Map each requirement to code and fresh evidence. Distinguish unmet and unverified criteria. Cite declared policy behind conformance findings; personal preferences do not block.
 

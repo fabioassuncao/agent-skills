@@ -1,6 +1,6 @@
 # Review a Pull Request
 
-Read repository-policy, evidence and pr-review-result. Do not edit source code, commit, push, merge or publish a remote review/comment. Saving a requested report is the only permitted output-file change.
+Read execution-options and apply relevant accepted choices without activating implementation or publication. Read repository-policy, evidence and pr-review-result. Do not edit source code, commit, push, merge or publish a remote review/comment. Saving a requested report is the only permitted output-file change.
 
 Resolve PR from explicit number/URL, then a known plan's pullRequest, then the open PR for the current head branch. With multiple matches choose the most recent and state the chosen PR before reviewing. If nothing resolves, ask for a PR reference. An associated issue/plan is optional.
 
