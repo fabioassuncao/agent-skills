@@ -35,6 +35,30 @@ Supporting files are read through ordinary file capabilities; directory names do
 
 The [Agent Skills specification](https://agentskills.io/specification) defines the artifact, not a universal install directory or invocation syntax. [Anthropic's overview](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) distinguishes product/API execution environments. [Microsoft Agent Framework](https://learn.microsoft.com/en-us/agent-framework/agents/skills?pivots=programming-language-csharp) documents SDK integration rather than one coding-agent installer. [MCP's Skill guidance](https://modelcontextprotocol.io/docs/2026-07-28/develop/build-with-agent-skills) explains complementary capabilities; it does not make MCP a Skill requirement.
 
+## Invocation options
+
+The [official specification](https://agentskills.io/specification) defines no
+formal parameter schema, argument declarations or universal invocation syntax.
+Its `metadata` map stores strings; it does not bind runtime inputs. Options can
+be explained in the unrestricted Markdown body of SKILL.md and in bundled
+references, then supplied in the user's request. Issue Flow uses that portable
+approach: natural language or the documented optional text block, without adding
+frontmatter fields or requiring a host extension.
+
+| Host | Officially documented invocation behavior | Portability boundary |
+|---|---|---|
+| Claude Code | `/name`, `arguments`, `argument-hint` and `$ARGUMENTS`/positional substitution | These argument features are host extensions, not Issue Flow requirements. [Guide](https://code.claude.com/docs/en/skills) |
+| Codex | Skill selection or mention (`/skills` or `$` in CLI/IDE) alongside the request | No shared formal argument contract established by that interface. [Guide](https://learn.chatgpt.com/docs/build-skills) |
+| Cursor | Explicit `/skill-name` or automatic selection | Slash invocation alone does not establish portable argument binding. [Guide](https://cursor.com/docs/skills) |
+| OpenCode | Agent loads `skill({ name: ... })`; extra frontmatter fields are ignored | Input remains in the request context. [Guide](https://opencode.ai/docs/skills/) |
+| Gemini CLI | `activate_skill` followed by UI consent and instruction loading | Activation is host behavior, not a parameter schema. [Guide](https://geminicli.com/docs/cli/skills/) |
+| Antigravity | Context selection or mentioning the Skill by name | No formal argument binding documented. [Guide](https://antigravity.google/docs/skills) |
+
+This is documentation evidence checked on 2026-09-05, not certification of native
+execution on every host/version. The [invocation guide](../skills/README.md#configure-an-invocation)
+shows Issue Flow vocabulary. A block such as `branchMode: current` is interpreted
+by the agent; it is neither a new Agent Skills standard nor executable YAML.
+
 ## Observed behavior
 
 Vercel Skills **1.5.23** discovered eleven generated Skills. Individual, all-Skill and subset installs, copy/symlink modes, Claude/Codex/OpenCode project targets, inventory and Codex global install in a disposable user container passed byte/reference validation.

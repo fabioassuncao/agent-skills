@@ -150,6 +150,90 @@ supports `/review-issue ...`; Codex supports selecting/mentioning the Skill.
 Invocation syntax and discovery are host-specific; see
 [compatibility](../docs/skills-compatibility.md).
 
+## Configure an invocation
+
+Supply choices in the request, in ordinary language or an optional text block.
+These are Issue Flow conventions interpreted by the agent, not formal Agent
+Skills parameters, frontmatter fields or commands. The same request works after
+selecting the Skill in any compatible host; see the
+[standard and host differences](../docs/skills-compatibility.md#invocation-options).
+The installed [execution choices reference](resolve-issue/references/execution-options.md)
+is the source of truth for defaults, propagation and resumption.
+
+```text
+Use resolve-issue to resolve GitHub issue #123 on the current branch,
+following this project's commit conventions.
+
+Use resolve-issue for docs/problem.md. Create a dedicated branch following
+this project's conventions and use its commit convention.
+
+Use resolve-issue for this demand: normalize null and undefined strings to
+an empty string, retaining trimming for strings and rejecting numbers.
+Stay on the current branch and use Issue Flow's commit convention.
+```
+
+The optional structured spelling of the first request is:
+
+```text
+Use resolve-issue.
+source: github
+input: 123
+branchMode: current
+commitConvention: project
+delivery: local
+```
+
+| Choice | Values / default |
+|---|---|
+| source | auto (default), github, local, inline |
+| input | Number, URL, issue/document path, story/specification, full text, or a list |
+| branchMode | new (fresh-plan default), current |
+| commitConvention | auto (default), project, issue-flow |
+| mode | auto (default), manual |
+| delivery | local or pr; current defaults to local, new follows the authorized request |
+| prReview | false (default), true for an authorized PR delivery |
+
+Explicit base branch, dedicated branch name, artifact paths and correction limit
+are also supported. A concrete commit message rule/example overrides the strategy.
+Conflicting options are clarified before the affected action. Local inputs do not
+require remote probes; input source and publication are independent choices.
+
+`current` captures the branch and never creates or switches one, including during
+corrections. A changed branch or detached HEAD blocks execution. An explicitly
+requested PR may use that same branch if it is a valid head distinct from the
+base/default; the agent will not change branches to make publication possible.
+The CLI's `--no-branch` couples branch choice with no PR; Skills keep these choices
+separate. `new` safely checks out the dedicated planned branch before editing,
+reusing it on resume. Manual planning and conversion never switch branches.
+
+Commit discovery follows explicit request, declared project convention, clearly
+established project practice, then Issue Flow defaults. The agent reads applicable
+instructions, documentation and configuration, using recent history when needed.
+`auto` falls back when evidence is insufficient. `project` asks for guidance before
+committing if there is no clear convention. `issue-flow` explicitly chooses the
+bundled format. Custom conventions govern the entire message, without automatic
+Issue Flow headers or story trailers. Required hooks are never bypassed.
+
+### Documents and multiple demands
+
+A generic problem file needs no issue metadata or H1. Complete inline text is also
+accepted. Planning preserves the source and creates a local representation under
+a safe descriptive identifier when necessary. The PRD records the selected input
+and options so the run can resume without relying on chat history.
+
+For multiple demands, the agent first examines relationships and dependencies.
+It proposes a shared plan when grouping reduces duplicate work or makes related
+changes more consistent, and waits for approval before consolidating. Independent
+demands run separately and sequentially, ordered by dependencies. Failure stops
+the sequence while preserving earlier results. Linked issues are not added to
+scope without authorization.
+
+An approved group keeps one local plan with source-to-story mappings; logical
+changes remain separate commits. GitHub references and completion are evaluated
+per member, never inferred from the group's local identifier. In current mode all
+units use the captured branch; in new mode separate units use dedicated branches
+and must resolve unmerged dependencies before starting dependent implementation.
+
 ## Artifacts, resumption and limits
 
 Default artifacts live under `<consumer-project>/issues/<id>/`: PRD, task plan,
@@ -160,7 +244,11 @@ ignore and contribution policy before deciding which artifacts to commit.
 
 Resume by asking `resolve-issue` to continue the same issue. It verifies artifacts
 and Git evidence, then resumes the earliest incomplete phase, including a
-requested PR review after a PR already exists. A new manual invocation stays in
+requested PR review after a PR already exists. Accepted choices are recorded in
+the PRD and append-only progress entries; branchName/noBranch in tasks.json retain
+the branch decision. New explicit choices override prior choices only after
+ownership checks; existing implementation is never silently moved between plans
+or branches. Artifact history alone does not authorize publication. A new manual invocation stays in
 planning. Corrections are bounded to three rounds by default; invalid findings
 must be rejected with evidence.
 

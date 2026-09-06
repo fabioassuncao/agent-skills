@@ -45,3 +45,28 @@ Correct defective assertions and rerun the identical case. Do not weaken valid a
 Use a minimal fixture exposing a real boundary. State the user task without embedding the expected answer. Add observable conditions and a rubric explaining their link to intent. Include negative near-neighbors when descriptions change; keep baseline/candidate fixtures identical. Reuse existing adapters for additional harnesses rather than creating provider-specific Skill content.
 
 [Measured runs and limitations](research/2026-09-05-skills-portability.md) are dated evidence, not normative rules. Native cross-agent activation and remote update lifecycle require their own observed runs.
+
+## Git fixture assertions
+
+The development-only runner commits each scenario's source fixture on `main`
+before invoking the model. Installed Skills are excluded from source history and
+Git status. Optional `git` setup declares `initialBranch`, additional `branches`,
+`detached`, recent commit-message `history`, and post-commit `dirty` file contents.
+Setup accepts data, not arbitrary shell commands; escaping paths and `.git` files
+are rejected. Identity/signing settings are local to disposable fixtures. Existing
+execution cases declare their local base explicitly so the branch guard can work
+without a remote.
+
+Assertions with `target: "git"` can check `branch`, exact `branches`, `commitCount`,
+`commitPattern` for every new commit, `unchangedRefs` and `commitsOnBranch`. The
+runner compares actual Git state with its pre-invocation snapshot and saves both
+snapshots in evidence. New commits are counted across all refs plus HEAD, excluding
+initial history; a claimed commit without a real commit fails. An `unchanged`
+file assertion compares with its dirty pre-invocation contents when supplied.
+
+Git state verifies outcomes, not complete operation ordering: temporarily changing
+branches and restoring them cannot be disproved by a final snapshot. Invocation
+cases therefore also inspect recorded actions and use manual rubrics for checkout
+before edits, no transient switch, grouping approval and source-to-story mapping.
+`--check` only validates the corpus; deterministic tests validate fixtures and the
+verifier. Neither substitutes for an opt-in live-model behavior run.

@@ -48,6 +48,12 @@ issue-flow conventions branch --issue 63
 
 ## Commits
 
+The format below is the Issue Flow fallback. Portable Skills first apply an
+explicit invocation rule, declared project conventions, or clearly established
+project practice. Their `auto`, `project` and `issue-flow` strategies are described
+in the [Skill invocation guide](../skills/README.md#configure-an-invocation). The
+bundled commit renderer generates this fallback, not arbitrary project formats.
+
 ```text
 <type>(<scope>)[!]: <subject>
 
