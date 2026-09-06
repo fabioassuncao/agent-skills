@@ -67,6 +67,19 @@ decisions — never a source of truth for behaviour.
 - [`docs/research/2026-09-06-agent-skills-audit.md`](docs/research/2026-09-06-agent-skills-audit.md)
   — Agent Skills refactor, Skill Creator/Ralph comparison, triggering holdout and comparative eval harness
 
+- [`docs/research/2026-09-06-webmux-absorption.md`](docs/research/2026-09-06-webmux-absorption.md)
+  — WebMux absorption plan: measured critical path, agent wrappers, worktree/tmux/sandbox
+  architecture, Git-convention findings and the phased port roadmap
+  — its executable companion is
+  [`docs/research/2026-09-06-webmux-absorption-prompt.md`](docs/research/2026-09-06-webmux-absorption-prompt.md),
+  the master prompt that drives the port one phase at a time
+
+- [`docs/research/2026-09-06-graph-repos-deep-dive.md`](docs/research/2026-09-06-graph-repos-deep-dive.md)
+  — deep dive into four "graph" repositories (Awesome-Graph-Engineering, RepoGraph,
+  agent-graph, GraphCode): what each one actually is, component-level absorption verdicts,
+  licence constraints (including a dual MIT/FSL boundary), and the seven pieces worth
+  incorporating now; evidence for `#116` and `#125`
+
 ## Developing
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment, issue-to-PR contribution
