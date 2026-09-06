@@ -1,0 +1,41 @@
+# Provenance — units absorbed from WebMux
+
+Centralised record, with **no per-file licence header**, as required by
+[`§41`](research/2026-09-06-webmux-absorption.md) of the absorption plan and by
+`§7` of its executable companion.
+
+## Frozen upstream baseline
+
+| Item | Value |
+|---|---|
+| Upstream | `windmill-labs/webmux` |
+| Frozen commit | `d8c9d5fa2fc061bff1425de2910d784a48961f1e` (`main`, 2026-08-14) |
+| Version | `0.43.1` |
+| Local copy | `.references/webmux-main` (gitignored, `/.references` in `.gitignore:3`) |
+| Integrity check | `diff -rq` against a clone of `d8c9d5f`: identical, zero differences |
+| Declared licence | `package.json:74` says `"license": "MIT"`; the repository publishes **no `LICENSE` file** and the GitHub API answers `"license": null` |
+
+`.references/webmux-main/` is **read-only**. It is the comparison baseline for
+parity verification, and editing it destroys the ability to verify that a port
+preserved behaviour.
+
+## Rules
+
+1. One row per origin→destination pair, added in the same PR that performs the
+   port.
+2. `NOTICE` at the repository root acknowledges WebMux as an architectural
+   origin.
+3. While the upstream publishes no licence text, no file is copied verbatim —
+   which ADR-01 already guarantees, since the WebMux backend is Bun-only and no
+   file of it compiles under Node without translation.
+
+Strategies: `PORT` (translated, structure preserved) · `ADAPT` (translated with
+a deliberate structural change) · `MERGE` (the Issue Flow implementation is
+canonical and absorbs behaviour from the upstream one) · `REIMPLEMENT` (written
+from the documented behaviour, not from the upstream source).
+
+## Ported units
+
+| Destination | Upstream origin | Repo | Commit | Strategy | Declared licence |
+|---|---|---|---|---|---|
+| _(none yet — rows are added by the phase that performs each port)_ | | | | | |

@@ -1,0 +1,17 @@
+Issue Flow
+Copyright (c) Fábio Assunção
+
+This product includes capabilities and implementations absorbed from WebMux
+(https://github.com/windmill-labs/webmux), frozen at commit
+d8c9d5fa2fc061bff1425de2910d784a48961f1e (v0.43.1, 2026-08-14), which is
+acknowledged here as an architectural origin.
+
+No file from that project is reproduced verbatim in this repository. Every
+absorbed unit was ported or adapted to the Node.js runtime, because the WebMux
+backend is Bun-only and does not compile under Node without translation. The
+origin-to-destination mapping for every ported unit is recorded in
+docs/provenance.md, and the behavioural chain for every ported module is
+recorded in docs/absorption-trace.md.
+
+WebMux declares "license": "MIT" in its package.json and publishes no LICENSE
+file. While that remains the case, no verbatim copy is made from it.
