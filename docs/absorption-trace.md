@@ -372,3 +372,165 @@ são os que exercitam o comportamento que esta fase de fato absorve.
 | Métrica | Baseline WebMux | Budget | Medido |
 |---|---|---|---|
 | `git worktree add` | 78 ms | ≤ 150 ms | **45–97 ms** (mediana de 5, `lifecycle.integration.test.ts`) |
+
+---
+
+### PR / CI / GitHub canônico (Fase 14)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/pr-service.ts` @ d8c9d5f — 675 linhas,
+mais `backend/src/lib/async.ts` (69), o trecho `apiCiLogs` de `backend/src/server.ts:1769`
+e o tipo `LinkedRepoConfig` de `backend/src/domain/config.ts:60`.
+
+**Comportamento existente**
+
+- **Dois loops com políticas distintas.** O *display sync* (10 s) é **gated** por
+  `hasRecentDashboardActivity()`: ninguém olhando, nenhuma chamada `gh`. A varredura de
+  auto-remove (60 s) roda **sem** gating, porque PRs são mesclados com o painel fechado e a
+  limpeza precisa acontecer de qualquer jeito.
+- **Cache ETag por path da API.** `gh api … --include` devolve os headers antes do corpo; o
+  serviço guarda o `ETag`, manda `If-None-Match` na chamada seguinte e trata `304 Not
+  Modified` como acerto de cache. Uma requisição condicional **não consome rate limit**.
+- **Cache de `updatedAt` por URL de PR.** Um PR cujo `updatedAt` não mudou nem chega a
+  disparar a leitura de comentários inline.
+- **Dedupe "latest wins" do `statusCheckRollup`.** Reexecutar um workflow deixa a execução
+  anterior no rollup sob o mesmo nome; sem o dedupe, a execução velha mascara a nova.
+- **`CANCELLED` não é veredito.** Uma execução cancelada por *concurrency
+  cancel-in-progress* é superseded, não falha — sem isso o PR fica "failed" para sempre.
+- **O sentinela de `completedAt`.** O GitHub reporta `0001-01-01T00:00:00Z` enquanto a
+  execução ainda roda; por isso a recência usa `max(startedAt, completedAt)`, senão uma
+  execução viva ordena como antiquíssima e perde para uma concluída mais velha.
+- **Consulta falha ≠ lista vazia.** `fetchAllPrs` devolve `Result`; `fetchBranchPrStates`
+  devolve `null` se **qualquer** repositório falhar, porque a varredura lê isso ao vivo e
+  agir sobre dado parcial removeria um worktree cujo PR só estava inacessível.
+- **`refreshStalePrData` reconsulta `isDraft`, não só `state`.** Um PR pode estar ausente da
+  lista de abertos e continuar aberto (falha de fetch, truncamento do limite de 50); um
+  draft marcado como pronto nessa janela continuaria renderizando como draft.
+- **`startSerializedInterval` coalesce ticks.** Um tick que chega com a passada anterior em
+  voo marca **um** rerun, nunca enfileira uma segunda execução.
+- Casos especiais que NÃO podem se perder: o dedupe latest-wins · `CANCELLED` → `skipped` ·
+  o sentinela de `completedAt` · o `Result`/`null` das consultas · o refresh de `isDraft` ·
+  a leitura do bloco de headers antes do corpo em `--include` · o coalescing do intervalo.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/issues/github/{types,client,pr,ci,comments,linked-repos,monitor,index}.ts`
+e `packages/issue-flow/src/utils/async.ts` — estratégia: **MERGE** (PR e comentários),
+**PORT** (CI, repos vinculados, loops), **ADAPT** (o sync).
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `Bun.spawn` + corrida com `Bun.sleep` → `run()` de `src/utils/shell.ts` com `timeout` | §45.3 e `src/utils/AGENTS.md`: `run()` é o único caminho de shell, com argv e sem string de shell. O `timeout` do execa mata o filho como a corrida upstream fazia, e o `run()` ainda classifica o estouro como falha `timeout` |
+| Toda chamada `gh` carrega a política de resiliência (`ghPolicy()`) | O WebMux não tem retry nenhum (§45.0). Perder a taxonomia de falha + retry do Issue Flow seria o risco inverso de §45.3 |
+| `ghPolicy` / `ghProbePolicy` / `gh()` saíram de `issues/providers/github.ts` para `issues/github/client.ts` | Duas cópias da mesma política de retry seriam a duplicata que esta fase existe para remover |
+| `syncPrStatus` **devolve** o mapa em vez de gravar em `<gitDir>/webmux/prs.json` | Invariante 22: nenhum segundo arquivo de estado ao lado do SQLite. Quem persiste é o chamador — e a Fase 5 já tem `worktree/meta.ts` para isso |
+| `startPrMonitor` + `startAutoRemoveMonitor` → um `startPullRequestMonitor` com `isActive` opcional | As duas funções upstream diferem **só** no gating. Uma função com o gate como parâmetro é uma implementação por responsabilidade; duas quase idênticas seriam a duplicata proibida |
+| `refreshStalePrData(gitDir)` → `refreshStalePullRequests(entries)` | A versão upstream lê e grava o arquivo por worktree. A parte que importa — reconsultar `state` **e** `isDraft` de cada entrada aberta — é pura e vai junto; o I/O de armazenamento não |
+| `repoTargets()` explicitando "repositório atual primeiro, depois os vinculados" | O upstream espalha `[fetchAllPrs(undefined), ...linked.map(...)]` por três funções. A ordem é significativa (o repositório atual ganha o desempate de branch) e passa a estar escrita uma vez |
+| `LinkedRepoConfig` vira a chave `github` de `.issue-flow.json`, com `ISSUE_FLOW_GITHUB_LINKED_REPOS` | O Issue Flow não tinha o conceito; entra pela escada de precedência documentada, como qualquer outro domínio de configuração |
+| `log.debug`/`log.error` → callbacks `onError` / `onFailure` | O módulo fica sem dependência de superfície de saída; quem chama decide se aquilo vira log, telemetria ou evento |
+| `type PrEntry` → `PullRequestEntry` (e os pares equivalentes) | Nomes por extenso, como o resto do repositório |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| A varredura de auto-remove em si (`startAutoRemoveMonitor` + `auto-remove-service.ts`) | `pr-service.ts:660` | Pertence a `src/runtime/worktree/gc.ts` (§22, Fase 5), que já existe. O que a Fase 14 devia entregar é a **fonte de dados** dela, `fetchBranchPullRequestStates`, e a política ungated — que aqui é `startPullRequestMonitor` sem `isActive` |
+| `readWorktreePrs` / `writeWorktreePrs` | `adapters/fs.ts` | Escrevem `prs.json` por worktree com `Bun.write`, sem escrita atômica (§45.0). O veículo de persistência do Issue Flow é o SQLite; o sync devolve os dados e não escolhe onde eles moram |
+| `hasRecentDashboardActivity()` | `server.ts` | É a implementação do gate, não o gate. O painel do Issue Flow ainda não existe na forma que a Fase 8B vai trazer; `isActive` é o ponto de encaixe, e escrever agora uma heurística de atividade sobre o painel antigo seria uma segunda implementação para jogar fora |
+| A integração Linear em torno do PR (`linkedLinearIssue` no `WorktreeSnapshot`) | `linear-*.ts` | `DISCARD` explícito (ADR-14) |
+| `unref()` no `setInterval` do intervalo serializado | `lib/async.ts` | Seria endurecer durante o porte (ADR-12). O agendador é injetável, então quem precisar de um timer que não segura o processo passa o seu — e nenhum caminho de CLI liga o monitor hoje |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/utils/async.test.ts` | `__tests__/pr.test.ts` (`mapWithConcurrency`, `startSerializedInterval`) | 5 portados | ✅ |
+| `src/issues/github/comments.test.ts` | `__tests__/pr.test.ts` (`parseReviewComments`) + cache ETag | 4 portados + 12 novos | ✅ |
+| `src/issues/github/pr.test.ts` | `__tests__/pr.test.ts` (`parsePrResponse` draft, `parsePrViewStatus`) + I/O | 6 portados + 18 novos | ✅ |
+| `src/issues/github/ci.test.ts` | `__tests__/pr.test.ts` (`summarizeChecks`, `dedupeLatestChecks`/`mapChecks`) + `gh run view` | 7 portados + 12 novos | ✅ |
+| `src/issues/github/monitor.test.ts` | gating, caches e evicção do `syncPrStatus` | 10 novos | ✅ |
+| `src/issues/github/linked-repos.test.ts` | fan-out por repositório | 5 novos | ✅ |
+| `src/issues/github/single-implementation.test.ts` | invariante 13 — guarda por varredura da árvore | 6 novos | ✅ |
+| `src/config/github.test.ts` | escada de precedência da chave `github` | 9 novos | ✅ |
+
+**Portados: 22 casos**, exatamente os 22 de `__tests__/pr.test.ts` (§22), de `bun:test` para
+`vitest`. Total desta fase: **94 casos**.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| Boot do CLI | ≤ 250 ms | **100–140 ms** (mediana de 5, `node dist/cli.js --version`) |
+| Chamadas `gh` por passada com PR inalterado | — | **1** (só o `pr list`; a leitura de comentários é servida do cache de `updatedAt` — `monitor.test.ts`) |
+| Chamadas `gh` por passada com o gate fechado | — | **0** (`monitor.test.ts`) |
+
+---
+
+### Runtime tmux (Fase 6)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/tmux.ts` @ d8c9d5f — 314 linhas ·
+`adapters/project-env.ts` — ~60 · `services/session-service.ts` — 155.
+Base canônica: **WebMux** (o Issue Flow não tinha nada equivalente).
+
+**Comportamento existente**
+- 1 sessão por projeto, 1 janela por worktree, 1 pane por papel.
+- `destroy-unattached off` — é o que permite o agente continuar trabalhando com o browser
+  fechado; sem isso o tmux derruba a sessão quando o último cliente sai.
+- **Defesa de locale UTF-8**: sob locale não-UTF-8 o tmux reescreve o byte TAB da saída
+  `-F` como `_`; todo o parse de `list-windows` falha em silêncio e **toda janela some**.
+- **Defesa de herança de environment**: o primeiro comando que sobe o servidor fixa o
+  environment global para toda a vida dele; um `.env` de projeto capturado ali vaza para
+  todo pane de todo projeto. `scrubLeakedGlobalEnv()` cura servidores já contaminados, uma
+  vez por processo.
+- `list-windows -a` numa chamada só (ADR-13).
+- 4 erros de `kill-window` tolerados, incluindo o de conexão com socket inexistente.
+- `send-keys -l --` seguido de `send-keys C-m`: duas chamadas, porque `-l` digita o texto
+  literalmente e a quebra de linha precisa ir separada.
+- Casos especiais que NÃO podiam se perder: os dois de defesa acima, a tolerância do
+  `kill-window`, e a criação de sessão + `set-option` numa **única** invocação.
+
+**Implementação no Issue Flow**
+`src/runtime/tmux/{gateway,names,locale,env,layout,index}.ts` — estratégia: **PORT**,
+com `layout.ts` em **ADAPT**.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `Bun.spawnSync` → `run()` com **`extendEnv: false`**, tudo assíncrono | `run()` é o único caminho de shell do projeto. A flag é obrigatória: o `execa` mescla `process.env` por default e o upstream depende do env ser **substituído** — sem ela o `stripProjectEnv` não faz nada, em silêncio |
+| Socket dedicado `-L issue-flow` (ADR-09) | Melhoria de **uma flag** que resolve estruturalmente a classe inteira de bug que o `scrubLeakedGlobalEnv` cura de forma reativa. O scrubbing fica como rede de segurança, porque socket dedicado não ajuda um servidor que este próprio projeto subiu contaminado |
+| Nome de sessão por `projectId`, não por hash do path | O Issue Flow já tem identidade estável por remote (`storage/project-identity.ts`), que sobrevive a mover o diretório e é igual em dois clones. O upstream usa hash de path por não ter outra identidade |
+| `ensureSessionLayout` distingue `reattach` / `resume` / `fresh` | §27. O upstream mata a janela incondicionalmente, o que faz reabrir um worktree **matar o agente que estava trabalhando nele**. O sinal é a contagem de panes: o tmux remove um pane assim que o comando dele sai |
+| `ensureSession` tenta criar primeiro, em vez de perguntar `has-session` antes | §35 orça 30 ms por sessão adicional e cada invocação extra é um spawn de processo que custa metade disso. Medido: **46 ms → 8 ms**. O tmux já responde `duplicate session`; pagar um spawn para descobrir antes dobrava o custo do caso comum |
+| `parseWindowSummaries` e os nomes viram módulo próprio | São funções puras e são o que os testes de caracterização comparam; separá-las permite testá-las sem servidor tmux nenhum |
+| `countPanes()` acrescentado ao gateway | É o sinal que a decisão de reattach precisa e que o upstream não expõe (ele nunca precisou perguntar) |
+| `isAvailable()` acrescentado | ADR-03: uma máquina sem tmux continua funcionando, e o chamador precisa poder perguntar antes de escolher o modo |
+| `listWindows()` devolve `[]` quando não há servidor | "Sem servidor" é uma resposta legítima e é a que a reconciliação precisa, não um erro |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `createParkedPane()` / `swapPanes()` | `adapters/tmux.ts:295,310` | Implementam as **abas** por worktree do painel do WebMux (`tabs`, `activeTabId`, `forkCounter` em `WorktreeMeta`). São decisão de produto do frontend dele; entram, se entrarem, com §48/§50 — portá-las agora seria mecanismo sem nenhum consumidor |
+| A janela default que `new-session -d` cria | — | **Não é omissão, é consequência**: uma sessão sem janelas é destruída pelo tmux, então a janela default é inevitável. O upstream convive com ela; o teste de integração documenta o fato |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/tmux/names.test.ts` | `__tests__/tmux-adapter.test.ts` (parte pura) + locale + env | 19 | ✅ |
+| `src/runtime/tmux/layout.test.ts` | `__tests__/session-service.test.ts` + os casos de reattach/resume/fresh | 16 | ✅ |
+| `src/runtime/tmux/gateway.integration.test.ts` | `__tests__/tmux-adapter.test.ts` (parte com servidor real) + **C3** de §34 | 12 | ✅ |
+
+Total: **47 casos** (upstream: 20 + 10).
+
+**Orçamentos**
+
+| Métrica | Baseline WebMux | Budget | Medido |
+|---|---|---|---|
+| `ensureSessionLayout` (2 panes) | 254 ms | ≤ 400 ms | **77 ms** |
+| Custo marginal por sessão adicional | 15 ms | ≤ 30 ms | **8 ms** (era 46 ms antes de unir a criação numa invocação) |
+| Reconciliação (`list-windows -a`) | 23 ms, O(1) | ≤ 50 ms e O(1) | **6 ms em N=1, 14 ms em N=21** |

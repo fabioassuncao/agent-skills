@@ -108,7 +108,7 @@ the code, and was learned the hard way.
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
 | Default taxonomy and git naming (branch / commit / PR) | [`packages/issue-flow/src/conventions/AGENTS.md`](packages/issue-flow/src/conventions/AGENTS.md) |
 | Multi-issue queue plan, confirm and order | [`packages/issue-flow/src/execution/AGENTS.md`](packages/issue-flow/src/execution/AGENTS.md) |
-| Issue model, providers, resolver and relation graph | [`packages/issue-flow/src/issues/AGENTS.md`](packages/issue-flow/src/issues/AGENTS.md) |
+| Issue model, providers, resolver, relation graph, and GitHub Pull Request / CI reading | [`packages/issue-flow/src/issues/AGENTS.md`](packages/issue-flow/src/issues/AGENTS.md) |
 | Execution telemetry and compatibility projections | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |
 | Git conventions (branch, commit, PR title) | [`docs/git-conventions.md`](docs/git-conventions.md) |
@@ -118,6 +118,7 @@ the code, and was learned the hard way.
 | Shared process / git / fs primitives | [`packages/issue-flow/src/utils/AGENTS.md`](packages/issue-flow/src/utils/AGENTS.md) |
 | Runtime modes (headless / interactive / sandbox) | [`packages/issue-flow/src/runtime/AGENTS.md`](packages/issue-flow/src/runtime/AGENTS.md) |
 | Worktree isolation, its binding and its rollback | [`packages/issue-flow/src/runtime/worktree/AGENTS.md`](packages/issue-flow/src/runtime/worktree/AGENTS.md) |
+| The tmux multiplexer: sessions, windows, panes and the two defences | [`packages/issue-flow/src/runtime/tmux/AGENTS.md`](packages/issue-flow/src/runtime/tmux/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
 | Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |
