@@ -2,6 +2,10 @@ export const TASK_CLASSES = ['trivial', 'small', 'medium', 'analysis'] as const;
 
 export type TaskClass = (typeof TASK_CLASSES)[number];
 
+export const BENCH_MODES = ['synthetic', 'real'] as const;
+
+export type BenchMode = (typeof BENCH_MODES)[number];
+
 export interface CorpusTask {
   id: TaskClass;
   title: string;

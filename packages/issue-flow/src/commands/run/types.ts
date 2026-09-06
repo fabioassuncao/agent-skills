@@ -37,10 +37,9 @@ export const RUNNABLE_QUEUE_PR_PHASES_WITH_REVIEW: PipelinePhase[] = ['pr', 'pr-
 export type PrReviewOutcome = RunSummaryPrReview;
 
 /** What one failing Issue does to the rest of the queue. */
-export type QueueFailureMode =
-  | /** End the run where it failed. The behaviour that has always been. */ 'stop'
-  | /** Set it aside, run the independent work, come back to it. */ 'skip'
-  | /** Set it aside for a human, and never come back to it. */ 'block';
+export const QUEUE_FAILURE_MODES = ['stop', 'skip', 'block'] as const;
+
+export type QueueFailureMode = (typeof QUEUE_FAILURE_MODES)[number];
 
 /**
  * Everything a queue hands to the run of one of its issues.

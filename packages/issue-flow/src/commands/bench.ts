@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
-import { TASK_CLASSES, type TaskClass } from '../benchmark/corpus.js';
+import { BENCH_MODES, type BenchMode, TASK_CLASSES, type TaskClass } from '../benchmark/corpus.js';
 import { createLiveRepeatRunner } from '../benchmark/live.js';
 import { type BenchCampaign, type RepeatRunner, runRealCorpus } from '../benchmark/real.js';
 import { renderCampaignMarkdown } from '../benchmark/report.js';
@@ -27,7 +27,7 @@ export class BenchConfirmationError extends Error {
 }
 
 export interface BenchOptions {
-  mode?: 'synthetic' | 'real';
+  mode?: BenchMode;
   task?: string[];
   arm?: string[];
   repeats?: number;
@@ -114,8 +114,8 @@ function printSynthetic(): void {
 
 export async function runBench(options: BenchOptions = {}): Promise<number> {
   const mode = options.mode ?? 'synthetic';
-  if (mode !== 'synthetic' && mode !== 'real') {
-    printError(`Unknown bench mode '${mode}'. Use synthetic or real.`);
+  if (!(BENCH_MODES as readonly string[]).includes(mode)) {
+    printError(`Unknown bench mode '${mode}'. Use one of: ${BENCH_MODES.join(', ')}.`);
     return 1;
   }
   if (mode === 'synthetic') {
