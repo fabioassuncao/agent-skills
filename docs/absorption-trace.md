@@ -1307,3 +1307,27 @@ ainda adquirem o `run.lock` de projeto diretamente. Trocar essa chamada por
 `src/commands/run.ts` estava sendo alterado em paralelo pela Fase 15. Com `maxConcurrent: 1`
 — o default — as duas rotas são **idênticas**, então nenhum comportamento atual depende
 dessa ligação.
+
+---
+
+### Orçamentos de §35 — quadro consolidado
+
+Medidos ao final da absorção, no mesmo estilo da coleta original (mediana de ≥ 3 execuções,
+wall clock em milissegundos), na máquina do porte (macOS 25.5, Node v22.22.1, tmux 3.6a).
+
+| Métrica | Baseline WebMux | Budget | Medido | Onde |
+|---|---|---|---|---|
+| Latência output → tela (p95) | ≈ 0 ms (push) | **≤ 250 ms — teto duro** | **54 ms** (mediana 51) | `src/web/stream-latency.integration.test.ts` |
+| `git worktree add` | 78 ms | ≤ 150 ms | **45–97 ms** | `src/runtime/worktree/lifecycle.integration.test.ts` |
+| `ensureSessionLayout` (2 panes) | 254 ms | ≤ 400 ms | **77 ms** | `src/runtime/tmux/gateway.integration.test.ts` |
+| Custo marginal por sessão adicional | 15 ms | ≤ 30 ms | **8 ms** (tmux) · **< 1 ms** (slot de execução) | `gateway.integration.test.ts`, `concurrency.test.ts` |
+| Reconciliação (`list-windows -a`) | 23 ms, O(1) | ≤ 50 ms **e O(1)** | **6 ms em N=1, 14 ms em N=21** | `gateway.integration.test.ts` |
+| Reconexão de terminal | 28 ms + replay | ≤ 100 ms | **26 ms** | `src/web/terminal-ws.integration.test.ts` |
+| Boot do CLI | n/a | ≤ 250 ms | **100 ms** (antes da absorção: 135–192) | `node dist/cli.js --version`, mediana de 5 |
+
+Sem medição própria nesta entrega: **T0→T4** e **entrega de prompt subsequente de 20 KB**,
+que exigem um agente real iniciando num pane; a entrega de prompt está coberta
+funcionalmente pelo caso de 64 KB de `src/agents/tty.integration.test.ts`, que prova que o
+bloco inteiro chega. **Contexto re-ingerido por story após a 1ª invocação** continua sendo
+invariante de arquitetura (a conversa é reaproveitada via `--resume`, exceto onde ADR-07
+proíbe) e não uma métrica de tempo.

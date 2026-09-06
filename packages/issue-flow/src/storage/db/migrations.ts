@@ -171,6 +171,17 @@ CREATE INDEX phases_run_name_idx ON phases(run_id, name);
 CREATE INDEX events_project_run_occurred_idx ON events(project_id, run_id, occurred_at);
 `;
 
+/**
+ * Forward-only migrations, applied in order.
+ *
+ * **Version numbers have gaps**, and that is deliberate rather than a sign that
+ * something was lost. The WebMux absorption ran its phases in parallel, and
+ * each was given a reserved number up front so two of them could never write
+ * the same one; the phases that turned out not to need a schema change left
+ * theirs unused. A gap costs nothing — `migrateDatabase` applies whatever is
+ * greater than the recorded version and stamps each as it goes — and renumbering
+ * afterwards would rewrite the history of databases that already migrated.
+ */
 export const migrations: readonly Migration[] = [
   {
     version: 1,
