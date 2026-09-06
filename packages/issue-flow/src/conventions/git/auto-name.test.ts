@@ -14,6 +14,12 @@ import { isValidBranchName, sanitizeBranchName } from './slug.js';
 /**
  * Ported from `backend/src/__tests__/auto-name-service.test.ts` @ d8c9d5f.
  *
+ * This file is where **C2** of §34 lives — "generate a branch from a
+ * description: kebab-case, at most 40 characters, no prefix; timeout →
+ * `change-<uuid8>`". Both halves are asserted below, the length and shape by
+ * the normalization cases and the fallback by the G3 group, so the
+ * characterization has no separate file of its own.
+ *
  * Nine of the seventeen upstream cases carry over. The eight that do not all
  * assert the argv of `claude -p` / `codex exec`, which this directory cannot
  * build: the provider lives outside the convention layer, behind the injected
