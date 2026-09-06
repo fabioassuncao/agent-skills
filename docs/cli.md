@@ -46,6 +46,24 @@ Deterministic artifact inspection needs Node.js and the CLI package, with no
 coding agent, Git repository or GitHub authentication; see
 [Inspect artifacts](#inspect-artifacts-without-an-agent).
 
+## Shell completion
+
+With an installed or linked `issue-flow` executable on `PATH`, activate
+completion for the current shell session with the matching command:
+
+```text
+zsh:        autoload -Uz compinit && compinit; source <(issue-flow complete zsh)
+bash:       source <(issue-flow complete bash)
+fish:       issue-flow complete fish | source
+PowerShell: issue-flow complete powershell | Out-String | Invoke-Expression
+```
+
+The generated scripts call the bare `issue-flow` command for suggestions, so a
+one-off `npx issue-flow` invocation does not provide equivalent direct
+completion. Issue Flow never edits shell files; see the
+[complete command reference](commands.md#complete--generate-and-serve-shell-completion)
+for copyable persistent activation and removal commands for all four shells.
+
 ## First run
 
 From a disposable consumer repository, choose a GitHub issue with observable
