@@ -2506,6 +2506,28 @@ inalterado (ADR-07). Autoridade de estado preservada: a interface lê e não der
 | Reconexão do terminal | ≤ 100 ms | 27 ms mediana |
 | Chamadas `gh` com o painel fechado | — | **0** (o gate de §20 é a última `GET /api/worktrees`, 30 s de janela) |
 
+**Medições em navegador — U6, U19 e U20, refeitas porque o layout mudou**
+
+A bancada é a mesma da Fase 8C (`web/measure.html` + `web/src/measure.ts`),
+dirigida por Chromium headless nos três larguras de U20. O conjunto de abas
+passou de três para oito e "Visão geral" perdeu o bloco "Saída", então nenhum dos
+três critérios podia ser herdado.
+
+| Critério | Medido | Resultado |
+|---|---|---|
+| U6 — "Estado agora" sem rolagem em 1440×900, com o cartão de erros aberto | `getBoundingClientRect().bottom` = **765** px, `innerHeight` = 900 | ✅ 135 px de folga (era 764 px na 8C) |
+| U19 — 19 pares, tema claro | 15,17 · 16,55 · 13,36 · 6,93 · 7,56 · 6,10 · 5,24 · 5,72 · 4,62 · 4,57 · 5,49 · 4,51 · 5,30 · 5,98 · 5,76 · 6,29 · 5,08 · 6,29 · 6,47 | ✅ **0 falhas**, idênticos dígito a dígito aos da 8C |
+| U19 — 19 pares, tema escuro | 15,40 · 14,04 · 11,38 · 7,21 · 6,58 · 5,33 · 6,37 · 5,81 · 4,71 · 8,19 · 5,68 · 8,05 · 5,63 · 8,18 · 6,29 · 5,73 · 4,65 · 6,29 · 6,78 | ✅ **0 falhas** |
+| U20 — 1440 / 768 / 360 | `scrollWidth` = `clientWidth` nas três; **zero** elementos ultrapassando a borda | ✅ |
+
+`measureHorizontalOverflow()` ganhou uma correção nesta fase: um nó dentro de um
+**scroller próprio** (qualquer ancestral com `overflow-x: auto|scroll`) deixou de
+entrar na lista de infratores. `.if-scroll-x`, a tablist e a grade de fases são
+mais largas que 360px de propósito e rolam dentro de si mesmas; listá-las obrigava
+quem lia a passar por cima da própria saída — e uma lista que precisa ser
+desculpada não é uma medição. Com oito abas em vez de três a tablist passou a
+aparecer ali, o que tornou a correção necessária em vez de cosmética.
+
 **Decisões autônomas relevantes**
 
 1. **Os grupos da barra lateral continuam "Execuções" e "Sessões"**, não

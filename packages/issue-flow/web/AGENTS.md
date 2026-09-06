@@ -104,6 +104,14 @@ com a mesma fixture das suítes, sem servidor e sem API, e expõem
 npm run dev:web      # e abra http://127.0.0.1:4319/measure.html
 ```
 
+`measureHorizontalOverflow()` ignora um nó dentro de um **scroller próprio**
+(qualquer ancestral com `overflow-x: auto|scroll`): `.if-scroll-x`, a tablist e a
+grade de fases são mais largas que 360px de propósito e rolam dentro de si
+mesmas. Listá-las obrigava quem lia a passar por cima da própria saída, e uma
+lista que precisa ser desculpada não é uma medição. **Meça de novo sempre que o
+layout mudar** — a Fase 8D trocou o conjunto de abas e os três critérios tiveram
+de ser refeitos, não herdados.
+
 Não vai para o pacote: o `vite build` tem `index.html` como única entrada, e o
 `files` do `package.json` publica `web/dist`, não `web/`. As suítes
 `lib/contrast.test.ts` e `lib/responsive.test.ts` são os **guardas de

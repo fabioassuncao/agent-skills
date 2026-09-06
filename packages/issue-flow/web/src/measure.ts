@@ -75,13 +75,30 @@ window.measureContrastPairs = (theme) => {
   };
 };
 
-/** U20: nothing may widen the page at the current viewport. */
+/**
+ * U20: nothing may widen the page at the current viewport.
+ *
+ * A node inside an **own-box scroller** is not an offender: `.if-scroll-x`, the
+ * tablist and the phase grid are wider than 360px on purpose and scroll inside
+ * themselves, which is the one thing the panel allows. Listing them made the
+ * result need a human to read past its own output — and a list that has to be
+ * excused is not a measurement.
+ */
 window.measureHorizontalOverflow = () => {
   const root = document.documentElement;
   const offenders: string[] = [];
+
+  const scrollsItself = (node: HTMLElement): boolean => {
+    for (let parent = node.parentElement; parent !== null; parent = parent.parentElement) {
+      const overflowX = getComputedStyle(parent).overflowX;
+      if (overflowX === 'auto' || overflowX === 'scroll') return true;
+    }
+    return false;
+  };
+
   for (const node of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
     const rect = node.getBoundingClientRect();
-    if (rect.right > root.clientWidth + 1) {
+    if (rect.right > root.clientWidth + 1 && !scrollsItself(node)) {
       offenders.push(`${node.tagName.toLowerCase()}.${node.className}`.slice(0, 120));
     }
   }
