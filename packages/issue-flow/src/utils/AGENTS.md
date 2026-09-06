@@ -6,10 +6,33 @@ repo" rule.
 
 ## Invariants
 
-- **`run()` is the only shell path**, with exactly one documented exception:
-  `src/runtime/terminal/pty.ts` needs a *pseudo-terminal* and `run()` gives a
-  pipe, behind which an agent TUI does not draw. Everything around it — the tmux
-  commands of the attach included — still goes through here.
+- **`run()` is the shell path for anything whose failure the pipeline reasons
+  about**: it is what carries the failure taxonomy, the retry policy and the
+  "never auto-fix the repo" rule, and §45.3 of the absorption names a scattered
+  `spawn` as the degraded form this project must not drift back into.
+
+  What legitimately does not go through it is a process `run()` cannot express,
+  because `run()` awaits a command to completion and hands back its output:
+
+  - **A pseudo-terminal.** `src/runtime/terminal/pty.ts` — `run()` gives a pipe,
+    behind which an agent TUI does not draw. Everything around it, the tmux
+    commands of the attach included, still goes through here.
+  - **A live agent invocation.** `src/agents/{claude,codex,cursor,opencode,antigravity}.ts`
+    stream events while the child runs; awaiting the exit would discard the
+    stream that is the point.
+  - **A long-lived daemon with open stdin.** `src/agents/session/codex.ts` speaks
+    JSON-RPC to `codex app-server` for as long as the conversation lasts.
+
+  Each of these is argv, never a shell string (ADR-04), and each registers its
+  child for shutdown. A new one needs a reason of the same kind, written down.
+
+  Two smaller categories exist and are *not* endorsements: availability probes
+  (`agents/{availability,registry}.ts`, `commands/init.ts`) run with a hard
+  timeout and `reject: false` because retrying "is this installed?" cannot
+  change the answer; and a handful of one-line reads
+  (`commands/pr.ts`, `commands/run/phase-finalize.ts`, `web/lock.ts`) predate
+  the chokepoint and would belong in it. Do not add to that last group.
+
   Original rule: execa, `reject: false`, no shell.
   Default: no retry (byte-identical to pre-retry behaviour). Opt-in
   `retry` only when a non-zero exit means failure.
