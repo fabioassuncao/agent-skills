@@ -28,6 +28,18 @@ npx issue-flow init
 npx issue-flow run 42
 ```
 
+Or install the CLI once and run it without the `npx` prefix:
+
+```bash
+npm install -g issue-flow
+issue-flow init
+issue-flow run 42
+```
+
+The CLI package is named `issue-flow`. The repository shorthand
+`fabioassuncao/issue-flow` is for the separate Skills installer; npm interprets
+it as a Git dependency and cannot install the CLI from this monorepo's root.
+
 Replace `42` with the issue to resolve. `run` plans, implements, verifies,
 reviews and creates a PR. Review the resulting changes before merging.
 For installation, local issues, monitoring and limitations, use the

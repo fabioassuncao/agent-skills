@@ -87,6 +87,16 @@ npx issue-flow init
 npx issue-flow run 42
 ```
 
+Or install the CLI globally from its npm package:
+
+```bash
+npm install -g issue-flow
+```
+
+The `fabioassuncao/issue-flow` repository identifier used by the Skills installer
+above is not the CLI package name. Passing it to `npm install` asks npm to install
+the Git repository root, which is not an npm package in this monorepo.
+
 `run` starts the full pipeline, including PR creation. Installing the CLI does
 not install Skills. **[Read the CLI guide](docs/cli.md)** for setup, outputs,
 monitoring, limitations and the command reference.

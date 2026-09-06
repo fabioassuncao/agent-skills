@@ -4,7 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkArtifactCli } from './artifacts-cli-test.mjs';
-import { artifactRoot, files, packageRoot } from './skills-build.mjs';
+import { artifactRoot, files, packageRoot, repoRoot } from './skills-build.mjs';
 
 // Exercise the actual npm payload, with neither Skill source nor installed Skills.
 const root = await mkdtemp(join(tmpdir(), 'issue-flow-cli-package-'));
@@ -19,6 +19,45 @@ try {
   assert.ok(packed.files.some((f) => f.path === 'prompts/pr-review.md'));
   assert.ok(
     !packed.files.some((f) => /^(skills|skills-src|src|scripts|evals|prompts-src)\//.test(f.path)),
+  );
+  const packageManifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+  const installDocs = [
+    join(repoRoot, 'README.md'),
+    join(repoRoot, 'docs/cli.md'),
+    join(packageRoot, 'README.md'),
+  ];
+  for (const path of installDocs) {
+    const documentation = await readFile(path, 'utf8');
+    assert.match(documentation, /npm install -g issue-flow/);
+    assert.ok(
+      !documentation
+        .split('\n')
+        .some((line) => /^\s*npm (?:i|install) -g fabioassuncao\/issue-flow\s*$/.test(line)),
+    );
+  }
+  const globalPrefix = join(root, 'global');
+  execFileSync(
+    'npm',
+    [
+      'install',
+      '--global',
+      '--prefix',
+      globalPrefix,
+      '--omit=dev',
+      '--ignore-scripts',
+      '--no-audit',
+      '--no-fund',
+      join(root, packed.filename),
+    ],
+    { encoding: 'utf8', timeout: 120000 },
+  );
+  const globalBin =
+    process.platform === 'win32'
+      ? join(globalPrefix, 'issue-flow.cmd')
+      : join(globalPrefix, 'bin/issue-flow');
+  assert.equal(
+    execFileSync(globalBin, ['--version'], { encoding: 'utf8' }).trim(),
+    packageManifest.version,
   );
   const runtime = join(root, 'runtime');
   await mkdir(runtime);
@@ -96,7 +135,7 @@ try {
       !(await readFile(join(installed, 'prompts', path), 'utf8')).includes('<!-- contract:'),
     );
   console.log(
-    'PASS: packed CLI alone, full pipeline fixtures, packaged prompts, and optional Skill + CLI policy integration.',
+    'PASS: global-prefix install, packed CLI alone, full pipeline fixtures, packaged prompts, and optional Skill + CLI policy integration.',
   );
 } finally {
   await rm(root, { recursive: true, force: true });
