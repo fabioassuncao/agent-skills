@@ -61,6 +61,10 @@ from the documented behaviour, not from the upstream source).
 | `packages/issue-flow/src/agents/custom.ts` | `backend/src/services/agent-service.ts` (custom agents) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/runtime/terminal/input.ts` | `backend/src/adapters/terminal.ts` (`sendPrompt`, `interruptPrompt`, `sendKeys`) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/agents/session/` | `backend/src/domain/model.ts` (`WorktreeConversationMeta`) + `adapters/session-discovery.ts` | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/terminal/attach.ts` | `backend/src/adapters/terminal.ts` (`attach`, `buildAttachCmd`) | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/terminal/pty.ts` | `backend/src/adapters/terminal.ts` (`detectPtyWrapper`, `buildPtyArgs`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/runtime/terminal/scrollback.ts` | `backend/src/adapters/terminal.ts` (scrollback ring) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
+| `packages/issue-flow/src/web/terminal-ws.ts` | `backend/src/server.ts` (WS handlers, `sendWs`) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/auto-name.ts` | `backend/src/services/auto-name-service.ts` (prompt, `normalizeGeneratedBranchName`, timeout fallback) | windmill-labs/webmux | d8c9d5f | ADAPT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/auto-name.ts` (`generateFallbackBranchName`) | `backend/src/lib/branch-name.ts` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |
 | `packages/issue-flow/src/conventions/git/slug.ts` (`sanitizeBranchName`, `isValidBranchName`) | `backend/src/domain/policies.ts:8–24` | windmill-labs/webmux | d8c9d5f | PORT | package.json: MIT (no LICENSE) |

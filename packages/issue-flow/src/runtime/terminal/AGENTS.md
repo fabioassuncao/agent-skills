@@ -37,3 +37,50 @@ upstream, and it is.
 - Never assume a paste is processed synchronously: `submitDelayMs` exists
   because some TUIs finish a bracketed paste on a later tick, and submitting in
   the same one lands before the text does.
+
+## `attach.ts`: why a grouped session per viewer
+
+`tmux new-session -t <owner>` creates a session that **shares the owner's
+windows** while keeping its own client, active window and size. That is what
+makes several viewers possible at once: one person resizing their browser does
+not reflow everybody else's terminal.
+
+Every line of `buildAttachCommand` is load-bearing, and the test compares it
+literally for that reason:
+
+- `window-size latest` is set on the **owner**, so the window follows the most
+  recently active client instead of shrinking to the smallest one. Without it a
+  phone squeezes every other viewer's terminal.
+- The **unzoom is defensive and not optional**: zoom state is *shared* across
+  grouped sessions, so a viewer who left a pane zoomed leaves the next one
+  looking at a single pane with no way to know why.
+- `stty` runs before the attach, so the first frame is already the right shape
+  and the terminal does not reflow the moment it connects.
+- Detaching kills the **viewer's** grouped session only. The project's windows —
+  and the agent inside them — are untouched, which is the whole point.
+
+Resizing goes through `tmux resize-window`, not through the pty: the pty here
+runs a tmux *client*, and only tmux can change the size of the window it draws.
+
+## `pty.ts`: an optional native dependency that may be present and unusable
+
+`node-pty` is in `optionalDependencies` and is used when it works. It is probed
+with a **real spawn**, not a `require`, because the failure this exists for is a
+module that imports fine and then throws at `fork` — which is exactly what it
+does on the machine this was ported on (`posix_spawnp failed`). The `script` /
+`python3` wrapper is not a formality; it is the path that works.
+
+macOS uses `python3` unconditionally rather than probing, because its `script`
+has a different, incompatible interface.
+
+## `scrollback.ts`: numbered bytes
+
+The ring is the upstream's (1 MB). The **offsets are not**: §15 adds them so a
+reconnecting client can ask for the difference instead of receiving the whole
+buffer. A browser reconnects on `visibilitychange`, `focus` and `online`, so
+switching tabs twice costs two megabytes and two full repaints without them.
+
+Eviction drops **whole chunks**. Splitting one risks cutting a multi-byte
+character or an escape sequence in half, and a terminal handed half an escape
+sequence renders garbage from there on. Offsets stay monotonic across eviction,
+so an offset is never reused and "I have up to N" is never ambiguous.

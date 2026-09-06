@@ -743,3 +743,165 @@ Total: **78 casos** (upstream: 19 de `agent-service.test.ts` + 10 de `terminal-a
 | Métrica | Baseline WebMux | Budget | Medido |
 |---|---|---|---|
 | Entrega de prompt subsequente (20 KB) | 35 ms | ≤ 80 ms | coberto pelo caso de 64 KB de `tty.integration.test.ts`, que entrega o bloco inteiro; a medição em milissegundos entra com o transporte do terminal (Fase 8), onde há um caminho de ponta a ponta para cronometrar |
+
+### Sandbox Docker — paridade (Fase 12)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/docker.ts` @ d8c9d5f — 384 linhas
+`.references/webmux-main/sandbox-image/` @ d8c9d5f — 2 arquivos, ~80 linhas
+
+**Comportamento existente**
+
+- `buildDockerRunArgs()` monta a linha de comando inteira do `docker run` a partir de um
+  perfil docker, dos serviços com porta alocada e do `runtimeEnv`. É a função que o teste
+  de caracterização **C7** compara literalmente.
+- `launchContainer()` resolve o que existe no host (credenciais, socket SSH), gera o nome
+  do container, roda `docker run -d` com teto de tempo e limpa o container parado quando
+  o comando falha.
+- `findContainer()` / `removeContainer()` selecionam por prefixo de branch, exigindo que o
+  que vem depois do prefixo seja **apenas** o timestamp.
+- A imagem é `debian:bookworm-slim` + Node 22 + `gh` + Rust + `asciinema` + Bun +
+  Playwright/Chromium + AWS CLI + Claude Code + Codex + Mermaid CLI. `entrypoint.sh` roda
+  `bun install` quando há `bun.lock` e faz `exec "$@"` — ele **não** é o entrypoint da
+  imagem, é chamado explicitamente.
+- Casos especiais que NÃO podem se perder:
+  - `--mount type=bind` para o socket SSH — com `-v` o Docker tenta `mkdir` no caminho do
+    socket e a subida falha;
+  - o socket só é encaminhado quando é world-accessible, porque o daemon é outro processo;
+  - `--user <hostUid>:<hostGid>`, senão os arquivos criados no worktree montado ficam do
+    root e o usuário não consegue limpá-los;
+  - portas publicadas **apenas** em `127.0.0.1`;
+  - `reservedKeys` que nem o `envPassthrough` nem o `runtimeEnv` conseguem sobrescrever —
+    `SSH_AUTH_SOCK` está no conjunto porque a variável só faz sentido junto do mount;
+  - `GIT_CONFIG_COUNT=2` com `safe.directory` para os **dois** diretórios: o worktree e o
+    repositório principal, cujo `.git` o worktree aponta;
+  - `isValidEnvKey()` / `isValidPort()` descartam entrada malformada em vez de citá-la;
+  - montagens explícitas do perfil **vencem** as montagens de credencial do mesmo
+    `guestPath`;
+  - idempotência por branch em `launchContainer` — dois containers no mesmo worktree são
+    dois agentes escrevendo os mesmos arquivos;
+  - o socket do Docker **não** é montado, e isso é deliberado.
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/runtime/sandbox/docker.ts` — estratégia: PORT
+`packages/issue-flow/sandbox/` — estratégia: PORT
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `Bun.spawn` → `run()` (`src/utils/shell.ts`), tudo assíncrono | `run()` é o único caminho de shell do projeto; é o que faz a allowlist destrutiva e a política de retry valerem também aqui (§45.3). Nunca `execa` direto, nunca string de shell |
+| A corrida manual contra `Bun.sleep(60s)` vira `AbortController` + `cancelSignal` do execa | Mesmo teto de 60 s e mesma limpeza (`docker rm -f` + erro), sem um segundo caminho de processo. A **flag** — não o tempo decorrido — é o que distingue timeout de falha comum, que são reportados de forma diferente |
+| `Bun.env[key]` sai de dentro de `buildDockerRunArgs` e entra como `hostEnv` no contexto | O próprio comentário do upstream diz que a função é pura e que "todo I/O é resolvido pelo chamador"; `Bun.env` era o único vazamento. Fechá-lo é o que torna **C7** uma comparação literal sem estado de processo, e é o motivo de a paridade desta fase ser verificável numa máquina sem docker |
+| Os 7 parâmetros posicionais viram `(opts, context: DockerRunArgsContext)` | Ordem de parâmetros é decisão reversível (§9). O corpo da função continua idêntico linha a linha; o que muda é que `home`, `name` e `sshAuthSock` — três strings adjacentes — deixam de poder ser trocados por engano |
+| `log.warn` → callback `onWarn` (e `onInfo`/`onError` no gateway) | Não há logger global neste nível e a função é pura. Segue o padrão de `worktree/gc.ts` |
+| `diagnostics: false` nas sondas (`docker version`, `docker ps`, `docker rm`) e `true` no `docker run` | Numa máquina sem daemon o `docker version` e o `docker ps` respondem não-zero como resultado legítimo, e um diagnóstico por sonda enterraria a única falha que importa. O `docker run` é falha de verdade, com stderr de verdade — perdê-la seria exatamente a regressão que §45.3 descreve |
+| Prefixo de container `wm-` → `if-` | Três caracteres, como o original, então o orçamento de 46 caracteres do segmento de branch continua exato. **Não** é cosmético: `findContainer` e `removeContainer` selecionam por prefixo e removem à força o que acham — compartilhar o prefixo do upstream faria este projeto apagar containers de uma instalação real do WebMux na mesma máquina |
+| `sanitiseBranchForName` → `sanitizeBranchForName` | Consistência com `sanitizeBranchName` e `sanitizeTmuxNameSegment`, que já existem no repositório |
+| `DockerProfileConfig` / `ServiceConfig` de `adapters/config.ts` viram `SandboxProfileConfig` / `SandboxServiceConfig`, o subconjunto estrutural que este módulo usa | A configuração de profiles é da Fase 10 (§16, §19). Declarar a forma aqui mantém a Fase 12 autocontida; o tipo mais rico da Fase 10 só precisa continuar atribuível a este |
+| `findContainer` e `isAvailable` entram no `DockerGateway` | `findContainer` já era exportada solta no upstream e a reconciliação (Fase 11) precisa dela pela interface; `isAvailable` é ADR-03 — uma máquina sem docker precisa poder ser perguntada antes de escolher o modo |
+| A URL do AWS CLI passa a derivar a arquitetura de `dpkg --print-architecture` | O literal `x86_64` do upstream quebra o build inteiro num host arm64, que é a máquina de desenvolvimento mais comum aqui. Menor mudança que torna o porte efetivamente construível (§3.1, exceção "tornar o port executável") |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| `BunDockerGateway` (a classe) | `adapters/docker.ts:63` | Era só um wrapper de duas linhas sobre as funções livres. `createDockerGateway()` é a forma que o resto de `src/runtime/` usa (`createTmuxGateway`, `createGitWorktreeGateway`) |
+| Endurecimento: `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit`, `--memory`, política de rede, `SSH_AUTH_SOCK` opt-in por profile, imagem mínima como default | §14 etapa 2 | **Fase 13.** ADR-12 proíbe portar e endurecer na mesma mudança: com as duas coisas juntas, uma regressão fica indistinguível de um bug. Um teste afirma que nenhuma dessas flags está presente, para que acrescentar uma aqui falhe alto |
+| `yolo?: boolean` do `ProfileConfig` | `domain/config.ts:46` | §45.3: permissão semântica por fase é garantia do Issue Flow, e um booleano no perfil é exatamente a forma degradada que a tabela lista. O módulo não precisa dele para montar os argumentos, então ele não entra em `SandboxProfileConfig` |
+| `entrypoint.sh` reconhecer `package-lock.json` / `pnpm-lock.yaml` | `sandbox-image/entrypoint.sh` | Melhoria óbvia para os repositórios-alvo deste projeto e registrada como tal, mas é mudança de comportamento: paridade primeiro (ADR-12) |
+| A imagem continuar do tamanho que é (Rust + Playwright + AWS CLI) | `sandbox-image/Dockerfile.sandbox` | Reduzir superfície é a etapa 2 de §14. Aqui a imagem é a do upstream, com uma linha corrigida para poder ser construída |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/sandbox/docker.test.ts` | `__tests__/docker.test.ts` (23 casos, `bun:test` → `vitest`) + C7 + os casos que o upstream não podia escrever | 45 | ✅ |
+| `src/runtime/sandbox/docker.integration.test.ts` | novo — daemon real, `it.runIf` com a sonda síncrona no topo do módulo | 8 | ✅ |
+| characterization **C7** | §34 | — | ✅ |
+
+**C7 conferido contra o upstream, não contra a transcrição.** A função original foi
+executada sob `bun` a partir de `.references/webmux-main/` (somente leitura) e a lista de
+argumentos comparada com `toEqual` à do porte, para um lançamento completo (portas,
+passthrough, socket SSH, montagens extras, colisão de credencial) e para o mínimo. As duas
+listas são idênticas. O prefixo do nome não entra na comparação porque `name` é parâmetro.
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| `buildDockerRunArgs` | — (função pura) | **0,0016 ms** (mediana de 5 × 1000) |
+| `launchContainer` com imagem quente | — (§35 não orça o sandbox; T0→T4 ≤ 600 ms é o teto vizinho) | **158 ms** (mediana de 3) |
+
+---
+
+### Terminal web — backend (Fase 8)
+
+**WebMux original**
+`.references/webmux-main/backend/src/adapters/terminal.ts` @ d8c9d5f — 457 linhas ·
+`backend/src/server.ts` (handlers de WS, `sendWs`, linhas 412–424, 459–472, 2200–2320) — ~180.
+Base canônica: **WebMux** (o Issue Flow não tinha terminal).
+
+**Comportamento existente**
+- **Sessão agrupada por espectador** (`new-session -t <dona>`): cada viewer tem cliente,
+  janela ativa e tamanho próprios, compartilhando as janelas da sessão do projeto. É o que
+  permite N espectadores sem um redimensionar o outro.
+- `window-size latest` na sessão **dona** — sem isso a janela encolhe para o menor cliente.
+- **Unzoom defensivo**: o estado de zoom é compartilhado entre sessões agrupadas.
+- `stty` antes do attach, para o primeiro frame já vir no tamanho certo.
+- Attach **preguiçoso**: o primeiro `resize` é o sinal de attach.
+- Protocolo 4 in / 4 out, com **prefixo de 1 caractere** no caminho quente para evitar
+  `JSON.stringify` por chunk.
+- Ring de scrollback de 1 MB.
+- Wrapper de PTY: `python3` no macOS, `script` no Linux com `python3` atrás.
+- Casos especiais que NÃO podiam se perder: os quatro primeiros itens desta lista.
+
+**Implementação no Issue Flow**
+`src/runtime/terminal/{attach,pty,scrollback}.ts` · `src/web/terminal-ws.ts` ·
+`src/web/server.ts` (rota `GET /api/terminal/token` e o wiring).
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `Bun.serve` WS → **`ws`** sobre o `node:http` já existente | `node:http` não tem servidor WebSocket; §15 especifica `ws`. Dependência nova, justificada e adicionada ao manifest e ao lockfile |
+| **Autenticação obrigatória** (ADR-10) | É a única parte do WebMux explicitamente rejeitada. Superfície só existe em loopback, exige token no handshake e valida `Origin`. Sem o `Origin` check, qualquer site que o usuário visite abriria um shell na máquina dele assim que adivinhasse a porta |
+| **Backpressure** acrescentado | §15. O upstream nunca consulta `bufferedAmount`; um agente que despeja megabytes enche o buffer de envio até travar o event loop. Acima do teto, o output intermediário é descartado e o cliente é informado de quantos bytes. O offset **continua avançando**, então descartar não dessincroniza a numeração |
+| **Replay incremental** acrescentado | §15. O upstream reenvia 1 MB inteiro a cada reconexão, e o browser reconecta em `visibilitychange`, `focus` e `online`. Frame `o<offset>\n<dados>`: um `indexOf` no cliente, nenhum JSON dos dois lados |
+| Eviction do ring por **chunk inteiro** | Cortar um chunk arrisca partir um caractere multibyte ou uma sequência de escape ao meio, e um terminal que recebe meia sequência de escape renderiza lixo dali em diante |
+| `node-pty` probado com **spawn real**, não com `require` | O modo de falha que o fallback existe para cobrir é um módulo que importa bem e falha em `pty.fork`. Foi exatamente o que aconteceu na máquina do porte (`posix_spawnp failed`) |
+| Socket do viewer nomeado `if-view-<pid>-<rnd>` | Escopo por pid: dois servidores no mesmo socket não matam as sessões um do outro |
+| `resize` via `tmux resize-window` | O pty roda um *cliente* tmux; quem muda de tamanho é a janela que o tmux desenha |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Origem | Por quê |
+|---|---|---|
+| Ausência de autenticação | `Bun.serve` sem `hostname` | ADR-10 — rejeição explícita |
+| `sendKeys` e `selectPane` executados | protocolo C→S | Aceitos pelo parser (paridade de protocolo) mas respondidos com erro: ambos operam na sessão **dona**, não no pty do viewer, e pertencem à camada de runtime que possui esses alvos. Reportado, nunca ignorado em silêncio |
+| Gravação opcional em `asciicast v2` | §15 (mencionado como opcional) | Não é paridade; é melhoria. Fica registrada |
+| `cleanupStaleSessions` global do upstream | `terminal.ts:190` | Portado como `cleanupStaleViewerSessions`, mas restrito às sessões de **outros pids**: matar as do próprio processo derrubaria viewers vivos |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/terminal/scrollback.test.ts` | ring do upstream + os offsets de §15 | 14 | ✅ |
+| `src/runtime/terminal/attach.test.ts` | `__tests__/terminal-adapter.test.ts` (partes puras), comparação **literal** do comando de attach | 8 | ✅ |
+| `src/web/terminal-ws.test.ts` | protocolo, framing e admissão | 12 | ✅ |
+| `src/web/terminal-ws.integration.test.ts` | **C6**, **C9**, autenticação (ADR-10), replay incremental, budget de reconexão | 12 | ✅ |
+| `src/web/server.test.ts` (bloco do terminal) | a superfície só existe em loopback | 3 | ✅ |
+
+Total: **49 casos** (upstream: 10 de `terminal-adapter.test.ts`).
+
+**Orçamentos**
+
+| Métrica | Baseline WebMux | Budget | Medido |
+|---|---|---|---|
+| Reconexão de terminal | 28 ms + replay | ≤ 100 ms | **26 ms** (mediana de 5) |
+
+**Dependências novas**
+`ws` (runtime, `^8.21.3`) e `@types/ws` (dev) — `node:http` não tem servidor WebSocket.
+`node-pty` em **`optionalDependencies`**, com o fallback `script`/`python3` como caminho
+garantido; nesta máquina o `node-pty` instala e falha em `pty.fork`, que é precisamente o
+cenário que o fallback cobre.
