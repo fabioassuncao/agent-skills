@@ -402,7 +402,20 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
     return entry;
   }
 
-  async function remove(branch: string, opts: { force?: boolean } = {}): Promise<void> {
+  /**
+   * Remove a worktree, and by default the branch with it.
+   *
+   * `keepBranch` exists for the runtime's `dispose()`, which is asked to free
+   * the checkout without discarding the work: the branch is the only thing that
+   * still holds the commits once the directory is gone, so deleting it there
+   * would destroy exactly what the caller asked to keep. The default stays
+   * "delete", which is what every existing caller means and what the upstream
+   * does.
+   */
+  async function remove(
+    branch: string,
+    opts: { force?: boolean; keepBranch?: boolean } = {},
+  ): Promise<void> {
     try {
       const entry = await resolveExisting(branch);
       const binding =
@@ -416,7 +429,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
         worktreePath: entry.path,
         force: opts.force ?? true,
       });
-      await git.deleteBranch(projectRoot, branch, true);
+      if (opts.keepBranch !== true) await git.deleteBranch(projectRoot, branch, true);
       if (options.storage !== undefined) await deleteStoredWorktree(options.storage, branch);
     } catch (error) {
       throw wrap(error);

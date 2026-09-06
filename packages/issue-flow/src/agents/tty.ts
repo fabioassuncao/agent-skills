@@ -189,6 +189,80 @@ export function buildManagedShellCommand(
   )}`;
 }
 
+/**
+ * `PATH` entries appended inside a sandbox container.
+ *
+ * PORT of `DOCKER_PATH_FALLBACK` (`backend/src/services/agent-service.ts`). The
+ * pane enters the container through `docker exec … /bin/sh -c`, which reads no
+ * login profile, so an image whose agent binary lives under one of these
+ * directories would answer "command not found" for a command that is installed.
+ *
+ * Two of the upstream's four entries are deliberately absent: `/root/.bun/bin`
+ * (this project does not adopt Bun, so nothing is ever installed there) and
+ * `/root/.cargo/bin` (nothing in `sandbox/Dockerfile.sandbox` puts a binary
+ * there). A `PATH` entry that points at a directory the image never creates is
+ * noise in every shell inside the container.
+ */
+export const SANDBOX_PATH_ENTRIES: readonly string[] = ['/root/.local/bin', '/usr/local/bin'];
+
+/**
+ * Run a command inside a container, from a pane that lives on the host.
+ *
+ * PORT of `buildDockerExecCommand`. `-it` because the thing on the other end is
+ * a TUI, and `-w` so the agent starts in the worktree rather than in the image's
+ * `WORKDIR`. This is the **only** place the sandbox mode names docker in a
+ * command line: the container itself never learns tmux exists.
+ */
+export function buildDockerExecCommand(
+  containerName: string,
+  worktreePath: string,
+  command: string,
+): string {
+  return `docker exec -it -w ${quoteShellArgument(worktreePath)} ${quoteShellArgument(
+    containerName,
+  )} /bin/sh -c ${quoteShellArgument(command)}`;
+}
+
+/**
+ * The command a pane of a **sandbox** worktree opens with.
+ *
+ * PORT of `buildDockerShellCommand`. Every pane of the window — the agent's
+ * included — is created with this, which is what puts the agent inside the
+ * container: its own command is then *typed into a shell that is already
+ * there*, and therefore never mentions docker itself.
+ *
+ * Three upstream details are kept because each one is a failure without it:
+ *
+ * - the default shell is `/bin/bash`, **not** the host's `$SHELL`. A pane that
+ *   tried to exec the user's `/opt/homebrew/bin/fish` inside a Debian image
+ *   would die on the first keystroke;
+ * - the `if -x … elif -x /bin/sh` ladder, so an image without bash still opens
+ *   a usable pane instead of exiting 127 with no explanation;
+ * - the runtime env is sourced *inside* the container, from the same path — the
+ *   worktree and its `.git` are bind-mounted at their host paths, so the file
+ *   is at the same place on both sides.
+ */
+export function buildDockerShellCommand(
+  containerName: string,
+  worktreePath: string,
+  runtimeEnvPath: string,
+  shellPath = '/bin/bash',
+): string {
+  const preferred = quoteShellArgument(shellPath);
+  return buildDockerExecCommand(
+    containerName,
+    worktreePath,
+    `${buildSandboxBootstrap(runtimeEnvPath)}; if [ -x ${preferred} ]; then exec ${preferred} -i; elif [ -x /bin/sh ]; then exec /bin/sh -i; else echo 'issue-flow: no shell found in container' >&2; exit 127; fi`,
+  );
+}
+
+/** The bootstrap of a command that runs inside a container: env, then `PATH`. */
+function buildSandboxBootstrap(runtimeEnvPath: string): string {
+  return `${buildRuntimeBootstrap(runtimeEnvPath)}; export PATH="$PATH:${SANDBOX_PATH_ENTRIES.join(
+    ':',
+  )}"`;
+}
+
 export interface PaneCommandInput {
   argv: readonly string[];
   /** Absent when the worktree has no runtime env — then nothing is sourced. */

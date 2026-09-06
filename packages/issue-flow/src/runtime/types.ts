@@ -39,6 +39,32 @@ export interface ServiceRuntimeState {
   detail: string | null;
 }
 
+/**
+ * What a worktree mode created, and therefore what its teardown owns.
+ *
+ * §27 calls this the `RuntimeSession` — worktree, env, ports, services,
+ * container — and it is the one concept `headless` genuinely does not have, so
+ * the field carrying it is optional and absent there. It exists because
+ * `dispose()` receives a context rather than a handle, and "never remove what
+ * you did not create" is only answerable if the context remembers which half of
+ * what it points at this run brought into being.
+ */
+export interface RuntimeSessionBinding {
+  branch: string;
+  /** Run the invocation belongs to; how its lifecycle events are correlated. */
+  runId: string;
+  worktreeId: string | null;
+  /** `runtime.env` of the worktree — what every pane sources before starting. */
+  runtimeEnvPath: string;
+  /** Whether `prepare()` created the checkout, or found one already there. */
+  createdWorktree: boolean;
+  /** Container the panes run inside. `null` on the host. */
+  container: string | null;
+  /** Whether `prepare()` started that container, or joined a running one. */
+  containerLaunched: boolean;
+  allocatedPorts: Record<string, number>;
+}
+
 /** What `prepare()` produced: everything `launch()` needs and nothing derivable. */
 export interface RuntimeContext {
   mode: RuntimeMode;
@@ -51,6 +77,12 @@ export interface RuntimeContext {
    */
   env: Record<string, string>;
   services: ServiceRuntimeState[];
+  /**
+   * What the worktree modes created. Absent in `headless`, which creates
+   * nothing — an additive field, so the two modes that have no binding are
+   * unchanged by its existence (ADR-02's rule, applied to this contract).
+   */
+  session?: RuntimeSessionBinding;
 }
 
 export interface PrepareInput {

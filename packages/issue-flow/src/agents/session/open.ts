@@ -7,6 +7,7 @@ import {
   type EnsureSessionLayoutResult,
   ensureSessionLayout,
   isWorktreeOpen,
+  type PaneCommandSet,
   planSessionLayout,
 } from '../../runtime/tmux/layout.js';
 import {
@@ -16,13 +17,16 @@ import {
 } from '../../runtime/tmux/names.js';
 import type { GitWorktreeGateway } from '../../runtime/worktree/git.js';
 import type { CreatedWorktree, ManagedWorktree } from '../../runtime/worktree/lifecycle.js';
+import type { WorktreeRuntimeKind } from '../../runtime/worktree/meta.js';
 import { getWorktreeStoragePaths } from '../../runtime/worktree/paths.js';
 import type { PlanRepositoryContext } from '../../storage/db/repository.js';
 import {
   type AgentLaunchMode,
+  buildDockerShellCommand,
   buildManagedShellCommand,
   buildPaneCommand,
   buildTtyAgentArgv,
+  SANDBOX_PATH_ENTRIES,
 } from '../tty.js';
 import type { AgentPermission, AgentPhase, AgentProviderId } from '../types.js';
 import { canReuseSession, selectReusableSession } from './reuse.js';
@@ -123,9 +127,15 @@ export interface WorktreeSlice {
     mode?: 'new' | 'existing';
     agent: string;
     profile?: string;
+    /** `docker` when the profile runs the panes inside a container. */
+    runtime?: WorktreeRuntimeKind;
+    /** Values every pane and hook of the worktree exports. */
+    startupEnvValues?: Record<string, string>;
+    /** Ports this worktree owns, allocated before the checkout exists. */
+    allocatedPorts?: Record<string, number>;
   }): Promise<CreatedWorktree>;
   list(): Promise<ManagedWorktree[]>;
-  remove(branch: string, options?: { force?: boolean }): Promise<void>;
+  remove(branch: string, options?: { force?: boolean; keepBranch?: boolean }): Promise<void>;
 }
 
 export interface AgentSessionDeps {
@@ -144,6 +154,15 @@ export interface AgentSessionDeps {
   panes: readonly PaneTemplate[];
   /** Profile name, recorded on the worktree binding. */
   profileName: string;
+  /**
+   * Container every pane of the window runs inside. Absent → the host.
+   *
+   * It is the whole of the difference between the `interactive` and the
+   * `sandbox` runtime here: the pane's *shell* becomes a `docker exec`, so the
+   * agent command typed into it lands in the container without ever naming
+   * docker itself (`agents/tty.ts`).
+   */
+  container?: string;
   /**
    * Login shell the shell panes run. Defaults to `$SHELL`.
    *
@@ -239,9 +258,66 @@ function decideAdoption(
   return { adopted: null, blockedBy: occupant };
 }
 
+/**
+ * What every pane of the window opens with, and what is typed into the agent's.
+ *
+ * The container case is the upstream's, verbatim in structure: the *shell* is
+ * what enters the container, and the agent command is typed into a shell that
+ * is already inside it — so the agent command never mentions docker (WebMux
+ * `agent-service.ts` asserts exactly that, and so does `tty.test.ts`). What it
+ * does carry is the `PATH` fallback, because `docker exec … /bin/sh -c` reads no
+ * login profile.
+ */
+function buildPaneCommands(
+  deps: AgentSessionDeps,
+  argv: readonly string[],
+  worktree: EnsuredSessionWorktree,
+): PaneCommandSet {
+  if (deps.container === undefined) {
+    return {
+      agent: buildPaneCommand({ argv, runtimeEnvPath: worktree.runtimeEnvPath }),
+      shell: buildManagedShellCommand(worktree.runtimeEnvPath, deps.shellPath),
+    };
+  }
+  return {
+    agent: buildPaneCommand({
+      argv,
+      runtimeEnvPath: worktree.runtimeEnvPath,
+      extraPathEntries: SANDBOX_PATH_ENTRIES,
+    }),
+    // Never `deps.shellPath`: that is the *host's* login shell, and the image
+    // has no reason to carry it. `buildDockerShellCommand` defaults to
+    // `/bin/bash` and falls back to `/bin/sh`.
+    shell: buildDockerShellCommand(deps.container, worktree.path, worktree.runtimeEnvPath),
+  };
+}
+
 /** The pane the agent itself runs in — not necessarily the focused one. */
 function agentPaneIndex(panes: readonly { kind: string; index: number }[]): number {
   return panes.find((pane) => pane.kind === 'agent')?.index ?? 0;
+}
+
+/** What a caller may decide about a worktree that does not exist yet. */
+export interface EnsureSessionWorktreeInput {
+  branch: string;
+  /** Provider recorded on the binding, so a reopened worktree knows who used it. */
+  agent: AgentProviderId;
+  /** `docker` when the panes will run inside a container. Creation only. */
+  runtime?: WorktreeRuntimeKind;
+  /** Ports the worktree owns. Creation only — a reused worktree keeps its own. */
+  allocatedPorts?: Record<string, number>;
+  /** Values every pane and hook exports. Creation only, for the same reason. */
+  startupEnvValues?: Record<string, string>;
+}
+
+export interface EnsuredSessionWorktree {
+  path: string;
+  worktreeId: string | null;
+  runtimeEnvPath: string;
+  /** Whether this call created it. What a teardown may remove depends on it. */
+  created: boolean;
+  /** The ports it actually owns: the allocated ones, or the ones it already had. */
+  allocatedPorts: Record<string, number>;
 }
 
 /**
@@ -250,14 +326,18 @@ function agentPaneIndex(panes: readonly { kind: string; index: number }[]): numb
  * `existing` when git already knows the branch, `new` otherwise: the worktree
  * manager refuses the wrong mode with a 409 rather than guessing, so the mode
  * is decided here, from the one question that answers it.
+ *
+ * Exported because the `interactive` and `sandbox` runtimes need exactly this
+ * in `prepare()`, before there is any agent to open. A second copy of the
+ * decision — which mode, which paths, whether it was created — is how a runtime
+ * and a session start disagreeing about a worktree they both point at (§25).
  */
-async function ensureWorktree(
+export async function ensureSessionWorktree(
   deps: AgentSessionDeps,
-  branch: string,
-  provider: AgentProviderId,
-): Promise<{ path: string; worktreeId: string | null; runtimeEnvPath: string; created: boolean }> {
+  input: EnsureSessionWorktreeInput,
+): Promise<EnsuredSessionWorktree> {
   const existing = (await deps.worktrees.list()).find(
-    (worktree) => worktree.branch === branch && worktree.entry !== null,
+    (worktree) => worktree.branch === input.branch && worktree.entry !== null,
   );
   if (existing !== undefined) {
     const gitDir = await deps.git.resolveWorktreeGitDir(existing.path);
@@ -266,20 +346,38 @@ async function ensureWorktree(
       worktreeId: existing.binding?.worktreeId ?? null,
       runtimeEnvPath: getWorktreeStoragePaths(gitDir).runtimeEnvPath,
       created: false,
+      // What it already owns, never what the caller would have allocated: the
+      // ports are in its `runtime.env` and in whatever is already listening on
+      // them, and re-allocating on reuse would move a running service's port.
+      allocatedPorts: existing.binding?.allocatedPorts ?? {},
     };
   }
 
+  const allocatedPorts = input.allocatedPorts ?? {};
   const created = await deps.worktrees.create({
-    branch,
-    mode: (await deps.branchExists(branch)) ? 'existing' : 'new',
-    agent: provider,
+    branch: input.branch,
+    mode: (await deps.branchExists(input.branch)) ? 'existing' : 'new',
+    agent: input.agent,
     profile: deps.profileName,
+    ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
+    ...(input.startupEnvValues === undefined ? {} : { startupEnvValues: input.startupEnvValues }),
+    ...(Object.keys(allocatedPorts).length === 0 ? {} : { allocatedPorts }),
   });
+  // git's view of the path, not the one that was built: on macOS `/var` is a
+  // symlink to `/private/var`, so the two spell the same directory differently.
+  // Every later call resolves the worktree through `list()`, so answering with
+  // the constructed path here would hand a container a mount at one spelling
+  // and its pane a `cd` to the other — which docker answers by creating an
+  // empty directory instead of failing.
+  const listed = (await deps.worktrees.list()).find(
+    (worktree) => worktree.branch === input.branch && worktree.entry !== null,
+  );
   return {
-    path: created.path,
+    path: listed?.path ?? created.path,
     worktreeId: created.worktreeId,
     runtimeEnvPath: created.runtimeEnvPath,
     created: true,
+    allocatedPorts: created.meta.allocatedPorts,
   };
 }
 
@@ -313,7 +411,11 @@ export async function openAgentSession(
       : requested;
 
   const phase = input.phase ?? null;
-  const worktree = await ensureWorktree(deps, branch, input.provider);
+  const worktree = await ensureSessionWorktree(deps, {
+    branch,
+    agent: input.provider,
+    ...(deps.container === undefined ? {} : { runtime: 'docker' as const }),
+  });
 
   const known = await listSessions(deps.storage, { branch });
   const { adopted, blockedBy } = decideAdoption(known, { phase, branch });
@@ -349,10 +451,7 @@ export async function openAgentSession(
     context: {
       repoRoot: deps.projectRoot,
       worktreePath: worktree.path,
-      paneCommands: {
-        agent: buildPaneCommand({ argv, runtimeEnvPath: worktree.runtimeEnvPath }),
-        shell: buildManagedShellCommand(worktree.runtimeEnvPath, deps.shellPath),
-      },
+      paneCommands: buildPaneCommands(deps, argv, worktree),
     },
   });
 

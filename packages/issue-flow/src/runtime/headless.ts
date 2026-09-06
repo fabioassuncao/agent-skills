@@ -6,6 +6,7 @@ import type {
   AgentRunResult,
   ResolvedAgentSettings,
 } from '../agents/types.js';
+import { createAgentEventQueue } from './event-queue.js';
 import type {
   AgentHandle,
   DisposeOptions,
@@ -46,54 +47,6 @@ interface HeadlessHandle extends AgentHandle {
   readonly events: AsyncIterable<AgentEvent>;
 }
 
-/**
- * A queue that lets a push-only producer (`invocation.onEvent`) feed a
- * pull-only consumer (`for await`), and closes cleanly when the invocation ends.
- */
-function eventQueue(): {
-  push: (event: AgentEvent) => void;
-  close: () => void;
-  iterable: AsyncIterable<AgentEvent>;
-} {
-  const buffered: AgentEvent[] = [];
-  let waiting: ((result: IteratorResult<AgentEvent>) => void) | null = null;
-  let closed = false;
-
-  return {
-    push: (event) => {
-      if (closed) return;
-      if (waiting !== null) {
-        const resolve = waiting;
-        waiting = null;
-        resolve({ value: event, done: false });
-        return;
-      }
-      buffered.push(event);
-    },
-    close: () => {
-      if (closed) return;
-      closed = true;
-      if (waiting !== null) {
-        const resolve = waiting;
-        waiting = null;
-        resolve({ value: undefined, done: true });
-      }
-    },
-    iterable: {
-      [Symbol.asyncIterator]: () => ({
-        next: () => {
-          const next = buffered.shift();
-          if (next !== undefined) return Promise.resolve({ value: next, done: false });
-          if (closed) return Promise.resolve({ value: undefined, done: true } as const);
-          return new Promise<IteratorResult<AgentEvent>>((resolve) => {
-            waiting = resolve;
-          });
-        },
-      }),
-    },
-  };
-}
-
 export function createHeadlessRuntime(): Runtime {
   return {
     mode: 'headless',
@@ -116,7 +69,7 @@ export function createHeadlessRuntime(): Runtime {
       settings: ResolvedAgentSettings,
     ): Promise<AgentHandle> => {
       const runner = runnerFor(settings.provider);
-      const queue = eventQueue();
+      const queue = createAgentEventQueue();
 
       // The invocation reaches the runner exactly as the caller built it —
       // `workingDirectory` included. This mode does not relocate the agent, so

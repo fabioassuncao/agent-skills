@@ -2045,3 +2045,116 @@ depende daquele pacote hoje (só `web/` depende) e porque os dois estão em vers
 do zod. **Quando a dependência existir, o tipo deve vir do contrato e este arquivo deve
 sumir.** Até lá, qualquer campo acrescentado a um dos dois precisa ser acrescentado ao outro
 na mesma mudança.
+
+---
+
+### Modos de runtime `interactive` e `sandbox` (Fase 3, fechamento)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/lifecycle-service.ts` @ d8c9d5f — 1.523 linhas,
+das quais importam aqui `materializeRuntimeSession` (`:1106`) e `buildSessionLayout` (`:1160`):
+é onde o upstream decide *container ou host* e monta o par de comandos de pane. E
+`backend/src/services/agent-service.ts` — `buildDockerExecCommand` (`:189`),
+`buildDockerShellCommand` (`:223`), `buildDockerAgentPaneCommand` (`:235`) e a constante
+`DOCKER_PATH_FALLBACK` (`:5`).
+
+**Comportamento existente**
+- `materializeRuntimeSession` chama `docker.launchContainer` **antes** de `ensureSessionLayout`
+  quando o profile é `runtime: docker`, e passa o `containerName` adiante; para `host` chama o
+  layout direto. O container é a única diferença entre os dois caminhos.
+- **O comando do agente NÃO é embrulhado em `docker exec`** — o teste do upstream afirma isso
+  explicitamente (`__tests__/agent-service.test.ts:210`: `expect(agent).not.toContain("docker exec")`).
+  Quem entra no container é o **shell do pane**: `planSessionLayout` cria todo pane com
+  `paneCommands.shell`, e o comando do agente é *digitado dentro* desse shell. Um porte que
+  embrulhasse o argv do agente rodaria `docker exec` dentro de `docker exec`.
+- `DOCKER_PATH_FALLBACK` existe porque `docker exec … /bin/sh -c` não lê profile de login: sem
+  ele, uma imagem cujo binário do agente esteja em `/root/.local/bin` responde "command not found".
+- `buildDockerShellCommand` tem default `/bin/bash` (**não** o `$SHELL` do host) e a escada
+  `if -x … elif -x /bin/sh … else exit 127`.
+- Casos especiais que NÃO podem se perder: a negativa do `docker exec` no comando do agente;
+  o `PATH` fallback; o default `/bin/bash`; a escada de fallback de shell; e a ordem
+  container → layout (um pane que executasse `docker exec` num container inexistente morre
+  imediatamente e leva a janela junto).
+
+**Implementação no Issue Flow**
+`packages/issue-flow/src/runtime/interactive.ts` · `packages/issue-flow/src/runtime/sandbox.ts` ·
+`packages/issue-flow/src/runtime/event-queue.ts` · acréscimos em
+`packages/issue-flow/src/agents/tty.ts` (`buildDockerExecCommand`, `buildDockerShellCommand`,
+`SANDBOX_PATH_ENTRIES`), `packages/issue-flow/src/agents/session/open.ts`
+(`ensureSessionWorktree` exportada, `deps.container`), `packages/issue-flow/src/runtime/types.ts`
+(`RuntimeSessionBinding`, aditivo) e `packages/issue-flow/src/runtime/worktree/lifecycle.ts`
+(`remove(branch, { keepBranch })`) — estratégia: **ADAPT** (a decisão container-ou-host e os
+comandos de pane são do upstream; a forma é o contrato `Runtime` da Fase 3).
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `interactive.ts` e `sandbox.ts` são **um** `createPaneRuntime` com dois adaptadores | Invariante 13. Os dois modos diferem por um container; dois arquivos que diferissem por tudo divergiriam na primeira correção. `§36` pede os dois arquivos — e é disso que cada um é feito |
+| Nenhum dos dois reimplementa worktree, layout, argv, porta ou args de docker | `§25`. O worktree é `worktree/lifecycle.ts`, a janela é `tmux/layout.ts`, o argv é `agents/tty.ts`, o ato inteiro é `agents/session/open.ts`, o container é `sandbox/docker.ts`. O adaptador só tem a forma do contrato |
+| `result()` vem de `agent_events` (`agent_stopped`, `runtime_error`) correlacionados por `runId`+`phase` | ADR-05/ADR-06. Um pane não produz stream-json e a tela não é fonte de verdade. `launch()` inicia a sessão de hooks justamente por isso: sem ela a tabela fica vazia e não há o que esperar |
+| `result`/`rawOutput` ficam `''` e `usage` fica `null` | ADR-02 proíbe mudar a forma; inventar um zero seria uma métrica que ninguém mediu. O texto está no terminal (que este runtime não lê) e o usage só existe no canal stream-json que uma TUI não tem. Documentado campo a campo em `paneRunResult` |
+| `exitCode` é projeção de `success` (`0`/`1`) | O exit code real do pane é o do shell, não o do agente. Reportar o do shell seria pior que projetar |
+| `runtime_error` encerra a invocação como falha | Esperar um `agent_stopped` que pode nunca vir transformaria uma falha conhecida em timeout |
+| Timeout resolve como falha e **não** mata o pane | `livesBeyondInvocation: true`. Um agente lento mantém janela, conversa e trabalho; encerrar é `interrupt()`/`dispose()`, atos explícitos do chamador |
+| `observe()` nunca emite `kind: 'text'` | `AgentEvent` só tem `text` e `tool`; `text` é o que um modelo escreveu, e este runtime não tem nenhuma. Cada transição vira `tool` (`agent`/`pr`/`error`), que é exatamente como `core/headless.ts` já renderiza atividade. Acrescentar um terceiro membro à união quebraria os dois consumidores existentes |
+| A fila de eventos saiu de `headless.ts` para `event-queue.ts` | Os três modos precisam dela. Uma segunda cópia dessas 40 linhas falha em silêncio: o modo que erra a ordem perde o evento empurrado enquanto ninguém esperava. `headless.ts` só troca o `import`; comportamento idêntico, coberto pelos 11 casos que já existiam |
+| `prepare()` exige `branch` e `runId` | O branch nomeia worktree, janela e container. O `runId` é a única correlação que os eventos de hook têm (§18) — sem ele a invocação começaria sem jamais poder ser observada |
+| Modo indisponível é recusado em `prepare()`, não em `createRuntime()` | É em `prepare` que dá para dizer **o que falta e como obter**, e é lá que ainda não se criou nada. `createRuntime` voltou a ser só a escolha do modo; o teste da Fase 3 que afirmava o `throw` foi reescrito para afirmar o novo fato, não removido |
+| `ensureSessionWorktree` passou a responder com o caminho que o **git** reporta | Achado pelo teste de integração do sandbox: no macOS `/var` é symlink de `/private/var`, o container era montado numa grafia e o pane fazia `cd` na outra — e o docker responde a isso criando um diretório vazio em vez de falhar. Todo consumidor posterior resolve o worktree por `list()`, então essa é a grafia canônica |
+| `WorktreeManager.remove` ganhou `keepBranch` | `dispose({ removeWorktree, keepBranch })` faz parte do contrato de `§26`. Depois que o diretório some, o branch é a única coisa que ainda segura o trabalho |
+| `SANDBOX_PATH_ENTRIES` tem 2 entradas, não as 4 do upstream | Ver "não portado" |
+| `vitest.integration.config.ts` passou a `fileParallelism: false` | Os orçamentos de `§35` são medianas de wall clock. Em paralelo eles mediam os vizinhos: o mesmo `ensureSessionLayout` mediu 89 ms sozinho e 473 ms ao lado de uma suíte subindo containers. E não é mais lento — 28 s serial contra 38 s paralelo na mesma máquina |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| `/root/.bun/bin` e `/root/.cargo/bin` no `PATH` do sandbox | Bun não é adotado (ADR-01) e nada em `sandbox/Dockerfile.sandbox` instala binário de cargo — verificável no Dockerfile. Uma entrada de `PATH` para um diretório que a imagem nunca cria é ruído em todo shell dentro do container |
+
+| `oneshot.systemPrompt` concatenado ao systemPrompt do profile (`buildSessionLayout:1180`) | É a convergência do one-shot, que é a Fase 15 e já tem ficha própria. O adaptador só repassa o `systemPrompt` já resolvido |
+| `creationPrompt` × `followUpPrompt` como dois campos separados (defesa do PR #116 do upstream) | `openAgentSession` já resolve o mesmo problema por outro caminho e com teste: no `reattach` o argv não é reexecutado, então o prompt é entregue por paste; no `fresh`/`resume` ele viaja no argv. Dois campos aqui seriam uma segunda defesa para um bug que a decisão de `layout.mode` já não permite |
+| Custom agents por template no pane (`buildCustomAgentInvocation`) | `agents/custom.ts` já existe (Fase 7) e `buildTtyAgentArgv` recusa provider sem forma TTY com mensagem explícita. Ligar os dois é trabalho da camada de agentes, não do runtime |
+| Um caso de integração que afirme que o **pane sobrevive** dentro do container | O caso existe e roda contra daemon real, mas afirma o comando que o tmux recebeu, gravado no instante em que é emitido, e não o pane lido de volta depois. Um `docker exec` que não consegue subir num daemon saturado derruba a janela junto, e isso é saúde do daemon, não comportamento do adaptador. O comando em si é afirmado literalmente em `sandbox.test.ts` e em `tty.test.ts` |
+
+**Testes de paridade**
+
+| Teste | Origem | Casos | Estado |
+|---|---|---|---|
+| `src/runtime/interactive.test.ts` | novo (critério da fase) | 18 | ✅ |
+| `src/runtime/sandbox.test.ts` | novo (critério da fase) | 9 | ✅ |
+| `src/runtime/event-queue.test.ts` | novo — as duas ordens que a fila existe para acertar | 3 | ✅ |
+| `src/agents/tty.test.ts` (bloco novo) | `__tests__/agent-service.test.ts` — "builds docker commands that exec inside the container", inclusive a afirmação **negativa** | 5 | ✅ |
+| `src/runtime/interactive.integration.test.ts` | novo — git e tmux reais | 5 | ✅ |
+| `src/runtime/sandbox.integration.test.ts` | novo — daemon real | 2 | ✅ |
+| `src/runtime/headless.test.ts` | atualizado, não removido: o `throw` de `createRuntime` virou "os dois modos existem e nenhum responde com o runtime headless" | 11 | ✅ |
+| Suíte inteira | gate "100% verde, sem teste removido nem em skip" | 3.421 unitários + 115 de integração | ✅ |
+
+**Risco inverso (`§45.3`) — conferido**
+
+| Garantia do Issue Flow | Preservada? |
+|---|---|
+| `writeFileAtomic` | ✅ — nenhum `writeFile` novo; a única escrita do caminho é `writeRuntimeEnv`, que já usa o atômico |
+| Chokepoint `run()` + allowlist de git destrutivo | ✅ — zero `spawn`/`execa` nos dois adaptadores; git vai por `worktree/git.ts`, tmux por `tmux/gateway.ts`, docker por `sandbox/docker.ts`, todos sobre `run()` |
+| argv | ✅ — `buildTtyAgentArgv` monta argv e `renderShellCommand` serializa uma única vez, na fronteira do tmux. O comando do agente no sandbox não contém `docker exec`, e há teste afirmando isso |
+| Taxonomia de falha + retry + failover | ✅ — `AgentRunResult` mantém a forma; o caminho headless não foi tocado |
+| Watchdog de inatividade | ✅ — intacto no headless. No pane não existe `onLine`, e o teto é o `invocation.timeout`, que resolve como falha explícita em vez de pendurar |
+| Permissão semântica por fase | ✅ — a permissão da invocação atravessa até `buildTtyAgentArgv`, que traduz os três níveis; nenhum `yolo: boolean` foi introduzido |
+| Autoridade de estado explícita | ✅ — `dispose` não remove worktree nem container que não criou, e avisa quando recusa. Nada aqui recria estado por otimismo (ADR-08) |
+| Auth em superfície web | ✅ — nenhuma superfície web nova |
+| Isolamento de `review`/`verify` | ✅ — a regra continua em `reuse.ts`; o adaptador só repassa a fase, e um teste afirma que um `review` não continua a sessão que um `execute` está rodando |
+| Telemetria com redaction | ✅ — nenhum log novo com valor; o único aviso do `dispose` cita branch, não conteúdo |
+
+**Orçamentos**
+
+| Métrica | Budget | Medido |
+|---|---|---|
+| T0→T4 (`prepare` + `launch`: worktree pronto + agente iniciado) | ≤ 600 ms | **242 ms** (mediana de 3, `interactive.integration.test.ts`) |
+| `ensureSessionLayout` (2 panes) | ≤ 400 ms | **89 ms** (mediana de 5, suíte serial) |
+| Custo marginal por sessão adicional | ≤ 30 ms | **7 ms** |
+| `git worktree add` | ≤ 150 ms | **45 ms** |
+| Troca de profile (C8) | ≤ 400 ms | **79 ms** |
+| Reconciliação (`list-windows -a`) | ≤ 50 ms, O(1) | **6 ms** em N=1, **15 ms** em N=21 |
+| Latência output → tela | ≤ 250 ms p95 | **54 ms p95** — o caminho é o de `src/web/` (Fase 1/8); os eventos de ciclo de vida deste modo são um caminho separado, cujo teto é o poll de 250 ms de `DEFAULT_LIFECYCLE_POLL_MS` |
+| Boot da CLI | ≤ 250 ms | inalterado — `createRuntime` não toca em repositório; os dois modos resolvem a fiação no primeiro `prepare()` |
+| Contexto re-ingerido por story | 0 | inalterado — o reaproveitamento de conversa continua sendo de `reuse.ts` |

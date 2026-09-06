@@ -222,10 +222,22 @@ describe('createRuntime', () => {
     expect(createRuntime('headless').mode).toBe('headless');
   });
 
+  // The two worktree modes exist since the runtime-modes phase. Building one
+  // costs nothing: they resolve their wiring on the first `prepare()`, from the
+  // `projectRoot` it is given, so a machine that never uses them never pays for
+  // tmux or docker being looked at.
+  it('builds the two worktree modes without touching a repository', () => {
+    expect(createRuntime('interactive').mode).toBe('interactive');
+    expect(createRuntime('sandbox').mode).toBe('sandbox');
+  });
+
   // A mode that silently fell back to headless would report an isolation it
   // never provided, and isolation is the only reason to ask for another mode.
-  it('refuses a mode it cannot provide instead of falling back', () => {
-    expect(() => createRuntime('interactive')).toThrow('not available in this release');
-    expect(() => createRuntime('sandbox')).toThrow('not available in this release');
+  // The refusal moved to where it can name what is missing — `prepare()` — and
+  // is asserted in `interactive.test.ts` and `sandbox.test.ts`.
+  it('never answers a worktree mode with the headless runtime', () => {
+    expect(createRuntime('interactive').capabilities.isolation).toBe('worktree');
+    expect(createRuntime('sandbox').capabilities.isolation).toBe('worktree');
+    expect(createRuntime('headless').capabilities.isolation).toBe('branch');
   });
 });

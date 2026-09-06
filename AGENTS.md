@@ -35,6 +35,9 @@ those live in the documents referenced below, which are the source of truth.
   failover, watchdog, journal and decomposition
 - [`docs/verification.md`](docs/verification.md) — the acceptance contract, the
   independent reviewer, shadow routing and escalation
+- [`docs/runtime.md`](docs/runtime.md) — the three runtime modes (`headless`,
+  `interactive`, `sandbox`): what each one isolates, how an agent in a pane is
+  observed, and what a teardown is allowed to remove
 - [`docs/sandbox-security.md`](docs/sandbox-security.md) — what the `sandbox` mode
   protects against and what it does not, the launch flags, credential handling and
   the two images

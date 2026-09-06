@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildDockerExecCommand,
+  buildDockerShellCommand,
   buildPaneCommand,
   buildRuntimeBootstrap,
   buildTtyAgentArgv,
   quoteShellArgument,
   renderShellCommand,
+  SANDBOX_PATH_ENTRIES,
 } from './tty.js';
 
 /**
@@ -250,5 +253,70 @@ describe('buildPaneCommand', () => {
         extraPathEntries: ['/root/.local/bin', '/usr/local/bin'],
       }),
     ).toBe('export PATH="$PATH:/root/.local/bin:/usr/local/bin"; \'claude\'');
+  });
+});
+
+/**
+ * The sandbox pane commands.
+ *
+ * Ported from the upstream's `builds docker commands that exec inside the
+ * container` case, including its negative assertion: the *shell* enters the
+ * container, so the agent command typed into it must **not** wrap itself in a
+ * second `docker exec`.
+ */
+describe('the container pane commands', () => {
+  it('execs into the container with the worktree as the working directory', () => {
+    expect(buildDockerExecCommand('if-feature-1', '/repos/feature', 'echo hi')).toBe(
+      "docker exec -it -w '/repos/feature' 'if-feature-1' /bin/sh -c 'echo hi'",
+    );
+  });
+
+  it('opens a shell inside the container, sourcing the same runtime env', () => {
+    const shell = buildDockerShellCommand(
+      'if-feature-1',
+      '/repos/feature',
+      '/repos/main/.git/issue-flow/runtime.env',
+      '/bin/zsh',
+    );
+
+    expect(shell).toContain("docker exec -it -w '/repos/feature' 'if-feature-1' /bin/sh -c");
+    // Quoted twice on purpose: the whole bootstrap travels as one argument of
+    // `/bin/sh -c`, so every inner quote is escaped by the single serializer.
+    expect(shell).toContain(
+      String.raw`set -a; . '\''/repos/main/.git/issue-flow/runtime.env'\''; set +a`,
+    );
+    expect(shell).toContain('export PATH="$PATH:/root/.local/bin:/usr/local/bin"');
+    expect(shell).toContain(String.raw`exec '\''/bin/zsh'\'' -i`);
+  });
+
+  it('defaults to /bin/bash rather than the host shell, and falls back to /bin/sh', () => {
+    const shell = buildDockerShellCommand(
+      'if-feature-1',
+      '/repos/feature',
+      '/repos/main/.git/issue-flow/runtime.env',
+    );
+
+    expect(shell).toContain(String.raw`exec '\''/bin/bash'\'' -i`);
+    expect(shell).toContain('elif [ -x /bin/sh ]; then exec /bin/sh -i;');
+    expect(shell).toContain(String.raw`echo '\''issue-flow: no shell found in container'\''`);
+  });
+
+  it('builds an agent command that carries the PATH fallback and never docker', () => {
+    const agent = buildPaneCommand({
+      argv: buildTtyAgentArgv({ provider: 'codex', permission: 'autonomous', prompt: 'ship it' }),
+      runtimeEnvPath: '/repos/main/.git/issue-flow/runtime.env',
+      extraPathEntries: SANDBOX_PATH_ENTRIES,
+    });
+
+    expect(agent).toContain('export PATH="$PATH:/root/.local/bin:/usr/local/bin"');
+    expect(agent).toContain("'codex' '--enable' 'hooks' '--yolo'");
+    expect(agent).toContain("'--' 'ship it'");
+    expect(agent).not.toContain('docker exec');
+  });
+
+  it('drops the two upstream PATH entries the image of this project never creates', () => {
+    // Bun is not adopted (no `/root/.bun/bin`), and nothing in
+    // `sandbox/Dockerfile.sandbox` installs a cargo binary.
+    expect(SANDBOX_PATH_ENTRIES).toEqual(['/root/.local/bin', '/usr/local/bin']);
   });
 });
