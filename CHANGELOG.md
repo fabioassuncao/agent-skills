@@ -47,6 +47,9 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Fixed
 
+- Clarify that the CLI installs from the `issue-flow` npm package rather than
+  the `fabioassuncao/issue-flow` GitHub shorthand, and exercise a global-prefix
+  installation in the packed-package check.
 - Preserve the `node:sqlite` import in production bundles; npm artifact isolation
   now exercises the full pipeline without installed Skills.
 - Use supported GitHub diff commands in PR review prompts and align smoke

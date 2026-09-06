@@ -31,6 +31,14 @@ Use `npx issue-flow` without a global installation, or install once:
 npm install -g issue-flow
 ```
 
+The CLI's npm package name is `issue-flow`. Do not use
+`npm install -g fabioassuncao/issue-flow`: npm interprets that value as GitHub
+repository shorthand and looks for `package.json` at the repository root. This
+monorepo keeps the CLI manifest under `packages/issue-flow`, so that Git-based
+installation fails with `ENOENT`. The repository shorthand is valid for the
+separate `npx skills add` command because the Skills installer understands the
+repository layout.
+
 Examples below use `issue-flow` after global installation. Prefix it with `npx`
 when using the package directly. Neither installation method installs Skills.
 Deterministic artifact inspection needs Node.js and the CLI package, with no
