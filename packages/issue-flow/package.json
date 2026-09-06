@@ -1,6 +1,6 @@
 {
   "name": "issue-flow",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "description": "Unified CLI for orchestrating the full issue-flow pipeline via Claude Code, Codex CLI, Cursor CLI, Antigravity CLI or OpenCode CLI",
   "type": "module",
   "bin": {
