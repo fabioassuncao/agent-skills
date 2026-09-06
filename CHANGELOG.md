@@ -12,7 +12,7 @@ Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
 the fact, so they list what changed rather than explaining why. Everything from
 0.9.0 onwards was written at release time.
 
-## Unreleased
+## [0.19.1] - 2026-09-06
 
 - Share dependency validation and next-story inspection between standalone Skill helpers and the CLI; add `artifacts plan|issue --json`.
 - Enforce story prerequisites before agent execution and reject malformed review results without inferring approval.
@@ -1253,6 +1253,7 @@ First release published to npm under the `issue-flow` name.
 - Installation documentation via `skills.sh` and manual setup.
 
 [0.18.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.18.0
+[0.19.1]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.19.1
 [0.17.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.17.0
 [0.16.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.16.0
 [0.15.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.15.0
