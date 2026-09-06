@@ -12,6 +12,30 @@ Entries for 0.5.1 through 0.8.0 were reconstructed from the commit history after
 the fact, so they list what changed rather than explaining why. Everything from
 0.9.0 onwards was written at release time.
 
+## [0.20.0] - 2026-09-06
+
+OpenCode CLI becomes a fifth agent provider (#117). When OpenCode is selected
+without an explicit model, routing uses the Go subscription catalog instead of
+inherited Anthropic ids. Claude remains the CLI default.
+
+### Added
+
+- **OpenCode CLI as a fifth agent provider (#117).** `opencode` is selectable
+  with `agent.provider`, `--agent`, `--agent-phase` and failover/routing. The
+  runner uses `opencode run --format json --dir <workspace> --auto` with an
+  explicit `OPENCODE_PERMISSION` policy (`question` denied; `external_directory`
+  limited to requested `addDirs`; `read-only` denies `edit` and mutating
+  `bash`). `--auto` is not a sandbox. Tokens are reported only when the stream
+  includes them; cost stays absent.
+
+### Changed
+
+- **OpenCode routing uses the Go catalog, not Anthropic.** The `opencode-cli`
+  model catalog is `opencode-go/mimo-v2.5` / `qwen3.8-flash` / `gpt-5.6-luna`.
+  When OpenCode is selected without an explicit model, a phase policy fills a
+  Go id (DeepSeek V4 Flash for cheap coding, Luna for merge readiness, Kimi
+  K2.7 Code only on escalation).
+
 ## [0.19.1] - 2026-09-06
 
 - Share dependency validation and next-story inspection between standalone Skill helpers and the CLI; add `artifacts plan|issue --json`.
@@ -23,23 +47,7 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ## [Unreleased]
 
-### Changed
-
-- **OpenCode routing uses the Go catalog, not Anthropic.** The `opencode-cli`
-  model catalog is `opencode-go/mimo-v2.5` / `qwen3.8-flash` / `gpt-5.6-luna`.
-  When OpenCode is selected without an explicit model, a phase policy fills a
-  Go id (DeepSeek V4 Flash for cheap coding, Luna for merge readiness, Kimi
-  K2.7 Code only on escalation). Claude remains the CLI default.
-
 ### Added
-
-- **OpenCode CLI as a fifth agent provider (#117).** `opencode` is selectable
-  with `agent.provider`, `--agent`, `--agent-phase` and failover/routing. The
-  runner uses `opencode run --format json --dir <workspace> --auto` with an
-  explicit `OPENCODE_PERMISSION` policy (`question` denied; `external_directory`
-  limited to requested `addDirs`; `read-only` denies `edit` and mutating
-  `bash`). `--auto` is not a sandbox. Tokens are reported only when the stream
-  includes them; cost stays absent. Default remains `claude`.
 
 - Eleven independent Agent Skills, including portable `resolve-issue`, with
   deterministic source-to-artifact generation, isolated bundled helpers,
@@ -1271,8 +1279,9 @@ First release published to npm under the `issue-flow` name.
   environment validation, language detection, and scope control.
 - Installation documentation via `skills.sh` and manual setup.
 
-[0.18.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.18.0
+[0.20.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.20.0
 [0.19.1]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.19.1
+[0.18.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.18.0
 [0.17.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.17.0
 [0.16.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.16.0
 [0.15.0]: https://github.com/fabioassuncao/issue-flow/releases/tag/v0.15.0
