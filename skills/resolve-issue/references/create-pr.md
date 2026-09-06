@@ -1,10 +1,10 @@
 # Create a Pull Request
 
-Read repository-policy, git-conventions and publication. Publication must be included in the request/session. Read branch/status; detached HEAD and the actual default branch require choosing an appropriate working branch before publication.
+Read execution-options, repository-policy, git-conventions and publication. Publication must be included in the request/session. Read branch/status and the accepted branch mode. In current mode confirm the captured branch still matches and never create/switch a branch. Detached HEAD, a changed branch, or a head equal to the actual default/base blocks publication: preserve the draft and report the reason. In new mode resolve a wrong checkout using the git-conventions branch contract before gathering the PR diff.
 
 Resolve the target repository, head and base before collecting the diff. Take an explicit issue first, otherwise use plan context, the declared/legacy branch convention or Refs/Closes/Fixes footers. Missing issue linkage is allowed; ask only when needed to avoid a wrong association. Local numeric IDs are not GitHub issue numbers.
 
-Gather optional PRD/tasks and verified issue context plus git log base..HEAD and git diff base...HEAD. Build a concrete body following the repository PR template; without one use summary, changes and test evidence, plus limitations. Do not claim unchecked criteria passed. Use a descriptive conventional title from the naming helper when no convention is declared.
+For a grouped plan, read all source references and their story/evidence mapping; include each real GitHub reference or local source path without treating the local group identifier as a GitHub issue. Gather optional PRD/tasks and verified issue context plus git log base..HEAD and git diff base...HEAD. Build a concrete body following the repository PR template; without one use summary, changes and test evidence, plus limitations. Do not claim unchecked criteria passed. Use a descriptive conventional title from the naming helper when no convention is declared.
 
 Query open PRs for the head branch before creating. If one exists reuse it. Continue any authorized push needed to bring its head up to date; update its title/body only when requested. Return its URL after checking the remote head. Do not offer automatic closure/recreation as a normal retry. Recheck before retrying an ambiguous API result.
 

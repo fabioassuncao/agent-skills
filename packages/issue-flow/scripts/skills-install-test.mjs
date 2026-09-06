@@ -54,7 +54,7 @@ try {
     '-qm',
     'distribution fixture',
   ]);
-  const discovery = invoke(root, ['add', gitSource, '--list']);
+  const discovery = stripVTControlCharacters(invoke(root, ['add', gitSource, '--list']));
   for (const name of names) assert.ok(discovery.includes(name));
   assert.ok(discovery.includes(`Found ${names.length} skills`));
   results.push({ scenario: 'discovery', status: 'PASS', count: names.length });

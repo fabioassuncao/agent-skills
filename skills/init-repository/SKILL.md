@@ -20,6 +20,8 @@ Use this Skill only for its requested responsibility. Work in the consumer proje
 
 ## Resources to load when needed
 
+- When interpreting invocation choices or resuming a configured run: [execution-options](references/execution-options.md).
+
 - Only when an installed CLI can enrich policy/scaffold decisions: [cli-integration](references/cli-integration.md).
 - When planning missing convention files: [repository-scaffold](references/repository-scaffold.md).
 
