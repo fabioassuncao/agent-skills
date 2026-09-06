@@ -68,6 +68,7 @@ describe('decideRouting', () => {
       codex: { installed: false, authentication: 'failed', state: 'unavailable' },
       cursor: { installed: false, authentication: 'failed', state: 'unavailable' },
       antigravity: { installed: false, authentication: 'failed', state: 'unavailable' },
+      opencode: { installed: false, authentication: 'failed', state: 'unavailable' },
     });
     for (const phase of ['plan', 'execute', 'review'] as const) {
       const decision = decideRouting({
@@ -93,6 +94,7 @@ describe('decideRouting', () => {
       codex: { installed: true, authentication: 'confirmed', state: 'ready' },
       cursor: { installed: false, authentication: 'failed', state: 'unavailable' },
       antigravity: { installed: false, authentication: 'failed', state: 'unavailable' },
+      opencode: { installed: false, authentication: 'failed', state: 'unavailable' },
     });
     const decision = decideRouting({
       phase: 'execute',
@@ -113,6 +115,7 @@ describe('decideRouting', () => {
       codex: { installed: false, authentication: 'failed', state: 'unavailable' },
       cursor: { installed: false, authentication: 'failed', state: 'unavailable' },
       antigravity: { installed: true, authentication: 'unverified', state: 'conditional' },
+      opencode: { installed: false, authentication: 'failed', state: 'unavailable' },
     });
     const decision = decideRouting({
       phase: 'execute',
@@ -131,6 +134,7 @@ describe('decideRouting', () => {
       codex: { installed: true, authentication: 'confirmed', state: 'ready' },
       cursor: { installed: false, authentication: 'failed', state: 'unavailable' },
       antigravity: { installed: false, authentication: 'failed', state: 'unavailable' },
+      opencode: { installed: false, authentication: 'failed', state: 'unavailable' },
     });
     const decision = decideRouting({
       phase: 'plan',

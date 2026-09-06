@@ -22,8 +22,9 @@ only argv and stream parsing move here.
 - **`AgentRunResult.agent` is who actually ran.** Header, snapshot and
   metrics read it. Nothing infers the provider afterwards.
 - **`readonly capabilities` is the extension point.** Claude, Codex,
-  Cursor and Antigravity declare theirs; the core never asks which
-  provider it is. Extra directories are a capability: `flag` translates,
+  Cursor, Antigravity and OpenCode declare theirs; the core never asks which
+  provider it is. Extra directories are a capability: `flag` translates
+  (`--add-dir`, or OpenCode `external_directory` via `OPENCODE_PERMISSION`),
   `permission-file` compensates (Cursor grant of `~/.issue-flow/**`),
   `none` fails as `configuration` when `addDirs` are required.
   `allowedTools` is a restriction and may be ignored. `promptChannel`
@@ -43,6 +44,14 @@ only argv and stream parsing move here.
   `accept-edits`). A tool step denied by permission with `status: SUCCESS`
   is still a `configuration` failure. `status: WAITING` is `configuration`
   — the run ended waiting for a human.
+- **OpenCode `--auto` is not a sandbox.** The runner always sends an
+  explicit `OPENCODE_PERMISSION` policy with denials (`question`, wildcard
+  `external_directory`, and `edit` / mutating `bash` in `read-only`). `--auto`
+  only approves what that policy did not deny. Extra dirs become
+  `external_directory` allows limited to the requested paths. `--auto` is
+  never used without those denials. Auth is `opencode auth list` (textual);
+  tokens are reported only when `step_finish` includes them; cost stays
+  absent. Model ids are `provider/model`. Minimum version: **1.15.0**.
 - **`harnessVersion` is captured at invocation time** and cached per
   process. After the process exits it is unrecoverable.
 - **`--fallback-model` is not exposed.** A native fallback the pipeline

@@ -33,6 +33,7 @@ function settings(overrides: Partial<ResolvedAgentSettings> = {}): ResolvedAgent
     codex: {},
     cursor: {},
     antigravity: {},
+    opencode: {},
     origin: { provider: 'default', model: 'default' },
     ...overrides,
   };
@@ -446,6 +447,7 @@ describe('capabilities and nativeTimeout', () => {
       codex: {},
       cursor: {},
       antigravity: {},
+      opencode: {},
       origin: { provider: 'default', model: 'default' },
     });
     expect(claude.args).not.toContain('--print-timeout');
@@ -458,6 +460,7 @@ describe('capabilities and nativeTimeout', () => {
       codex: {},
       cursor: {},
       antigravity: {},
+      opencode: {},
       origin: { provider: 'default', model: 'default' },
     });
     expect(cursor.args).not.toContain('--print-timeout');
@@ -472,6 +475,7 @@ describe('capabilities and nativeTimeout', () => {
         codex: {},
         cursor: {},
         antigravity: {},
+        opencode: {},
         origin: { provider: 'default', model: 'default' },
       },
       '/tmp/codex-out.txt',

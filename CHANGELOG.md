@@ -25,6 +25,14 @@ the fact, so they list what changed rather than explaining why. Everything from
 
 ### Added
 
+- **OpenCode CLI as a fifth agent provider (#117).** `opencode` is selectable
+  with `agent.provider`, `--agent`, `--agent-phase` and failover/routing. The
+  runner uses `opencode run --format json --dir <workspace> --auto` with an
+  explicit `OPENCODE_PERMISSION` policy (`question` denied; `external_directory`
+  limited to requested `addDirs`; `read-only` denies `edit` and mutating
+  `bash`). `--auto` is not a sandbox. Tokens are reported only when the stream
+  includes them; cost stays absent. Default remains `claude`.
+
 - Eleven independent Agent Skills, including portable `resolve-issue`, with
   deterministic source-to-artifact generation, isolated bundled helpers,
   installer validation and opt-in behavioral evals (#111).

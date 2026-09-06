@@ -72,6 +72,7 @@ const PROVIDERS: Record<string, AgentProviderId> = {
   'codex-cli': 'codex',
   'cursor-cli': 'cursor',
   'antigravity-cli': 'antigravity',
+  'opencode-cli': 'opencode',
 };
 
 export function recommendedFor(phase: AgentPhase): RecommendedPolicyEntry {

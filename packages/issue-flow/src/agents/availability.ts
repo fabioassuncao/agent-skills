@@ -1,7 +1,8 @@
 import { execa } from 'execa';
+import { interpretOpenCodeAuth } from './opencode.js';
 import { ensureRunnersRegistered, runnerFor } from './registry.js';
 import { resolveAgentFor } from './resolve.js';
-import type { AgentPhase, AgentProviderId } from './types.js';
+import { AGENT_PROVIDER_IDS, type AgentPhase, type AgentProviderId } from './types.js';
 
 export const READINESS_SCHEMA_VERSION = '1';
 export const DEFAULT_READINESS_TTL_MS = 5 * 60_000;
@@ -73,9 +74,10 @@ const PROVIDER_HARNESS: Record<AgentProviderId, string> = {
   codex: 'codex-cli',
   cursor: 'cursor-cli',
   antigravity: 'antigravity-cli',
+  opencode: 'opencode-cli',
 };
 
-const ALL_PROVIDERS: readonly AgentProviderId[] = ['claude', 'codex', 'cursor', 'antigravity'];
+const ALL_PROVIDERS: readonly AgentProviderId[] = AGENT_PROVIDER_IDS;
 
 const probeCache = new Map<AgentProviderId, Promise<AgentAvailability>>();
 let inventoryCache: { expiresAtMs: number; promise: Promise<ReadinessSnapshot> } | null = null;
@@ -170,7 +172,9 @@ async function probeAgentUncached(
       const text = `${auth.stdout?.toString() ?? ''}\n${auth.stderr?.toString() ?? ''}`;
       const ok =
         runner.capabilities.authProbe === 'text'
-          ? !/not logged in|not authenticated|no models available/i.test(text)
+          ? id === 'opencode'
+            ? interpretOpenCodeAuth(text)
+            : !/not logged in|not authenticated|no models available/i.test(text)
           : auth.exitCode === 0;
       authentication = ok ? 'confirmed' : 'failed';
       detail = ok ? `${version} (authenticated)` : `${version} (not authenticated)`;
@@ -274,6 +278,9 @@ export function installHint(id: AgentProviderId): string {
   if (id === 'antigravity') {
     return 'Install Antigravity CLI: https://antigravity.google/docs/cli/install/';
   }
+  if (id === 'opencode') {
+    return 'Install OpenCode CLI: https://opencode.ai/docs';
+  }
   return 'Install Claude Code: https://docs.anthropic.com/en/docs/claude-code';
 }
 
@@ -305,7 +312,9 @@ export async function assertAgentAvailable(
               ? 'Run: cursor-agent login (or cursor-agent status)'
               : provider === 'antigravity'
                 ? 'Antigravity has no auth probe. Log in with `agy` interactively; Issue Flow never reads GEMINI_API_KEY.'
-                : 'Run: claude auth login'
+                : provider === 'opencode'
+                  ? 'Run: opencode auth login'
+                  : 'Run: claude auth login'
         }`,
         phase,
         provider,

@@ -64,6 +64,8 @@ export function declaredAgentIdentity(provider: AgentProviderId): {
       return { harness: 'cursor-cli', vendor: 'cursor' };
     case 'antigravity':
       return { harness: 'antigravity-cli', vendor: 'google' };
+    case 'opencode':
+      return { harness: 'opencode-cli', vendor: 'opencode' };
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;

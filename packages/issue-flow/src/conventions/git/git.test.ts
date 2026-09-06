@@ -304,7 +304,7 @@ describe('provider invariance', () => {
   });
 
   it('forbids a provider name as type or scope', () => {
-    for (const provider of ['claude', 'codex', 'cursor', 'antigravity'] as const) {
+    for (const provider of ['claude', 'codex', 'cursor', 'antigravity', 'opencode'] as const) {
       expect(exportedCommitMessage({ type: 'feat', scope: provider, subject: 'x' })).toBe(
         'feat: x',
       );

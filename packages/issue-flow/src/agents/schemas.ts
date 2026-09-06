@@ -9,7 +9,13 @@ import { AGENT_PHASES, type AgentPhase } from './types.js';
  * like a value the user wrote and would silently override the rung above.
  */
 
-export const agentProviderIdSchema = z.enum(['claude', 'codex', 'cursor', 'antigravity']);
+export const agentProviderIdSchema = z.enum([
+  'claude',
+  'codex',
+  'cursor',
+  'antigravity',
+  'opencode',
+]);
 
 export const codexSandboxSchema = z.enum(['read-only', 'workspace-write', 'danger-full-access']);
 
@@ -65,6 +71,14 @@ export const antigravitySettingsSchema = z
   })
   .partial();
 
+export const opencodeSettingsSchema = z
+  .object({
+    variant: z.string().min(1),
+    minVersion: z.string().min(1),
+    maxPromptBytes: z.number().int().positive(),
+  })
+  .partial();
+
 export const agentBlockSchema = z
   .object({
     provider: agentProviderIdSchema,
@@ -73,6 +87,7 @@ export const agentBlockSchema = z
     codex: codexSettingsSchema,
     cursor: cursorSettingsSchema,
     antigravity: antigravitySettingsSchema,
+    opencode: opencodeSettingsSchema,
   })
   .partial();
 
@@ -102,6 +117,7 @@ export const agentConfigInputSchema = z
     codex: codexSettingsSchema,
     cursor: cursorSettingsSchema,
     antigravity: antigravitySettingsSchema,
+    opencode: opencodeSettingsSchema,
     phases: agentPhasesSchema,
   })
   .partial();

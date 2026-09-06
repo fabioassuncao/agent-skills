@@ -4,7 +4,8 @@
 
 The Issue Flow CLI runs the pipeline through a coding agent. The default is
 **Claude Code**. **Codex CLI** (`codex exec`), **Cursor CLI**
-(`cursor-agent`) and **Antigravity CLI** (`agy`) are the alternatives.
+(`cursor-agent`), **Antigravity CLI** (`agy`) and **OpenCode CLI**
+(`opencode`) are the alternatives.
 Selection is explicit and, when you want it, **per phase**. The same
 repository on two machines behaves the same way: the agent is never
 inferred from which binary happens to be installed.
@@ -16,9 +17,13 @@ This document describes *this project's* behaviour. Official references:
 - [Codex authentication](https://developers.openai.com/codex/auth)
 - [GitHub Action `openai/codex-action`](https://github.com/openai/codex-action)
 - [Antigravity CLI](https://antigravity.google/docs/cli/getting-started/)
+- [OpenCode CLI](https://opencode.ai/docs/cli)
+- [OpenCode permissions](https://opencode.ai/docs/permissions)
+- [OpenCode configuration](https://opencode.ai/docs/config)
 
 Minimum Codex CLI version exercised here: **0.149.1**.
 Minimum Antigravity CLI version exercised here: **1.1.22**.
+Minimum OpenCode CLI version exercised here: **1.15.0**.
 
 ## Prerequisites
 
@@ -28,6 +33,7 @@ Minimum Antigravity CLI version exercised here: **1.1.22**.
 | Codex CLI (opt-in) | `codex` | `codex login status` (exit 0 when authenticated) | see the official docs |
 | Cursor CLI (opt-in) | `cursor-agent` | `cursor-agent status` (exit 0 even when logged out — probe is textual) | `curl https://cursor.com/install -fsS \| bash` |
 | Antigravity CLI (opt-in) | `agy` | none — `issue-flow agent` reports install only | see [Antigravity install](https://antigravity.google/docs/cli/install/) |
+| OpenCode CLI (opt-in) | `opencode` | textual `opencode auth list` (empty / no credentials is not authenticated) | see [OpenCode CLI](https://opencode.ai/docs/cli) |
 
 Cursor has no `--add-dir`. The first `issue-flow agent use cursor` grants
 `Read`/`Write` on `~/.issue-flow/**` in `~/.cursor/cli-config.json`. Cursor
@@ -43,6 +49,19 @@ is the real write containment (`plan` for `read-only`, `accept-edits` otherwise)
 (default `4h`). `authProbe` is `none`: Issue Flow never reads `GEMINI_API_KEY`
 and never writes `~/.gemini/antigravity-cli/settings.json`. Tokens are reported;
 USD is not. Minimum version: **1.1.22**.
+
+OpenCode runs `opencode run --format json --dir <workspace> --auto`. `--auto`
+is not a sandbox: it only approves permissions that the run's explicit
+`OPENCODE_PERMISSION` policy did not deny. That policy always denies
+`question` and a wildcard `external_directory`; `read-only` also denies
+`edit` and mutating `bash` patterns. Requested `addDirs` become
+`external_directory` allows limited to those paths. The runner never writes
+the user's `opencode.json`. Model ids are `provider/model`
+(`--agent-phase review=opencode:anthropic/claude-sonnet-4-5`). Tokens are
+reported only when `step_finish` includes them; USD is not. `authProbe` is
+textual: a listed provider is confirmed, an empty list is not. Listing
+credentials does not prove the configured model is usable. Minimum version:
+**1.15.0**.
 
 `issue-flow init` verifies only the **selected** agent. A first-run prompt
 appears only on a TTY, outside CI, and only when no `agent` configuration
@@ -62,6 +81,10 @@ Codex: `codex login` (browser) or `codex login --with-api-key` (key on stdin).
 
 Antigravity: log in through `agy` itself. Issue Flow does not probe
 authentication and does not read, log or persist `GEMINI_API_KEY`.
+
+OpenCode: `opencode auth login`. `opencode auth list` is the textual probe.
+A listed provider is confirmed; an empty list or "no credentials" is not.
+That list does not prove the configured `provider/model` is usable.
 
 ### CI / Docker / GitHub Actions
 
@@ -98,7 +121,7 @@ recommended on for CI.
 default (claude)
   < ~/.issue-flow/config.json
   < .issue-flow.json
-  < ISSUE_FLOW_AGENT / ISSUE_FLOW_AGENT_MODEL / ISSUE_FLOW_CODEX_* / ISSUE_FLOW_ANTIGRAVITY_*
+  < ISSUE_FLOW_AGENT / ISSUE_FLOW_AGENT_MODEL / ISSUE_FLOW_CODEX_* / ISSUE_FLOW_ANTIGRAVITY_* / ISSUE_FLOW_OPENCODE_*
   < --agent-phase (repeatable)
   < --agent / --agent-model   ← emergency: overwrites phases too
 ```
@@ -131,6 +154,7 @@ npx issue-flow agent --json
 npx issue-flow agent use codex --model gpt-5.6 --global
 npx issue-flow agent use claude --project
 npx issue-flow agent use codex --phase execute --project
+npx issue-flow agent use opencode --model anthropic/claude-sonnet-4-5 --global
 ```
 
 `--json` is a published contract (`schemaVersion` in the payload).
@@ -146,11 +170,11 @@ Claude `workspace` and `autonomous` keep the historical flags (byte-identical
 argv with no config). `read-only` adds `--permission-mode plan` and a
 deny-list, because `--allowedTools` alone does not restrict a subagent.
 
-| `permission` | Phases | Claude | Codex | Cursor | Antigravity |
-|---|---|---|---|---|---|
-| `read-only` | analyze, review, pr-review | `--permission-mode plan` + deny-list | `--sandbox read-only` | `--mode plan` | `--mode plan` (+ skip-permissions) |
-| `workspace` | generate, prd, plan, pr | historical `runHeadless` argv | `--sandbox workspace-write` | `--force` | `--mode accept-edits` (+ skip-permissions) |
-| `autonomous` | execute | `--dangerously-skip-permissions` | `--sandbox workspace-write` | `--force` | `--mode accept-edits` (+ skip-permissions) |
+| `permission` | Phases | Claude | Codex | Cursor | Antigravity | OpenCode |
+|---|---|---|---|---|---|---|
+| `read-only` | analyze, review, pr-review | `--permission-mode plan` + deny-list | `--sandbox read-only` | `--mode plan` | `--mode plan` (+ skip-permissions) | `edit` deny + mutating `bash` deny + `--auto` |
+| `workspace` | generate, prd, plan, pr | historical `runHeadless` argv | `--sandbox workspace-write` | `--force` | `--mode accept-edits` (+ skip-permissions) | `edit`/`bash` allow + `--auto` |
+| `autonomous` | execute | `--dangerously-skip-permissions` | `--sandbox workspace-write` | `--force` | `--mode accept-edits` (+ skip-permissions) | `edit`/`bash` allow + `--auto` |
 
 Codex `--sandbox` is **always** explicit. Codex `autonomous` stays inside the
 workspace. `danger-full-access` is opt-in only and prints a warning every time.
@@ -176,6 +200,9 @@ npx issue-flow run 42 \
   --agent-phase plan=codex \
   --agent-phase review=claude:claude-sonnet-5 \
   --agent-phase execute=codex:gpt-5.6
+
+# OpenCode with an explicit provider/model
+npx issue-flow run 42 --agent opencode --agent-model anthropic/claude-sonnet-4-5
 
 # CI: isolate user config
 ISSUE_FLOW_CODEX_IGNORE_USER_CONFIG=1 npx issue-flow run 42 --agent codex
@@ -212,7 +239,8 @@ When `routing.mode` is `recommend` or `active`, the router receives a readiness
 inventory from `src/agents/availability.ts` (installed vs authentication vs
 model access, with confidence and TTL) and ranks only what this machine can
 actually attempt. Providers with `authProbe: 'none'` (Claude, Antigravity) stay
-`conditional` / `unverified`, not confirmed. It remains opt-in:
+`conditional` / `unverified`, not confirmed. OpenCode's `auth list` can
+confirm a credential without proving the configured model. It remains opt-in:
 
 ```bash
 issue-flow routing use recommended --global
@@ -230,27 +258,27 @@ policy and active mode for future runs.
 The factory default remains `shadow`.
 
 A homogeneous run (every phase on the same agent) prints the same `Tokens:`
-line as before. A mixed run prints **one line per agent**. Codex and
-Antigravity do not report USD: `costUsd` stays absent ("not reported", never
+line as before. A mixed run prints **one line per agent**. Codex,
+Antigravity and OpenCode do not report USD: `costUsd` stays absent ("not reported", never
 zero). Do not treat a mixed-run total that only shows Claude's dollars as the
 cost of the run. Antigravity lets one credential cover Gemini Flash on
 `plan`/`analyze` and a stronger model on `review`.
 
-## Claude × Codex × Cursor × Antigravity (what this project uses)
+## Claude × Codex × Cursor × Antigravity × OpenCode (what this project uses)
 
-| | Claude Code | Codex CLI | Cursor CLI | Antigravity CLI |
-|---|---|---|---|---|
-| Invocation | `claude -p` / `--print` | `codex exec --json -` | `cursor-agent -p` | `agy -p` |
-| Prompt | argv (`-p`) or stdin (`execute`) | always stdin (`-`) | argv | argv (`promptChannel: argv`) |
-| Structured output | `stream-json` | `--json` JSONL + `--output-last-message` | `stream-json` | `stream-json` |
-| Per-tool allowlist | `--allowedTools` | none — OS sandbox only | none | none |
-| Sandbox | `--permission-mode` / skip-permissions | `--sandbox` (Seatbelt / bubblewrap) | `--sandbox` opt-in | `--sandbox` opt-in |
-| Extra directories | `--add-dir` | `--add-dir` | permission file | `--add-dir` (workspace always) |
-| Turn cap | `--max-turns` | none — timeout is the cap | none | `--print-timeout` (always) |
-| USD cost | `total_cost_usd` | not reported | not reported | not reported |
-| Tokens | yes | yes | no | yes (`num_turns: 0` → `usage: null`) |
-| Transient exit | `75` or text | text only | text | text |
-| Auth probe | delegated | `codex login status` | textual `status` | **none** |
+| | Claude Code | Codex CLI | Cursor CLI | Antigravity CLI | OpenCode CLI |
+|---|---|---|---|---|---|
+| Invocation | `claude -p` / `--print` | `codex exec --json -` | `cursor-agent -p` | `agy -p` | `opencode run --format json` |
+| Prompt | argv (`-p`) or stdin (`execute`) | always stdin (`-`) | argv | argv (`promptChannel: argv`) | argv (`promptChannel: argv`) |
+| Structured output | `stream-json` | `--json` JSONL + `--output-last-message` | `stream-json` | `stream-json` | `--format json` JSONL |
+| Per-tool allowlist | `--allowedTools` | none — OS sandbox only | none | none | none |
+| Sandbox | `--permission-mode` / skip-permissions | `--sandbox` (Seatbelt / bubblewrap) | `--sandbox` opt-in | `--sandbox` opt-in | `OPENCODE_PERMISSION` + `--auto` |
+| Extra directories | `--add-dir` | `--add-dir` | permission file | `--add-dir` (workspace always) | `external_directory` (requested paths only) |
+| Turn cap | `--max-turns` | none — timeout is the cap | none | `--print-timeout` (always) | none — timeout is the cap |
+| USD cost | `total_cost_usd` | not reported | not reported | not reported | not reported |
+| Tokens | yes | yes | no | yes (`num_turns: 0` → `usage: null`) | only when `step_finish` reports them |
+| Transient exit | `75` or text | text only | text | text | text |
+| Auth probe | delegated | `codex login status` | textual `status` | **none** | textual `auth list` |
 
 Where there is no equivalent, nothing is invented: `allowedTools` / `maxTurns`
 are ignored by Codex; `--sandbox` is ignored by Claude.
@@ -264,13 +292,17 @@ are ignored by Codex; `--sandbox` is ignored by Claude.
 | Writes under `read-only` | `$CODEX_HOME/config.toml` escalating | `ignoreUserConfig: true` |
 | Auth error in CI | browser OAuth | `CODEX_API_KEY` or `codex login --with-api-key` |
 | Network command fails in a container | sandbox network | `codex.configOverrides` → `sandbox_workspace_write.network_access` |
-| Cost line empty | Codex / Antigravity / Cursor do not report USD | expected |
+| Cost line empty | Codex / Antigravity / Cursor / OpenCode do not report USD | expected |
 | Phase config seems ignored | a higher layer won | `issue-flow agent` shows provenance |
 | Codex not installed, `provider: 'codex'` | missing binary | fails **before** the run, naming the phase |
 | `agy` not installed | missing binary | fails as `configuration`, names the install URL |
 | Antigravity `status: WAITING` | the task asked for a human | `configuration` — not success |
 | Antigravity SUCCESS but no files | a tool was denied | treated as `configuration`; skip-permissions is invariant |
 | Execute loop dies at 5 minutes on `agy` | `--print-timeout` omitted | Issue Flow always passes it; `timeout: 0` uses `executeTimeout` (default 4h) |
+| `opencode` not installed | missing binary | fails as `configuration`, names the install URL |
+| OpenCode hung on a permission prompt | `--auto` missing or `question` not denied | Issue Flow always passes both |
+| OpenCode model rejected | bare alias such as `sonnet` | use `provider/model` |
+| OpenCode writes outside the workspace | user `opencode.json` enlarged `external_directory` | the run policy denies `*`; report a bug if a write still lands |
 
 `item.type === 'error'` in the Codex stream is a **warning**, not a failure.
 Skill-context notices arrive that way on successful runs. Failure is

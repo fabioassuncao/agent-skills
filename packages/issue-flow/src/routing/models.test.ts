@@ -4,6 +4,7 @@ import {
   CLAUDE_CAPABILITIES,
   CODEX_CAPABILITIES,
   CURSOR_CAPABILITIES,
+  OPENCODE_CAPABILITIES,
 } from '../agents/types.js';
 import { MODEL_CATALOG, modelsFor } from './models.js';
 
@@ -14,6 +15,7 @@ describe('MODEL_CATALOG', () => {
       'codex-cli': CODEX_CAPABILITIES,
       'cursor-cli': CURSOR_CAPABILITIES,
       'antigravity-cli': ANTIGRAVITY_CAPABILITIES,
+      'opencode-cli': OPENCODE_CAPABILITIES,
     };
     for (const [harness, caps] of Object.entries(capabilities)) {
       expect(MODEL_CATALOG[harness]).toBeDefined();

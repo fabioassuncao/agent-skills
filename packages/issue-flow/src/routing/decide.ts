@@ -5,6 +5,7 @@ import {
   CLAUDE_CAPABILITIES,
   CODEX_CAPABILITIES,
   CURSOR_CAPABILITIES,
+  OPENCODE_CAPABILITIES,
 } from '../agents/types.js';
 import { analyzeTask } from './analyze.js';
 import { filterEligible } from './capabilities.js';
@@ -19,6 +20,7 @@ const CAPS = {
   'codex-cli': CODEX_CAPABILITIES,
   'cursor-cli': CURSOR_CAPABILITIES,
   'antigravity-cli': ANTIGRAVITY_CAPABILITIES,
+  'opencode-cli': OPENCODE_CAPABILITIES,
 } as const;
 
 const PROVIDER: Record<string, string> = {
@@ -26,6 +28,7 @@ const PROVIDER: Record<string, string> = {
   'codex-cli': 'codex',
   'cursor-cli': 'cursor',
   'antigravity-cli': 'antigravity',
+  'opencode-cli': 'opencode',
 };
 
 export function decideRouting(input: {
@@ -74,7 +77,12 @@ export function decideRouting(input: {
 
   const scored = scoreCandidates(
     (Object.keys(CAPS) as (keyof typeof CAPS)[]).flatMap((harness) => {
-      const providerId = PROVIDER[harness] as 'claude' | 'codex' | 'cursor' | 'antigravity';
+      const providerId = PROVIDER[harness] as
+        | 'claude'
+        | 'codex'
+        | 'cursor'
+        | 'antigravity'
+        | 'opencode';
       const readiness =
         input.readiness === undefined || input.readiness === null
           ? null

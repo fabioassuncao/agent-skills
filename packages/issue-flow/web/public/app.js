@@ -1323,7 +1323,7 @@
     const form = el('form', 'config-form');
     const provider = el('select');
     provider.setAttribute('aria-label', 'Harness padrão para execuções futuras');
-    for (const id of ['claude', 'codex', 'cursor', 'antigravity']) {
+    for (const id of ['claude', 'codex', 'cursor', 'antigravity', 'opencode']) {
       const option = el('option', null, id);
       option.value = id;
       provider.appendChild(option);
@@ -1379,7 +1379,7 @@
     });
     const providers = entries.length
       ? entries.map((entry) => entry.provider)
-      : ['claude', 'codex', 'cursor', 'antigravity'];
+      : ['claude', 'codex', 'cursor', 'antigravity', 'opencode'];
     if (!providers.includes(selected)) providers.push(selected);
     for (const provider of providers) {
       const option = el('option', null, provider);
