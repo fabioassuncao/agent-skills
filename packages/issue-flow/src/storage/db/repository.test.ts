@@ -143,6 +143,47 @@ describe('SQLite plan repository', () => {
     });
   });
 
+  it('ingests correction acknowledgement and blockers without granting pipeline ownership', async () => {
+    const baseline = { ...plan(), lastReviewFindings: 'Fix expiry', closeIssue: false };
+    await saveStoredPlan(context, baseline);
+    const blocker = {
+      category: 'verification',
+      message: 'Browser unavailable',
+      at: '2026-09-05T00:00:00Z',
+    };
+    await writeFile(
+      context.tasksPath,
+      JSON.stringify({
+        ...baseline,
+        lastReviewFindings: null,
+        lastError: blocker,
+        closeIssue: true,
+        pipeline: { ...baseline.pipeline, reviewCompleted: true, prCreated: true },
+      }),
+    );
+    expect(await ingestAgentPlan(context, baseline)).toMatchObject({
+      lastReviewFindings: null,
+      lastError: blocker,
+      closeIssue: false,
+      pipeline: { reviewCompleted: false, prCreated: false },
+    });
+  });
+
+  it('preserves newer canonical findings and blockers while ingesting story progress', async () => {
+    const baseline = { ...plan(), lastReviewFindings: 'Old finding' };
+    const newer = { category: 'review', message: 'New blocker', at: '2026-09-05T00:00:00Z' };
+    await saveStoredPlan(context, {
+      ...baseline,
+      lastReviewFindings: 'New finding',
+      lastError: newer,
+    });
+    await writeFile(context.tasksPath, JSON.stringify({ ...baseline, lastReviewFindings: null }));
+    expect(await ingestAgentPlan(context, baseline)).toMatchObject({
+      lastReviewFindings: 'New finding',
+      lastError: newer,
+    });
+  });
+
   it('applies only an explicit positive execution retention limit', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'issue-flow-retention-'));
     const retained: PlanRepositoryContext = {

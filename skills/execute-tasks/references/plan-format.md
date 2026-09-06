@@ -69,3 +69,9 @@ the plan with this projection.
 | pr-review | Confirmed PR; review requested | Valid approving review |
 
 The CLI persists phase flags; portable Skills establish the same evidence from local artifacts. PR delivery and issue closure require the applicable authorization. Neither consumer resumes the other’s session.
+
+For an execution iteration, add `--context --json` to the plan inspection. This
+selects the objective, branch, active story with criteria/notes, dependency status,
+pending findings, blockers and remaining IDs. Completed story details and telemetry
+remain in the source file and can be read when needed. Neither projection is an
+editable plan; preserve the original JSON when applying story updates.

@@ -246,6 +246,18 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
         };
       }
       if (file === 'gh') {
+        if (args[0] === 'pr' && args[1] === 'view' && args.includes('--json')) {
+          return {
+            stdout: JSON.stringify({
+              headRefOid: 'head-sha',
+              baseRefOid: 'base-sha',
+              title: ISSUE_TITLE,
+              url: 'https://github.com/acme/repo/pull/42',
+            }),
+            stderr: '',
+            exitCode: 0,
+          };
+        }
         return { stdout: 'gh version 2.44.0', stderr: '', exitCode: 0 };
       }
       if (file === 'claude') {

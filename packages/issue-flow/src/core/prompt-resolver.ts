@@ -188,9 +188,9 @@ export function applyConditionalSections(template: string, vars: Record<string, 
  * empty disappears entirely instead of rendering as an empty heading.
  */
 export function applyPlaceholders(template: string, vars: Record<string, string>): string {
-  let result = applyConditionalSections(template, vars).replace(/^<!-- Generated[^\n]+-->\n\n/, '');
-  for (const [key, value] of Object.entries(vars)) {
-    result = result.replaceAll(key, value);
-  }
-  return result;
+  const result = applyConditionalSections(template, vars).replace(
+    /^<!-- Generated[^\n]+-->\n\n/,
+    '',
+  );
+  return result.replace(/__[A-Z0-9_]+__/g, (key) => vars[key] ?? key);
 }

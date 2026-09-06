@@ -215,10 +215,19 @@ writes.
 
 `analyzeCompleted` is also accepted, for the standalone `analyze` command.
 
-The top-level `lastReviewFindings` (`string | null`) holds the verbatim findings
-of the most recent failed `review`. Non-null overrides the "issue already
+The top-level `lastReviewFindings` (`string | null`) holds actionable findings
+from failed review or acceptance, with check output framed as diagnostic data.
+Non-null overrides the "issue already
 complete" check even when every story has `passes: true`, so a correction cycle's
 re-execute step is guaranteed to run instead of exiting immediately.
+
+The execute agent may update existing stories' `passes` and `notes`, acknowledge
+resolved findings by clearing them, and record or clear `lastError`. SQLite
+reingestion changes only those fields. Clearing findings and changing a blocker
+compare against the pre-invocation state, so an agent cannot erase newer feedback.
+Pipeline flags, telemetry, correction counters and closure authorization remain
+CLI-owned. A newly recorded blocker prevents completion even if the agent emits
+the completion marker. Resume retains the consumed correction-cycle budget.
 
 ### User stories
 

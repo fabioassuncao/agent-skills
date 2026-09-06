@@ -86,6 +86,16 @@ describe('emptyPolicyPlaceholders', () => {
 });
 
 describe('policyPlaceholders', () => {
+  it('selects execution policy without issue classification and retains mandatory pointers', () => {
+    const vars = policyPlaceholders(richPolicy, { phase: 'execute', budgetTokens: 1 });
+    expect(vars.__REPO_POLICY__).toContain('develop');
+    expect(vars.__REPO_POLICY__).toContain('conventional');
+    expect(vars.__REPO_POLICY__).toContain('apps/api/AGENTS.md');
+    expect(vars.__REPO_POLICY__).not.toContain('### Labels');
+    expect(vars.__REPO_PR_TEMPLATE__).toBe('');
+    expect(policyPlaceholders(richPolicy, { phase: 'pr' }).__REPO_LABELS__).toContain('bug');
+    expect(richPolicy.issues.labels).toHaveLength(2);
+  });
   it('is entirely empty for a null policy', () => {
     expect(policyPlaceholders(null)).toEqual(emptyPolicyPlaceholders());
   });
@@ -204,13 +214,13 @@ describe('renderPolicySummary', () => {
     expect(summary).not.toContain('- label-0 —');
   });
 
-  it('keeps the essentials and drops the rest when the budget is tight', () => {
+  it('keeps mandatory policy pointers even when the budget is tight', () => {
     const summary = renderPolicySummary(richPolicy, 60);
 
     expect(summary).toContain('### Base branch');
     expect(summary).toContain('develop');
-    // Documents are the first to go: they are pointers to begin with.
-    expect(summary).not.toContain('### Policy documents');
+    expect(summary).toContain('### Policy documents');
+    expect(summary).toContain('apps/api/AGENTS.md');
   });
 });
 

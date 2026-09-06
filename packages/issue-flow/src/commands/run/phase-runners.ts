@@ -122,9 +122,11 @@ function createReviewRunner(input: BuildRunnersInput): () => Promise<void> {
   return async () => {
     // Read maxCorrectionCycles
     let maxCycles = DEFAULT_MAX_CORRECTION_CYCLES;
+    let cycle = 0;
     try {
       const plan = await loadTaskPlan(tasksPath);
       maxCycles = plan.maxCorrectionCycles;
+      cycle = plan.correctionCycle;
     } catch {
       /* use default */
     }
@@ -139,7 +141,6 @@ function createReviewRunner(input: BuildRunnersInput): () => Promise<void> {
     }
 
     // Auto-correction loop on failure
-    let cycle = 0;
     while (code !== 0 && cycle < maxCycles) {
       cycle++;
       printWarning(`Review failed. Starting correction cycle ${cycle}/${maxCycles}...`);

@@ -9,6 +9,7 @@ import type { TaskPlan } from '../types.js';
 // derived project id is deterministic) and a fixed Pull Request payload, so no
 // test touches the network or the real repository.
 const mockRepo = vi.hoisted(() => ({ root: '', remote: 'https://github.com/acme/widgets.git' }));
+const mockRevision = vi.hoisted(() => ({ head: 'abc1234', base: 'base1234' }));
 const mockBranch = vi.hoisted(() => ({ current: '' }));
 vi.mock('execa', () => ({
   execa: vi.fn(async (file: string, args: string[] = []) => {
@@ -27,7 +28,8 @@ vi.mock('execa', () => ({
           title: 'Add the pr-review phase',
           url: 'https://github.com/acme/repo/pull/128',
           headRefName: 'issue/25-pr-review-phase',
-          headRefOid: 'abc1234',
+          headRefOid: mockRevision.head,
+          baseRefOid: mockRevision.base,
         }),
         exitCode: 0,
       };
@@ -122,6 +124,8 @@ describe('runPrReview', () => {
   let reviewDir: string;
 
   beforeEach(async () => {
+    mockRevision.head = 'abc1234';
+    mockRevision.base = 'base1234';
     tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-pr-review-'));
     globalHome = await mkdtemp(join(tmpdir(), 'issue-flow-home-'));
     mockRepo.root = tmpDir;
@@ -189,6 +193,23 @@ describe('runPrReview', () => {
       outputFormat: 'json',
       allowedTools: ['Bash', 'Read', 'Glob', 'Grep'],
     });
+  });
+
+  it('keeps the reviewed SHA and refuses completion if the PR changes during review', async () => {
+    const { runHeadless } = await import('../core/headless.js');
+    vi.mocked(runHeadless).mockImplementationOnce(async () => {
+      mockRevision.head = 'new-head';
+      return { success: true, result: agentOutput('APPROVE'), error: null, cost: null };
+    });
+    expect(await runPrReview('128', { issue: '42' })).toBe(1);
+    expect((await readPlan()).pipeline.prReviewCompleted).toBe(false);
+    expect((await readIndex()).rounds[0]).toMatchObject({
+      headSha: 'abc1234',
+      recommendation: null,
+    });
+    expect(await readFile(join(reviewDir, 'pr-128-round-1.md'), 'utf8')).toContain(
+      'changed during review',
+    );
   });
 
   it('lets the global --timeout override the phase default', async () => {

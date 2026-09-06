@@ -291,7 +291,7 @@ export async function runPr(
   const prompt = applyPlaceholders(template, {
     // The repository's own conventions. Empty when it declares none, which is
     // what keeps the rendered prompt identical to the pre-policy one.
-    ...(await resolvePolicyPlaceholders()),
+    ...(await resolvePolicyPlaceholders({ phase: 'pr' })),
     __ISSUE_NUMBER__: issueNumber,
     __BRANCH_NAME__: branchName,
     __TASKS_PATH__: tasksPath,

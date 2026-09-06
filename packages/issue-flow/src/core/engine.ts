@@ -55,7 +55,7 @@ import {
   setLastError,
   trimErrorMessage,
 } from './state-manager.js';
-import { inspectTaskPlan } from './task-plan.js';
+import { executionContext, inspectTaskPlan } from './task-plan.js';
 import {
   getInactivityTimeout,
   getOutputCallback,
@@ -90,6 +90,7 @@ interface ExecuteAttempt {
   seconds: number;
   /** The stories as they were before the agent ran, for attribution. */
   storiesBefore: UserStory[];
+  lastErrorBefore: TaskPlan['lastError'];
 }
 
 /**
@@ -356,7 +357,12 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // every userStories[].passes is already true — otherwise a correction
   // cycle's re-run of execute would exit here without ever looking at what
   // the review found.
-  if (plan.issueStatus === 'completed' && allStoriesPass(plan) && !hasPendingCorrection(plan)) {
+  if (
+    plan.issueStatus === 'completed' &&
+    allStoriesPass(plan) &&
+    !hasPendingCorrection(plan) &&
+    !plan.lastError
+  ) {
     emitLog(`Issue already marked complete in ${paths.prdFile}`);
     return finishWithAcceptance(config, paths, plan);
   }
@@ -376,7 +382,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   }
 
   // Check if all stories already pass
-  if (allStoriesPass(plan) && !hasPendingCorrection(plan)) {
+  if (allStoriesPass(plan) && !hasPendingCorrection(plan) && !plan.lastError) {
     emitLog('All user stories already pass. Marking issue as completed.');
     plan = executionCompletion(markIssueCompleted(plan), config.inPipeline === true);
     await saveTaskPlan(paths.prdFile, plan);
@@ -397,9 +403,9 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
   // would be a subprocess per run for an answer already in hand.
   const promptTemplate = await loadPrompt('execute', { projectRoot: paths.projectRoot });
 
-  // The repository's own conventions, resolved once for the whole loop: they
-  // cannot change mid-run, and every iteration renders the same projection.
-  const policy = await resolvePolicyPlaceholders({ root: paths.projectRoot });
+  // Resolve policy once for this loop; referenced document contents remain
+  // available for decision-specific reads during each iteration.
+  const policy = await resolvePolicyPlaceholders({ root: paths.projectRoot, phase: 'execute' });
   const signoff = (await loadGlobalConfig()).commit?.signoff === true;
 
   const executeAgent = await resolveAgentFor('execute');
@@ -436,7 +442,11 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         `Adopting ${adopted.join(', ')}: already committed on this branch with a clean tree.`,
       );
       plan = await loadTaskPlan(paths.prdFile);
-      if (plan.userStories.every((story) => story.passes) && plan.lastReviewFindings === null) {
+      if (
+        plan.userStories.every((story) => story.passes) &&
+        plan.lastReviewFindings === null &&
+        !plan.lastError
+      ) {
         // Everything the loop was going to do is already done.
         break;
       }
@@ -467,6 +477,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         // Baseline for story attribution: whatever was still pending before the
         // agent ran is what this iteration can claim credit for.
         const storiesBefore = plan.userStories;
+        const lastErrorBefore = plan.lastError;
 
         // Highest-priority story with passes: false — the same rule
         // prompts/execute.md gives the agent. Computed once, here, and shared by
@@ -489,6 +500,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
 
         // Apply placeholders to prompt
         const prompt = applyPlaceholders(promptTemplate, {
+          __EXECUTION_CONTEXT__: JSON.stringify(executionContext(plan)),
           __ACTIVE_STORY__: activeStoryId ?? 'Address pending review findings',
           __EXECUTION_SCOPE__: config.inPipeline
             ? 'This is one pipeline phase: keep issueStatus=in_progress and completedAt=null.'
@@ -529,7 +541,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         // `passes` or `notes`.
         const repository = getPlanRepository(paths.prdFile);
         if (repository !== undefined) {
-          plan = await ingestAgentPlan(repository);
+          plan = await ingestAgentPlan(repository, plan);
         } else {
           plan = { ...(await loadTaskPlan(paths.prdFile)), ...closure };
           await saveTaskPlan(paths.prdFile, plan);
@@ -542,7 +554,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
           publishIterationMetrics(i, result.cost, seconds);
         }
 
-        return { result, startedAt, seconds, storiesBefore };
+        return { result, startedAt, seconds, storiesBefore, lastErrorBefore };
       },
       {
         policy: executeRetryPolicy(config),
@@ -638,6 +650,21 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     const outputError = await validateExecutionInput(plan);
     if (outputError) {
       printError(`Invalid execution result: ${outputError}`);
+      return 1;
+    }
+    if (
+      plan.lastError &&
+      (JSON.stringify(plan.lastError) !== JSON.stringify(attempted.value.lastErrorBefore) ||
+        ![
+          'fatal_claude_failure',
+          'transient_claude_failure',
+          'invalid_completion_signal',
+          'task_execution',
+        ].includes(plan.lastError.category))
+    ) {
+      publishIterationMetrics(i, result.cost, iterationSeconds);
+      getSessionPublisher().publish({ type: 'iteration:end', at: isoNow(), iteration: i });
+      printError(`Execution blocked: ${plan.lastError.message}`);
       return 1;
     }
     plan = clearLastError(plan, iterationStartedAt);

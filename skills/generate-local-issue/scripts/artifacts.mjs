@@ -15205,6 +15205,35 @@ var routingConfigSchema = external_exports.object({
 });
 
 // packages/issue-flow/src/core/task-plan.ts
+function executionContext(plan) {
+  const ready = eligibleStories(plan.userStories);
+  const active = plan.lastReviewFindings ? void 0 : ready[0];
+  return {
+    objective: plan.description,
+    branchName: plan.branchName,
+    noBranch: plan.noBranch ?? false,
+    counts: {
+      total: plan.userStories.length,
+      passed: plan.userStories.filter((s) => s.passes).length
+    },
+    remainingStoryIds: plan.userStories.filter((s) => !s.passes).map((s) => s.id),
+    activeStory: active ? {
+      id: active.id,
+      title: active.title,
+      description: active.description,
+      acceptanceCriteria: active.acceptanceCriteria,
+      notes: active.notes,
+      dependencies: (active.dependencies ?? []).map((id) => ({
+        id,
+        passes: plan.userStories.find((story) => story.id === id)?.passes ?? false
+      }))
+    } : null,
+    lastReviewFindings: plan.lastReviewFindings ?? null,
+    lastError: plan.lastError,
+    correctionCycle: plan.correctionCycle,
+    maxCorrectionCycles: plan.maxCorrectionCycles
+  };
+}
 function validateStoryDependencies(stories) {
   const errors = [];
   const byId = /* @__PURE__ */ new Map();
@@ -15303,12 +15332,20 @@ function inspectTaskPlan(value) {
 // packages/issue-flow/src/core/artifact-files.ts
 async function inspectArtifact(operation, path, metadataPath) {
   try {
-    if (!path || !["plan", "issue"].includes(operation))
+    if (!path || !["plan", "context", "issue"].includes(operation))
       throw new Error("Expected plan <tasks.json> or issue <issue.md> [metadata.json]");
     const content = await readFile(path, "utf8");
-    if (operation === "plan") {
+    if (operation === "plan" || operation === "context") {
       if (metadataPath) throw new Error("plan accepts only one file");
-      return inspectTaskPlan(JSON.parse(content));
+      const value = JSON.parse(content);
+      const inspection = inspectTaskPlan(value);
+      if (operation === "plan" || !inspection.ok) return inspection;
+      return {
+        schemaVersion: 1,
+        ok: true,
+        data: executionContext(taskPlanSchema.parse(value)),
+        errors: []
+      };
     }
     const issue2 = parseIssueMarkdown(content);
     if (!issue2.title) throw new Error("The first non-empty line must be an H1 title");
@@ -15347,20 +15384,21 @@ async function inspectArtifact(operation, path, metadataPath) {
 // packages/issue-flow/scripts/skill-entries/artifacts.entry.mjs
 var args = process.argv.slice(2);
 var json2 = args.includes("--json");
-var positional = args.filter((arg) => arg !== "--json");
+var context = args.includes("--context");
+var positional = args.filter((arg) => arg !== "--json" && arg !== "--context");
 if (positional[0] === "--help") {
   console.log(
-    "issue <issue.md> [metadata.json]: parse/hash and validate metadata. plan <tasks.json>: validate schema and dependencies. Add --json for a versioned inspection with next eligible story. Read-only; exit 1 on invalid input."
+    "issue <issue.md> [metadata.json]: parse/hash and validate metadata. plan <tasks.json>: validate schema and dependencies. Add --json for a versioned inspection with next eligible story. For plan, --context selects current execution facts without history. Read-only; exit 1 on invalid input."
   );
 } else {
   const [operation, path, metadata] = positional;
-  const result = positional.length > 3 ? {
+  const result = positional.length > 3 || context && operation !== "plan" ? {
     schemaVersion: 1,
     ok: false,
     data: null,
-    errors: [{ code: "arguments", path: "", message: "Too many arguments" }]
-  } : await inspectArtifact(operation, path, metadata);
-  if (json2) console.log(JSON.stringify(result));
+    errors: [{ code: "arguments", path: "", message: "Invalid arguments" }]
+  } : await inspectArtifact(context ? "context" : operation, path, metadata);
+  if (json2 || context) console.log(JSON.stringify(result));
   else if (!result.ok) console.error(result.errors.map((error51) => error51.message).join("\n"));
   else if (operation === "plan")
     console.log(JSON.stringify({ valid: true, stories: result.data.counts.total }));

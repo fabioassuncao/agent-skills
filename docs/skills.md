@@ -43,6 +43,10 @@ The existing generator also renders `<!-- generated:workflow -->` from `src/core
 
 `artifacts.mjs plan <tasks.json> --json` returns a versioned inspection with the next eligible story and blocking dependencies. Its implementation is the same source as `issue-flow artifacts plan`; both inspect explicit files without migrating or reconciling storage. The portable helper works when the CLI is absent. Its legacy invocation without `--json` retains `{valid, stories}`. Do not read the whole bundled JavaScript into context; execute its documented operation. `--help` is conditional, not a mandatory extra call. Reuse policy already established in the same execution until scope, instructions, configuration or checkout changes.
 
+Add `--context` to select the current execution facts: objective, branch choice, remaining IDs, active story with criteria and dependency status, findings, blocker and correction budget. This is a read-only projection, not a replacement plan. Update the original JSON while preserving other fields; retrieve additional stories or PRD sections when the current decision needs them. The CLI execute builder imports the same `executionContext` function directly. Progress logs remain intact: consult durable patterns and the latest relevant entries, searching older entries only for a specific unresolved question.
+
+`_shared/cli-repository-policy.md` owns the common wrapper used by the eight CLI templates. It is CLI-specific composition; the portable repository-policy reference owns capability-based discovery. Sharing their distinct operational workflows would create a false equivalence.
+
 ## Format and disclosure
 
 The normative format is [Agent Skills](https://agentskills.io/specification). The portable subset used here is `name`, `description`, optional `license`, `compatibility` and string-valued `metadata`. `name` must match the directory, be lowercase hyphen-separated alphanumeric text, and fit 64 characters. Descriptions must be nonempty and fit 1024 characters; compatibility text fits 500. Experimental `allowed-tools` and provider-specific invocation/permission fields are deliberately excluded from canonical artifacts.

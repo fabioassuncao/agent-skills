@@ -42,6 +42,23 @@ Correct defective assertions and rerun the identical case. Do not weaken valid a
 
 ## Add a case
 
+A behavior scenario may declare `cliReview: {issueFile, tasksFile}` or
+`cliExecute: {issueFile, tasksFile}` pointing to its fixture files. That case loads
+the corresponding generated CLI prompt without installing Skills and binds local
+context paths. Review uses read-only permissions; execute uses workspace permissions
+and the shared execution projection.
+Evidence identifies `surface: "cli-prompt"`; ordinary cases use `"skill"`.
+This exercises the prompt's behavior, not the complete CLI lifecycle or L2.
+Baseline and candidate use the same fixture and assertions. `execute-long-progress`
+isolates context selection without commits; the existing commit cases retain
+their real-Git assertions even on harnesses whose sandbox disallows `.git` writes.
+
+`npm run context:measure -- <baseline-sha>` measures generated prompt/entrypoint
+bytes, characters and lines, resource sizes, contract consumers and a synthetic
+execution projection. Tokens are explicitly estimated as `ceil(characters / 4)`.
+These measurements cannot establish runtime savings, native activation quality
+or cache hit rates; compare live harness usage separately.
+
 Use a minimal fixture exposing a real boundary. State the user task without embedding the expected answer. Add observable conditions and a rubric explaining their link to intent. Include negative near-neighbors when descriptions change; keep baseline/candidate fixtures identical. Reuse existing adapters for additional harnesses rather than creating provider-specific Skill content.
 
 [Measured runs and limitations](research/2026-09-05-skills-portability.md) are dated evidence, not normative rules. Native cross-agent activation and remote update lifecycle require their own observed runs.

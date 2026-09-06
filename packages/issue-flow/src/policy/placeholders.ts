@@ -1,3 +1,4 @@
+import type { AgentPhase } from '../agents/types.js';
 import { loadPolicyConfig } from '../config.js';
 import { DEFAULT_BRANCH_CONVENTION } from '../conventions/git/index.js';
 import { getBaseBranch } from '../utils/git.js';
@@ -135,7 +136,7 @@ interface Section {
 }
 
 /**
- * Compose `__REPO_POLICY__` within `budgetTokens`.
+ * Compose optional policy within `budgetTokens`; mandatory pointers and conventions survive.
  *
  * Sections are added whole, in priority order, while they fit. A section that
  * does not fit is replaced **whole** by a pointer to where the agent can read it
@@ -197,14 +198,17 @@ export function renderPolicySummary(policy: RepositoryPolicy, budgetTokens: numb
     const block = `### ${section.title}\n\n${section.body}`;
     const cost = estimateTokens(block);
 
-    if (used + cost <= budgetTokens) {
+    if (
+      used + cost <= budgetTokens ||
+      ['Base branch', 'Conventions', 'Policy documents'].includes(section.title)
+    ) {
       rendered.push(block);
       used += cost;
       continue;
     }
 
     // Over budget. An essential section keeps its slot as a pointer; a
-    // non-essential one simply drops out.
+    // non-essential optional one drops out. Mandatory pointers above always survive.
     if (section.essential && section.pointer !== '') {
       const fallback = `### ${section.title}\n\n${section.pointer}`;
       rendered.push(fallback);
@@ -234,6 +238,7 @@ export function isEmptyPolicy(policy: RepositoryPolicy): boolean {
 export interface PolicyPlaceholderOptions {
   /** Token budget for `__REPO_POLICY__`. Defaults to the resolved configuration. */
   budgetTokens?: number;
+  phase?: AgentPhase;
 }
 
 /**
@@ -251,6 +256,7 @@ export function policyPlaceholders(
     return emptyPolicyPlaceholders();
   }
 
+  policy = policyForPhase(policy, options.phase);
   const budget = options.budgetTokens ?? DEFAULT_POLICY_CONTEXT_BUDGET;
 
   return {
@@ -264,6 +270,32 @@ export function policyPlaceholders(
     __REPO_BASE_BRANCH__: policy.pullRequests.baseBranch ?? '',
     __REPO_CONVENTIONS__: renderConventions(policy),
     __REPO_DOCS__: renderDocs(policy.docs),
+  };
+}
+
+/** Select decision-relevant policy without rediscovering or mutating its source. */
+export function policyForPhase(policy: RepositoryPolicy, phase?: AgentPhase): RepositoryPolicy {
+  if (!phase || phase === 'generate' || phase === 'analyze') return policy;
+  const publication = phase === 'pr' || phase === 'pr-review';
+  return {
+    ...policy,
+    issues: {
+      ...policy.issues,
+      templates: publication ? policy.issues.templates : [],
+      types: publication ? policy.issues.types : [],
+      labels: publication ? policy.issues.labels : [],
+      titleConvention: null,
+    },
+    pullRequests: {
+      ...policy.pullRequests,
+      template: publication ? policy.pullRequests.template : null,
+      templates: publication ? policy.pullRequests.templates : [],
+      titleConvention: publication ? policy.pullRequests.titleConvention : null,
+    },
+    git: {
+      ...policy.git,
+      pullRequestTitleConvention: publication ? policy.git.pullRequestTitleConvention : null,
+    },
   };
 }
 
@@ -304,6 +336,7 @@ export function conventionPlaceholders(
 }
 
 export interface ResolvePolicyPlaceholdersOptions {
+  phase?: AgentPhase;
   remote?: boolean;
   /** Repository root. Defaults to the git project root. */
   root?: string;
@@ -334,7 +367,10 @@ export async function resolvePolicyPlaceholders(
       remote: options.remote,
     });
     const config = await loadPolicyConfig({ projectRoot: policy.root });
-    projection = policyPlaceholders(policy, { budgetTokens: config.contextBudget });
+    projection = policyPlaceholders(policy, {
+      budgetTokens: config.contextBudget,
+      phase: options.phase,
+    });
   } catch {
     // Discovery is an enrichment; the conventions below still have to resolve.
     policy = null;

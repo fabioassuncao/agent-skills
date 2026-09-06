@@ -68,18 +68,11 @@ Rules for the block:
 <!-- if:__REPO_POLICY__ -->
 ## Repository policy
 
-The repository this runs in declares the conventions below. They were discovered
-from its own files (Issue Templates, labels, `AGENTS.md`, `CONTRIBUTING.md`,
-`CODEOWNERS`) and from its configuration.
-
 __REPO_POLICY__
 
-**This section takes precedence over any convention stated earlier in this
-prompt.** Where the two disagree, follow the repository. Where the repository is
-silent, the defaults above still apply.
-
-Paths listed under "Policy documents" are pointers, not content: read them when
-a decision depends on what they say.
+For repository conventions, these resolved values take precedence over prompt
+defaults. Defaults apply only to undeclared choices. Paths are references: read the
+applicable documents when a decision depends on them, following instruction indexes.
 
 Use the repository's applicable issue template instead of layering another body template over it. Fill required fields; ask when two templates fit equally. Keep the PR template's sections, explaining non-applicable ones briefly.
 

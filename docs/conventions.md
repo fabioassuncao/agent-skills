@@ -317,6 +317,17 @@ Skills never read the Issue Flow source tree.
 
 ### Adjust a CLI prompt
 
+CLI policy context is selected by phase. Generation and analysis retain discovery
+metadata; PR phases retain publication templates and vocabulary. PRD, plan,
+execute and issue review omit publication metadata. Branch/commit conventions
+and policy-document paths remain available in every phase. `contextBudget` is a
+soft budget for optional sections: it never discards those essential conventions
+or paths. Follow document indexes to load the rules relevant to the decision.
+
+Placeholder interpolation happens once, after evaluating template conditionals.
+Inserted issue text, diagnostics and other values remain literal, including
+`$&` and strings resembling placeholders; they are not another template pass.
+
 | File | Effect |
 |---|---|
 | `.issue-flow/prompts/<name>.append.md` | Appended to the packaged prompt. **Recommended** |

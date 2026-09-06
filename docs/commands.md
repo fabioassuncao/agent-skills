@@ -596,6 +596,7 @@ Manual mode does not turn the CLI pipeline into a planning-only workflow.
 
 ```bash
 issue-flow artifacts plan ./issues/42/tasks.json --json
+issue-flow artifacts plan ./issues/42/tasks.json --context --json
 issue-flow artifacts issue ./issues/42/issue.md ./issues/42/metadata.json --json
 ```
 
@@ -614,6 +615,11 @@ one JSON value on stdout, with diagnostics separate. There are no interactive
 prompts. Human mode emits readable data or stderr diagnostics. There are no
 `--quiet`, `--dry-run` or `--fields` flags: the operation is already read-only and
 its plan projection is compact. Use the original file for full-plan work.
+
+For `plan`, `--context` selects execution facts in the same envelope: objective,
+branch choice, remaining story IDs, active criteria, dependency status, pending
+findings, blocker and correction budget. It excludes completed-story details and
+telemetry. It does not overwrite or replace the source plan.
 
 `status --json` retains `owner`, `ownerStale`, `issues`, `queues` and adds
 `schemaVersion: 1`; it emits valid JSON without terminal prefixes. A project

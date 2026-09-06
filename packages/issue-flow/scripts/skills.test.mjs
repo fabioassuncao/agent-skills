@@ -85,6 +85,14 @@ test('eval corpus covers every Skill and rejects escaping fixtures and absent ou
   const missing = structuredClone(corpus);
   missing.scenarios = missing.scenarios.filter((s) => s.skill !== 'resolve-issue');
   assert.throws(() => validateCorpus(missing, names));
+  const unsafePrompt = structuredClone(corpus);
+  const fixture = unsafePrompt.scenarios.find((scenario) => scenario.cliExecute);
+  fixture.cliExecute.tasksFile = '../outside';
+  assert.throws(() => validateCorpus(unsafePrompt, names));
+  const ambiguousPrompt = structuredClone(corpus);
+  const ambiguous = ambiguousPrompt.scenarios.find((scenario) => scenario.cliExecute);
+  ambiguous.cliReview = ambiguous.cliExecute;
+  assert.throws(() => validateCorpus(ambiguousPrompt, names));
 });
 
 test('shared eval fixtures materialize inside the scenario and reject invalid references', async () => {
@@ -393,6 +401,44 @@ test('documented plan is accepted by the actual schema; corrupt and duplicate pl
     plan.lastError = { message: 'wrong shape' };
     await writeFile(file, JSON.stringify(plan));
     assert.equal(run(script, ['plan', file]).status, 1);
+  }));
+
+test('standalone execution context retains active criteria without rewriting the plan', async () =>
+  temporary(async (root) => {
+    const guide = await readFile(
+      join(artifactRoot, 'execute-tasks/references/plan-format.md'),
+      'utf8',
+    );
+    const plan = JSON.parse(guide.match(/```json\n([\s\S]*?)\n```/)[1]);
+    plan.userStories = [
+      {
+        ...plan.userStories[0],
+        id: 'US-001',
+        passes: true,
+        notes: 'Old trace',
+        description: 'Completed detail',
+      },
+      {
+        ...plan.userStories[0],
+        id: 'US-002',
+        passes: false,
+        dependencies: ['US-001'],
+        acceptanceCriteria: ['Preserve current behavior'],
+      },
+    ];
+    const file = join(root, 'tasks.json');
+    const original = JSON.stringify(plan);
+    await writeFile(file, original);
+    const script = join(root, 'artifacts.mjs');
+    await cp(join(artifactRoot, 'execute-tasks/scripts/artifacts.mjs'), script);
+    const result = run(script, ['plan', file, '--context', '--json'], { cwd: root });
+    assert.equal(result.status, 0, result.stderr);
+    const context = JSON.parse(result.stdout).data;
+    assert.equal(context.activeStory.id, 'US-002');
+    assert.deepEqual(context.activeStory.acceptanceCriteria, ['Preserve current behavior']);
+    assert.ok(!result.stdout.includes('Completed detail'));
+    assert.ok(!result.stdout.includes('Old trace'));
+    assert.equal(await readFile(file, 'utf8'), original);
   }));
 
 test('scaffold candidate rendering does not write consumer files', async () =>

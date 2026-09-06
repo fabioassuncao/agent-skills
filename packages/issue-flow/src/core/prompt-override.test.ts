@@ -110,6 +110,7 @@ describe('applyConditionalSections', () => {
   it('keeps the block, without its markers, when the value is present', () => {
     const result = applyConditionalSections(template, {
       __REMOTE_DISCOVERY__: '',
+      __PREVIOUS_REVIEW__: '',
       __REPO_POLICY__: 'x',
     });
 
@@ -128,6 +129,7 @@ describe('rendered prompts without a policy', () => {
   function noPolicy(): Record<string, string> {
     return {
       __REMOTE_DISCOVERY__: '',
+      __PREVIOUS_REVIEW__: '',
       ...emptyPolicyPlaceholders(),
       ...conventionPlaceholders(null, 'main'),
     };
@@ -196,12 +198,13 @@ describe('rendered prompts without a policy', () => {
     const rendered = applyPlaceholders(template, {
       ...noPolicy(),
       __REMOTE_DISCOVERY__: '',
+      __PREVIOUS_REVIEW__: '',
       __REPO_POLICY__: '### Base branch\n\ndevelop',
     });
 
     expect(rendered).toContain('## Repository policy');
     expect(rendered).toContain('### Base branch\n\ndevelop');
-    expect(rendered).toContain('takes precedence');
+    expect(rendered).toContain('take precedence');
     expect(rendered).not.toContain('<!-- ');
   });
 
@@ -271,6 +274,7 @@ describe('review prompts and repository policy', () => {
   ])('adds conformance as an explicit axis of the %s report when there is a policy', async (name) => {
     const rendered = await render(name, {
       __REMOTE_DISCOVERY__: '',
+      __PREVIOUS_REVIEW__: '',
       __REPO_POLICY__: '### Base branch\n\ndevelop',
     });
 
@@ -291,6 +295,7 @@ describe('review prompts and repository policy', () => {
     const rendered = (
       await render(name, {
         __REMOTE_DISCOVERY__: '',
+        __PREVIOUS_REVIEW__: '',
         __REPO_POLICY__: '### Base branch\n\ndevelop',
       })
     )
@@ -310,6 +315,7 @@ describe('review prompts and repository policy', () => {
     const rendered = (
       await render(name, {
         __REMOTE_DISCOVERY__: '',
+        __PREVIOUS_REVIEW__: '',
         __REPO_POLICY__: '### Base branch\n\ndevelop',
       })
     )

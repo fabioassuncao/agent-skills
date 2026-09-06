@@ -28,6 +28,18 @@ export async function checkArtifactCli(cli, root) {
   );
   assert.equal(portable.status, 0, portable.stderr);
   assert.deepEqual(JSON.parse(result.stdout), JSON.parse(portable.stdout));
+  const context = run(['artifacts', 'plan', file, '--context', '--json']);
+  const portableContext = run(
+    ['plan', file, '--context', '--json'],
+    join(artifactRoot, 'execute-tasks/scripts/artifacts.mjs'),
+  );
+  assert.equal(context.status, 0, context.stderr);
+  assert.equal(portableContext.status, 0, portableContext.stderr);
+  assert.deepEqual(JSON.parse(context.stdout), JSON.parse(portableContext.stdout));
+  assert.deepEqual(
+    JSON.parse(context.stdout).data.activeStory.acceptanceCriteria,
+    plan.userStories[0].acceptanceCriteria,
+  );
   assert.equal(await readFile(file, 'utf8'), original);
   assert.deepEqual(await readdir(cwd), ['tasks.json']); // no repository/storage initialization
   for (const args of [

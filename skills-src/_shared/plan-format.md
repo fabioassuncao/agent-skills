@@ -56,3 +56,9 @@ required by this Skill. Neither operation migrates or writes state. Never replac
 the plan with this projection.
 
 <!-- generated:workflow -->
+
+For an execution iteration, add `--context --json` to the plan inspection. This
+selects the objective, branch, active story with criteria/notes, dependency status,
+pending findings, blockers and remaining IDs. Completed story details and telemetry
+remain in the source file and can be read when needed. Neither projection is an
+editable plan; preserve the original JSON when applying story updates.
