@@ -305,7 +305,7 @@ an unavailable provider leaves resumable pending work rather than inventing succ
 
 ## Validation evidence
 
-- `npm test`: **2,238 tests passed in 174 files** on the development macOS/Node environment. Includes legacy command flows, real provider-chain fixtures, dependency eligibility, strict review outcomes, JSON/SQLite authorization preservation, confirmed closure and closure-only resume without pipeline agents.
+- `npm test`: **2,238 tests passed in 174 files** on the development macOS/Node environment. Includes CLI command flows, real provider-chain fixtures, dependency eligibility, strict review outcomes, JSON/SQLite authorization preservation, confirmed closure and closure-only resume without pipeline agents.
 - `npm run check`: Biome checked 429 files; TypeScript passed.
 - `npm run build` and `npm run skills:check`: 151 generated resources synchronized; all eleven Skills match sources.
 - `npm run skills:test`: **41 passed**, including repeated assembly equivalence, drift detection, references and copied Skill isolation.

@@ -114,7 +114,7 @@ and operational files there are covered by the managed nested `.gitignore`.
   derived (id, H1 title, `state: "open"`, file timestamps). An **invalid**
   `metadata.json` is a hard error naming the path and the offending field.
 - `generate --local` allocates identifiers above the highest number found among
-  the project's issue directories, including migrated legacy issues. It does not
+  the project's issue directories. It does not
   consult GitHub. Remote coordination and collision limits are described in
   [Local generation boundary](#local-generation-boundary); `generate --both`
   reuses the number allocated by GitHub.
@@ -272,7 +272,7 @@ GitHub labels, organization templates, issue types or remote issue numbers. Its
 prompt excludes remote duplicate discovery. Consequently, an ID allocated while
 offline can collide with a remote ID when later synchronized; normal conflict
 resolution applies. Dual/remote delivery keeps remote discovery. Direct provider
-APIs retain their legacy allocation behavior unless `localOnly` is requested.
+Provider APIs use remote allocation unless `localOnly` is requested.
 
 Issue closure is an explicit execution choice; see [command contract](commands.md#explicit-issue-closure).
 
@@ -334,10 +334,9 @@ same acceptance contract — with three properties of its own:
   `IssueProvider.claims()` is for; an origin whose identifiers could collide
   with another's must not implement it, or divergence detection would be
   silenced.
-- **It is per project and lives in SQLite** (`inline_issues`, migration 18) —
+- **It is per project and lives in SQLite** (`inline_issues`) —
   never in the repository, so a one-line demand leaves no directory behind. It
-  needs the SQLite store; on the legacy JSON store the origin simply reports
-  itself unavailable and the other two keep working.
+  it therefore requires the SQLite store.
 
 `--prompt` and an issue number are mutually exclusive: passing both is a usage
 error rather than a guess.

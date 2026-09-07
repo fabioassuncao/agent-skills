@@ -29,7 +29,7 @@ Supporting files are read through ordinary file capabilities; directory names do
 | Codex | `.agents/skills/` in repository scope/ancestors | `~/.agents/skills/` | [OpenAI guide](https://learn.chatgpt.com/docs/build-skills). Optional host metadata is not a portable requirement. |
 | Cursor | `.cursor/skills/`; host compatibility locations | `~/.cursor/skills/` | [Cursor Skills](https://cursor.com/docs/skills). IDE support is not proof for every CLI build. |
 | OpenCode | `.opencode/skills/`, `.agents/skills/`, `.claude/skills/` | `~/.config/opencode/skills/`, `~/.agents/skills/`, `~/.claude/skills/` | [OpenCode Skills](https://opencode.ai/docs/skills/). Native and compatibility locations. |
-| Antigravity | `.agents/skills/`; legacy `.agent/skills/` | `~/.gemini/config/skills/` | [Antigravity Skills](https://antigravity.google/docs/skills). Product documentation does not establish identical discovery in every `agy` CLI version. |
+| Antigravity | `.agents/skills/` | `~/.gemini/config/skills/` | [Antigravity Skills](https://antigravity.google/docs/skills). Product documentation does not establish identical discovery in every `agy` CLI version. |
 | Gemini CLI | `.gemini/skills/` or `.agents/skills/` | `~/.gemini/skills/` or `~/.agents/skills/` | [Gemini CLI Skills](https://geminicli.com/docs/cli/skills/). Native management and activation consent are host behavior. |
 | Copilot | `.github/skills/`, `.claude/skills/`, `.agents/skills/` | `~/.copilot/skills/` or `~/.agents/skills/` | [Copilot Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills). Availability varies across IDE, CLI, cloud and review surfaces. |
 

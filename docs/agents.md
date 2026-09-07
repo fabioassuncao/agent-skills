@@ -210,7 +210,7 @@ invocation.
 The second row is the one that changes what you can see: before it, an agent
 waiting on a permission prompt was indistinguishable from an agent still
 thinking, including in `headless`, where nobody is watching a terminal. It shows
-up in the dashboard, in `session.json` under `agent`, and in the run's log.
+up in the dashboard, in the canonical session snapshot, and in the run's log.
 
 Every event is also written to the `agent_events` table, so a block that
 happened while nothing was watching can still be looked up afterwards.
@@ -273,7 +273,7 @@ single agent session.
 Switching a tab preserves the live provider process. If its pane is gone,
 `issue-flow worktree refresh <branch>` or selecting that orphan resumes its
 exact conversation in a newly authenticated pane; it never implements the
-upstream's destructive kill-and-recreate refresh.
+destructive kill-and-recreate refresh.
 
 ### Exporting a conversation, and handing it to the next agent
 

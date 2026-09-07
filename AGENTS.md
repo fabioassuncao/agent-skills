@@ -27,8 +27,8 @@ those live in the documents referenced below, which are the source of truth.
   selection by phase, authentication, permission, token economy, troubleshooting
 - [`docs/issues.md`](docs/issues.md) — GitHub and local providers, conflict
   resolution, hierarchy discovery and multi-issue queues
-- [`docs/storage.md`](docs/storage.md) — the global tree, the project id, the
-  project registry, `tasks.json`, `session.json`, telemetry and the legacy migration
+- [`docs/storage.md`](docs/storage.md) — the global tree, project identity,
+  SQLite persistence, the project registry and agent-facing artifacts
 - [`docs/web-monitor.md`](docs/web-monitor.md) — the dashboard, its HTTP API, the
   single-instance server and serving several projects at once
 - [`docs/resilience.md`](docs/resilience.md) — failure taxonomy, retry table,
@@ -50,11 +50,6 @@ those live in the documents referenced below, which are the source of truth.
 - [`docs/skills.md`](docs/skills.md) — Skill sources, artifacts, sync and validation
 - [`docs/skills-compatibility.md`](docs/skills-compatibility.md) — official host support
 - [`docs/skills-evals.md`](docs/skills-evals.md) — behavioral scenarios and evidence
-- [`docs/provenance.md`](docs/provenance.md) — every unit absorbed from WebMux, with
-  origin, commit and strategy; the frozen upstream baseline lives here
-- [`docs/absorption-trace.md`](docs/absorption-trace.md) — the behavioural chain per
-  ported module: original, existing behaviour, adaptations, what was deliberately not
-  ported, and the parity tests
 
 ## Research
 
@@ -79,24 +74,6 @@ decisions — never a source of truth for behaviour.
 
 - [`docs/research/2026-09-06-agent-skills-audit.md`](docs/research/2026-09-06-agent-skills-audit.md)
   — Agent Skills refactor, Skill Creator/Ralph comparison, triggering holdout and comparative eval harness
-
-- [`docs/research/2026-09-06-webmux-absorption.md`](docs/research/2026-09-06-webmux-absorption.md)
-  — WebMux absorption plan: measured critical path, agent wrappers, worktree/tmux/sandbox
-  architecture, Git-convention findings and the phased port roadmap
-  — its executable companion is
-  [`docs/research/2026-09-06-webmux-absorption-prompt.md`](docs/research/2026-09-06-webmux-absorption-prompt.md),
-  the master prompt that drives the port one phase at a time
-  — and its follow-up,
-  [`docs/research/2026-09-06-webmux-parity-completion-prompt.md`](docs/research/2026-09-06-webmux-parity-completion-prompt.md):
-  the mutation routes the absorption never wrote, which is why several ported
-  dialogs are unreachable, plus how to close them and how to measure parity
-  against the screen rather than against the modules
-
-- [`docs/research/2026-09-06-graph-repos-deep-dive.md`](docs/research/2026-09-06-graph-repos-deep-dive.md)
-  — deep dive into four "graph" repositories (Awesome-Graph-Engineering, RepoGraph,
-  agent-graph, GraphCode): what each one actually is, component-level absorption verdicts,
-  licence constraints (including a dual MIT/FSL boundary), and the seven pieces worth
-  incorporating now; evidence for `#116` and `#125`
 
 ## Developing
 
@@ -124,7 +101,7 @@ the code, and was learned the hard way.
 | Default taxonomy and git naming (branch / commit / PR) | [`packages/issue-flow/src/conventions/AGENTS.md`](packages/issue-flow/src/conventions/AGENTS.md) |
 | Multi-issue queue plan, confirm and order | [`packages/issue-flow/src/execution/AGENTS.md`](packages/issue-flow/src/execution/AGENTS.md) |
 | Issue model, providers, resolver, relation graph, and GitHub Pull Request / CI reading | [`packages/issue-flow/src/issues/AGENTS.md`](packages/issue-flow/src/issues/AGENTS.md) |
-| Execution telemetry and compatibility projections | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |
+| Execution telemetry | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |
 | Git conventions (branch, commit, PR title) | [`docs/git-conventions.md`](docs/git-conventions.md) |
 | Failure taxonomy and retry policy | [`packages/issue-flow/src/resilience/AGENTS.md`](packages/issue-flow/src/resilience/AGENTS.md) |

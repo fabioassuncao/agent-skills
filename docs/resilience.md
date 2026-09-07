@@ -118,7 +118,7 @@ going without me* — and expands to what that intent implies:
 | `provider_crash` | 5 attempts |
 | Provider failover | on |
 | A failing issue in a queue | `--on-issue-failure skip` |
-| The event journal | on (`events.jsonl`) |
+| Canonical event history | recorded in SQLite |
 | The inactivity watchdog | on (10 minutes of silence) |
 
 Two properties keep it honest:
@@ -135,8 +135,7 @@ Two properties keep it honest:
 ## Provider failover
 
 With failover enabled, provider health is learned from real invocations and
-persisted transactionally in SQLite; `providers.json` is retained as a legacy
-JSON fallback for existing installations.
+persisted transactionally in SQLite.
 
 - `provider_down`, `provider_crash`, `rate_limit`, `timeout` and `stalled` can
   move the next attempt through the configured chain.
@@ -215,30 +214,9 @@ In a [multi-issue queue](issues.md#hierarchies-and-queues),
 `resilience.queue.maxIssueAttempts` (default 3) bounds how many times one issue
 may be attempted inside a queue.
 
-## The event journal
+## Canonical event history
 
-`session.json` is a *projection*: the reducer folds every event into one snapshot
-and the events themselves are discarded. That is the right shape for a dashboard
-and the wrong one for an audit — after a six-hour run, "what happened at 3am" has
-no answer.
-
-The journal writes the **events** instead of the state: one JSON line each, in
-order, with a monotonic `seq`. It sits beside `session.json`, never in its place,
-and replaying it through the reducer reproduces the snapshot.
-
-```json
-{"seq":41,"event":{"type":"failover","at":"…","from":"claude","to":"codex","reason":"provider_down"}}
-```
-
-It is **opt-in** (`resilience.journal.enabled`, implied by `--continuous`), and
-rotates at `maxFileBytes` (10 MB by default) into `events.1.jsonl`. Nothing is
-throttled: dropping or coalescing events is exactly what the snapshot already
-does, and the point of the journal is that it does not.
-
-Read it with [`issue-flow logs`](commands.md#operating-a-run), or through the
-*"Histórico"* tab of the [web monitor](web-monitor.md). It is also what
-[`resume`](commands.md#resume--continue-an-interrupted-pipeline) uses to name the
-phase that was interrupted.
+Every session event is appended to SQLite with a monotonic sequence. The dashboard, `logs`, recovery and decomposition read those rows directly; there is no parallel JSONL journal or snapshot file. Replaying the ordered records through the reducer reproduces the live snapshot.
 
 ## When an issue is too large
 

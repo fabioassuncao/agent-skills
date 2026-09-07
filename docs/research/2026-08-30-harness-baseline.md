@@ -41,8 +41,8 @@ envelope underestimates the real cost.
 
 ## Medição B — telemetria real da issue #63 (p50 ≈ valor único)
 
-`session.json` of a live run (22 User Stories, 3 iterations done). A single
-observation is both p50 and p95 until `real` mode collects N repeats.
+Snapshot of a live run from SQLite (22 User Stories, 3 iterations done). A
+single observation is both p50 and p95 until `real` mode collects N repeats.
 
 | Classe (aprox.) | Fase | Wall (s) | Output tokens | tok/s | Custo | Estratégia |
 |---|---|---|---|---|---|---|

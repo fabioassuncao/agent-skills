@@ -31,7 +31,7 @@ repository convention. They do not depend on which agent ran the phase.
 Cursor CLI runner`) because that is the topic of the change. It must never
 appear as the **type** or the **scope** because that would record the executor.
 
-Provider, model, duration, retries and cost live in `session.json` and in the
+Provider, model, duration, retries and cost live in SQLite session history and in the
 execution header. They do not enter a branch, a commit, a PR title, a PR body,
 a tag, a release or the changelog.
 
@@ -56,9 +56,6 @@ Work with no issue takes one of two other paths: a free description with a
 generator configured produces a flat kebab-case name of at most 40 characters
 and **no prefix**; anything else produces `change-<uuid8>`. Without a configured
 generator — the default — no model is ever called to name a branch.
-
-`issue/{N}-*` remains recognised when extracting a number, so existing branches
-are not renamed and a resumed run keeps `tasks.json.branchName`.
 
 ```bash
 issue-flow conventions branch --issue 63

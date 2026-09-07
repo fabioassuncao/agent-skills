@@ -87,12 +87,12 @@ automatically does so with no calibration step and no way to measure regret.
 
 ### What is implemented today
 
-`VERIFIED_CODE`, read at `ac730ad` on branch `issue/63-execucao-autonoma-resiliencia`.
+`VERIFIED_CODE`, read at `ac730ad` on branch `feat/63-execucao-autonoma-resiliencia`.
 
 | Module | State | What it owns |
 |---|---|---|
 | `src/resilience/` | **landed** | `errors.ts` (`classify`, 12 `FailureKind`s), `policy.ts` (`resolvePolicy`, backoff, run state machine), `retry.ts` (`withRetry` — the only retry loop) |
-| `src/core/journal.ts` | landed | append-only `events.jsonl`, replayable into the snapshot |
+| `src/core/journal.ts` | landed | serialized event parsing and replay utilities for persisted SQLite events |
 | `src/core/shutdown.ts` | landed | ordered SIGINT/SIGTERM: abort → checkpoint → kill child → close surfaces |
 | `src/core/watchdog.ts`, `stream.ts` | in progress (untracked) | inactivity detection |
 | `src/storage/lock.ts` | landed | run ownership, pid + heartbeat |

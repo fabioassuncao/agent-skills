@@ -142,10 +142,10 @@ Full reference: [**Commands**](commands.md).
 Pipeline artifacts use the shared resolved store: normally
 `~/.issue-flow/projects/<project-id>/issues/<issue-id>/`, or
 `<workspace>/.issue-flow/issues/<issue-id>/` when that local opt-in already
-exists. They include the PRD, task plan and session projections and are never
+exists. They include the PRD and task-plan projection and are never
 tracked source files. The repository's code changes and commits remain in the
-working tree. For selection, ignore policy, SQLite, identity, telemetry and
-legacy migration, see [Storage and artifacts](storage.md).
+working tree. For selection, ignore policy, SQLite, identity and telemetry,
+see [Storage and artifacts](storage.md).
 
 ## Inspect artifacts without an agent
 
@@ -228,7 +228,7 @@ selection, authentication, permissions and token reporting belong in
 | Configuration and prompt overrides | [Configuration](configuration.md) |
 | Agent setup, selection, permissions and troubleshooting | [Agents](agents.md) |
 | GitHub/local providers, hierarchies and queues | [Issue sources](issues.md) |
-| Artifacts, SQLite, schemas, telemetry and migration | [Storage](storage.md) |
+| Artifacts, SQLite, schemas and telemetry | [Storage](storage.md) |
 | Dashboard and HTTP API | [Web monitoring](web-monitor.md) |
 | Retries, failover and recovery | [Resilience](resilience.md) |
 | Acceptance contract, independent review and routing | [Verification](verification.md) |

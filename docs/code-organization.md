@@ -96,8 +96,8 @@ tests must exercise these protocols rather than writing artifacts from a stub.
 | `routing/` | Shadow / active model-aware selection and escalation |
 | `runtime/` | Where an agent runs: the `headless` / `interactive` / `sandbox` contract. `headless` is the default and never depends on tmux, docker or a worktree |
 | `scaffold/` | Plan-then-apply initialization that fills gaps, never overwrites |
-| `storage/` | Global tree (`~/.issue-flow`), artifact paths, legacy migration |
-| `telemetry/` | Execution history written to canonical SQLite storage and materialized into compatibility projections |
+| `storage/` | Global tree (`~/.issue-flow`), SQLite and artifact paths |
+| `telemetry/` | Execution history written to canonical SQLite storage |
 | `ui/` | Terminal output (clean view, icon grammar, pipeline renderer) |
 | `utils/` | Shared process / git / fs primitives with no domain rules |
 | `verify/` | Acceptance contract and independent reviewer |
@@ -158,7 +158,7 @@ orchestration runtime or part of the distributed Skills.
   existing call sites (`run.ts`, `config.ts`, `session-state.ts`) are the
   exception, and they only re-export.
 - Move and change behaviour in **separate commits**. Behaviour is
-  contract: `tasks.json`, `session.json`, `.issue-flow.json`, environment
+  contract: `tasks.json`, SQLite session snapshots, `.issue-flow.json`, environment
   variables and documented exit codes do not change under a refactor.
 
 ## Tooling

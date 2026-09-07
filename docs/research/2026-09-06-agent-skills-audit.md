@@ -164,10 +164,10 @@ atingir o máximo.
 | Mecanismo Ralph | Equivalente no Issue Flow | Decisão |
 |---|---|---|
 | Iteração com feedback do workspace | `execute-tasks`, checks e `progress.txt`; CLI execute loop | Já existe; não duplicar |
-| Estado persistido em arquivo | `tasks.json`, `session.json`, journal/SQLite | Já existe em formas portáteis e na CLI |
+| Estado persistido | artefato `tasks.json` e estado canônico no SQLite | Já existe em formas portáteis e na CLI |
 | Completion promise exata | `completion-signal.md` + verificação fresca | Já existe e é mais forte que texto isolado |
 | Máximo de iterações | `maxIterations` e `maxCorrectionCycles` | Já existe |
-| Recuperação e registro do que foi tentado | `lastError`, progress, journal e taxonomy de retry | Já existe |
+| Recuperação e registro do que foi tentado | `lastError`, progress, eventos SQLite e taxonomy de retry | Já existe |
 | Detecção de falta de progresso | watchdog e decomposição após sinais convergentes | Já existe |
 | Stop hook/transcript/slash commands | Lifecycle exclusivo do Claude Code | Rejeitado para o core |
 | Repetir cegamente o prompt inicial | Pode conservar contexto obsoleto | Rejeitado; Issue Flow projeta estado atual e evidência |

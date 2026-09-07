@@ -8,7 +8,7 @@ The reviewed baseline is **557bcec**. All ten original Skills, their README file
 
 Every original Skill referenced a sibling `_shared` policy directory. Copying just one directory therefore broke its dependency closure. The shared policy could invoke/download the CLI, and conventions depended on repository files or CLI commands. The init fallback referred outside the artifact. Long entry points mixed procedure and conditional detail; discovery text lacked tested near-neighbor boundaries. The orchestrator was Claude-specific. Conversion mandated handoff; review could publish/close implicitly; execution carried provider-specific instruction-file behavior. Both PR review surfaces requested unsupported `gh pr diff --stat`/file-filter forms.
 
-The CLI already owned its prompts and runtime. Its storage/locks/SQLite were never appropriate dependencies of a portable Skill. Two additional validation gaps emerged during implementation: npm packaging stripped the required `node:` prefix from SQLite, and the existing smoke still asserted against legacy repository-local output paths.
+The CLI already owned its prompts and runtime. Its storage/locks/SQLite were never appropriate dependencies of a portable Skill. Two additional validation gaps emerged during implementation: npm packaging stripped the required `node:` prefix from SQLite, and the smoke asserted against repository-local output paths instead of the current artifact location.
 
 ## Architecture before and after
 
