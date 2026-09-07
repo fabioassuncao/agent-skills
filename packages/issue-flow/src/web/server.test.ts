@@ -4,12 +4,24 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createAgentSession, saveSession } from '../agents/session/store.js';
 import {
   createInitialSnapshot,
   MemoryPublisher,
   type SessionSnapshot,
 } from '../core/session-state.js';
+import {
+  buildProjectSessionName,
+  buildWorktreeParkingWindowName,
+  buildWorktreeWindowName,
+} from '../runtime/tmux/names.js';
 import { sessionSnapshotSchema } from '../schemas.js';
+import {
+  loadWorktree,
+  type PlanRepositoryContext,
+  saveWorktree,
+} from '../storage/db/repository.js';
+import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import {
   SESSION_LIST_DESCRIPTION_MAX,
   startWebServer,
@@ -987,9 +999,11 @@ describe('startWebServer — the terminal surface (absorption phase 8)', () => {
 
 describe('startWebServer — the session listing (absorption phase 8D)', () => {
   const handles: WebServerHandle[] = [];
+  const agentTmpDirs: string[] = [];
 
   afterEach(async () => {
     for (const handle of handles.splice(0)) await handle.close();
+    for (const dir of agentTmpDirs.splice(0)) await rm(dir, { recursive: true, force: true });
   });
 
   async function start(
@@ -1044,6 +1058,480 @@ describe('startWebServer — the session listing (absorption phase 8D)', () => {
   it('never announces the mutation surface it does not serve', async () => {
     const handle = await start({ worktrees: { resolveProject: async () => null } });
     const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('worktrees:mutate');
+  });
+
+  it('announces worktree mutations only when loopback and runtime wiring agree', async () => {
+    const handle = await start({
+      worktrees: {
+        writable: true,
+        resolveProject: async () => null,
+        resolveRuntime: async () => null,
+      },
+    });
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('worktrees:mutate');
     expect(health.capabilities).not.toContain('worktrees');
+  });
+
+  it('HTTP-gates a mutation even when a dependency incorrectly claims writable off loopback', async () => {
+    const handle = await start({
+      host: '0.0.0.0',
+      worktrees: {
+        writable: true,
+        resolveProject: async () => null,
+        resolveRuntime: async () => null,
+      },
+    });
+    const response = await fetch(`${handle.url}/api/worktrees`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(response.status).toBe(403);
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('worktrees:mutate');
+  });
+
+  it('serves custom-agent CRUD over HTTP and announces granular capabilities', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'issue-flow-agent-http-'));
+    agentTmpDirs.push(projectRoot);
+    const handle = await start({
+      agents: {
+        writable: true,
+        resolveProject: async () => ({ projectRoot }),
+      },
+    });
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('agents:read');
+    expect(health.capabilities).toContain('agents:write');
+
+    const created = await fetch(`${handle.url}/api/agents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Gemini CLI', startCommand: `gemini "\${PROMPT}"` }),
+    });
+    expect(created.status).toBe(200);
+    expect((await created.json()).agent.id).toBe('gemini-cli');
+
+    const listed = await fetch(`${handle.url}/api/agents`);
+    expect((await listed.json()).agents).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'gemini-cli', kind: 'custom' })]),
+    );
+
+    const updated = await fetch(`${handle.url}/api/agents/gemini-cli`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Gemini Pro', startCommand: 'gemini pro' }),
+    });
+    expect(updated.status).toBe(200);
+    expect((await updated.json()).agent.label).toBe('Gemini Pro');
+
+    expect(
+      (
+        await fetch(`${handle.url}/api/agents/gemini-cli`, {
+          method: 'DELETE',
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it('keeps agent reads and validation available remotely while refusing writes', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'issue-flow-agent-remote-'));
+    agentTmpDirs.push(projectRoot);
+    const handle = await start({
+      host: '0.0.0.0',
+      agents: {
+        writable: true,
+        resolveProject: async () => ({ projectRoot }),
+      },
+    });
+    const url = `http://127.0.0.1:${handle.port}`;
+    const health = await (await fetch(`${url}/api/health`)).json();
+    expect(health.capabilities).toContain('agents:read');
+    expect(health.capabilities).not.toContain('agents:write');
+    const listed = await fetch(`${url}/api/agents`);
+    expect(listed.status).toBe(200);
+    expect(
+      (await listed.json()).agents.every(
+        (agent: { startCommand: unknown }) => agent.startCommand === null,
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await fetch(`${url}/api/agents/validate`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ label: 'X', startCommand: 'x' }),
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${url}/api/agents`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ label: 'X', startCommand: 'x' }),
+        })
+      ).status,
+    ).toBe(403);
+    expect((await fetch(`${url}/api/agents/%ZZ`, { method: 'DELETE' })).status).toBe(400);
+  });
+
+  it('dispatches encoded worktree resources to the canonical runtime operation', async () => {
+    const setLabel = vi.fn(async () => ({}));
+    const worktrees = {
+      list: async () => [
+        {
+          branch: 'feat/http',
+          path: '/worktrees/feat/http',
+          entry: {
+            path: '/worktrees/feat/http',
+            branch: 'feat/http',
+            head: 'abc',
+            bare: false,
+            detached: false,
+          },
+          binding: { branch: 'feat/http', worktreeId: 'wt-http' },
+          state: 'managed',
+        },
+      ],
+      setLabel,
+    };
+    const handle = await start({
+      worktrees: {
+        writable: true,
+        resolveProject: async () => null,
+        resolveRuntime: async () =>
+          ({
+            projectId: 'project',
+            deps: { projectId: 'project', worktrees },
+            worktrees,
+            profileNames: [],
+          }) as never,
+      },
+    });
+    const response = await fetch(`${handle.url}/api/worktrees/feat%2Fhttp/label`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'HTTP path' }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, label: 'HTTP path' });
+    expect(setLabel).toHaveBeenCalledWith('feat/http', 'HTTP path');
+  });
+
+  it('dispatches create, select, refresh and delete tab routes over HTTP', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'issue-flow-tabs-http-'));
+    agentTmpDirs.push(projectRoot);
+    const branch = 'feat/http-tabs';
+    const projectId = 'project-tabs-http';
+    const worktreeId = 'wt-tabs-http';
+    const storage: PlanRepositoryContext = {
+      tasksPath: '',
+      projectId,
+      issueId: '',
+      projectRoot,
+      databaseOptions: { env: { [GLOBAL_ROOT_ENV]: projectRoot } },
+    };
+    const timestamp = '2026-09-06T12:00:00.000Z';
+    const binding = {
+      worktreeId,
+      branch,
+      path: projectRoot,
+      baseBranch: 'main',
+      label: null,
+      profile: 'default',
+      agent: 'claude',
+      runtime: 'host' as const,
+      startupEnvValues: {},
+      allocatedPorts: {},
+      source: null,
+      conversationId: null,
+      archived: false,
+      activeAgentSessionId: null,
+      tabSequenceCounter: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await saveWorktree(storage, binding);
+    const root = createAgentSession({
+      branch,
+      worktreeId,
+      provider: 'claude',
+      permission: 'workspace',
+      conversationId: 'root-http-conversation',
+      paneTarget: '%1',
+      tabSequence: 0,
+      status: 'running',
+    });
+    await saveSession(storage, root);
+    await saveWorktree(storage, { ...binding, activeAgentSessionId: root.id });
+
+    const sessionName = buildProjectSessionName(projectId);
+    const mainWindow = buildWorktreeWindowName(branch);
+    const parkingWindow = buildWorktreeParkingWindowName(worktreeId);
+    const panes = new Map<string, string>([['%1', mainWindow]]);
+    const tokens = new Map<string, string>([['%1', root.paneToken as string]]);
+    let nextPane = 2;
+    const tmux = {
+      isAvailable: async () => true,
+      hasWindow: async () => true,
+      hasWindowStrict: async (_session: string, window: string) =>
+        [...panes.values()].includes(window),
+      getPaneId: async () => '%1',
+      getPaneWindow: async (pane: string) => panes.get(pane) as string,
+      hasPaneStrict: async (pane: string) => panes.has(pane),
+      getPaneIdentity: async (pane: string) => ({
+        paneId: pane,
+        sessionName,
+        windowName: panes.get(pane) as string,
+        ownerToken: tokens.get(pane) ?? null,
+      }),
+      tagPaneOwner: async (pane: string, token: string) => void tokens.set(pane, token),
+      createParkedPane: async () => {
+        const pane = `%${nextPane++}`;
+        panes.set(pane, parkingWindow);
+        return pane;
+      },
+      runCommand: async () => {},
+      swapPanes: async (left: string, right: string) => {
+        const leftWindow = panes.get(left) as string;
+        panes.set(left, panes.get(right) as string);
+        panes.set(right, leftWindow);
+      },
+      movePaneToWindow: async (pane: string, destination: string) =>
+        void panes.set(pane, destination.slice(destination.indexOf(':') + 1)),
+      selectPane: async () => {},
+      killPaneStrict: async (pane: string) => {
+        panes.delete(pane);
+        tokens.delete(pane);
+      },
+      listPaneLocations: async () =>
+        [...panes].map(([paneId, windowName]) => ({
+          paneId,
+          sessionName,
+          windowName,
+          ownerToken: tokens.get(paneId) ?? null,
+        })),
+    };
+    const worktrees = {
+      list: async () => [
+        {
+          branch,
+          path: projectRoot,
+          entry: { path: projectRoot, branch, head: null, bare: false, detached: false },
+          binding: await loadWorktree(storage, branch),
+          state: 'managed' as const,
+        },
+      ],
+      remove: async () => {},
+    };
+    const runtime = {
+      projectId,
+      projectRoot,
+      storage,
+      profileName: 'default',
+      profileNames: ['default'],
+      profileConfigs: [{ name: 'default' }],
+      mainBranch: 'main',
+      startupEnv: {},
+      services: [],
+      worktrees,
+      git: { resolveWorktreeGitDir: async () => join(projectRoot, '.git') },
+      deps: {
+        projectId,
+        projectRoot,
+        storage,
+        worktrees,
+        tmux,
+        git: { resolveWorktreeGitDir: async () => join(projectRoot, '.git') },
+        branchExists: async () => true,
+        panes: [{ id: 'agent', kind: 'agent', focus: true }],
+        profileName: 'default',
+        shellPath: '/bin/sh',
+      },
+    };
+    const handle = await start({
+      worktrees: {
+        writable: true,
+        resolveProject: async () => null,
+        resolveRuntime: async () => runtime as never,
+      },
+    });
+    const encoded = encodeURIComponent(branch);
+    const created = await fetch(`${handle.url}/api/worktrees/${encoded}/tabs`, {
+      method: 'POST',
+    });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { tab: { tabId: string } };
+
+    expect(
+      (
+        await fetch(`${handle.url}/api/worktrees/${encoded}/tabs/${createdBody.tab.tabId}/select`, {
+          method: 'POST',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${handle.url}/api/worktrees/${encoded}/agent-terminal/refresh`, {
+          method: 'POST',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${handle.url}/api/worktrees/${encoded}/tabs/${createdBody.tab.tabId}`, {
+          method: 'DELETE',
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it('serves Linear, auto-name and integration settings with loopback-only mutations', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'issue-flow-integrations-http-'));
+    agentTmpDirs.push(projectRoot);
+    const postConversation = vi.fn(async () => ({
+      issueId: 'ENG-12',
+      issueUrl: 'https://linear/ENG-12',
+      commentUrl: 'https://linear/comment/12',
+      attachmentUrl: 'https://linear/attachment/12',
+    }));
+    const runtime = { projectRoot } as never;
+    const handle = await start({
+      integrations: {
+        writable: true,
+        env: { LINEAR_API_KEY: 'server-secret' },
+        resolveRuntime: async () => runtime,
+        createLinearClient: () => ({
+          fetchAssignedIssues: async () => [],
+          postConversation,
+        }),
+        readConversation: async () => ({
+          markdown: 'conversa HTTP',
+          attachment: {
+            issueFlowConversation: 1,
+            branch: 'feat/http',
+            baseBranch: 'main',
+            agent: 'codex',
+            createdAt: '2026-09-06T00:00:00.000Z',
+            conversation: [],
+          },
+        }),
+      },
+    });
+
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toEqual(
+      expect.arrayContaining(['linear:read', 'linear:write', 'settings:write']),
+    );
+    expect(await (await fetch(`${handle.url}/api/linear/issues`)).json()).toEqual({
+      availability: 'ready',
+      issues: [],
+    });
+    expect((await fetch(`${handle.url}/api/project/auto-name`)).status).toBe(200);
+
+    const toggle = await fetch(`${handle.url}/api/linear/auto-create`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(toggle.status).toBe(200);
+
+    const posted = await fetch(`${handle.url}/api/worktrees/feat%2Fhttp/linear`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ target: { kind: 'issue', issueId: 'ENG-12' } }),
+    });
+    expect(posted.status).toBe(200);
+    expect(postConversation).toHaveBeenCalledWith(
+      { kind: 'issue', issueId: 'ENG-12' },
+      {
+        branch: 'feat/http',
+        markdown: 'conversa HTTP',
+        attachment: expect.objectContaining({ issueFlowConversation: 1, branch: 'feat/http' }),
+      },
+    );
+  });
+
+  it('does not announce or allow integration mutations off loopback', async () => {
+    let linearReads = 0;
+    const handle = await start({
+      host: '0.0.0.0',
+      integrations: {
+        writable: true,
+        env: { LINEAR_API_KEY: 'remote-http-secret' },
+        resolveRuntime: async () => ({ projectRoot: '/tmp/project' }) as never,
+        createLinearClient: () => ({
+          fetchAssignedIssues: async () => {
+            linearReads += 1;
+            if (linearReads === 1) throw new Error('Linear echoed remote-http-secret');
+            return [
+              {
+                id: 'id-1',
+                identifier: 'ENG-1',
+                title: 'Título normal',
+                description: 'Descrição remote-http-secret',
+                priority: 1,
+                priorityLabel: 'Urgente',
+                url: 'https://linear/remote-http-secret',
+                branchName: 'eng-1',
+                dueDate: null,
+                updatedAt: '2026-09-06T00:00:00Z',
+                state: { name: 'Todo', color: '#fff', type: 'unstarted' },
+                team: { name: 'Engineering', key: 'ENG' },
+                labels: [],
+                project: null,
+              },
+            ];
+          },
+          postConversation: vi.fn(),
+        }),
+      },
+    });
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('linear:read');
+    expect(health.capabilities).not.toContain('linear:write');
+    expect(health.capabilities).not.toContain('settings:write');
+    const linear = await fetch(`${handle.url}/api/linear/issues`);
+    expect(linear.status).toBe(502);
+    expect(await linear.text()).not.toContain('remote-http-secret');
+    const linearData = await fetch(`${handle.url}/api/linear/issues`);
+    expect(linearData.status).toBe(200);
+    const linearText = await linearData.text();
+    expect(linearText).toContain('[redacted]');
+    expect(linearText).not.toContain('remote-http-secret');
+    expect((await fetch(`${handle.url}/api/config/project`)).status).toBe(403);
+    expect(
+      (
+        await fetch(`${handle.url}/api/github/auto-remove-on-merge`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ enabled: true }),
+        })
+      ).status,
+    ).toBe(403);
+  });
+
+  it('returns typed statuses for malformed and oversized JSON mutation bodies', async () => {
+    const handle = await start({
+      integrations: {
+        writable: true,
+        resolveRuntime: async () => ({ projectRoot: '/tmp/project' }) as never,
+      },
+    });
+    const malformed = await fetch(`${handle.url}/api/linear/auto-create`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: '{',
+    });
+    expect(malformed.status).toBe(400);
+    const oversized = await fetch(`${handle.url}/api/linear/auto-create`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true, padding: 'x'.repeat(70 * 1024) }),
+    });
+    expect(oversized.status).toBe(413);
   });
 });

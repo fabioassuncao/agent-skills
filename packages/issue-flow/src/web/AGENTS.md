@@ -120,10 +120,47 @@ ambiguous without an id. `GET /api/sessions` always lists every entry
 
 `GET /api/config` returns the configuration captured in the requested snapshot,
 the live routing preference and the installed-harness model catalog;
-`GET /api/diagnostics` filters the machine-wide JSONL log by session. The only
-write routes, `POST /api/config/agent` and `POST /api/config/routing`, delegate
-to the canonical preference writers and are advertised/enabled only for
-loopback bindings. Remote monitoring must never expose configuration mutation.
+`GET /api/diagnostics` filters the machine-wide JSONL log by session.
+
+Write authority is split by capability. `POST /api/config/{agent,routing}`
+delegates to preference writers; `worktrees:mutate` delegates every worktree
+action through `agents/session/worktree-control.ts`; `agents:write` delegates
+custom-agent CRUD through `config/custom-agents.ts`; `linear:write` and
+`settings:write` delegate project integration toggles through
+`config/project-settings.ts`. All are
+advertised/enabled only for loopback bindings. `agents:read` may be remote, but
+`GET /api/agents` then redacts `startCommand` and `resumeCommand`. Remote
+monitoring must never expose mutation or a custom command template.
+
+Agent-tab mutation is a separate `worktrees:tabs` capability and delegates to
+the locked `agents/session/tabs.ts` domain: create/select/delete never assemble
+tmux commands in the HTTP handler. Terminal recovery is separately announced as
+`terminal:refresh`; its route is strictly reattach-or-resume and never a generic
+restart. Both capabilities are loopback-only. Route parameters called `tabId`
+are Issue Flow `AgentSession.id` values, never provider conversation ids.
+
+The terminal upgrade is project-aware too. Unlike ordinary HTTP requests, a
+WebSocket upgrade does not pass through the project router, so the terminal
+handler must accept both `/ws/terminal` and `/<project>/ws/terminal`, resolve the
+prefix itself and scope a prefixed socket to that `ProjectRuntime`. Never fall
+back from a valid project prefix to a session belonging to another project.
+
+Service health is projected from the durable worktree binding with the same
+effective environment used to launch it: persisted startup values first, then
+the allocated service ports (which win on collision). Expanding a service URL
+with only the port map loses variables such as `${HOST}` and produces a broken
+link even when the process itself is healthy.
+
+`GET /api/linear/issues` is a remote-capable read under `linear:read`, but its
+payload and failures pass through the Linear credential redactor. Posting a
+conversation, changing Linear auto-create and changing GitHub auto-remove are
+loopback writes. The Linear client owns its API key in a closure and its signed
+upload validation; the HTTP handler must never accept an upload URL or key from
+the browser.
+
+`GET /api/project/auto-name` reads `config/auto-name.ts`, which resolves the
+same constants/prompt that `web/worktrees-api.ts` passes to the canonical
+`conventions/git/auto-name.ts`. Do not add a web-only generator.
 
 `GET /api/events?session=<id>` reads the ordered SQLite event stream. The
 publisher-backed legacy source returns an empty history because it has no

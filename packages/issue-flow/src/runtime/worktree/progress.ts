@@ -16,7 +16,7 @@ export type WorktreeCreationPhase =
   | 'reconciling';
 
 /** Who asked for the worktree. Kept from the upstream: it survives into the UI. */
-export type WorktreeSource = 'cli' | 'ui' | 'api';
+export type WorktreeSource = 'cli' | 'ui' | 'api' | 'oneshot';
 
 export interface WorktreeCreationProgress {
   branch: string;

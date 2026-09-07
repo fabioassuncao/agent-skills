@@ -741,6 +741,7 @@ export const linkedRepoSchema = z.object({
 export const githubConfigSchema = z.object({
   linkedRepos: z.array(linkedRepoSchema).default([]),
   syncIntervalMs: z.number().int().min(1_000).default(10_000),
+  autoRemoveOnMerge: z.boolean().default(false),
 });
 
 /**

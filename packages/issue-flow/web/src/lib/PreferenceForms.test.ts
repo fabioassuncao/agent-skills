@@ -7,6 +7,7 @@ vi.mock('./api', () => ({
     configRoutingWrite: 'config:routing:write',
     streamSessions: 'stream:sessions',
     terminalAttach: 'terminal:attach',
+    worktreeMutations: 'worktrees:mutate',
     worktrees: 'worktrees',
     conversation: 'agent:conversation',
     services: 'services',

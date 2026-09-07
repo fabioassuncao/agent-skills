@@ -3,6 +3,7 @@ import './app.css';
 import { documentTokenReader, measureContrast } from './lib/contrast';
 import ExecutionPanel from './lib/ExecutionPanel.svelte';
 import { createExecutionSnapshot } from './lib/execution-fixtures';
+import type { ThemeKey } from './lib/themes';
 
 /**
  * The measurement harness for U6, U19 and U20.
@@ -53,7 +54,7 @@ if (target !== null) {
 
 declare global {
   interface Window {
-    measureContrastPairs(theme: 'light' | 'dark'): unknown;
+    measureContrastPairs(theme: Exclude<ThemeKey, 'system'>): unknown;
     measureHorizontalOverflow(): unknown;
     measureNowBlock(): unknown;
   }

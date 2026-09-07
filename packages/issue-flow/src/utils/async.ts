@@ -55,10 +55,10 @@ export interface SerializedIntervalDependencies<THandle = ReturnType<typeof setI
  * Returns the stop function.
  */
 export function startSerializedInterval<THandle = ReturnType<typeof setInterval>>(
-  run: () => Promise<void>,
+  run: (signal: AbortSignal) => Promise<void>,
   intervalMs: number,
   deps: SerializedIntervalDependencies<THandle> = {},
-): () => void {
+): () => Promise<void> {
   const scheduleEvery =
     deps.scheduleEvery ?? ((handler, ms) => setInterval(handler, ms) as THandle);
   const cancelSchedule =
@@ -70,6 +70,8 @@ export function startSerializedInterval<THandle = ReturnType<typeof setInterval>
   let running = false;
   let rerunRequested = false;
   let stopped = false;
+  let active: Promise<void> = Promise.resolve();
+  let controller: AbortController | null = null;
 
   const execute = (): void => {
     if (stopped) return;
@@ -79,10 +81,15 @@ export function startSerializedInterval<THandle = ReturnType<typeof setInterval>
     }
 
     running = true;
-    void Promise.resolve()
-      .then(run)
+    controller = new AbortController();
+    active = Promise.resolve()
+      .then(() => run(controller!.signal))
+      // Periodic jobs report failures at their own boundary. The scheduler
+      // must still settle so stop() can await quiescence without rejecting.
+      .catch(() => {})
       .finally(() => {
         running = false;
+        controller = null;
         if (stopped || !rerunRequested) return;
         rerunRequested = false;
         execute();
@@ -92,8 +99,10 @@ export function startSerializedInterval<THandle = ReturnType<typeof setInterval>
   execute();
   const handle = scheduleEvery(execute, intervalMs);
 
-  return (): void => {
+  return async (): Promise<void> => {
     stopped = true;
+    controller?.abort();
     cancelSchedule(handle);
+    await active;
   };
 }

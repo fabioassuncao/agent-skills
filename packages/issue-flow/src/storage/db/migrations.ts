@@ -600,6 +600,96 @@ export const migrations: readonly Migration[] = [
         CREATE INDEX handoffs_run_target_idx ON handoffs(run_id, to_phase, created_at);
       `),
   },
+  {
+    version: 20,
+    name: 'remember archived worktrees',
+    // Archive is curation, not git state. It therefore belongs beside the
+    // worktree binding rather than in a second dashboard-only registry.
+    up: (database) =>
+      database.exec(`
+        ALTER TABLE worktrees ADD COLUMN archived INTEGER NOT NULL DEFAULT 0
+          CHECK (archived IN (0, 1));
+      `),
+  },
+  {
+    version: 21,
+    name: 'preserve semantic permission on agent sessions',
+    // Existing sessions predate this field and ran with the historical
+    // workspace default. Persisting it prevents reopen/profile operations from
+    // silently widening a read-only session back to workspace.
+    up: (database) =>
+      database.exec(`
+        ALTER TABLE agent_sessions ADD COLUMN permission TEXT NOT NULL DEFAULT 'workspace'
+          CHECK (permission IN ('read-only', 'workspace', 'autonomous'));
+      `),
+  },
+  {
+    version: 22,
+    name: 'persist worktree agent tabs and active session',
+    // A tab is another AgentSession in the same worktree (ADR-16), not a
+    // dashboard layout row. The provider conversation id remains separate.
+    // The counter lives on the worktree so deleting Fork 2 never recycles 2.
+    up: (database) =>
+      database.exec(`
+        ALTER TABLE agent_sessions ADD COLUMN parent_session_id TEXT;
+        ALTER TABLE agent_sessions ADD COLUMN tab_sequence INTEGER
+          CHECK (tab_sequence IS NULL OR tab_sequence >= 0);
+        ALTER TABLE agent_sessions ADD COLUMN pane_token TEXT;
+        ALTER TABLE worktrees ADD COLUMN active_agent_session_id TEXT;
+        ALTER TABLE worktrees ADD COLUMN tab_sequence_counter INTEGER NOT NULL DEFAULT 0
+          CHECK (tab_sequence_counter >= 0);
+        -- A pre-v22 row had no durable worktree incarnation. It is safe to
+        -- adopt only when it is the sole session ever seen for that branch;
+        -- multiple rows may belong to older incarnations after branch reuse.
+        UPDATE agent_sessions
+           SET worktree_id = (
+             SELECT worktrees.id
+               FROM worktrees
+              WHERE worktrees.project_id = agent_sessions.project_id
+                AND worktrees.branch = agent_sessions.branch
+           )
+         WHERE worktree_id IS NULL
+           AND 1 = (
+             SELECT COUNT(*)
+               FROM agent_sessions AS same_branch
+              WHERE same_branch.project_id = agent_sessions.project_id
+                AND same_branch.branch = agent_sessions.branch
+           );
+        UPDATE agent_sessions
+           SET tab_sequence = 0
+         WHERE id IN (
+           SELECT (
+             SELECT chosen.id
+               FROM agent_sessions AS chosen
+              WHERE chosen.project_id = worktrees.project_id
+                AND chosen.branch = worktrees.branch
+                AND chosen.worktree_id = worktrees.id
+              ORDER BY
+                CASE chosen.status
+                  WHEN 'running' THEN 0
+                  WHEN 'idle' THEN 1
+                  WHEN 'starting' THEN 2
+                  ELSE 3
+                END,
+                chosen.updated_at DESC,
+                chosen.id DESC
+              LIMIT 1
+           )
+             FROM worktrees
+         );
+        UPDATE worktrees
+           SET active_agent_session_id = (
+             SELECT agent_sessions.id
+               FROM agent_sessions
+              WHERE agent_sessions.project_id = worktrees.project_id
+                AND agent_sessions.worktree_id = worktrees.id
+                AND agent_sessions.tab_sequence = 0
+              LIMIT 1
+           );
+        CREATE INDEX agent_sessions_parent_sequence_idx
+          ON agent_sessions(project_id, parent_session_id, tab_sequence);
+      `),
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0;

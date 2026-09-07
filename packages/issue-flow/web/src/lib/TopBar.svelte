@@ -1,13 +1,13 @@
 <script lang="ts">
   import Btn from './Btn.svelte';
+  import LinearBadge from './LinearBadge.svelte';
   import NotificationItem from './NotificationItem.svelte';
   import RepoGroup from './RepoGroup.svelte';
   import type { AppNotification, LinkedRepoInfo, PrEntry, WorktreeInfo } from './types';
   import { makeCursorUrl } from './utils';
 
   /**
-   * PORT of `frontend/src/lib/TopBar.svelte` @ d8c9d5f (407 lines), minus the
-   * Linear badge (ADR-14).
+   * PORT of `frontend/src/lib/TopBar.svelte` @ d8c9d5f (407 lines).
    *
    * The header carries the identity of what is selected, not the product name —
    * the same rule the current panel already applies to its `h1`: the most
@@ -38,6 +38,7 @@
     ondirtyclick,
     onbellopen,
     onnotificationselect,
+    onlinearclick,
     archiving = false,
   }: {
     name: string | null;
@@ -59,6 +60,7 @@
     ondirtyclick?: () => void;
     onbellopen?: () => void;
     onnotificationselect?: (branch: string) => void;
+    onlinearclick?: (issue: NonNullable<WorktreeInfo['linearIssue']>) => void;
     archiving?: boolean;
   } = $props();
 
@@ -172,6 +174,16 @@
                     <path d="M12 20h9" />
                     <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
                   </svg>
+                </button>
+              {/if}
+              {#if worktree?.linearIssue}
+                <button
+                  type="button"
+                  class="shrink-0 bg-transparent border-none p-0 cursor-pointer"
+                  aria-label={`Ver ${worktree.linearIssue.identifier} no Linear`}
+                  onclick={() => onlinearclick?.(worktree.linearIssue as NonNullable<WorktreeInfo['linearIssue']>)}
+                >
+                  <LinearBadge issue={worktree.linearIssue} />
                 </button>
               {/if}
             </span>

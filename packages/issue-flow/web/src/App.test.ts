@@ -11,12 +11,13 @@ import type {
  * PORT of `frontend/src/App.test.ts` @ d8c9d5f — 26 cases.
  *
  * Six upstream cases were Linear (the panel's two states, the ticket option's
- * two, and the two "post conversation to Linear" flows). Linear is not
- * absorbed (ADR-14), so rather than dropping the count they are **replaced** by
- * six cases covering what took their place: the capability gate, the optional
+ * two, and the two "post conversation to Linear" flows). During the initial
+ * frontend port they were **replaced** by six cases covering the capability
+ * gate, the optional
  * issue link that keeps a free session one click away (ADR-16/ADR-17), the
  * authenticated session-keyed terminal (ADR-10), and the push channel that
- * replaced polling (§35).
+ * replaced polling (§35). The restored Linear surface has its own focused
+ * component/API cases below and in `LinearComponents.test.ts`.
  */
 
 const { MockFitAddon, MockTerminal, MockWebSocket } = vi.hoisted(() => {
@@ -117,10 +118,14 @@ vi.mock('./lib/api', () => ({
     terminalAttach: 'terminal:attach',
     sessions: 'sessions',
     sessionOpen: 'session:open',
+    worktreeMutations: 'worktrees:mutate',
     worktrees: 'worktrees',
     conversation: 'agent:conversation',
     services: 'services',
     pullRequests: 'pr:ci',
+    linearRead: 'linear:read',
+    linearWrite: 'linear:write',
+    settingsWrite: 'settings:write',
   },
   api: {
     closeWorktree: vi.fn(),
@@ -147,6 +152,8 @@ vi.mock('./lib/api', () => ({
   connectWorktreeConversationStream: vi.fn(),
   fetchWorktreeConversationHistory: vi.fn(),
   fetchWorktrees: vi.fn(),
+  fetchLinearIssues: vi.fn(async () => ({ availability: 'disabled', issues: [] })),
+  postWorktreeToLinear: vi.fn(),
   interruptWorktreeConversation: vi.fn(),
   refreshWorktreeAgentTerminal: vi.fn(),
   sendWorktreeConversationMessage: vi.fn(),
@@ -196,9 +203,12 @@ import {
   attachWorktreeConversation,
   canCall,
   connectWorktreeConversationStream,
+  createWorktreeTab,
+  deleteWorktreeTab,
   fetchWorktrees,
   hasCapability,
   refreshWorktreeAgentTerminal,
+  selectWorktreeTab,
   setWorktreeLabel,
   setWorktreeProfile,
   subscribeSessions,
@@ -270,6 +280,8 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     defaultProfileName: 'default',
     defaultAgentId: 'claude',
     autoName: false,
+    linearAvailability: 'disabled',
+    linearAutoCreateWorktrees: false,
     linkedRepos: [],
     autoRemoveOnMerge: false,
     projectDir: '/repo',
@@ -437,6 +449,16 @@ describe('App create selection', () => {
     vi.mocked(refreshWorktreeAgentTerminal).mockResolvedValue(undefined);
     vi.mocked(setWorktreeLabel).mockResolvedValue(null);
     vi.mocked(setWorktreeProfile).mockResolvedValue({ profile: 'full', restarted: true });
+    vi.mocked(createWorktreeTab).mockResolvedValue({
+      tabId: 'created-fork',
+      sessionId: 'created-fork',
+      kind: 'fork',
+      label: 'Fork 1',
+      seq: 1,
+      createdAt: '2026-09-06T12:00:00.000Z',
+    });
+    vi.mocked(selectWorktreeTab).mockResolvedValue(undefined);
+    vi.mocked(deleteWorktreeTab).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -722,7 +744,7 @@ describe('App create selection', () => {
   });
 
   it('opens the terminal socket with a token and the selected session', async () => {
-    // Replaces an upstream Linear case (ADR-14): the socket is a remote shell
+    // Replaced an upstream Linear case during the initial frontend port: the socket is a remote shell
     // and never opens unauthenticated (ADR-10), and it is keyed by session
     // rather than branch (§48.3).
     localStorage.setItem(LAST_SELECTED_WORKTREE_STORAGE_KEY, 'feature/live');
@@ -755,7 +777,7 @@ describe('App create selection', () => {
   });
 
   it('refreshes on a pushed frame rather than waiting for an interval', async () => {
-    // Replaces an upstream Linear case (ADR-14). §35 puts a hard 250 ms p95
+    // Replaced an upstream Linear case during the initial frontend port. §35 puts a hard 250 ms p95
     // ceiling on output→screen; the interval is a safety net, not the path.
     let pushSessions: (() => void) | undefined;
     vi.mocked(subscribeSessions).mockImplementation((callbacks) => {
@@ -820,7 +842,7 @@ describe('App create selection', () => {
   });
 
   it('says so honestly when the monitor does not serve worktrees', async () => {
-    // Replaces an upstream Linear-panel case (ADR-14). A monitor bound inline
+    // Replaced an upstream Linear-panel case during the initial frontend port. A monitor bound inline
     // by a pipeline run has no worktree surface; an empty list would read as a
     // failure, so the panel says which monitor this is.
     vi.mocked(canCall).mockReturnValue(false);
@@ -835,7 +857,7 @@ describe('App create selection', () => {
   });
 
   it('offers no worktree creation on a monitor that does not serve them', async () => {
-    // Replaces an upstream Linear-panel case (ADR-14).
+    // Replaced an upstream Linear-panel case during the initial frontend port.
     vi.mocked(canCall).mockReturnValue(false);
     vi.mocked(hasCapability).mockReturnValue(false);
 
@@ -878,8 +900,86 @@ describe('App create selection', () => {
     expect(screen.queryByText('Terminal desatualizado')).not.toBeInTheDocument();
   });
 
+  it('creates, selects and confirms deletion of terminal tabs only when supported', async () => {
+    const root = {
+      tabId: 'session-root',
+      sessionId: 'session-root',
+      kind: 'root' as const,
+      label: 'Root',
+      seq: null,
+      paneId: '%1',
+      createdAt: '2026-09-06T12:00:00.000Z',
+    };
+    const fork = {
+      tabId: 'session-fork',
+      sessionId: 'session-fork',
+      kind: 'fork' as const,
+      label: 'Fork 1',
+      seq: 1,
+      paneId: '%2',
+      createdAt: '2026-09-06T12:01:00.000Z',
+    };
+    vi.mocked(fetchWorktrees).mockResolvedValue([
+      createWorktree('feature/tabs', {
+        mux: '✓',
+        agentName: 'claude',
+        agentLabel: 'Claude',
+        supportsTabs: true,
+        tabs: [root, fork],
+        activeTabId: root.tabId,
+      }),
+    ]);
+
+    render(App);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Nova sessão derivada' }));
+    await waitFor(() => expect(createWorktreeTab).toHaveBeenCalledWith('feature/tabs'));
+
+    await fireEvent.click(screen.getByRole('tab', { name: 'Fork 1' }));
+    await waitFor(() =>
+      expect(selectWorktreeTab).toHaveBeenCalledWith('feature/tabs', 'session-fork'),
+    );
+
+    const closeFork = screen.getByRole('button', { name: 'Fechar Fork 1' });
+    await waitFor(() => expect(closeFork).toBeEnabled());
+    await fireEvent.click(closeFork);
+    expect(deleteWorktreeTab).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Apenas esta sessão derivada');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Encerrar sessão' }));
+    await waitFor(() =>
+      expect(deleteWorktreeTab).toHaveBeenCalledWith('feature/tabs', 'session-fork'),
+    );
+  });
+
+  it('hides tab controls when the selected runtime does not support forks', async () => {
+    vi.mocked(fetchWorktrees).mockResolvedValue([
+      createWorktree('feature/sandbox', {
+        mux: '✓',
+        agentName: 'claude',
+        supportsTabs: false,
+        tabs: [
+          {
+            tabId: 'session-root',
+            sessionId: 'session-root',
+            kind: 'root',
+            label: 'Root',
+            seq: null,
+            createdAt: '2026-09-06T12:00:00.000Z',
+          },
+        ],
+        activeTabId: 'session-root',
+      }),
+    ]);
+
+    render(App);
+
+    await screen.findByTitle('feature/sandbox');
+    expect(screen.queryByRole('button', { name: 'Nova sessão derivada' })).not.toBeInTheDocument();
+  });
+
   it('keeps the issue link optional so a free session is one click away', async () => {
-    // Replaces an upstream Linear-ticket case (ADR-14). ADR-16/ADR-17: nothing
+    // Replaced an upstream Linear-ticket case during the initial frontend port. ADR-16/ADR-17: nothing
     // in this dialog may become required, or the free-session route (Roteiro A)
     // is blocked by the workflow route (Roteiro B).
     vi.mocked(fetchWorktrees).mockResolvedValue([]);
@@ -894,7 +994,7 @@ describe('App create selection', () => {
   });
 
   it('submits the linked issue when one is provided', async () => {
-    // Replaces an upstream Linear-ticket case (ADR-14).
+    // Replaced an upstream Linear-ticket case during the initial frontend port.
     vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.createWorktree).mockResolvedValue({
       primaryBranch: 'feature/linked',

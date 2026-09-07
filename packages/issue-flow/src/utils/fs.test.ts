@@ -1,5 +1,5 @@
 import * as fsp from 'node:fs/promises';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -60,5 +60,44 @@ describe('writeFileAtomic', () => {
     expect(copyFile).toHaveBeenCalled();
     expect(unlink).toHaveBeenCalled();
     expect(await readFile(target, 'utf-8')).toBe('exdev-ok');
+  });
+
+  it('removes a partially written temp when writeFile fails', async () => {
+    const root = await tempDir();
+    const target = join(root, 'partial.json');
+    const failedWrite = vi.fn(async (path: Parameters<typeof fsp.writeFile>[0]) => {
+      await fsp.writeFile(path, 'partial');
+      throw new Error('disk full');
+    });
+
+    await expect(
+      writeFileAtomic(target, 'complete', {
+        mkdir: fsp.mkdir.bind(fsp),
+        writeFile: failedWrite as typeof fsp.writeFile,
+        rename: fsp.rename.bind(fsp),
+        copyFile: fsp.copyFile.bind(fsp),
+        unlink: fsp.unlink.bind(fsp),
+      }),
+    ).rejects.toThrow('disk full');
+    expect((await readdir(root)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('removes the temp when the EXDEV fallback copy fails', async () => {
+    const root = await tempDir();
+    const target = join(root, 'copy-failure.json');
+    await expect(
+      writeFileAtomic(target, 'complete', {
+        mkdir: fsp.mkdir.bind(fsp),
+        writeFile: fsp.writeFile.bind(fsp),
+        rename: async () => {
+          throw Object.assign(new Error('cross-device link'), { code: 'EXDEV' });
+        },
+        copyFile: async () => {
+          throw new Error('copy failed');
+        },
+        unlink: fsp.unlink.bind(fsp),
+      }),
+    ).rejects.toThrow('copy failed');
+    expect((await readdir(root)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 });

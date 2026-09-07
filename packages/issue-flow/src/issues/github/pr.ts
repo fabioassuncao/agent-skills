@@ -275,21 +275,31 @@ export async function listPullRequestsForBranch(
 export async function fetchBranchPullRequestStates(
   linkedRepos: readonly LinkedRepo[] = [],
   options: { cwd?: string } = {},
-): Promise<Map<string, PullRequestState[]> | null> {
+): Promise<Map<string, BranchPullRequestEvidence[]> | null> {
   const perRepo = await Promise.all(
-    repoTargets(linkedRepos).map((target) => fetchRepoBranchStates(target.slug, options.cwd)),
+    repoTargets(linkedRepos).map((target, index) =>
+      fetchRepoBranchStates(target.slug, options.cwd, index === 0),
+    ),
   );
   if (perRepo.some((entries) => entries === null)) return null;
 
-  const states = new Map<string, PullRequestState[]>();
+  const states = new Map<string, BranchPullRequestEvidence[]>();
   for (const entries of perRepo) {
-    for (const { branch, state } of entries ?? []) {
+    for (const { branch, ...evidence } of entries ?? []) {
       const existing = states.get(branch) ?? [];
-      existing.push(state);
+      existing.push(evidence);
       states.set(branch, existing);
     }
   }
   return states;
+}
+
+export interface BranchPullRequestEvidence {
+  state: PullRequestState;
+  /** Commit the Pull Request actually merged from; branch names can be reused. */
+  headCommit: string | null;
+  /** Only the checkout's own repository can prove the identity of its HEAD. */
+  currentRepository: boolean;
 }
 
 /**
@@ -299,14 +309,15 @@ export async function fetchBranchPullRequestStates(
 async function fetchRepoBranchStates(
   repoSlug: string | undefined,
   cwd: string | undefined,
-): Promise<Array<{ branch: string; state: PullRequestState }> | null> {
+  currentRepository: boolean,
+): Promise<Array<{ branch: string } & BranchPullRequestEvidence> | null> {
   const args = [
     'pr',
     'list',
     '--state',
     'all',
     '--json',
-    'headRefName,state',
+    'headRefName,state,headRefOid',
     // Shares the display-sync limit. On a repository with heavy merged/closed
     // history an older Pull Request for a still-checked-out branch may fall
     // outside the window and never be swept — best effort, but it fails safe
@@ -320,10 +331,17 @@ async function fetchRepoBranchStates(
   if (result.exitCode !== 0) return null;
 
   try {
-    const raw = JSON.parse(result.stdout) as Array<{ headRefName: string; state: string }>;
+    const raw = JSON.parse(result.stdout) as Array<{
+      headRefName: string;
+      state: string;
+      headRefOid?: unknown;
+    }>;
     return raw.map((row) => ({
       branch: row.headRefName,
       state: row.state.toLowerCase() as PullRequestState,
+      headCommit:
+        typeof row.headRefOid === 'string' && row.headRefOid !== '' ? row.headRefOid : null,
+      currentRepository,
     }));
   } catch {
     return null;

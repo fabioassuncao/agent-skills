@@ -3,29 +3,41 @@ import type { ITheme } from '@xterm/xterm';
 /**
  * ADAPT of `frontend/src/lib/themes.ts` @ d8c9d5f (151 lines).
  *
- * The upstream ships five hard-coded palettes (GitHub Dark, Dracula, Nord,
- * Solarized Dark, One Dark), each a block of literal hex values, and the
- * "theme" is which of the five is copied onto `--color-*` at runtime.
+ * The upstream ships five named palettes (GitHub Dark, Dracula, Nord,
+ * Solarized Dark, One Dark). They are additions to the Issue Flow's three
+ * modes, not replacements: `system`, `light` and `dark` keep their semantics,
+ * while a named palette is an explicit dark choice.
  *
- * That model is **not** ported, and the reason is not taste: the Issue Flow
- * palette is eighteen calculated contrast pairs (`web/AGENTS.md`), and five
- * alternative palettes would be five more tables nobody measured — the panel
- * would ship four themes whose badge text is somewhere between 2:1 and 5:1 and
- * nobody would know which. The current panel's decision stands instead: three
- * options, `system` / `light` / `dark`, over one measured palette.
+ * The upstream copied literal colours onto `--color-*` at runtime. That part
+ * stays adapted: every palette is expressed as the same role tokens as the
+ * measured Issue Flow palette, and all nineteen contrast pairs are verified.
  *
  * What survives from the upstream is the shape — a resolved theme object that
  * feeds xterm — and it is now *derived* from the same tokens the rest of the
  * page uses, rather than duplicated beside them.
  */
 
-export const THEME_KEYS = ['system', 'light', 'dark'] as const;
+export const THEME_KEYS = [
+  'system',
+  'light',
+  'dark',
+  'github-dark',
+  'dracula',
+  'nord',
+  'solarized-dark',
+  'one-dark',
+] as const;
 export type ThemeKey = (typeof THEME_KEYS)[number];
 
 export const THEME_LABELS: Record<ThemeKey, string> = {
   system: 'Sistema',
   light: 'Claro',
   dark: 'Escuro',
+  'github-dark': 'GitHub Dark',
+  dracula: 'Dracula',
+  nord: 'Nord',
+  'solarized-dark': 'Solarized Dark',
+  'one-dark': 'One Dark',
 };
 
 export interface ThemeDefinition {

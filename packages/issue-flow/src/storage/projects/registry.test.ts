@@ -70,7 +70,13 @@ describe('ProjectRegistry', () => {
   });
 
   it('orders by recency, keeping never-seen projects visible at the end', async () => {
-    const { registry } = await freshRegistry();
+    const home = await mkdtemp(join(tmpdir(), 'issue-flow-registry-'));
+    directories.push(home);
+    let clock = Date.parse('2026-01-01T00:00:00.000Z');
+    const registry = createProjectRegistry({
+      databaseOptions: { env: { ISSUE_FLOW_HOME: home } },
+      now: () => new Date(clock++).toISOString(),
+    });
     await registry.register({ id: 'a', root: '/a', name: 'A' });
     await registry.register({ id: 'b', root: '/b', name: 'B' });
     await registry.register({ id: 'c', root: '/c', name: 'C' });

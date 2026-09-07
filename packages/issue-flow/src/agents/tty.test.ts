@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: environment-reference tokens are data.
 import { describe, expect, it } from 'vitest';
 import {
   buildDockerExecCommand,
@@ -7,6 +8,7 @@ import {
   buildTtyAgentArgv,
   quoteShellArgument,
   renderShellCommand,
+  renderShellCommandWithEnvironmentRefs,
   SANDBOX_PATH_ENTRIES,
 } from './tty.js';
 
@@ -208,6 +210,15 @@ describe('shell serialization', () => {
     expect(renderShellCommand(['claude', '--', "it's time"])).toBe("'claude' '--' 'it'\\''s time'");
   });
 
+  it('expands only allowed environment references as one shell argument', () => {
+    expect(
+      renderShellCommandWithEnvironmentRefs(
+        ['tool', 'prefix-${ISSUE_FLOW_AGENT_PROMPT}-suffix', '${NOT_ALLOWED}'],
+        ['ISSUE_FLOW_AGENT_PROMPT'],
+      ),
+    ).toBe(`'tool' 'prefix-'"\${ISSUE_FLOW_AGENT_PROMPT}"'-suffix' '\${NOT_ALLOWED}'`);
+  });
+
   // The whole point of building argv first: a prompt that looks like a command
   // is data by the time it reaches the shell.
   it('keeps an injection attempt inside the prompt argument', () => {
@@ -253,6 +264,17 @@ describe('buildPaneCommand', () => {
         extraPathEntries: ['/root/.local/bin', '/usr/local/bin'],
       }),
     ).toBe('export PATH="$PATH:/root/.local/bin:/usr/local/bin"; \'claude\'');
+  });
+
+  it('sources and removes one-shot agent environment before expanding references', () => {
+    const command = buildPaneCommand({
+      argv: ['tool', '${ISSUE_FLOW_AGENT_PROMPT}'],
+      environmentFilePath: '/tmp/agent.env',
+      expandEnvironmentRefs: ['ISSUE_FLOW_AGENT_PROMPT'],
+    });
+    expect(command).toBe(
+      `set -a; . '/tmp/agent.env'; rm -f -- '/tmp/agent.env'; set +a; 'tool' "\${ISSUE_FLOW_AGENT_PROMPT}"`,
+    );
   });
 });
 

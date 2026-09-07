@@ -47,6 +47,7 @@ import type {
   RuntimeSessionBinding,
   ServiceRuntimeState,
 } from './types.js';
+import { withWorktreeBranchLock } from './worktree/lock.js';
 import type { WorktreeRuntimeKind } from './worktree/meta.js';
 
 /**
@@ -646,33 +647,42 @@ export function createPaneRuntime(
       const deps = depsOrThrow();
       const binding = requireBinding(context);
       const warn = deps.warn ?? ((): void => {});
+      const disposeBranch = async (): Promise<void> => {
+        const record = launched.get(binding.branch);
+        for (const watch of record?.watches ?? []) watch.cancel();
 
-      const record = launched.get(binding.branch);
-      for (const watch of record?.watches ?? []) watch.cancel();
+        for (const id of record?.sessionIds ?? []) {
+          const session = await findSession(deps, id);
+          if (session === null) continue;
+          await stopAgentSession(deps.session, session);
+        }
+        launched.delete(binding.branch);
 
-      for (const id of record?.sessionIds ?? []) {
-        const session = await findSession(deps, id);
-        if (session === null) continue;
-        await stopAgentSession(deps.session, session);
-      }
-      launched.delete(binding.branch);
+        await adapter.release({ deps, session: binding });
 
-      await adapter.release({ deps, session: binding });
+        if (options.removeWorktree !== true) return;
+        if (!binding.createdWorktree) {
+          // ADR-08 in its smallest form: this runtime did not bring the worktree
+          // into existence, so it is not the one that gets to end it. Somebody
+          // else's checkout — and whatever is uncommitted in it — is not ours to
+          // delete because a teardown asked politely.
+          warn(
+            `Leaving the worktree for ${binding.branch} in place: this run found it rather than creating it.`,
+          );
+          return;
+        }
+        await deps.session.worktrees.remove(binding.branch, {
+          force: true,
+          ...(options.keepBranch === true ? { keepBranch: true } : {}),
+        });
+      };
 
-      if (options.removeWorktree !== true) return;
-      if (!binding.createdWorktree) {
-        // ADR-08 in its smallest form: this runtime did not bring the worktree
-        // into existence, so it is not the one that gets to end it. Somebody
-        // else's checkout — and whatever is uncommitted in it — is not ours to
-        // delete because a teardown asked politely.
-        warn(
-          `Leaving the worktree for ${binding.branch} in place: this run found it rather than creating it.`,
-        );
+      if (options.removeWorktree !== true || !binding.createdWorktree) {
+        await disposeBranch();
         return;
       }
-      await deps.session.worktrees.remove(binding.branch, {
-        force: true,
-        ...(options.keepBranch === true ? { keepBranch: true } : {}),
+      await withWorktreeBranchLock(deps.session.projectId, binding.branch, disposeBranch, {
+        lockDir: deps.session.worktreeLockDir,
       });
     },
   };

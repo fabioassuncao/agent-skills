@@ -149,25 +149,54 @@ Metade do contrato foi portada **antes** do backend dela. `SERVED_TODAY`, em
 `contract.ts`, é a lista verificada contra `src/web/server.ts` do que existe
 hoje. Ao acrescentar uma rota no backend, acrescente-a lá.
 
-**As capacidades da superfície de sessão, e por que são quatro e não uma.** A
-Fase 8D partiu `worktrees` em duas porque as duas metades são promessas
-diferentes, e juntá-las custava a superfície inteira: um monitor que listava
-sessões perfeitamente bem não podia dizer isso sem também alegar que sabia
-integrar, arquivar e trocar profile — e cada uma dessas rotas responderia 404.
+**As capacidades são granulares.** A Fase 8D separou listagem de abertura; os
+blocos seguintes mantiveram a mesma regra para mutações de worktree e agentes.
+Um monitor que lista sessões ou agentes não pode alegar, por isso, que sabe
+integrar, arquivar, trocar profile ou persistir um template.
 
 | Capability | O que promete | Servido por |
 | --- | --- | --- |
 | `sessions` | listar as sessões e os worktrees em que elas rodam | `src/web/worktrees-api.ts` |
 | `session:open` | abrir, parar e vincular uma sessão (§49.3), só em loopback | `src/web/sessions-api.ts` |
 | `terminal:attach` | anexar ao terminal de uma sessão, só em loopback | `src/web/terminal-ws.ts` |
+| `terminal:refresh` | reanexar ao pane vivo ou retomar a mesma conversa quando morto, sem restart destrutivo | `agents/session/tabs.ts` |
+| `worktrees:tabs` | criar, selecionar e encerrar forks de AgentSession no mesmo worktree | `agents/session/tabs.ts` |
 | `pr:ci` | os pull requests observados e o log de uma execução de CI (§20) | `issues/github/`, via `serve.ts` |
-| `worktrees` | criar, integrar, arquivar, rotular, trocar profile, diff | **ainda ninguém** |
+| `worktrees:mutate` | criar, abrir/fechar, integrar, remover, arquivar, rotular, trocar profile, enviar, diff e pull-main; escrita só em loopback | `src/web/worktrees-api.ts` + `agents/session/worktree-control.ts` |
+| `agents:read` | listar/validar built-ins e customs; comandos custom são redigidos fora de loopback | `src/web/agents-api.ts` |
+| `agents:write` | criar, editar e remover agentes custom, só em loopback | `src/web/agents-api.ts` + `config/custom-agents.ts` |
+| `linear:read` | listar tickets atribuídos; payload e erros sempre redigidos | `src/web/integrations-api.ts` + `issues/linear/` |
+| `linear:write` | alternar auto-create e anexar conversa canônica ao Linear, só em loopback | `src/web/integrations-api.ts` |
+| `settings:write` | alternar o GC GitHub de worktrees integrados, só em loopback | `src/web/integrations-api.ts` |
 
 `GET /api/worktrees` é uma **projeção** de `agent_sessions`, não um segundo
 registro de worktrees (§25): `executionId` de cada linha é o `runId` da sessão,
 e o run id **é** o `sessionId` do dashboard. É essa igualdade — e só ela — que
 faz uma Task listar seus próprios worktrees (I1) e uma sessão promovida passar a
 mostrar o workflow (I4).
+
+`TabBar` segue o mesmo modelo: `tabs[0]` é Root, o `tabId` é o id da
+AgentSession e apenas forks exibem fechar. Setas, Home e End percorrem as abas;
+o controle só aparece quando a linha anuncia `supportsTabs`; runtimes como
+sandbox, para os quais o backend recusaria fork seguro, não exibem um “+” falso;
+fechar abre confirmação em pt-BR. A barra continua visível quando o pane ativo
+fica órfão para que “Retomar sessão” permaneça alcançável.
+
+### Linear, GitHub e “Abrir no Cursor”
+
+Existe **um** `SettingsDialog`. Linear auto-create, GitHub auto-remove,
+auto-name e host SSH ocupam essa superfície; nunca crie um segundo diálogo de
+integrações. O token Linear não é configuração do browser: a UI conhece apenas
+`disabled | missing_api_key | ready`.
+
+`LinearPanel`, `LinearBadge`, `LinearDetailDialog` e `LinearPostDialog` são os
+quatro componentes portados. O badge liga uma branch ao ticket atribuído; o
+post envia apenas o alvo e deixa o backend construir o attachment de conversa
+versionado. Não aceite transcript, upload URL ou credencial vindos do DOM.
+
+O host SSH é preferência local do navegador (`issue-flow:ssh-host`).
+`makeCursorUrl()` é seu consumidor: sem host produz `cursor://file…`; com host,
+`cursor://vscode-remote/ssh-remote+…`. Não existe round-trip ao servidor.
 
 ### Estado e navegação
 
@@ -234,10 +263,9 @@ uma barra de progresso precisa desenhar alguma coisa.
 
 **Uma seleção, um painel.** A sidebar tem dois grupos — `Execuções` e `Sessões`
 — e o painel principal mostra o que está selecionado; nunca os dois. Escolher
-uma execução limpa o worktree selecionado e vice-versa. `mainView` começa em
-`'worktree'` quando a capability `worktrees` existe, porque §48.6 é explícito de
-que o Roteiro B não pode impedir o Roteiro A: um monitor com worktrees abre onde
-sempre abriu.
+uma execução limpa o worktree selecionado e vice-versa. A disponibilidade vem
+de `sessions`/`session:open`; `worktrees:mutate` acrescenta a criação explícita
+e seus diálogos sem mudar o caminho de um clique da sessão livre (§48.6).
 
 **Os três painéis de aba são renderizados sempre**, não trocados. Uma aba
 inativa não pode ficar defasada, e é o mesmo motivo pelo qual o drawer guarda o
@@ -315,10 +343,10 @@ a causa.
 (ADR-19). `src/tokens.css` carrega essa paleta e, desde a Fase 8D, é a **única**
 cópia dela: o guarda de deriva contra `public/app.css` saiu junto com o arquivo
 que ele vigiava (§50.8). O que ele protegia continua, e mais forte —
-`lib/contrast.test.ts` recalcula os 19 pares a partir de `tokens.css` e
-`app.css`, nunca da tabela. `src/tokens.test.ts` guarda as duas regras
-estruturais que sobram: nenhum token definido só dentro de um bloco de tema, e
-os dois blocos escuros carregando os mesmos overrides.
+`lib/contrast.test.ts` recalcula os 19 pares para **cada tema explícito** a
+partir de `tokens.css` e `app.css`, nunca da tabela. `src/tokens.test.ts` guarda
+as duas regras estruturais: nenhum token definido só dentro de um bloco de
+tema, e os dois blocos escuros base carregando os mesmos overrides.
 
 O `@theme inline` em `src/app.css` referencia os tokens; **`inline` é
 obrigatório**. Sem ele o Tailwind copia a *declaração* para o próprio `:root`,
@@ -343,13 +371,14 @@ As cores são **tokens nomeados por papel**, nunca por local de uso: superfície
 apenas redefinem o que muda. Um token que só existe num deles some no outro
 tema, e o sintoma aparece longe da causa. `tokens.test.ts` verifica isso.
 
-O tema escuro vive em **dois blocos gêmeos** com a mesma lista de overrides:
+O tema escuro base vive em **dois blocos gêmeos** com a mesma lista de overrides:
 `@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) { … } }`
 e `:root[data-theme='dark'] { … }`. Mexeu em um, mexa no outro — e o teste
 compara os dois. O guarda `:not([data-theme='light'])` é o que faz a escolha
-manual vencer o sistema nos dois sentidos. Cada bloco declara seu próprio
-`color-scheme` (e `:root`, o `light`): é ele que faz `<select>`, `<progress>` e
-as barras de rolagem acompanharem o tema **efetivo**.
+manual vencer o sistema nos dois sentidos. GitHub Dark, Dracula, Nord,
+Solarized Dark e One Dark são blocos explícitos adicionais e completos dos
+mesmos papéis. Cada escolha declara seu `color-scheme`: é ele que faz
+`<select>`, `<progress>` e as barras de rolagem acompanharem o tema **efetivo**.
 
 O tema é aplicado **antes do primeiro paint** por um `<script>` inline no
 `<head>` — nos dois painéis. Ele lê `issue-flow:theme` do `localStorage` e define
@@ -364,6 +393,10 @@ do atributo que devolve a decisão ao `@media`. E o listener de
 `system` — com escolha explícita o SO não pode vencer. O repaint das cores é do
 `@media`; o listener sincroniza o lado JS (a raiz, os seletores e a paleta do
 xterm, que não é CSS).
+
+As oito chaves aceitas são `system`, `light`, `dark`, `github-dark`, `dracula`,
+`nord`, `solarized-dark` e `one-dark`. O prepaint e `themes.ts` devem mudar
+juntos. Uma paleta nomeada é sempre explícita: nunca anexa o listener do SO.
 
 Com o armazenamento bloqueado o painel carrega no modo sistema e o controle
 continua alternando o tema na sessão; só não sobrevive ao reload. Todo acesso a
@@ -401,6 +434,12 @@ correspondente** — a maior parte da paleta clara passa com pouca folga.
 Os 38 valores foram **remedidos na página** na Fase 8C, com
 `measureContrast(documentTokenReader())` num Chrome real sobre `measure.html`, e
 conferem dígito a dígito. `lib/contrast.test.ts` é o guarda de regressão.
+
+As cinco paletas WebMux foram medidas do mesmo modo em 2026-09-06: **95/95**
+pares passaram, sem reduzir limiar. Mínimos absolutos: GitHub Dark 4,95;
+Dracula 4,89 (foco, cujo mínimo é 3); Nord 4,83; Solarized Dark 4,85 (foco);
+One Dark 4,74. Os 95 valores, na ordem dos pares desta tabela, ficam na ficha
+[“Reversão das cinco paletas WebMux”](../../../docs/absorption-trace.md#reversão-das-cinco-paletas-webmux-pedido-do-dono-2026-09-06).
 
 São **19 pares**: os 18 do painel atual mais `--state-merged`, o papel que o
 painel precisou e a paleta não tinha. Um pull request integrado não é um

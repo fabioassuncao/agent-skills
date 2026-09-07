@@ -1,13 +1,11 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createWorktree } from './test-fixtures';
-import type { WorktreeInfo, WorktreeListRow } from './types';
+import type { LinearIssue, WorktreeInfo, WorktreeListRow } from './types';
 import WorktreeList from './WorktreeList.svelte';
 
 /**
- * PORT of `frontend/src/lib/WorktreeList.test.ts` @ d8c9d5f — 7 cases. The
- * `postingLinear` prop is gone with Linear (ADR-14); everything else is the
- * upstream's, in pt-BR.
+ * PORT of `frontend/src/lib/WorktreeList.test.ts` @ d8c9d5f, in pt-BR.
  */
 
 function liveWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
@@ -19,6 +17,23 @@ function liveWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): Wo
     ...overrides,
   });
 }
+
+const linearIssue: LinearIssue = {
+  id: 'id-42',
+  identifier: 'ENG-42',
+  title: 'Conectar lista',
+  description: null,
+  priority: 2,
+  priorityLabel: 'Alta',
+  url: 'https://linear/ENG-42',
+  branchName: 'eng-42-conectar-lista',
+  dueDate: null,
+  updatedAt: '2026-09-06T00:00:00Z',
+  state: { name: 'A fazer', color: '#ffaa00', type: 'unstarted' },
+  team: { name: 'Engenharia', key: 'ENG' },
+  labels: [],
+  project: null,
+};
 
 function createRow(worktree: WorktreeInfo, depth = 0): WorktreeListRow {
   return { worktree, depth };
@@ -150,10 +165,22 @@ describe('WorktreeList', () => {
   });
 
   it('shows the linked issue on the badge row', () => {
-    // Replaces the upstream's Linear badge (ADR-14) with what took its place.
     renderList([createRow(liveWorktree('feature/issue-linked', { issueRef: '142' }))]);
 
     const badge = screen.getByText('142');
     expect(badge.closest('[data-worktree-badge-row]')).not.toBeNull();
+  });
+
+  it('shows a Linear badge and posts through the row menu', async () => {
+    const onposttolinear = vi.fn();
+    renderList([createRow(liveWorktree('feature/linear', { linearIssue }))], {
+      canPostToLinear: true,
+      onposttolinear,
+    });
+
+    expect(screen.getByText('ENG-42')).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: /ações de feature\/linear/i }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Enviar conversa para ENG-42' }));
+    expect(onposttolinear).toHaveBeenCalledWith('feature/linear');
   });
 });

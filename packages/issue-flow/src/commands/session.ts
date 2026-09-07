@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { resolve as resolvePath } from 'node:path';
+import { findRegisteredAgent } from '../agents/custom-registry.js';
 import {
   type ResolvedAgentSessionContext,
   resolveAgentSessionDeps,
@@ -13,7 +14,8 @@ import {
 } from '../agents/session/open.js';
 import { linkSessionToRun, loadSession } from '../agents/session/store.js';
 import { type AgentSession, describeSession, isFreeSession } from '../agents/session/types.js';
-import { type AgentPermission, type AgentProviderId, isAgentProviderId } from '../agents/types.js';
+import type { AgentPermission } from '../agents/types.js';
+import { loadCustomAgentsConfig } from '../config/custom-agents.js';
 import { TMUX_SOCKET_NAME } from '../runtime/tmux/gateway.js';
 import { buildProjectSessionName, buildWorktreeWindowName } from '../runtime/tmux/names.js';
 import { findLatestRunIdForIssue } from '../storage/db/repository.js';
@@ -134,10 +136,6 @@ export async function runSessionNew(
   const resolved = resolveDeps(deps);
 
   const provider = options.agent ?? 'claude';
-  if (!isAgentProviderId(provider)) {
-    resolved.error(`Unknown agent '${provider}'.`);
-    return 1;
-  }
   const permission = parsePermission(options.permission);
   if (permission === null) {
     resolved.error(
@@ -157,9 +155,19 @@ export async function runSessionNew(
     return 1;
   }
 
+  const registered = findRegisteredAgent(
+    await loadCustomAgentsConfig({ projectRoot: context.projectRoot }),
+    provider,
+  );
+  if (registered === null) {
+    resolved.error(`Unknown agent '${provider}'.`);
+    return 1;
+  }
+
   try {
     const opened = await openAgentSession(context.deps, {
-      provider: provider as AgentProviderId,
+      provider,
+      ...(registered.kind === 'custom' ? { customAgent: registered } : {}),
       permission,
       ...(options.branch === undefined ? {} : { branch: options.branch }),
       ...(options.label === undefined ? {} : { label: options.label }),

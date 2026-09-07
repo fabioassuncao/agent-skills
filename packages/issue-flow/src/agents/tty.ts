@@ -65,6 +65,38 @@ export function renderShellCommand(argv: readonly string[]): string {
 }
 
 /**
+ * Serialize argv while expanding only an explicit allow-list of environment
+ * references. Static text stays single-quoted and each allowed `$NAME` is
+ * double-quoted, so its value remains one argument and is never re-evaluated
+ * as shell syntax.
+ */
+export function renderShellCommandWithEnvironmentRefs(
+  argv: readonly string[],
+  variableNames: readonly string[],
+): string {
+  if (variableNames.length === 0) return renderShellCommand(argv);
+  const allowed = new Set(variableNames);
+  const reference = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
+  return argv
+    .map((argument) => {
+      const parts: string[] = [];
+      let offset = 0;
+      for (const match of argument.matchAll(reference)) {
+        const name = match[1] as string;
+        if (!allowed.has(name)) continue;
+        const index = match.index ?? 0;
+        if (index > offset) parts.push(quoteShellArgument(argument.slice(offset, index)));
+        parts.push(`"\${${name}}"`);
+        offset = index + match[0].length;
+      }
+      if (offset === 0) return quoteShellArgument(argument);
+      if (offset < argument.length) parts.push(quoteShellArgument(argument.slice(offset)));
+      return parts.join('');
+    })
+    .join(' ');
+}
+
+/**
  * Whether the invocation runs without asking for permission.
  *
  * The upstream has a `yolo` boolean; Issue Flow has three semantic levels
@@ -96,10 +128,15 @@ function buildClaudeArgv(invocation: TtyAgentInvocation): string[] {
     } else {
       argv.push('--continue');
     }
-  } else if (invocation.systemPrompt !== undefined && invocation.systemPrompt !== '') {
-    // Only on a fresh start: appending it to a resumed conversation would add
-    // the instructions a second time to a session that already has them.
-    argv.push('--append-system-prompt', invocation.systemPrompt);
+  } else {
+    if (invocation.pinConversationId !== undefined) {
+      argv.push('--session-id', invocation.pinConversationId);
+    }
+    if (invocation.systemPrompt !== undefined && invocation.systemPrompt !== '') {
+      // Only on a fresh start: appending it to a resumed conversation would add
+      // the instructions a second time to a session that already has them.
+      argv.push('--append-system-prompt', invocation.systemPrompt);
+    }
   }
 
   if (invocation.prompt !== undefined && invocation.prompt !== '') {
@@ -269,15 +306,27 @@ export interface PaneCommandInput {
   runtimeEnvPath?: string;
   /** Extra `PATH` entries, appended. The sandbox needs them; the host does not. */
   extraPathEntries?: readonly string[];
+  /** One-shot environment file removed immediately after it is sourced. */
+  environmentFilePath?: string;
+  /** Closed set of variable references the argv is allowed to expand. */
+  expandEnvironmentRefs?: readonly string[];
 }
 
 /** The full shell command a pane runs: bootstrap, then the agent. */
 export function buildPaneCommand(input: PaneCommandInput): string {
   const parts: string[] = [];
   if (input.runtimeEnvPath !== undefined) parts.push(buildRuntimeBootstrap(input.runtimeEnvPath));
+  if (input.environmentFilePath !== undefined) {
+    const path = quoteShellArgument(input.environmentFilePath);
+    parts.push(`set -a; . ${path}; rm -f -- ${path}; set +a`);
+  }
   if (input.extraPathEntries !== undefined && input.extraPathEntries.length > 0) {
     parts.push(`export PATH="$PATH:${input.extraPathEntries.join(':')}"`);
   }
-  parts.push(renderShellCommand(input.argv));
+  parts.push(
+    input.expandEnvironmentRefs === undefined
+      ? renderShellCommand(input.argv)
+      : renderShellCommandWithEnvironmentRefs(input.argv, input.expandEnvironmentRefs),
+  );
   return parts.join('; ');
 }

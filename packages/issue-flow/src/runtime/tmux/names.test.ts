@@ -49,7 +49,13 @@ describe('tmux names', () => {
 
   it('names one window per worktree and a parking window beside it', () => {
     expect(buildWorktreeWindowName('feat/63-thing')).toBe('if-feat-63-thing');
-    expect(buildWorktreeParkingWindowName('feat/63-thing')).toBe('if-feat-63-thing-parked');
+    expect(buildWorktreeParkingWindowName('wt-feat-63-thing')).toMatch(
+      /^ifp-wt-feat-63-thing-[a-f0-9]{12}$/,
+    );
+    expect(buildWorktreeParkingWindowName('wt-foo')).not.toBe(buildWorktreeWindowName('p-wt-foo'));
+    expect(buildWorktreeParkingWindowName(`${'same-prefix-'.repeat(4)}a`)).not.toBe(
+      buildWorktreeParkingWindowName(`${'same-prefix-'.repeat(4)}b`),
+    );
   });
 
   it('builds pane targets in the only form tmux understands', () => {

@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { PrEntry } from './types';
 import {
+  applyTheme,
   LAST_SELECTED_WORKTREE_STORAGE_KEY,
   loadSavedSelectedWorktree,
   loadSavedTheme,
   loadUseWebChatUi,
+  makeCursorUrl,
   prBadgeClass,
   prStateTextClass,
   resolveSelectedBranch,
   saveSelectedWorktree,
   saveUseWebChatUi,
+  THEME_STORAGE_KEY,
   WEB_CHAT_UI_STORAGE_KEY,
 } from './utils';
 
@@ -87,6 +90,27 @@ describe('worktree selection persistence', () => {
     for (const key of Object.keys(localStorage)) {
       expect(key.startsWith('issue-flow:')).toBe(true);
     }
+  });
+
+  it('persists and restores a named WebMux palette as an explicit theme', () => {
+    applyTheme('dracula');
+
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dracula');
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dracula');
+    expect(loadSavedTheme()).toBe('dracula');
+
+    applyTheme('system');
+    expect(document.documentElement).not.toHaveAttribute('data-theme');
+  });
+});
+
+describe('Cursor links', () => {
+  it('opens local paths directly and remote paths through the configured SSH host', () => {
+    expect(makeCursorUrl('/repo/worktree', '')).toBe('cursor://file/repo/worktree');
+    expect(makeCursorUrl('/repo/worktree', 'devbox')).toBe(
+      'cursor://vscode-remote/ssh-remote+devbox/repo/worktree',
+    );
+    expect(makeCursorUrl(null, 'devbox')).toBeNull();
   });
 });
 

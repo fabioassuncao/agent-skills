@@ -106,12 +106,29 @@ describe('startSerializedInterval', () => {
     await Promise.resolve();
     expect(runs).toBe(1);
     ticks[0]?.();
-    stop();
+    const stopped = stop();
     completions.shift()?.();
-    await Promise.resolve();
-    await Promise.resolve();
+    await stopped;
 
     expect(cancelledHandle === 42).toBe(true);
     expect(runs).toBe(1);
+  });
+
+  it('aborts and awaits an in-flight run before stop resolves', async () => {
+    let finished = false;
+    const stop = startSerializedInterval(
+      async (signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        finished = true;
+      },
+      1000,
+      { scheduleEvery: () => 7, cancelSchedule: () => {} },
+    );
+
+    await Promise.resolve();
+    await stop();
+    expect(finished).toBe(true);
   });
 });

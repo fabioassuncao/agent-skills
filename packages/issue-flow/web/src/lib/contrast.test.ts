@@ -10,6 +10,7 @@ import {
   parseColor,
   relativeLuminance,
 } from './contrast';
+import { THEME_KEYS, type ThemeKey } from './themes';
 
 /**
  * **U19** — the nineteen pairs, recomputed, never repeated from the table.
@@ -40,18 +41,15 @@ import {
 const tokensCss = readFileSync(fileURLToPath(new URL('../tokens.css', import.meta.url)), 'utf-8');
 
 /**
- * `--state-merged` is declared in `app.css`, not in `tokens.css`.
- *
- * `tokens.css` is a **verbatim** copy of the legacy panel's palette layer
- * (`tokens.test.ts` fails if it drifts), and the legacy palette has no role for
- * an integrated pull request. So the role the new panel needed lives beside the
- * comment explaining why, and is read from there — from the file, never from a
- * copy of the numbers.
+ * `app.css` consumes the roles through Tailwind. It must not declare palette
+ * values: all nineteen measured roles, including `--state-merged`, live in
+ * `tokens.css` so a named palette cannot be partially overridden later in the
+ * cascade.
  */
 const appCss = readFileSync(fileURLToPath(new URL('../app.css', import.meta.url)), 'utf-8');
 
 /** Resolve the palette the way the cascade does: `:root`, then the theme. */
-function resolveTokens(theme: 'light' | 'dark'): (name: string) => string {
+function resolveTokens(theme: Exclude<ThemeKey, 'system'>): (name: string) => string {
   const values = new Map<string, string>();
 
   const readBlock = (block: string): void => {
@@ -65,8 +63,8 @@ function resolveTokens(theme: 'light' | 'dark'): (name: string) => string {
   const rootEnd = tokensCss.indexOf('\n}\n', rootStart);
   readBlock(tokensCss.slice(rootStart, rootEnd));
 
-  if (theme === 'dark') {
-    const forcedStart = tokensCss.indexOf(":root[data-theme='dark'] {");
+  if (theme !== 'light') {
+    const forcedStart = tokensCss.indexOf(`:root[data-theme='${theme}'] {`);
     const forcedEnd = tokensCss.indexOf('\n}\n', forcedStart);
     readBlock(tokensCss.slice(forcedStart, forcedEnd));
   }
@@ -74,8 +72,9 @@ function resolveTokens(theme: 'light' | 'dark'): (name: string) => string {
   // Same cascade, over the file that declares the merged role.
   const appRootStart = appCss.indexOf(':root {');
   readBlock(appCss.slice(appRootStart, appCss.indexOf('\n}\n', appRootStart)));
-  if (theme === 'dark') {
-    const appForcedStart = appCss.indexOf(":root[data-theme='dark'] {");
+  if (theme !== 'light') {
+    const appForcedStart = appCss.indexOf(`:root[data-theme='${theme}'] {`);
+    if (appForcedStart < 0) return (name) => values.get(name) ?? '';
     readBlock(appCss.slice(appForcedStart, appCss.indexOf('\n}\n', appForcedStart)));
   }
 
@@ -107,7 +106,11 @@ describe('the contrast maths', () => {
 });
 
 describe('the palette (U19)', () => {
-  for (const theme of ['light', 'dark'] as const) {
+  const explicitThemes = THEME_KEYS.filter(
+    (theme): theme is Exclude<ThemeKey, 'system'> => theme !== 'system',
+  );
+
+  for (const theme of explicitThemes) {
     it(`meets every minimum in the ${theme} theme`, () => {
       const measured = measureContrast(resolveTokens(theme));
       expect(measured).toHaveLength(19);
@@ -122,13 +125,17 @@ describe('the palette (U19)', () => {
     });
   }
 
-  it('measures both themes, so a token cannot pass in one and vanish in the other', () => {
-    for (const theme of ['light', 'dark'] as const) {
+  it('measures every explicit theme, so a token cannot pass in one and vanish in another', () => {
+    for (const theme of explicitThemes) {
       const read = resolveTokens(theme);
       for (const pair of CONTRAST_PAIRS) {
         expect(parseColor(read(pair.foreground)), `${pair.foreground} (${theme})`).not.toBeNull();
         expect(parseColor(read(pair.background)), `${pair.background} (${theme})`).not.toBeNull();
       }
     }
+  });
+
+  it('keeps all palette values out of app.css', () => {
+    expect(appCss).not.toMatch(/--(?:surface|text|state|accent|focus-ring|border)[a-z-]*\s*:/);
   });
 });

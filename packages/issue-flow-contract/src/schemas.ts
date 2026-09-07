@@ -6,9 +6,9 @@ import { z } from 'zod';
  * PORT of `packages/api-contract/src/schemas.ts` from windmill-labs/webmux
  * @ d8c9d5f (776 lines), with three deliberate differences:
  *
- * - **Linear is gone** (ADR-14). Every `Linear*` schema and the fields that
- *   referenced them are removed rather than kept as dead types; if Linear ever
- *   comes back it comes back as an Issue Provider, not as a UI integration.
+ * - **Linear is optional and environment-authenticated.** Its UI shapes are
+ *   retained, but no schema can carry a credential or persist one in project
+ *   configuration.
  * - **The migration sensor is gone.** `InstanceSummary` / `MigrateProjects*`
  *   existed to feed `MigrationBanner.svelte`, which is a WebMux-internal
  *   migration (§48.1). Nothing here replaces them.
@@ -54,7 +54,12 @@ export const BuiltInAgentIdSchema = z.enum([
   'antigravity',
   'opencode',
 ]);
-export const AgentIdSchema = z.string().trim().min(1);
+export const AgentIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/);
 export const AgentKindSchema = BuiltInAgentIdSchema;
 export const WorktreeCreateModeSchema = z.enum(['new', 'existing']);
 
@@ -136,7 +141,8 @@ export const WorktreeSourceSchema = z.enum(['ui', 'oneshot']);
  * server-side oneshot watcher closes the session once the agent finishes. Any
  * browser-originated interaction with the session disarms the watcher.
  *
- * The upstream's `postToLinearOnDone` is dropped with the rest of Linear.
+ * The upstream's implicit `postToLinearOnDone` remains out. Linear posting is
+ * restored as an explicit UI/API action, separate from oneshot completion.
  */
 export const OneshotConfigSchema = z.object({
   autoCloseOnDone: z.boolean().optional(),
@@ -274,16 +280,54 @@ export const PrEntrySchema = z.object({
   comments: z.array(PrCommentSchema),
 });
 
-export const AutoNameProviderSchema = BuiltInAgentIdSchema;
-
 export const AutoNameConfigResponseSchema = z.object({
   autoName: z
     .object({
-      provider: AutoNameProviderSchema,
-      model: z.string().optional(),
-      systemPrompt: z.string().optional(),
+      maxLength: z.number().int().positive(),
+      timeoutMs: z.number().int().positive(),
+      systemPrompt: z.string(),
     })
     .nullable(),
+});
+
+export const LinearIssueSchema = z.object({
+  id: z.string(),
+  identifier: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  priority: z.number(),
+  priorityLabel: z.string(),
+  url: z.string(),
+  branchName: z.string(),
+  dueDate: z.string().nullable(),
+  updatedAt: z.string(),
+  state: z.object({ name: z.string(), color: z.string(), type: z.string() }),
+  team: z.object({ name: z.string(), key: z.string() }),
+  labels: z.array(z.object({ name: z.string(), color: z.string() })),
+  project: z.string().nullable(),
+});
+
+export const LinearIssuesResponseSchema = z.object({
+  availability: z.enum(['disabled', 'missing_api_key', 'ready']),
+  issues: z.array(LinearIssueSchema),
+});
+
+export const LinearTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('issue'), issueId: z.string().trim().min(1) }),
+  z.object({
+    kind: z.literal('team'),
+    teamKey: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9]*$/),
+    title: z.string().trim().min(1).optional(),
+  }),
+]);
+
+export const PostWorktreeToLinearRequestSchema = z.object({ target: LinearTargetSchema });
+export const PostWorktreeToLinearResponseSchema = z.object({
+  ok: z.literal(true),
+  issueId: z.string(),
+  issueUrl: z.string(),
+  commentUrl: z.string().nullable(),
+  attachmentUrl: z.string(),
 });
 
 export const WorktreeCreationStateSchema = z.object({
@@ -341,6 +385,8 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   /** Agent-pane tabs (`tabs[0]` is the root). Default keeps older servers valid. */
   tabs: z.array(WorktreeTabSchema).default([]),
   activeTabId: z.string().nullable().default(null),
+  /** Runtime/provider capability for this row; sandbox currently cannot fork safely. */
+  supportsTabs: z.boolean().default(false),
   /** Set when this worktree is the workspace of a workflow execution. */
   executionId: z.string().nullable().default(null),
   /** Set when the worktree is linked to an issue, with or without an execution. */
@@ -534,6 +580,8 @@ export const AppConfigSchema = z.object({
   defaultProfileName: z.string(),
   defaultAgentId: BuiltInAgentIdSchema,
   autoName: z.boolean(),
+  linearAvailability: z.enum(['disabled', 'missing_api_key', 'ready']),
+  linearAutoCreateWorktrees: z.boolean(),
   startupEnvs: z.record(z.union([z.string(), z.boolean()])),
   linkedRepos: z.array(LinkedRepoInfoSchema),
   autoRemoveOnMerge: z.boolean(),
@@ -824,6 +872,12 @@ export type PrComment = z.infer<typeof PrCommentSchema>;
 export type CiCheck = z.infer<typeof CiCheckSchema>;
 export type PrEntry = z.infer<typeof PrEntrySchema>;
 export type AutoNameConfigResponse = z.infer<typeof AutoNameConfigResponseSchema>;
+export type LinearIssue = z.infer<typeof LinearIssueSchema>;
+export type LinearIssueAvailability = z.infer<typeof LinearIssuesResponseSchema>['availability'];
+export type LinearIssuesResponse = z.infer<typeof LinearIssuesResponseSchema>;
+export type LinearTarget = z.infer<typeof LinearTargetSchema>;
+export type PostWorktreeToLinearRequest = z.infer<typeof PostWorktreeToLinearRequestSchema>;
+export type PostWorktreeToLinearResponse = z.infer<typeof PostWorktreeToLinearResponseSchema>;
 export type WorktreeCreationState = z.infer<typeof WorktreeCreationStateSchema>;
 export type AppNotification = z.infer<typeof AppNotificationSchema>;
 export type ProjectWorktreeSnapshot = z.infer<typeof ProjectWorktreeSnapshotSchema>;

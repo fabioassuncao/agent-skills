@@ -7,12 +7,7 @@ import {
   type StoredAgentSession,
   saveAgentSession,
 } from '../../storage/db/repository.js';
-import {
-  type AgentPhase,
-  type AgentProviderId,
-  isAgentPhase,
-  isAgentProviderId,
-} from '../types.js';
+import { type AgentPermission, type AgentPhase, isAgentPhase } from '../types.js';
 import type { AgentSession, AgentSessionStatus } from './types.js';
 
 /**
@@ -27,13 +22,17 @@ import type { AgentSession, AgentSessionStatus } from './types.js';
 
 export interface CreateAgentSessionInput {
   branch: string;
-  provider: AgentProviderId;
+  provider: string;
+  permission?: AgentPermission;
   runId?: string | null;
   phase?: AgentPhase | null;
   storyId?: string | null;
   worktreeId?: string | null;
   conversationId?: string | null;
   paneTarget?: string | null;
+  paneToken?: string | null;
+  parentSessionId?: string | null;
+  tabSequence?: number;
   /** Caption for a session no issue names. Free sessions are why it exists. */
   label?: string | null;
   status?: AgentSessionStatus;
@@ -50,9 +49,13 @@ export function createAgentSession(input: CreateAgentSessionInput): AgentSession
     branch: input.branch,
     worktreeId: input.worktreeId ?? null,
     provider: input.provider,
+    permission: input.permission ?? 'workspace',
     conversationId: input.conversationId ?? null,
     status: input.status ?? 'starting',
     paneTarget: input.paneTarget ?? null,
+    paneToken: input.paneToken ?? randomUUID(),
+    parentSessionId: input.parentSessionId ?? null,
+    tabSequence: input.tabSequence ?? 0,
     label: input.label ?? null,
     createdAt: at,
     updatedAt: at,
@@ -74,10 +77,10 @@ export async function saveSession(
  * value written by a newer release, and a cast would let it reach code that
  * switches on it exhaustively. An unrecognised phase becomes `null` (the row is
  * still a session, it just is not one of *these* phases); an unrecognised
- * provider makes the row unusable, so it is dropped rather than guessed.
+ * provider remains a string because custom-agent ids are deliberately open.
  */
 function toAgentSession(row: StoredAgentSession): AgentSession | null {
-  if (!isAgentProviderId(row.provider)) return null;
+  if (row.provider.trim() === '') return null;
   return {
     ...row,
     phase: row.phase !== null && isAgentPhase(row.phase) ? row.phase : null,

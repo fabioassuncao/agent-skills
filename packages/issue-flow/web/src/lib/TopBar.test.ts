@@ -5,10 +5,7 @@ import { createWorktree } from './test-fixtures';
 import type { WorktreeInfo } from './types';
 
 /**
- * PORT of `frontend/src/lib/TopBar.test.ts` @ d8c9d5f — 6 cases. The Linear
- * badge case (ADR-14) is replaced by the linked-issue badge that took its
- * place in the sidebar row, so the count is unchanged and nothing is dropped
- * silently.
+ * PORT of `frontend/src/lib/TopBar.test.ts` @ d8c9d5f.
  */
 
 function renderTopBar(
@@ -132,5 +129,42 @@ describe('TopBar', () => {
     expect(badgeContainer?.className).toContain('flex-1');
     expect(repoGroup).not.toBeNull();
     expect(repoGroup?.className).toContain('flex-wrap');
+  });
+
+  it('shows a linked Linear issue and opens its detail action', () => {
+    const onlinearclick = vi.fn();
+    const linked = {
+      id: 'id-7',
+      identifier: 'ENG-7',
+      title: 'Badge',
+      description: null,
+      priority: 0,
+      priorityLabel: 'Sem prioridade',
+      url: 'https://linear/ENG-7',
+      branchName: 'eng-7-badge',
+      dueDate: null,
+      updatedAt: '2026-09-06T00:00:00Z',
+      state: { name: 'A fazer', color: '#ffaa00', type: 'unstarted' },
+      team: { name: 'Engenharia', key: 'ENG' },
+      labels: [],
+      project: null,
+    };
+    render(TopBar, {
+      props: {
+        name: 'eng-7-badge',
+        worktree: createWorktree('eng-7-badge', { linearIssue: linked }),
+        sshHost: '',
+        onclose: vi.fn(),
+        onarchive: vi.fn(),
+        onmerge: vi.fn(),
+        onremove: vi.fn(),
+        onsettings: vi.fn(),
+        onCiClick: vi.fn(),
+        onReviewsClick: vi.fn(),
+        onlinearclick,
+      },
+    });
+    screen.getByRole('button', { name: 'Ver ENG-7 no Linear' }).click();
+    expect(onlinearclick).toHaveBeenCalledWith(linked);
   });
 });

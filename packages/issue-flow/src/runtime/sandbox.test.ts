@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentSessionDeps } from '../agents/session/open.js';
 import type { AgentInvocation, ResolvedAgentSettings } from '../agents/types.js';
-import { type PlanRepositoryContext, resetPlanRepositories } from '../storage/db/repository.js';
+import {
+  type PlanRepositoryContext,
+  resetPlanRepositories,
+  saveWorktree,
+} from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { type PaneTemplate, parseRuntimeProfile, type RuntimeProfile } from './profiles.js';
 import {
@@ -64,6 +68,10 @@ function fakeTmux(): TmuxGateway & {
   const paneCommands: string[] = [];
   const available = { value: true };
   let current: string | null = null;
+  const paneLocations = new Map<string, { sessionName: string; windowName: string }>();
+  const paneByCoordinate = new Map<string, string>();
+  const paneOwners = new Map<string, { sessionName: string; token: string }>();
+  let nextPane = 1;
   const key = (session: string, window: string): string => `${session}:${window}`;
 
   return {
@@ -74,16 +82,44 @@ function fakeTmux(): TmuxGateway & {
     ensureServer: async () => {},
     ensureSession: async () => {},
     hasWindow: async (session, window) => windows.has(key(session, window)),
+    hasWindowStrict: async (session, window) => windows.has(key(session, window)),
     killWindow: async (session, window) => {
       windows.delete(key(session, window));
+      for (const [pane, location] of paneLocations) {
+        if (location.sessionName === session && location.windowName === window) {
+          paneLocations.delete(pane);
+          paneOwners.delete(pane);
+        }
+      }
+    },
+    killWindowStrict: async (session, window) => {
+      windows.delete(key(session, window));
+      for (const [pane, location] of paneLocations) {
+        if (location.sessionName === session && location.windowName === window) {
+          paneLocations.delete(pane);
+          paneOwners.delete(pane);
+        }
+      }
     },
     createWindow: async ({ sessionName, windowName, command }) => {
       windows.set(key(sessionName, windowName), 1);
       current = key(sessionName, windowName);
+      const pane = `%${nextPane++}`;
+      paneLocations.set(pane, { sessionName, windowName });
+      paneByCoordinate.set(`${sessionName}:${windowName}.0`, pane);
       if (command !== undefined) windowCommands.push(command);
     },
     splitWindow: async ({ command }) => {
-      if (current !== null) windows.set(current, (windows.get(current) ?? 0) + 1);
+      if (current !== null) {
+        const index = windows.get(current) ?? 0;
+        windows.set(current, index + 1);
+        const colon = current.indexOf(':');
+        const sessionName = current.slice(0, colon);
+        const windowName = current.slice(colon + 1);
+        const pane = `%${nextPane++}`;
+        paneLocations.set(pane, { sessionName, windowName });
+        paneByCoordinate.set(`${current}.${index}`, pane);
+      }
       if (command !== undefined) windowCommands.push(command);
     },
     setWindowOption: async () => {},
@@ -98,9 +134,33 @@ function fakeTmux(): TmuxGateway & {
     hasBuffer: async () => false,
     selectPane: async () => {},
     listWindows: async (): Promise<TmuxWindowSummary[]> => [],
-    getPaneId: async () => '%1',
+    getPaneId: async (target) => paneByCoordinate.get(target) ?? target,
+    getPaneIdentity: async (target) => {
+      const location = paneLocations.get(target);
+      if (location === undefined) throw new Error(`missing pane ${target}`);
+      const owner = paneOwners.get(target);
+      return {
+        paneId: target,
+        sessionName: owner?.sessionName ?? location.sessionName,
+        windowName: location.windowName,
+        ownerToken: owner?.token ?? null,
+      };
+    },
+    tagPaneOwner: async (target, token, sessionName) => {
+      paneOwners.set(target, { sessionName, token });
+    },
+    hasPaneStrict: async (target) => paneLocations.has(target),
     countPanes: async (session, window) => windows.get(key(session, window)) ?? 0,
-    killPane: async () => {},
+    killPane: async (target) => {
+      paneLocations.delete(target);
+      paneOwners.delete(target);
+    },
+    killPaneStrict: async (target) => {
+      paneLocations.delete(target);
+      paneOwners.delete(target);
+    },
+    swapPanes: async () => {},
+    movePaneToWindow: async () => {},
   };
 }
 
@@ -179,6 +239,31 @@ function harness(
   const tmux = overrides.tmux ?? fakeTmux();
   const docker = overrides.docker ?? fakeDocker();
   const worktrees = fakeWorktrees();
+  const createWorktree = worktrees.create.bind(worktrees);
+  worktrees.create = async (options) => {
+    const created = await createWorktree(options);
+    const timestamp = new Date().toISOString();
+    await saveWorktree(storage, {
+      worktreeId: created.worktreeId,
+      branch: created.branch,
+      path: created.path,
+      baseBranch: options.baseBranch ?? 'main',
+      label: null,
+      profile: options.profile ?? 'sandbox',
+      agent: options.agent ?? 'codex',
+      runtime: options.runtime ?? 'docker',
+      startupEnvValues: options.startupEnvValues ?? {},
+      allocatedPorts: options.allocatedPorts ?? {},
+      source: options.source ?? null,
+      conversationId: null,
+      archived: false,
+      activeAgentSessionId: null,
+      tabSequenceCounter: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    return created;
+  };
   return {
     tmux,
     docker,

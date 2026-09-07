@@ -10,8 +10,9 @@ import { RunDemandError, resolveAutoCloseFlag, resolveRunDemand } from './demand
  * Three of the seventeen carry over. The other fourteen belong to surfaces
  * this repository deliberately does not have:
  *
- * - eight are `--linear` / `--branch` (ADR-14: Linear is not absorbed, and a
- *   `run` derives its branch from the plan, never from a flag);
+ * - eight are `--linear` / `--branch` (Linear posting/pickup is a separate
+ *   integration surface, and a `run` derives its branch from the plan, never
+ *   from a flag);
  * - four are `--resume`, which is `issue-flow resume` here — a second resume
  *   path inside `run` would be exactly the duplication invariant 13 forbids;
  * - one is `--agent/--base/--profile/--env`, which are worktree-creation

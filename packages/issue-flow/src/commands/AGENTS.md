@@ -30,6 +30,22 @@ invites the other reading, and runs, artifacts and telemetry all survive it.
 alias delegating to the same body (`web/AGENTS.md`: a third way to bind is what
 that module exists to prevent).
 
+Its serialized 60-second maintenance cadence is headless: per served project,
+Linear pickup (when enabled and credentialed) and GitHub merged-worktree GC
+(when enabled) run independently. A Linear failure must not suppress GitHub GC;
+shutdown aborts an in-flight pass and waits for it before closing storage.
+
+The bare root command is onboarding, not status: it always renders
+`cli-help.ts`. `ps` is the only root-level run inventory. Keep the preformatted
+help's command list and public environment list exact; internal context
+variables never belong there.
+
+`worktree ls|archive|unarchive|label|remove|merge|prune` works directly, without
+a server, but never implements lifecycle policy here. Every mutation delegates
+to `agents/session/worktree-control.ts`. Destructive commands require
+confirmation/`--yes`; prune is dry-run by default and rechecks candidates under
+the shared cross-process lock.
+
 ## Layout of `run/` (#100)
 
 `run.ts` is a thin façade: `RunPipelineOptions`, `runPipeline()`, and

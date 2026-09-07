@@ -77,3 +77,9 @@ stays on `session.json` and the journal.
 Progress goes to `stdout`. `issue-flow run 42 > run.log 2>/dev/null` must
 produce a complete, ordered log. Diagnostics that are not progress
 (publisher warnings, shutdown) may stay on `stderr`.
+
+`printSubsystem()` is the foreground service extension of this same writer,
+not a second logger. It adds the timestamp/subsystem prefix and calls
+`redactSecrets()` before stdout. Long-running `serve` output is lifecycle only
+(`run:open`, status/phase transition, `run:close`), never snapshot or
+conversation firehose; detached `--web` continues with ignored stdio.

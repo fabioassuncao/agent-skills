@@ -24,6 +24,7 @@ describe('loadGitHubConfig', () => {
     await expect(loadGitHubConfig({ projectRoot, env: {}, warn })).resolves.toEqual({
       linkedRepos: [],
       syncIntervalMs: 10_000,
+      autoRemoveOnMerge: false,
     });
   });
 
@@ -35,6 +36,7 @@ describe('loadGitHubConfig', () => {
     await expect(loadGitHubConfig({ projectRoot, env: {}, warn })).resolves.toEqual({
       linkedRepos: [{ repo: 'acme/api', alias: 'api' }],
       syncIntervalMs: 30_000,
+      autoRemoveOnMerge: false,
     });
   });
 
@@ -53,6 +55,7 @@ describe('loadGitHubConfig', () => {
     expect(config).toEqual({
       linkedRepos: [{ repo: 'acme/web', alias: 'web' }],
       syncIntervalMs: 20_000,
+      autoRemoveOnMerge: false,
     });
   });
 
@@ -73,6 +76,7 @@ describe('loadGitHubConfig', () => {
     await expect(loadGitHubConfig({ projectRoot, env: {}, warn })).resolves.toEqual({
       linkedRepos: [],
       syncIntervalMs: 10_000,
+      autoRemoveOnMerge: false,
     });
     expect(warnings.join('\n')).toContain('Ignoring "github" key');
   });

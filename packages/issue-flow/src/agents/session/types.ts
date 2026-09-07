@@ -1,4 +1,4 @@
-import type { AgentPhase, AgentProviderId } from '../types.js';
+import type { AgentPermission, AgentPhase } from '../types.js';
 
 /**
  * The durable half of an agent session.
@@ -37,7 +37,10 @@ export interface AgentSession {
   branch: string;
   /** Worktree it runs in. `null` in `headless`, which has no worktree. */
   worktreeId: string | null;
-  provider: AgentProviderId;
+  /** Built-in provider id or a custom-agent id from the layered config. */
+  provider: string;
+  /** Semantic permission fixed when the session is first opened. */
+  permission: AgentPermission;
   /**
    * The provider's own conversation id.
    *
@@ -48,6 +51,16 @@ export interface AgentSession {
   status: AgentSessionStatus;
   /** `session:window.pane`. `null` when the session is not in a pane. */
   paneTarget: string | null;
+  /** Durable nonce mirrored into tmux's per-pane owner option. */
+  paneToken: string | null;
+  /**
+   * Root session this tab was forked from. `null` is the root tab.
+   *
+   * This is Issue Flow session identity, never a provider conversation id.
+   */
+  parentSessionId: string | null;
+  /** Stable tab order; null marks a pre-tabs/non-tab historical row. Root is zero. */
+  tabSequence: number | null;
   /**
    * What to call this session in a list.
    *

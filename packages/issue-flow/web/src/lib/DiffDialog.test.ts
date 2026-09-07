@@ -93,6 +93,22 @@ describe('DiffDialog', () => {
     expect(container.querySelector('.d2h-wrapper')).toHaveClass('d2h-dark-color-scheme');
   });
 
+  it('treats every named palette as dark', async () => {
+    document.documentElement.setAttribute('data-theme', 'nord');
+    vi.mocked(api.fetchWorktreeDiff).mockResolvedValue({
+      uncommitted: UNCOMMITTED_DIFF,
+      uncommittedTruncated: false,
+      gitStatus: '',
+      unpushedCommits: [],
+    });
+
+    const { container } = render(DiffDialog, {
+      props: { branch: 'feature/nord-diff', onclose: vi.fn() },
+    });
+    await screen.findByRole('button', { name: 'Diff atual' });
+    expect(container.querySelector('.d2h-wrapper')).toHaveClass('d2h-dark-color-scheme');
+  });
+
   it('follows the light theme rather than hard-coding dark', async () => {
     document.documentElement.setAttribute('data-theme', 'light');
     vi.mocked(api.fetchWorktreeDiff).mockResolvedValue({

@@ -24,8 +24,9 @@ import type { AgentLifecycle } from '../agents/hooks/contract.js';
  *    start resolves to `running` well before it.
  * 3. **The re-read before closing.** Whatever runs between deciding and
  *    closing takes time, and a person taking over during that window must
- *    abort the close. Upstream's window was a Linear round-trip, which is not
- *    ported (ADR-14); the window here is the run's own finalization — the
+ *    abort the close. Upstream's window was an implicit Linear round-trip;
+ *    the restored Linear integration keeps posting explicit and outside run
+ *    completion. The window here is the run's own finalization — the
  *    closure of the issue, the summary — and the race is the same one.
  *
  * The disarm is not reimplemented: a `human:hold` **is** the "the human took

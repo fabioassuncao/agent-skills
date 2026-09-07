@@ -7,6 +7,9 @@
   import ExecutionPanel from './lib/ExecutionPanel.svelte';
   import ExecutionSidebarList from './lib/ExecutionSidebarList.svelte';
   import ExecutionsDashboard from './lib/ExecutionsDashboard.svelte';
+  import LinearDetailDialog from './lib/LinearDetailDialog.svelte';
+  import LinearPanel from './lib/LinearPanel.svelte';
+  import LinearPostDialog from './lib/LinearPostDialog.svelte';
   import MobileChatSurface from './lib/MobileChatSurface.svelte';
   import PaneBar from './lib/PaneBar.svelte';
   import ProjectSwitcher from './lib/ProjectSwitcher.svelte';
@@ -32,12 +35,14 @@
     fetchExecutionDiagnostics,
     fetchExecutionEvents,
     fetchExecutionStatus,
+    fetchLinearIssues,
     fetchProjects,
     fetchSessions,
     fetchWorktrees,
     hasCapability,
     knownHealth,
     openSession,
+    postWorktreeToLinear,
     refreshWorktreeAgentTerminal,
     selectWorktreeTab,
     setWorktreeLabel,
@@ -68,6 +73,9 @@
     CreateWorktreeRequest,
     DiffDialogProps,
     EffectiveConfigResponse,
+    LinearIssue,
+    LinearIssueAvailability,
+    PostWorktreeToLinearRequest,
     PrEntry,
     ProjectSummary,
     SessionSummary,
@@ -110,7 +118,8 @@
    *
    * What changed:
    *
-   * - **Linear is gone** and so is `MigrationBanner` (§48.1).
+   * - The migration sensor is gone (§48.1); the optional Linear panel is
+   *   capability-gated and uses environment-only authentication server-side.
    * - **Polling is gone.** The upstream polls `/api/worktrees` every 5s (1s
    *   while creating). Here the monitor pushes on `/api/stream`, and §35 puts a
    *   hard 250 ms p95 ceiling on output→screen with no room to negotiate. The
@@ -137,6 +146,8 @@
       startupEnvs: {},
       linkedRepos: [],
       autoRemoveOnMerge: false,
+      linearAvailability: 'missing_api_key',
+      linearAutoCreateWorktrees: false,
       projectDir: '',
       mainBranch: '',
     };
@@ -162,7 +173,7 @@
    */
   const sessionsAvailable = hasCapability(CAPABILITY.sessions);
   /** The ported mutation surface: create, merge, archive, re-profile. */
-  const worktreeMutations = hasCapability(CAPABILITY.worktrees);
+  const worktreeMutations = hasCapability(CAPABILITY.worktreeMutations);
   /** Whether this monitor can open a session — the one click of I3 (§49.3). */
   const canOpenSession = canOpenSessions();
   const worktreesAvailable = sessionsAvailable || worktreeMutations;
@@ -185,6 +196,12 @@
   let removingBranches = $state<Set<string>>(new Set());
   let showCreateDialog = $state(false);
   let showSettingsDialog = $state(false);
+  let linearIssues = $state<LinearIssue[]>([]);
+  let linearAvailability = $state<LinearIssueAvailability>('disabled');
+  let linearDetail = $state<LinearIssue | null>(null);
+  let assigningLinearIssue = $state<LinearIssue | null>(null);
+  let postLinearBranch = $state<string | null>(null);
+  let postingLinearBranches = $state<Set<string>>(new Set());
   let ciDetailsPr = $state<PrEntry | null>(null);
   let commentReviewPr = $state<PrEntry | null>(null);
   let showDiffDialog = $state(false);
@@ -226,6 +243,19 @@
   let baseBranchCache: AvailableBranch[] | null = null;
   let baseBranchRequest: Promise<AvailableBranch[]> | null = null;
   let diffDialogLoad: Promise<void> | null = null;
+
+  // Only the system mode observes OS changes. Explicit modes — including the
+  // five named palettes — are complete choices and must not retain a listener
+  // that can repaint the terminal behind the user's back (U15).
+  $effect(() => {
+    if (currentTheme !== 'system' || typeof window === 'undefined') return;
+    const query = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncTerminalTheme = (): void => {
+      terminalTheme = terminalThemeFromTokens();
+    };
+    query.addEventListener('change', syncTerminalTheme);
+    return () => query.removeEventListener('change', syncTerminalTheme);
+  });
 
   /**
    * The user's refresh interval (U16). Declared here because the safety net's
@@ -398,6 +428,7 @@
   let sidebarOpen = $state(false);
   let activePane = $state(0);
   let tabBusy = $state(false);
+  let deleteTabConfirm = $state<{ branch: string; tabId: string; label: string } | null>(null);
   let terminalRef:
     | {
         sendSelectPane: (pane: number) => void;
@@ -618,9 +649,10 @@
   // Tabs only mean something for the built-in terminal agents that have a
   // forkable session, and only where the server serves tabs at all.
   let showTabBar = $derived(
-    canConnect &&
-      !showWebChat &&
+    !showWebChat &&
       (activeWorktree?.tabs.length ?? 0) > 0 &&
+      activeWorktree?.supportsTabs === true &&
+      canCall('createWorktreeTab') &&
       (activeWorktree?.agentName === 'claude' || activeWorktree?.agentName === 'codex'),
   );
   let selectedSessionId = $derived(
@@ -964,13 +996,45 @@
     isMobile && canConnect && !showWebChat && activeTab === 'terminal' && paneBarPanes.length > 0,
   );
 
+  function branchSuffix(branch: string): string {
+    return branch.includes('/') ? branch.slice(branch.lastIndexOf('/') + 1) : branch;
+  }
+
+  function linkedLinearIssue(branch: string): LinearIssue | null {
+    return (
+      linearIssues.find(
+        (issue) =>
+          branch === issue.branchName || branchSuffix(branch) === branchSuffix(issue.branchName),
+      ) ?? null
+    );
+  }
+
+  function linkLinearIssues(rows: WorktreeInfo[]): WorktreeInfo[] {
+    return rows.map((worktree) => ({
+      ...worktree,
+      linearIssue: linkedLinearIssue(worktree.branch),
+    }));
+  }
+
+  async function refreshLinear(): Promise<void> {
+    if (!canCall('fetchLinearIssues')) return;
+    try {
+      const response = await fetchLinearIssues();
+      linearAvailability = response.availability;
+      linearIssues = response.issues;
+      worktrees = linkLinearIssues(worktrees);
+    } catch (err) {
+      console.error('Falha ao atualizar o Linear:', err);
+    }
+  }
+
   async function refresh() {
     if (!canCall('fetchWorktrees')) {
       hasLoadedWorktrees = true;
       return;
     }
     try {
-      worktrees = await fetchWorktrees();
+      worktrees = linkLinearIssues(await fetchWorktrees());
       hasLoadedWorktrees = true;
       disconnected = false;
     } catch (err) {
@@ -980,15 +1044,57 @@
   }
 
   function openCreateDialog(): void {
+    assigningLinearIssue = null;
     includeRemoteBranches = false;
     lockedBaseBranch = null;
     showCreateDialog = true;
   }
 
   function openSubworktreeDialog(parentBranch: string): void {
+    assigningLinearIssue = null;
     includeRemoteBranches = false;
     lockedBaseBranch = parentBranch;
     showCreateDialog = true;
+  }
+
+  function assignLinear(issue: LinearIssue): void {
+    linearDetail = null;
+    assigningLinearIssue = issue;
+    includeRemoteBranches = false;
+    lockedBaseBranch = null;
+    showCreateDialog = true;
+  }
+
+  async function sendConversationToLinear(
+    branch: string,
+    target: PostWorktreeToLinearRequest['target'],
+  ): Promise<void> {
+    postingLinearBranches = new Set([...postingLinearBranches, branch]);
+    try {
+      const result = await postWorktreeToLinear(branch, { target });
+      showToast({ tone: 'success', message: `Conversa enviada para ${result.issueId}` });
+      postLinearBranch = null;
+      await refreshLinear();
+    } catch (error) {
+      showToast({ tone: 'error', message: `Falha ao enviar ao Linear: ${errorMessage(error)}` });
+      throw error;
+    } finally {
+      postingLinearBranches = new Set([...postingLinearBranches].filter((value) => value !== branch));
+    }
+  }
+
+  function requestLinearPost(worktree: WorktreeInfo): void {
+    if (worktree.linearIssue) {
+      void sendConversationToLinear(worktree.branch, {
+        kind: 'issue',
+        issueId: worktree.linearIssue.id,
+      }).catch(() => {
+        // The helper already surfaced the failure in a toast. This fire-and-forget
+        // menu action must not leak a rejected promise into the browser console.
+      });
+      return;
+    }
+    postLinearBranch = worktree.branch;
   }
 
   async function handleCreate(request: CreateWorktreeRequest) {
@@ -1009,6 +1115,7 @@
       pendingCreateBranchHint = expectedCreatedCount > 1 ? null : (request.branch ?? null);
     }
     showCreateDialog = false;
+    assigningLinearIssue = null;
     lockedBaseBranch = null;
 
     try {
@@ -1331,10 +1438,19 @@
   async function handleDeleteTab(tabId: string): Promise<void> {
     const branch = activeBranch;
     if (!branch || tabBusy) return;
+    const tab = activeWorktree?.tabs.find((candidate) => candidate.tabId === tabId);
+    if (!tab || tab.kind === 'root') return;
+    deleteTabConfirm = { branch, tabId, label: tab.label };
+  }
+
+  async function confirmDeleteTab(): Promise<void> {
+    const target = deleteTabConfirm;
+    if (!target || tabBusy) return;
     tabBusy = true;
     try {
-      await deleteWorktreeTab(branch, tabId);
+      await deleteWorktreeTab(target.branch, target.tabId);
       await refresh();
+      deleteTabConfirm = null;
     } catch (err) {
       showToast({ tone: 'error', message: `Falha ao encerrar a sessão: ${errorMessage(err)}` });
     } finally {
@@ -1426,10 +1542,12 @@
         .fetchConfig()
         .then((c) => {
           config = c;
+          linearAvailability = c.linearAvailability;
         })
         .catch(() => {});
     }
     void refresh();
+    void refreshLinear();
     void refreshExecutions();
 
     // U17: the process that served these assets is identified on every
@@ -1546,17 +1664,6 @@
     }
     mq.addEventListener('change', onMqChange);
 
-    // The OS theme listener is attached **only** in `system` mode: with an
-    // explicit choice the OS must not win. The repaint itself is the media
-    // query's job; this only syncs the JS side (and the terminal's palette,
-    // which is not CSS).
-    const themeQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    function onSystemThemeChange(): void {
-      if (currentTheme !== 'system') return;
-      terminalTheme = terminalThemeFromTokens();
-    }
-    themeQuery.addEventListener('change', onSystemThemeChange);
-
     return () => {
       if (interval) clearInterval(interval);
       clearInterval(clock);
@@ -1567,7 +1674,6 @@
       window.removeEventListener('keydown', handleKeydown);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       mq.removeEventListener('change', onMqChange);
-      themeQuery.removeEventListener('change', onSystemThemeChange);
       unsubscribeStream();
     };
   });
@@ -1619,12 +1725,13 @@
                     class="text-lg leading-none">+</span
                   >{/if} Nova sessão</button
               >
-            {:else if worktreeMutations}
+            {/if}
+            {#if worktreeMutations}
               <button
                 type="button"
                 class="h-8 px-2 gap-1.5 rounded-md border border-edge bg-surface text-accent text-xs flex items-center justify-center cursor-pointer hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
                 onclick={() => openCreateDialog()}
-                title="Novo worktree (Cmd+K)"
+                title={canOpenSession ? 'Novo worktree' : 'Novo worktree (Cmd+K)'}
                 ><span class="text-lg leading-none">+</span> Novo</button
               >
             {/if}
@@ -1716,7 +1823,23 @@
         onremove={(b) => (removeBranch = b)}
         oneditprofile={openProfileDialog}
         oncreatesubworktree={openSubworktreeDialog}
+        canPostToLinear={canCall('postWorktreeToLinear') &&
+          config.linearAvailability === 'ready'}
+        postingLinear={postingLinearBranches}
+        onposttolinear={(branch) => {
+          const worktree = worktrees.find((candidate) => candidate.branch === branch);
+          if (worktree) requestLinearPost(worktree);
+        }}
       />
+      {#if canCall('fetchLinearIssues')}
+        <LinearPanel
+          issues={linearIssues}
+          availability={linearAvailability}
+          canAssign={canCall('createWorktree')}
+          onassign={assignLinear}
+          onselect={(issue) => (linearDetail = issue)}
+        />
+      {/if}
       {#if config.projectDir}
         <SidebarRepoRow
           label={config.mainBranch || 'main'}
@@ -1747,7 +1870,8 @@
             <span>Navegar</span><kbd class="opacity-60">Cmd+↑/↓</kbd>
           </div>
           <div class="flex justify-between">
-            <span>Novo worktree</span><kbd class="opacity-60">Cmd+K</kbd>
+            <span>{canOpenSession ? 'Nova sessão' : 'Novo worktree'}</span
+            ><kbd class="opacity-60">Cmd+K</kbd>
           </div>
           <div class="flex justify-between">
             <span>Integrar</span><kbd class="opacity-60">Cmd+M</kbd>
@@ -1808,6 +1932,7 @@
       onReviewsClick={(pr) => (commentReviewPr = pr)}
       onnotificationselect={handleSelectWorktree}
       archiving={isSelectedArchiving}
+      onlinearclick={(issue) => (linearDetail = issue)}
     />
 
     <!--
@@ -1886,17 +2011,17 @@
 </div>
 
 {#snippet terminalPane()}
+  {#if showTabBar && activeWorktree}
+    <TabBar
+      tabs={activeWorktree.tabs}
+      activeTabId={activeWorktree.activeTabId}
+      busy={tabBusy}
+      oncreate={handleCreateTab}
+      onselect={handleSelectTab}
+      ondelete={handleDeleteTab}
+    />
+  {/if}
   {#if canConnect}
-    {#if showTabBar && activeWorktree}
-      <TabBar
-        tabs={activeWorktree.tabs}
-        activeTabId={activeWorktree.activeTabId}
-        busy={tabBusy}
-        oncreate={handleCreateTab}
-        onselect={handleSelectTab}
-        ondelete={handleDeleteTab}
-      />
-    {/if}
     {#key selectedTerminalKey}
       <Terminal
         sessionId={selectedSessionId}
@@ -1906,9 +2031,11 @@
         {terminalTheme}
         agentTerminalStale={activeWorktree?.agentTerminalStale ?? false}
         refreshingAgentTerminal={isSelectedAgentTerminalRefreshing}
-        onrefreshagentterminal={() => {
-          if (activeBranch) void handleRefreshAgentTerminal(activeBranch);
-        }}
+        onrefreshagentterminal={canCall('refreshWorktreeAgentTerminal')
+          ? () => {
+              if (activeBranch) void handleRefreshAgentTerminal(activeBranch);
+            }
+          : undefined}
         bind:this={terminalRef}
       />
     {/key}
@@ -1935,7 +2062,21 @@
           </p>
           <p class="text-[10px] text-muted">{activeWorktree.branch}</p>
         </div>
-        {#if canCall('openWorktree')}
+        {#if activeWorktree.agentTerminalStale && canCall('refreshWorktreeAgentTerminal')}
+          <button
+            type="button"
+            class="mt-2 px-5 py-2 rounded-md bg-accent text-accent-text text-sm font-medium cursor-pointer border-none hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            onclick={() => void handleRefreshAgentTerminal(activeWorktree.branch)}
+            disabled={isSelectedAgentTerminalRefreshing}
+          >
+            {#if isSelectedAgentTerminalRefreshing}
+              <span class="spinner" style="width: 14px; height: 14px; border-width: 1.5px;"></span>
+              Retomando…
+            {:else}
+              Retomar sessão
+            {/if}
+          </button>
+        {:else if canCall('openWorktree')}
           <button
             type="button"
             class="mt-2 px-5 py-2 rounded-md bg-accent text-accent-text text-sm font-medium cursor-pointer border-none hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -1977,6 +2118,10 @@
     defaultProfileName={config.defaultProfileName}
     defaultAgentId={config.defaultAgentId}
     autoNameEnabled={config.autoName}
+    initialBranch={assigningLinearIssue?.branchName ?? ''}
+    initialPrompt={assigningLinearIssue
+      ? `${assigningLinearIssue.title}\n\n${assigningLinearIssue.description ?? ''}`.trim()
+      : ''}
     bind:includeRemoteBranches
     {availableBranches}
     {availableBranchesLoading}
@@ -1989,8 +2134,26 @@
     oncreate={handleCreate}
     oncancel={() => {
       showCreateDialog = false;
+      assigningLinearIssue = null;
       lockedBaseBranch = null;
     }}
+  />
+{/if}
+
+{#if linearDetail}
+  <LinearDetailDialog
+    issue={linearDetail}
+    canAssign={canCall('createWorktree')}
+    onassign={assignLinear}
+    onclose={() => (linearDetail = null)}
+  />
+{/if}
+
+{#if postLinearBranch}
+  <LinearPostDialog
+    branch={postLinearBranch}
+    onsubmit={(target) => sendConversationToLinear(postLinearBranch as string, target)}
+    onclose={() => (postLinearBranch = null)}
   />
 {/if}
 
@@ -2036,6 +2199,16 @@
     message={`Remover o worktree "${removeBranch}"? Esta ação não pode ser desfeita.`}
     onconfirm={handleRemove}
     oncancel={() => (removeBranch = null)}
+  />
+{/if}
+
+{#if deleteTabConfirm}
+  <ConfirmDialog
+    message={`Encerrar "${deleteTabConfirm.label}"? Apenas esta sessão derivada e seu processo serão encerrados.`}
+    confirmLabel="Encerrar sessão"
+    loading={tabBusy}
+    onconfirm={confirmDeleteTab}
+    oncancel={() => (deleteTabConfirm = null)}
   />
 {/if}
 
@@ -2088,6 +2261,8 @@
     {currentTheme}
     {useWebChatUi}
     autoRemoveOnMerge={config.autoRemoveOnMerge ?? false}
+    linearAutoCreate={config.linearAutoCreateWorktrees}
+    linearAvailability={config.linearAvailability}
     onthemechange={(key) => {
       currentTheme = key;
       terminalTheme = terminalThemeFromTokens();
@@ -2098,6 +2273,9 @@
     }}
     onautoremovechange={(enabled) => {
       config.autoRemoveOnMerge = enabled;
+    }}
+    onlinearautocreatechange={(enabled) => {
+      config.linearAutoCreateWorktrees = enabled;
     }}
     onagentschange={(agents) => {
       config.agents = agents;

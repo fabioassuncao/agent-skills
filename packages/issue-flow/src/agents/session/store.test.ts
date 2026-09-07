@@ -43,6 +43,7 @@ describe('agent session store', () => {
     const session = createAgentSession({
       branch: 'feature',
       provider: 'claude',
+      permission: 'read-only',
       runId: 'run-1',
       phase: 'execute',
       worktreeId: 'wt-1',
@@ -56,6 +57,7 @@ describe('agent session store', () => {
       storyId: null,
       conversationId: null,
       status: 'starting',
+      permission: 'read-only',
       createdAt: '2026-09-06T10:00:00.000Z',
       endedAt: null,
     });
@@ -132,14 +134,14 @@ describe('agent session store', () => {
     await expect(loadSession(context, session.id)).resolves.toBeNull();
   });
 
-  // The database can hold a value written by a newer release; a cast would let
-  // it reach code that switches on it exhaustively.
-  it('drops a row whose provider this release does not know', async () => {
+  it('keeps a custom-agent id because the registry is intentionally open', async () => {
     const session = createAgentSession({ branch: 'feature', provider: 'claude' });
     await saveAgentSession(context, { ...session, provider: 'some-future-agent' });
 
-    await expect(loadSession(context, session.id)).resolves.toBeNull();
-    await expect(listSessions(context)).resolves.toEqual([]);
+    await expect(loadSession(context, session.id)).resolves.toMatchObject({
+      provider: 'some-future-agent',
+    });
+    await expect(listSessions(context)).resolves.toHaveLength(1);
   });
 
   it('keeps a row whose phase this release does not know, without the phase', async () => {

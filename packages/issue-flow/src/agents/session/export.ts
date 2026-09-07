@@ -11,12 +11,12 @@ import {
  *
  * ## What was ported and what was dropped
  *
- * The upstream service does one thing: push a conversation into **Linear** as a
- * JSON attachment plus a summary comment, and read it back to seed the next
- * session. ADR-14 discards Linear outright, so what is ported here is the half
- * that was never about Linear — the payload format, its
- * backward-compatible parser, the markdown rendering and the reseed builder —
- * and the transport becomes a file on disk.
+ * The upstream service pushes a conversation into **Linear** as a JSON
+ * attachment plus a summary comment, and reads it back to seed the next
+ * session. This module owns the provider-neutral half — the payload format,
+ * its backward-compatible parser, markdown rendering, local file transport and
+ * reseed builder. The restored Linear integration reuses this exact payload in
+ * `issues/linear/`; importing/reseeding from a Linear attachment remains out.
  *
  * That is not a smaller feature; it is the same feature with the part this
  * project actually has. An exported conversation is an artefact: it belongs

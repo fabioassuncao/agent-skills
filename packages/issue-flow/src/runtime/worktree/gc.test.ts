@@ -15,7 +15,7 @@ function managed(branch: string): ManagedWorktree {
     branch,
     path: `/wt/${branch}`,
     entry: { path: `/wt/${branch}`, branch, head: 'abc', detached: false, bare: false },
-    binding: null,
+    binding: { branch, path: `/wt/${branch}`, worktreeId: `wt-${branch}` } as never,
     state: 'managed',
   };
 }
@@ -42,7 +42,25 @@ function fakeGit(status: Record<string, WorktreeStatus>): GitWorktreeGateway {
 }
 
 function states(entries: Record<string, string[]>): BranchPullRequestStates {
-  return new Map(Object.entries(entries));
+  return new Map(
+    Object.entries(entries).map(([branch, values]) => [
+      branch,
+      values.map((state) => ({ state, headCommit: 'abc', currentRepository: true })),
+    ]),
+  );
+}
+
+function removeCandidate(
+  removed: string[],
+  status: Record<string, WorktreeStatus> = {},
+  failOn?: string,
+) {
+  return async (worktree: ManagedWorktree) => {
+    if (worktree.branch === failOn) throw new Error('busy');
+    if (status[worktree.path]?.dirty) return 'dirty' as const;
+    removed.push(worktree.branch);
+    return 'removed' as const;
+  };
 }
 
 describe('runAutoRemove', () => {
@@ -53,6 +71,7 @@ describe('runAutoRemove', () => {
       git: fakeGit({}),
       projectRoot: '/repo',
       branchPullRequestStates: async () => states({ a: ['merged'], b: ['open'] }),
+      removeCandidate: removeCandidate(removed),
     });
 
     expect(removed).toEqual(['a']);
@@ -69,6 +88,7 @@ describe('runAutoRemove', () => {
       git: fakeGit({}),
       projectRoot: '/repo',
       branchPullRequestStates: async () => null,
+      removeCandidate: removeCandidate(removed),
     });
 
     expect(removed).toEqual([]);
@@ -84,6 +104,9 @@ describe('runAutoRemove', () => {
       git: fakeGit({ '/wt/a': { dirty: true, aheadCount: 0, currentCommit: 'abc' } }),
       projectRoot: '/repo',
       branchPullRequestStates: async () => states({ a: ['merged'] }),
+      removeCandidate: removeCandidate(removed, {
+        '/wt/a': { dirty: true, aheadCount: 0, currentCommit: 'abc' },
+      }),
     });
 
     expect(removed).toEqual([]);
@@ -97,6 +120,7 @@ describe('runAutoRemove', () => {
       git: fakeGit({}),
       projectRoot: '/repo',
       branchPullRequestStates: async () => states({ a: ['merged', 'open'] }),
+      removeCandidate: removeCandidate(removed),
     });
     expect(removed).toEqual([]);
   });
@@ -108,6 +132,7 @@ describe('runAutoRemove', () => {
       git: fakeGit({}),
       projectRoot: '/repo',
       branchPullRequestStates: async () => states({}),
+      removeCandidate: removeCandidate(removed),
     });
     expect(removed).toEqual([]);
     expect(result.skipped).toEqual([{ branch: 'a', reason: 'no-pull-request' }]);
@@ -120,6 +145,7 @@ describe('runAutoRemove', () => {
       git: fakeGit({}),
       projectRoot: '/repo',
       branchPullRequestStates: async () => states({ a: ['merged'] }),
+      removeCandidate: removeCandidate(removed),
       isRemoving: (branch) => branch === 'a',
     });
     expect(result.skipped).toEqual([{ branch: 'a', reason: 'busy' }]);
@@ -135,6 +161,7 @@ describe('runAutoRemove', () => {
       git: fakeGit({}),
       projectRoot: '/repo',
       branchPullRequestStates: async () => states({ a: ['merged'] }),
+      removeCandidate: removeCandidate(removed),
     });
     expect(removed).toEqual([]);
   });
@@ -147,6 +174,7 @@ describe('runAutoRemove', () => {
       git: fakeGit({}),
       projectRoot: '/repo',
       branchPullRequestStates: async () => states({ a: ['merged'], b: ['merged'] }),
+      removeCandidate: removeCandidate(removed, {}, 'a'),
       onError: (message) => errors.push(message),
     });
 

@@ -37,10 +37,26 @@ Ported from WebMux `adapters/tmux.ts`, `adapters/project-env.ts` and
   together, and `has-session` is not asked first. Each extra invocation is a
   process spawn costing about half the 30 ms budget §35 allows for an additional
   session.
-- **No tmux is not an error.** `isAvailable()` answers the question, and
-  `listWindows()` returns `[]` when no server is running — which is what
-  reconciliation needs, and what keeps `headless` free of any dependency on this
-  directory (ADR-03).
+- **No tmux is not an error; an installed tmux that cannot answer is unknown.**
+  `isAvailable()` answers the first question and aggregate inventories return
+  `[]` for an absent executable/server. Transport and protocol failures throw,
+  so reconciliation never rewrites live rows from an unknown observation.
+- **Pane ids, not coordinates, identify tab processes.** `%N` survives
+  `swap-pane` and `join-pane`; `session:window.index` does not. A fork starts in
+  the worktree's parking window and selection swaps/moves that pane into the
+  visible agent slot without restarting it. The parking window lives on this
+  same dedicated socket and never contains service panes.
+- **Pane ids are scoped and epoch-authenticated.** `%N` can be reused when the
+  dedicated server restarts, so it is never accepted alone. `getPaneIdentity`
+  must also prove the project owner session encoded alongside the nonce in
+  `@issue-flow-owner`, the exact main/parking window and the durable token stored
+  with the AgentSession. `#{session_name}` alone is not ownership: a grouped
+  viewer can make tmux report its `if-view-*` alias for the shared pane. A pane in
+  another project session, a service pane, or a reused id is foreign and must
+  not be moved or killed.
+- **Grouped viewers are aliases, not pane owners.** `list-panes -a` repeats the
+  same `%N` once per linked viewer session; ownership inventory excludes
+  `if-view-*` aliases so reconciliation always observes the project owner.
 
 ## Names
 
@@ -58,5 +74,7 @@ resolves somewhere else entirely.
 - Never spawn tmux without `extendEnv: false` and the pinned locale.
 - Never let a command reach the user's default socket.
 - Never kill a window without first establishing that its panes are gone.
+- Never implement tab selection by killing a pane or window. Only explicit,
+  confirmed fork deletion may call the strict single-pane teardown.
 - Never ask tmux one question per entity where one aggregated call answers them
   all.

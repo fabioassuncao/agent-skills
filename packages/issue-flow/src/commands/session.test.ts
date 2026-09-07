@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -13,6 +13,7 @@ import {
   type PlanRepositoryContext,
   resetPlanRepositories,
   saveSessionEvent,
+  saveWorktree,
 } from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import {
@@ -36,17 +37,34 @@ import {
 
 function fakeTmux(): TmuxGateway & { windows: Set<string> } {
   const windows = new Set<string>();
+  const panes = new Map<string, { sessionName: string; windowName: string }>();
+  const paneByCoordinate = new Map<string, string>();
+  const owners = new Map<string, { sessionName: string; token: string }>();
+  let nextPane = 1;
   return {
     windows,
     isAvailable: async () => true,
     ensureServer: async () => {},
     ensureSession: async () => {},
     hasWindow: async (session, window) => windows.has(`${session}:${window}`),
+    hasWindowStrict: async (session, window) => windows.has(`${session}:${window}`),
     killWindow: async (session, window) => {
       windows.delete(`${session}:${window}`);
+      for (const [pane, location] of panes) {
+        if (location.sessionName === session && location.windowName === window) panes.delete(pane);
+      }
+    },
+    killWindowStrict: async (session, window) => {
+      windows.delete(`${session}:${window}`);
+      for (const [pane, location] of panes) {
+        if (location.sessionName === session && location.windowName === window) panes.delete(pane);
+      }
     },
     createWindow: async ({ sessionName, windowName }) => {
       windows.add(`${sessionName}:${windowName}`);
+      const pane = `%${nextPane++}`;
+      panes.set(pane, { sessionName, windowName });
+      paneByCoordinate.set(`${sessionName}:${windowName}.0`, pane);
     },
     splitWindow: async () => {},
     setWindowOption: async () => {},
@@ -59,23 +77,75 @@ function fakeTmux(): TmuxGateway & { windows: Set<string> } {
     hasBuffer: async () => false,
     selectPane: async () => {},
     listWindows: async () => [],
-    getPaneId: async () => '%1',
-    countPanes: async () => 2,
-    killPane: async () => {},
+    getPaneId: async (target) => paneByCoordinate.get(target) ?? target,
+    getPaneIdentity: async (target) => {
+      const location = panes.get(target);
+      if (location === undefined) throw new Error(`missing pane ${target}`);
+      const owner = owners.get(target);
+      return {
+        paneId: target,
+        sessionName: owner?.sessionName ?? location.sessionName,
+        windowName: location.windowName,
+        ownerToken: owner?.token ?? null,
+      };
+    },
+    tagPaneOwner: async (target, token, sessionName) => {
+      owners.set(target, { sessionName, token });
+    },
+    hasPaneStrict: async (target) => panes.has(target),
+    countPanes: async (session, window) =>
+      [...panes.values()].filter(
+        (location) => location.sessionName === session && location.windowName === window,
+      ).length,
+    killPane: async (target) => {
+      panes.delete(target);
+      owners.delete(target);
+    },
+    killPaneStrict: async (target) => {
+      panes.delete(target);
+      owners.delete(target);
+    },
+    swapPanes: async () => {},
+    movePaneToWindow: async () => {},
   };
 }
 
-function fakeWorktrees(): AgentSessionDeps['worktrees'] {
+function fakeWorktrees(
+  storage: PlanRepositoryContext,
+  root = '/worktrees',
+): AgentSessionDeps['worktrees'] {
   const live = new Map<string, ManagedWorktree>();
   return {
-    create: async ({ branch }): Promise<CreatedWorktree> => {
-      const path = `/worktrees/${branch}`;
+    create: async (options): Promise<CreatedWorktree> => {
+      const { branch } = options;
+      const path = join(root, branch);
+      const timestamp = new Date().toISOString();
+      const binding = {
+        worktreeId: `wt-${branch}`,
+        branch,
+        path,
+        baseBranch: options.baseBranch ?? 'main',
+        label: null,
+        profile: options.profile ?? 'default',
+        agent: options.agent ?? 'claude',
+        runtime: options.runtime ?? 'host',
+        startupEnvValues: options.startupEnvValues ?? {},
+        allocatedPorts: options.allocatedPorts ?? {},
+        source: options.source ?? null,
+        conversationId: null,
+        archived: false,
+        activeAgentSessionId: null,
+        tabSequenceCounter: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      } as const;
+      await saveWorktree(storage, binding);
       live.set(branch, {
         branch,
         path,
         entry: { path, branch, head: null, bare: false, detached: false },
-        binding: null,
-        state: 'unmanaged',
+        binding,
+        state: 'managed',
       } as ManagedWorktree);
       return {
         branch,
@@ -134,7 +204,7 @@ describe('issue-flow session', () => {
         projectId: 'proj',
         projectRoot: '/repo',
         storage,
-        worktrees: fakeWorktrees(),
+        worktrees: fakeWorktrees(storage, home),
         tmux: fakeTmux(),
         git: { resolveWorktreeGitDir: async (path: string) => `${path}/.git` },
         branchExists: async () => false,
@@ -156,6 +226,35 @@ describe('issue-flow session', () => {
       expect(errors).toEqual([]);
       expect(output[0]).toMatch(/^Session .+ — codex on session\/scratch-/);
       expect(output.join('\n')).toContain('issue-flow session attach');
+    });
+
+    it('loads a project custom agent and persists its id on the session', async () => {
+      await writeFile(
+        join(home, '.issue-flow.json'),
+        JSON.stringify({
+          agents: {
+            gemini: {
+              label: 'Gemini',
+              // biome-ignore lint/suspicious/noTemplateCurlyInString: custom command syntax under test.
+              startCommand: 'gemini --prompt "${PROMPT}"',
+              // biome-ignore lint/suspicious/noTemplateCurlyInString: custom command syntax under test.
+              resumeCommand: 'gemini --resume "${BRANCH}"',
+            },
+          },
+        }),
+      );
+      context.projectRoot = home;
+      context.storage.projectRoot = home;
+      context.deps.projectRoot = home;
+
+      expect(
+        await runSessionNew(
+          { agent: 'gemini', prompt: 'inspect; touch /tmp/nope', json: true },
+          deps(),
+        ),
+      ).toBe(0);
+      const payload = JSON.parse(output.join('\n')) as { session: AgentSession };
+      expect(payload.session.provider).toBe('gemini');
     });
 
     it('refuses an agent nobody has', async () => {
@@ -260,8 +359,11 @@ describe('issue-flow session', () => {
 
   describe('stop', () => {
     it('keeps the worktree unless asked, and says so', async () => {
-      const session = createAgentSession({ branch: 'session/a', provider: 'claude' });
-      await saveSession(storage, session);
+      expect(
+        await runSessionNew({ branch: 'session/a', agent: 'claude', json: true }, deps()),
+      ).toBe(0);
+      const { session } = JSON.parse(output.join('\n')) as { session: AgentSession };
+      output = [];
 
       expect(await runSessionStop(session.id, {}, deps())).toBe(0);
       expect(output[0]).toContain('Its worktree and branch are untouched.');

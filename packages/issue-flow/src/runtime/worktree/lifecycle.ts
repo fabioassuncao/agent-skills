@@ -18,6 +18,7 @@ import {
   type GitWorktreeEntry,
   type GitWorktreeGateway,
 } from './git.js';
+import { withWorktreeBranchLock } from './lock.js';
 import {
   buildRuntimeEnvMap,
   createWorktreeMeta,
@@ -94,6 +95,8 @@ export interface WorktreeManagerOptions {
   git?: GitWorktreeGateway;
   hooks?: WorktreeLifecycleHooks;
   tracker?: WorktreeCreationTracker;
+  /** Durable lock directory shared by the monitor and direct CLI processes. */
+  mutationLockDir?: string;
   onProgress?: (progress: WorktreeCreationProgress) => void;
 }
 
@@ -115,6 +118,8 @@ export interface CreatedWorktree {
   path: string;
   meta: WorktreeMeta;
   runtimeEnvPath: string;
+  /** Whether this operation created the local branch and therefore owns deleting it on rollback. */
+  branchCreated?: boolean;
 }
 
 /** A worktree as it actually is: what git sees, plus what the database bound to it. */
@@ -147,6 +152,13 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
   const worktreeRoot = options.worktreeRoot ?? DEFAULT_WORKTREE_ROOT;
   const tracker = options.tracker ?? new WorktreeCreationTracker();
   const hooks = options.hooks ?? {};
+  const lockProjectId = options.storage?.projectId ?? projectRoot;
+
+  function withMutationLock<T>(branch: string, operation: () => Promise<T>): Promise<T> {
+    return withWorktreeBranchLock(lockProjectId, branch, operation, {
+      lockDir: options.mutationLockDir,
+    });
+  }
 
   function pathFor(branch: string): string {
     return resolveWorktreePath(projectRoot, worktreeRoot, branch);
@@ -277,12 +289,13 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
       allocatedPorts: meta.allocatedPorts,
       source: meta.source ?? null,
       conversationId: meta.conversationId ?? null,
+      archived: false,
       createdAt: meta.createdAt,
       updatedAt: meta.createdAt,
     };
   }
 
-  async function create(input: CreateWorktreeInput): Promise<CreatedWorktree> {
+  async function createUnlocked(input: CreateWorktreeInput): Promise<CreatedWorktree> {
     const mode = input.mode ?? 'new';
     const branch = input.branch.trim();
     if (!isValidBranchName(branch)) throw new WorktreeError('Invalid branch name', 400);
@@ -375,7 +388,14 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
       await hooks.postCreate?.({ meta, worktreePath });
 
       report({ ...progressBase, phase: 'preparing_runtime' });
-      return { branch, worktreeId: meta.worktreeId, path: worktreePath, meta, runtimeEnvPath };
+      return {
+        branch,
+        worktreeId: meta.worktreeId,
+        path: worktreePath,
+        meta,
+        runtimeEnvPath,
+        branchCreated: deleteBranchOnRollback,
+      };
     } catch (error) {
       if (created) {
         const cleanupError = await cleanupFailedCreate(
@@ -412,7 +432,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
    * "delete", which is what every existing caller means and what the upstream
    * does.
    */
-  async function remove(
+  async function removeUnlocked(
     branch: string,
     opts: { force?: boolean; keepBranch?: boolean } = {},
   ): Promise<void> {
@@ -443,7 +463,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
    * worktree still holds uncommitted work would silently leave that work in a
    * directory this method then deletes.
    */
-  async function merge(branch: string): Promise<void> {
+  async function mergeUnlocked(branch: string): Promise<void> {
     try {
       const entry = await resolveExisting(branch);
       const status = await git.readWorktreeStatus(entry.path);
@@ -458,7 +478,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
       });
 
       try {
-        await remove(branch);
+        await removeUnlocked(branch);
       } catch (error) {
         // The merge succeeded and a cleanup failure does not undo it. Saying so
         // matters: a caller that read this as "merge failed" would retry it.
@@ -515,11 +535,56 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
     return managed.sort((left, right) => left.branch.localeCompare(right.branch));
   }
 
+  async function updateBinding(
+    branch: string,
+    update: (binding: StoredWorktree) => StoredWorktree,
+  ): Promise<StoredWorktree> {
+    await resolveExisting(branch);
+    if (options.storage === undefined) {
+      throw new WorktreeError('Worktree metadata storage is not configured', 501);
+    }
+    const binding = await loadStoredWorktree(options.storage, branch);
+    if (binding === null) throw new WorktreeError(`Worktree is not managed: ${branch}`, 409);
+    const next = update(binding);
+    await saveWorktree(options.storage, next);
+    return next;
+  }
+
+  /** Persist UI curation without competing with git for existence authority. */
+  const setArchivedUnlocked = (branch: string, archived: boolean): Promise<StoredWorktree> =>
+    updateBinding(branch, (binding) => ({
+      ...binding,
+      archived,
+      updatedAt: new Date().toISOString(),
+    }));
+
+  const setLabelUnlocked = (branch: string, label: string | null): Promise<StoredWorktree> =>
+    updateBinding(branch, (binding) => ({
+      ...binding,
+      label,
+      updatedAt: new Date().toISOString(),
+    }));
+
+  const setProfileUnlocked = (branch: string, profile: string): Promise<StoredWorktree> =>
+    updateBinding(branch, (binding) => ({
+      ...binding,
+      profile,
+      updatedAt: new Date().toISOString(),
+    }));
+
   return {
-    create,
-    remove,
-    merge,
+    create: (input: CreateWorktreeInput) =>
+      withMutationLock(input.branch.trim(), () => createUnlocked(input)),
+    remove: (branch: string, opts: { force?: boolean; keepBranch?: boolean } = {}) =>
+      withMutationLock(branch, () => removeUnlocked(branch, opts)),
+    merge: (branch: string) => withMutationLock(branch, () => mergeUnlocked(branch)),
     list,
+    setArchived: (branch: string, archived: boolean) =>
+      withMutationLock(branch, () => setArchivedUnlocked(branch, archived)),
+    setLabel: (branch: string, label: string | null) =>
+      withMutationLock(branch, () => setLabelUnlocked(branch, label)),
+    setProfile: (branch: string, profile: string) =>
+      withMutationLock(branch, () => setProfileUnlocked(branch, profile)),
     status: async (branch: string) => git.readWorktreeStatus((await resolveExisting(branch)).path),
     pathFor,
     creating: () => tracker.list(),

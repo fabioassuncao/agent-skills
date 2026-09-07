@@ -20,6 +20,9 @@ import type {
   FileUploadResult,
   HealthResponse,
   JournalResponse,
+  LinearIssuesResponse,
+  PostWorktreeToLinearRequest,
+  PostWorktreeToLinearResponse,
   ProjectInitPhase,
   ProjectInitState,
   ProjectSummary,
@@ -39,7 +42,8 @@ import type {
  * client, and one exported function per operation so components never call
  * `fetch` — and four things are adapted:
  *
- * 1. **Linear is gone** (ADR-14) and so is the migration sensor (§48.1).
+ * 1. The migration sensor is gone (§48.1); Linear is optional and reports its
+ *    environment-backed availability explicitly.
  * 2. **Capabilities gate every surface.** The Issue Flow backend serves the
  *    execution half today; the worktree/session/agent half arrives with phases
  *    5–7, 10 and 14. Calling a route that has no backend would show the user a
@@ -216,9 +220,24 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     oneshot: snapshot.oneshot,
     tabs: snapshot.tabs,
     activeTabId: snapshot.activeTabId,
+    supportsTabs: snapshot.supportsTabs,
     executionId: snapshot.executionId,
     issueRef: snapshot.issueRef,
+    linearIssue: null,
   };
+}
+
+export async function fetchLinearIssues(): Promise<LinearIssuesResponse> {
+  requireRoute('fetchLinearIssues');
+  return api.fetchLinearIssues();
+}
+
+export async function postWorktreeToLinear(
+  branch: string,
+  request: PostWorktreeToLinearRequest,
+): Promise<PostWorktreeToLinearResponse> {
+  requireRoute('postWorktreeToLinear');
+  return api.postWorktreeToLinear({ params: { name: branch }, body: request });
 }
 
 export async function fetchWorktrees(): Promise<WorktreeInfo[]> {

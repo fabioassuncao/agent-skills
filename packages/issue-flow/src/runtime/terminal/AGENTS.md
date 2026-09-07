@@ -58,6 +58,19 @@ literally for that reason:
   and the terminal does not reflow the moment it connects.
 - Detaching kills the **viewer's** grouped session only. The project's windows —
   and the agent inside them — are untouched, which is the whole point.
+- Agent tabs add one more identity constraint: attach may receive the active
+  AgentSession's stable `%N` pane id. The grouped viewer still shares the same
+  owner session and dedicated socket; changing tabs changes the selected pane,
+  never the owner/viewer relationship or the process.
+- A caller-supplied `sessionId` is accepted only when it belongs to the current
+  worktree binding (exact `worktreeId`) and its root/fork tab projection. A
+  branch name reused for a new checkout must not make an old AgentSession
+  attachable again.
+- The websocket boundary attaches only the binding's **active** tab and proves
+  its full physical owner tuple immediately before spawning the viewer:
+  `{paneId, project owner tag, main/parking window, paneToken}`. A missing pane,
+  an unknown tmux answer or a reused `%N` is a refusal, never a fallback to a
+  branch-matching row.
 
 Resizing goes through `tmux resize-window`, not through the pty: the pty here
 runs a tmux *client*, and only tmux can change the size of the window it draws.

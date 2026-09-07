@@ -3,6 +3,7 @@ import { quoteShellArgument } from '../../agents/tty.js';
 import { run } from '../../utils/shell.js';
 import { stripProjectEnv } from '../tmux/env.js';
 import { TMUX_SOCKET_NAME } from '../tmux/gateway.js';
+import { VIEWER_SESSION_PREFIX } from '../tmux/names.js';
 import { type PtyBackend, type PtySession, spawnPty } from './pty.js';
 import { Scrollback } from './scrollback.js';
 
@@ -20,8 +21,8 @@ import { Scrollback } from './scrollback.js';
  * see the comments on it.
  */
 
-/** Prefix of the per-viewer grouped sessions. Distinguishable from a worktree window. */
-export const VIEWER_SESSION_PREFIX = 'if-view';
+/** Kept as part of the terminal API for compatibility with existing callers. */
+export { VIEWER_SESSION_PREFIX } from '../tmux/names.js';
 
 /** tmux commands are given a ceiling: a hung one must not hold an attach open. */
 export const TMUX_COMMAND_TIMEOUT_MS = 5_000;
@@ -39,6 +40,8 @@ export interface AttachOptions {
   rows: number;
   /** Pane to focus, and on a narrow screen to zoom. */
   initialPane?: number;
+  /** Stable tmux pane id (`%N`) preferred over a positional index. */
+  paneTarget?: string;
   cwd?: string;
   socketName?: string;
   backend?: PtyBackend;
@@ -87,6 +90,7 @@ export function buildAttachCommand(input: {
   cols: number;
   rows: number;
   initialPane?: number;
+  paneTarget?: string;
   socketName?: string;
 }): string {
   const tmux = `tmux -L ${quoteShellArgument(input.socketName ?? TMUX_SOCKET_NAME)}`;
@@ -94,7 +98,7 @@ export function buildAttachCommand(input: {
   const owner = quoteShellArgument(input.ownerSessionName);
   const window = quoteShellArgument(`${input.viewerSessionName}:${input.windowName}`);
   const paneTarget = quoteShellArgument(
-    `${input.viewerSessionName}:${input.windowName}.${input.initialPane ?? 0}`,
+    input.paneTarget ?? `${input.viewerSessionName}:${input.windowName}.${input.initialPane ?? 0}`,
   );
 
   return [
@@ -169,6 +173,7 @@ export async function attachTerminal(options: AttachOptions): Promise<TerminalAt
     cols: options.cols,
     rows: options.rows,
     ...(options.initialPane === undefined ? {} : { initialPane: options.initialPane }),
+    ...(options.paneTarget === undefined ? {} : { paneTarget: options.paneTarget }),
     socketName,
   });
 

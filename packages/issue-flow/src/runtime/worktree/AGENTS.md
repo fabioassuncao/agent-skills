@@ -35,6 +35,12 @@ written, are this project's.
   "merge failed" would retry the merge.
 - **A dirty worktree is never merged and never auto-removed.** Work committed
   nowhere lives only in that directory, and both operations end by deleting it.
+- **Auto-remove requires complete PR and identity evidence.** The `serve`
+  maintenance loop runs the sweep only when configured. Any failed repository
+  query makes the pass inconclusive; every PR for the branch must be merged;
+  the current repository must report a `headRefOid` equal to the checkout HEAD;
+  and path/worktree id, cleanliness and occupancy are rechecked under the
+  shared cross-process lock immediately before deletion.
 - **Runtime artifacts live under the git dir, never in the working tree.**
   `runtime.env` sits in `<gitDir>/issue-flow/`, written with `writeFileAtomic`
   (the upstream's `Bun.write` is not atomic — §45.3), which is why it can never

@@ -20,9 +20,9 @@
    *
    * Everything about creating a worktree is the upstream's — new or existing
    * branch, base branch, profile, one or several agents, prompt, startup env,
-   * and the remembered defaults. The Linear ticket block is removed (ADR-14)
-   * and replaced by the Issue Flow addition of §48.3: an **optional** issue to
-   * link.
+   * and the remembered defaults. Linear pickup lives in `LinearPanel`/the
+   * headless auto-create loop instead of adding a second ticket selector here;
+   * the Issue Flow addition of §48.3 is an **optional** issue to link.
    *
    * Optional is the whole point (ADR-16 / ADR-17): a free session opens with no
    * issue, no plan and no workflow, in one click. Nothing here may become

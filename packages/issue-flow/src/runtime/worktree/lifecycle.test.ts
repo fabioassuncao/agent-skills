@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { isValidBranchName } from '../../conventions/git/slug.js';
+import { acquireRunLock } from '../../storage/lock.js';
 import type {
   CreateWorktreeOptions,
   GitCommandResult,
@@ -12,6 +13,7 @@ import type {
   WorktreeStatus,
 } from './git.js';
 import { createWorktreeManager, WorktreeError, type WorktreeManagerOptions } from './lifecycle.js';
+import { getWorktreeMutationLockPath } from './lock.js';
 
 /**
  * The behaviour of `lifecycle-service.ts` that survives the narrowing, driven
@@ -133,6 +135,35 @@ describe('worktree lifecycle', () => {
   }
 
   const clean: FakeGitState = { localBranches: ['main'], remoteBranches: [], worktrees: [] };
+
+  it('puts every manager mutation behind the durable branch lock', async () => {
+    const lockDir = join(repoRoot, 'mutation-locks');
+    const acquired = await acquireRunLock(getWorktreeMutationLockPath(lockDir, 'feature'), {
+      target: 'worktree:feature',
+      pid: process.ppid,
+      heartbeat: false,
+    });
+    expect(acquired.ok).toBe(true);
+    if (!acquired.ok) return;
+    const { git, worktrees } = manager(clean, { mutationLockDir: lockDir });
+
+    try {
+      const operations = [
+        () => worktrees.create({ branch: 'feature', agent: 'claude' }),
+        () => worktrees.remove('feature'),
+        () => worktrees.merge('feature'),
+        () => worktrees.setArchived('feature', true),
+        () => worktrees.setLabel('feature', 'label'),
+        () => worktrees.setProfile('feature', 'default'),
+      ];
+      for (const operation of operations) {
+        await expect(operation()).rejects.toThrow('is being changed by');
+      }
+      expect(git.calls).toEqual([]);
+    } finally {
+      await acquired.handle.release();
+    }
+  });
 
   it('creates a new worktree, writes runtime.env and reports every phase', async () => {
     const phases: string[] = [];

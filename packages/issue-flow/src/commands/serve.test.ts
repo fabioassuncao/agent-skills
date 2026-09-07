@@ -2,8 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createAgentSession, saveSession } from '../agents/session/store.js';
 import type { AgentSession } from '../agents/session/types.js';
 import { ProjectManager } from '../runtime/project-manager.js';
+import { buildProjectSessionName, buildWorktreeWindowName } from '../runtime/tmux/names.js';
+import { type PlanRepositoryContext, saveWorktree } from '../storage/db/repository.js';
+import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { createProjectRegistry } from '../storage/projects/registry.js';
 import {
   autoAddCwd,
@@ -11,6 +15,7 @@ import {
   matchesTerminalRequest,
   PROJECT_DIR_ENV,
   projectDirsFromEnv,
+  resolveTerminalSessionForProject,
 } from './serve.js';
 
 /**
@@ -237,5 +242,112 @@ describe('matchesTerminalRequest', () => {
 
   it('matches nothing when the request names neither', () => {
     expect(matchesTerminalRequest(session(), { sessionId: null, branch: null })).toBe(false);
+  });
+});
+
+describe('terminal attach ownership', () => {
+  it('requires the active tab and revalidates its physical owner tuple', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'issue-flow-terminal-owner-'));
+    directories.push(home);
+    const projectId = 'project-terminal-owner';
+    const branch = 'session/terminal-owner';
+    const worktreeId = 'wt-terminal-owner';
+    const storage: PlanRepositoryContext = {
+      tasksPath: '',
+      projectId,
+      issueId: '',
+      projectRoot: home,
+      databaseOptions: { env: { [GLOBAL_ROOT_ENV]: home } },
+    };
+    const binding = {
+      worktreeId,
+      branch,
+      path: home,
+      baseBranch: 'main',
+      label: null,
+      profile: 'default',
+      agent: 'claude',
+      runtime: 'host' as const,
+      startupEnvValues: {},
+      allocatedPorts: {},
+      source: null,
+      conversationId: null,
+      archived: false,
+      activeAgentSessionId: null,
+      tabSequenceCounter: 0,
+      createdAt: '2026-09-06T12:00:00.000Z',
+      updatedAt: '2026-09-06T12:00:00.000Z',
+    };
+    const root = createAgentSession({
+      branch,
+      worktreeId,
+      provider: 'claude',
+      permission: 'workspace',
+      conversationId: 'conversation-root',
+      paneTarget: '%1',
+      tabSequence: 0,
+      status: 'running',
+    });
+    await saveSession(storage, root);
+    await saveWorktree(storage, { ...binding, activeAgentSessionId: root.id });
+    let exists = true;
+    let identity = {
+      paneId: '%1',
+      sessionName: buildProjectSessionName(projectId),
+      windowName: buildWorktreeWindowName(branch),
+      ownerToken: root.paneToken,
+    };
+    const project = {
+      projectId,
+      deps: {
+        storage,
+        worktrees: {
+          list: async () => [
+            {
+              branch,
+              path: home,
+              entry: { path: home, branch, head: null, bare: false, detached: false },
+              binding: { ...binding, activeAgentSessionId: root.id },
+              state: 'managed',
+            },
+          ],
+        },
+        tmux: {
+          hasPaneStrict: async () => exists,
+          getPaneIdentity: async () => identity,
+        },
+      },
+    } as never;
+
+    await expect(
+      resolveTerminalSessionForProject(project, { sessionId: root.id, branch: null }),
+    ).resolves.toMatchObject({ id: root.id });
+
+    identity = { ...identity, ownerToken: 'reused-pane-owner' };
+    await expect(
+      resolveTerminalSessionForProject(project, { sessionId: root.id, branch: null }),
+    ).resolves.toBeNull();
+    identity = { ...identity, ownerToken: root.paneToken };
+    exists = false;
+    await expect(
+      resolveTerminalSessionForProject(project, { sessionId: root.id, branch: null }),
+    ).resolves.toBeNull();
+
+    exists = true;
+    const fork = createAgentSession({
+      branch,
+      worktreeId,
+      provider: 'claude',
+      permission: 'workspace',
+      conversationId: 'conversation-fork',
+      paneTarget: '%2',
+      parentSessionId: root.id,
+      tabSequence: 1,
+      status: 'running',
+    });
+    await saveSession(storage, fork);
+    await expect(
+      resolveTerminalSessionForProject(project, { sessionId: fork.id, branch: null }),
+    ).resolves.toBeNull();
   });
 });

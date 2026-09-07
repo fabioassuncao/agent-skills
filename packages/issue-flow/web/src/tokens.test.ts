@@ -27,8 +27,13 @@ import { describe, expect, it } from 'vitest';
 // which is also what makes `import.meta.url` a `file:` URL here.
 const tokensPath = fileURLToPath(new URL('./tokens.css', import.meta.url));
 
-/** Everything up to and including the forced-dark block. */
-const PALETTE_END = "\n:root[data-theme='dark'] {";
+function declarationBlock(source: string, selector: string): string {
+  const start = source.indexOf(selector);
+  if (start < 0) return '';
+  const bodyStart = source.indexOf('{', start) + 1;
+  const end = source.indexOf('\n}', bodyStart);
+  return source.slice(bodyStart, end);
+}
 
 describe('colour tokens', () => {
   const tokens = readFileSync(tokensPath, 'utf-8');
@@ -54,11 +59,8 @@ describe('colour tokens', () => {
     // "Mexeu em um, mexa no outro" — the media-query block and the forced block
     // are twins, and a token in only one of them makes the manual theme differ
     // from the system one.
-    const mediaBlock = tokens.slice(
-      tokens.indexOf(":root:not([data-theme='light']) {"),
-      tokens.indexOf(PALETTE_END),
-    );
-    const forcedBlock = tokens.slice(tokens.indexOf(PALETTE_END));
+    const mediaBlock = declarationBlock(tokens, ":root:not([data-theme='light']) {");
+    const forcedBlock = declarationBlock(tokens, ":root[data-theme='dark'] {");
 
     // The media block is nested one level deeper, so indentation is not the
     // discriminator here — any declaration line is.

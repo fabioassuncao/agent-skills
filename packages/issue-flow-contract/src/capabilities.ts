@@ -34,7 +34,23 @@ export const CAPABILITY = {
    * (ADR-10), and a button that leads to either is a button that lies.
    */
   sessionOpen: 'session:open',
-  /** Worktrees, tmux sessions and the agent surface (phases 5–7). */
+  /** Listing and validating built-in/custom agents; safe on remote listeners. */
+  agentsRead: 'agents:read',
+  /** Persisting custom agents; announced only on a writable loopback listener. */
+  agentsWrite: 'agents:write',
+  /** Reading assigned Linear issues; safe on remote listeners. */
+  linearRead: 'linear:read',
+  /** Posting conversations and changing Linear automation; loopback only. */
+  linearWrite: 'linear:write',
+  /** Project integration toggles such as GitHub GC; loopback only. */
+  settingsWrite: 'settings:write',
+  /** Block A: create, open, close, integrate and curate worktrees. */
+  worktreeMutations: 'worktrees:mutate',
+  /** Create, select and close AgentSession tabs in one worktree. */
+  worktreeTabs: 'worktrees:tabs',
+  /** Non-destructive terminal reattach/resume. */
+  terminalRefresh: 'terminal:refresh',
+  /** Later agent/settings/tab worktree surfaces, not implied by Block A. */
   worktrees: 'worktrees',
   /** The structured conversation channel (§45.2-A/B). */
   conversation: 'agent:conversation',
@@ -53,36 +69,40 @@ const ROUTE_CAPABILITY: Partial<Record<ApiRouteName, CapabilityName>> = {
   streamSessions: CAPABILITY.streamSessions,
   terminalToken: CAPABILITY.terminalAttach,
   streamTerminal: CAPABILITY.terminalAttach,
-  fetchConfig: CAPABILITY.worktrees,
+  fetchConfig: CAPABILITY.worktreeMutations,
   fetchProject: CAPABILITY.worktrees,
   // The listing, and only the listing: phase 8D serves it from the agent
   // sessions of §49 (`src/web/worktrees-api.ts`). Everything below still waits
   // for the worktree mutation backend.
   fetchWorktrees: CAPABILITY.sessions,
-  createWorktree: CAPABILITY.worktrees,
-  removeWorktree: CAPABILITY.worktrees,
-  openWorktree: CAPABILITY.worktrees,
-  closeWorktree: CAPABILITY.worktrees,
-  refreshWorktreeAgentTerminal: CAPABILITY.worktrees,
-  setWorktreeArchived: CAPABILITY.worktrees,
-  setWorktreeLabel: CAPABILITY.worktrees,
-  setWorktreeProfile: CAPABILITY.worktrees,
-  sendWorktreePrompt: CAPABILITY.worktrees,
-  createWorktreeTab: CAPABILITY.worktrees,
-  selectWorktreeTab: CAPABILITY.worktrees,
-  deleteWorktreeTab: CAPABILITY.worktrees,
-  mergeWorktree: CAPABILITY.worktrees,
-  fetchWorktreeDiff: CAPABILITY.worktrees,
-  fetchAvailableBranches: CAPABILITY.worktrees,
-  fetchBaseBranches: CAPABILITY.worktrees,
-  fetchAgents: CAPABILITY.worktrees,
-  createAgent: CAPABILITY.worktrees,
-  updateAgent: CAPABILITY.worktrees,
-  deleteAgent: CAPABILITY.worktrees,
-  validateAgent: CAPABILITY.worktrees,
-  fetchAutoNameConfig: CAPABILITY.worktrees,
-  setAutoRemoveOnMerge: CAPABILITY.worktrees,
-  pullMain: CAPABILITY.worktrees,
+  createWorktree: CAPABILITY.worktreeMutations,
+  removeWorktree: CAPABILITY.worktreeMutations,
+  openWorktree: CAPABILITY.worktreeMutations,
+  closeWorktree: CAPABILITY.worktreeMutations,
+  refreshWorktreeAgentTerminal: CAPABILITY.terminalRefresh,
+  setWorktreeArchived: CAPABILITY.worktreeMutations,
+  setWorktreeLabel: CAPABILITY.worktreeMutations,
+  setWorktreeProfile: CAPABILITY.worktreeMutations,
+  sendWorktreePrompt: CAPABILITY.worktreeMutations,
+  createWorktreeTab: CAPABILITY.worktreeTabs,
+  selectWorktreeTab: CAPABILITY.worktreeTabs,
+  deleteWorktreeTab: CAPABILITY.worktreeTabs,
+  mergeWorktree: CAPABILITY.worktreeMutations,
+  fetchWorktreeDiff: CAPABILITY.worktreeMutations,
+  fetchAvailableBranches: CAPABILITY.worktreeMutations,
+  fetchBaseBranches: CAPABILITY.worktreeMutations,
+  fetchAgents: CAPABILITY.agentsRead,
+  createAgent: CAPABILITY.agentsWrite,
+  updateAgent: CAPABILITY.agentsWrite,
+  deleteAgent: CAPABILITY.agentsWrite,
+  validateAgent: CAPABILITY.agentsRead,
+  // Provider-neutral naming policy is read-only and always served by the
+  // monitor; like every ungated SERVED_TODAY route it stays available remotely.
+  fetchLinearIssues: CAPABILITY.linearRead,
+  setLinearAutoCreate: CAPABILITY.linearWrite,
+  postWorktreeToLinear: CAPABILITY.linearWrite,
+  setAutoRemoveOnMerge: CAPABILITY.settingsWrite,
+  pullMain: CAPABILITY.worktreeMutations,
   dismissNotification: CAPABILITY.worktrees,
   attachAgentsWorktreeConversation: CAPABILITY.conversation,
   fetchAgentsWorktreeConversationHistory: CAPABILITY.conversation,

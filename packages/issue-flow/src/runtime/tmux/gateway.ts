@@ -1,7 +1,7 @@
 import { run } from '../../utils/shell.js';
 import { leakedProjectEnvKeys, stripProjectEnv } from './env.js';
 import { detectUtf8Locale, pickTmuxLocale } from './locale.js';
-import { parseWindowSummaries, type TmuxWindowSummary } from './names.js';
+import { parseWindowSummaries, type TmuxWindowSummary, VIEWER_SESSION_PREFIX } from './names.js';
 
 /**
  * Every tmux command this project runs.
@@ -27,6 +27,44 @@ import { parseWindowSummaries, type TmuxWindowSummary } from './names.js';
 export const TMUX_SOCKET_NAME = 'issue-flow';
 
 export type PaneSplit = 'right' | 'bottom';
+export const PANE_OWNER_OPTION = '@issue-flow-owner';
+
+export interface TmuxPaneIdentity {
+  paneId: string;
+  sessionName: string;
+  windowName: string;
+  ownerToken: string | null;
+}
+
+interface PaneOwnerTag {
+  ownerSessionName: string;
+  ownerToken: string;
+}
+
+function encodePaneOwnerTag(ownerSessionName: string, ownerToken: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, ownerSessionName, ownerToken }), 'utf8').toString(
+    'base64url',
+  );
+}
+
+function decodePaneOwnerTag(value: string): PaneOwnerTag | null {
+  if (value === '') return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    return parsed.v === 1 &&
+      typeof parsed.ownerSessionName === 'string' &&
+      parsed.ownerSessionName !== '' &&
+      typeof parsed.ownerToken === 'string' &&
+      parsed.ownerToken !== ''
+      ? { ownerSessionName: parsed.ownerSessionName, ownerToken: parsed.ownerToken }
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export interface TmuxGateway {
   /** Whether tmux is installed at all. */
@@ -34,7 +72,14 @@ export interface TmuxGateway {
   ensureServer(): Promise<void>;
   ensureSession(sessionName: string, cwd: string): Promise<void>;
   hasWindow(sessionName: string, windowName: string): Promise<boolean>;
+  /** Query window presence, throwing when tmux cannot answer authoritatively. */
+  hasWindowStrict?(sessionName: string, windowName: string): Promise<boolean>;
   killWindow(sessionName: string, windowName: string): Promise<void>;
+  /**
+   * Kill a window and prove it is absent. Unlike `killWindow`, an inability to
+   * query tmux is an error rather than an "already gone" best effort.
+   */
+  killWindowStrict?(sessionName: string, windowName: string): Promise<void>;
   createWindow(options: {
     sessionName: string;
     windowName: string;
@@ -82,8 +127,33 @@ export interface TmuxGateway {
   listWindows(): Promise<TmuxWindowSummary[]>;
   /** Resolve the tmux pane id (`%N`) currently occupying a target. */
   getPaneId(target: string): Promise<string>;
+  /** Resolve which window currently contains a pane id. */
+  getPaneWindow?(target: string): Promise<string>;
+  /** Resolve the full owner tuple; pane ids alone are reused after server restart. */
+  getPaneIdentity?(target: string): Promise<TmuxPaneIdentity>;
+  /** Bind the project owner session and durable AgentSession nonce to one pane. */
+  tagPaneOwner?(target: string, ownerToken: string, ownerSessionName: string): Promise<void>;
+  /** Query pane presence authoritatively. */
+  hasPaneStrict?(target: string): Promise<boolean>;
+  /** Create an off-screen pane for an inactive agent tab. */
+  createParkedPane?(options: {
+    sessionName: string;
+    parkingWindow: string;
+    cwd: string;
+    command: string;
+  }): Promise<string>;
+  /** Exchange two live panes without restarting either process. */
+  swapPanes?(source: string, destination: string): Promise<void>;
+  /** Move a pane into a window when the prior visible pane no longer exists. */
+  movePaneToWindow?(source: string, destinationWindow: string): Promise<void>;
   countPanes(sessionName: string, windowName: string): Promise<number>;
   killPane(target: string): Promise<void>;
+  /** Kill only this pane and prove it is gone. */
+  killPaneStrict?(target: string): Promise<void>;
+  /** Every pane id on the dedicated socket, in one call. */
+  listPaneIds?(): Promise<string[]>;
+  /** Pane ownership inventory in one call, for active-tab reconciliation. */
+  listPaneLocations?(): Promise<TmuxPaneIdentity[]>;
 }
 
 export interface TmuxGatewayOptions {
@@ -151,6 +221,25 @@ export function createTmuxGateway(options: TmuxGatewayOptions = {}): TmuxGateway
       );
     }
     return result.stdout;
+  }
+
+  // `run()` intentionally normalizes ENOENT to an exit result. Probe the
+  // executable itself so aggregate inventory can distinguish "tmux is not
+  // installed" (known empty) from "the installed server failed to answer"
+  // (unknown, and therefore an error for reconciliation).
+  async function executableIsMissing(): Promise<boolean> {
+    return (await tmux(['-V'])).exitCode !== 0;
+  }
+
+  async function hasWindowStrict(sessionName: string, windowName: string): Promise<boolean> {
+    const checked = await tmux(['list-windows', '-t', sessionName, '-F', '#{window_name}']);
+    if (checked.exitCode !== 0) {
+      if (isIgnorableKillError(checked.stderr)) return false;
+      throw new Error(
+        `query tmux window ${sessionName}:${windowName} failed: ${checked.stderr || `exit ${checked.exitCode}`}`,
+      );
+    }
+    return checked.stdout.split('\n').some((line) => line.trim() === windowName);
   }
 
   /**
@@ -227,10 +316,31 @@ export function createTmuxGateway(options: TmuxGatewayOptions = {}): TmuxGateway
       return result.stdout.split('\n').some((line) => line.trim() === windowName);
     },
 
+    hasWindowStrict,
+
     killWindow: async (sessionName, windowName) => {
       const result = await tmux(['kill-window', '-t', `${sessionName}:${windowName}`]);
       if (result.exitCode !== 0 && !isIgnorableKillError(result.stderr)) {
         throw new Error(`kill tmux window ${sessionName}:${windowName} failed: ${result.stderr}`);
+      }
+    },
+
+    killWindowStrict: async (sessionName, windowName) => {
+      const target = `${sessionName}:${windowName}`;
+      const killed = await tmux(['kill-window', '-t', target]);
+      if (killed.exitCode !== 0 && !isIgnorableKillError(killed.stderr)) {
+        throw new Error(`kill tmux window ${target} failed: ${killed.stderr}`);
+      }
+      let present: boolean;
+      try {
+        present = await hasWindowStrict(sessionName, windowName);
+      } catch (error) {
+        throw new Error(
+          `confirm tmux window ${target} stopped failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (present) {
+        throw new Error(`tmux window ${target} is still running`);
       }
     },
 
@@ -314,12 +424,122 @@ export function createTmuxGateway(options: TmuxGatewayOptions = {}): TmuxGateway
       ]);
       // No server running is not an error: it means no windows, which is a
       // perfectly ordinary answer and the one reconciliation needs.
-      if (result.exitCode !== 0) return [];
+      if (result.exitCode !== 0) {
+        if (isIgnorableKillError(result.stderr)) return [];
+        if (await executableIsMissing()) return [];
+        throw new Error(`list tmux windows failed: ${result.stderr || `exit ${result.exitCode}`}`);
+      }
       return parseWindowSummaries(result.stdout);
     },
 
     getPaneId: (target) =>
       assertOk(['display-message', '-p', '-t', target, '#{pane_id}'], `resolve pane id ${target}`),
+
+    getPaneWindow: (target) =>
+      assertOk(
+        ['display-message', '-p', '-t', target, '#{window_name}'],
+        `resolve pane window ${target}`,
+      ),
+
+    getPaneIdentity: async (target) => {
+      const value = await assertOk(
+        [
+          'display-message',
+          '-p',
+          '-t',
+          target,
+          `#{pane_id}\t#{session_name}\t#{window_name}\t#{${PANE_OWNER_OPTION}}`,
+        ],
+        `resolve pane identity ${target}`,
+      );
+      const [paneId, reportedSessionName, windowName, encodedOwner = ''] = value.split('\t');
+      if (!paneId || !reportedSessionName || !windowName) {
+        throw new Error(`resolve pane identity ${target} returned an invalid tuple`);
+      }
+      const owner = decodePaneOwnerTag(encodedOwner);
+      return {
+        paneId,
+        sessionName: owner?.ownerSessionName ?? reportedSessionName,
+        windowName,
+        ownerToken: owner?.ownerToken ?? (encodedOwner || null),
+      };
+    },
+
+    tagPaneOwner: async (target, ownerToken, ownerSessionName) => {
+      await assertOk(
+        [
+          'set-option',
+          '-p',
+          '-t',
+          target,
+          PANE_OWNER_OPTION,
+          encodePaneOwnerTag(ownerSessionName, ownerToken),
+        ],
+        `tag tmux pane ${target}`,
+      );
+    },
+
+    hasPaneStrict: async (target) => {
+      const result = await tmux(['display-message', '-p', '-t', target, '#{pane_id}']);
+      if (result.exitCode === 0) return result.stdout.trim() !== '';
+      if (
+        result.stderr.includes("can't find pane") ||
+        result.stderr.includes("can't find window") ||
+        result.stderr.includes("can't find session") ||
+        isIgnorableKillError(result.stderr)
+      ) {
+        return false;
+      }
+      throw new Error(
+        `query tmux pane ${target} failed: ${result.stderr || `exit ${result.exitCode}`}`,
+      );
+    },
+
+    createParkedPane: async ({ sessionName, parkingWindow, cwd, command }) => {
+      const exists = await hasWindowStrict(sessionName, parkingWindow);
+      const args = exists
+        ? [
+            'split-window',
+            '-d',
+            '-P',
+            '-F',
+            '#{pane_id}',
+            '-t',
+            `${sessionName}:${parkingWindow}`,
+            '-c',
+            cwd,
+            command,
+          ]
+        : [
+            'new-window',
+            '-d',
+            '-P',
+            '-F',
+            '#{pane_id}',
+            '-t',
+            sessionName,
+            '-n',
+            parkingWindow,
+            '-c',
+            cwd,
+            command,
+          ];
+      return await assertOk(args, `create parked pane in ${sessionName}:${parkingWindow}`);
+    },
+
+    swapPanes: async (source, destination) => {
+      await assertOk(
+        ['swap-pane', '-d', '-s', source, '-t', destination],
+        `swap tmux panes ${source} and ${destination}`,
+      );
+    },
+
+    movePaneToWindow: async (source, destinationWindow) => {
+      await assertOk(
+        ['join-pane', '-d', '-s', source, '-t', destinationWindow],
+        `move tmux pane ${source} to ${destinationWindow}`,
+      );
+    },
 
     countPanes: async (sessionName, windowName) => {
       const result = await tmux([
@@ -342,6 +562,79 @@ export function createTmuxGateway(options: TmuxGatewayOptions = {}): TmuxGateway
       ) {
         throw new Error(`kill tmux pane ${target} failed: ${result.stderr}`);
       }
+    },
+
+    killPaneStrict: async (target) => {
+      const killed = await tmux(['kill-pane', '-t', target]);
+      if (
+        killed.exitCode !== 0 &&
+        !killed.stderr.includes("can't find pane") &&
+        !isIgnorableKillError(killed.stderr)
+      ) {
+        throw new Error(`kill tmux pane ${target} failed: ${killed.stderr}`);
+      }
+      const result = await tmux(['display-message', '-p', '-t', target, '#{pane_id}']);
+      if (result.exitCode === 0 && result.stdout.trim() !== '') {
+        throw new Error(`tmux pane ${target} is still running`);
+      }
+      if (
+        result.exitCode !== 0 &&
+        !result.stderr.includes("can't find pane") &&
+        !result.stderr.includes("can't find window") &&
+        !result.stderr.includes("can't find session") &&
+        !isIgnorableKillError(result.stderr)
+      ) {
+        throw new Error(
+          `confirm tmux pane ${target} stopped failed: ${result.stderr || `exit ${result.exitCode}`}`,
+        );
+      }
+    },
+
+    listPaneIds: async () => {
+      const result = await tmux(['list-panes', '-a', '-F', '#{pane_id}']);
+      if (result.exitCode !== 0) {
+        if (isIgnorableKillError(result.stderr)) return [];
+        if (await executableIsMissing()) return [];
+        throw new Error(`list tmux panes failed: ${result.stderr || `exit ${result.exitCode}`}`);
+      }
+      return result.stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+    },
+
+    listPaneLocations: async () => {
+      const result = await tmux([
+        'list-panes',
+        '-a',
+        '-F',
+        `#{pane_id}\t#{session_name}\t#{window_name}\t#{${PANE_OWNER_OPTION}}`,
+      ]);
+      if (result.exitCode !== 0) {
+        if (isIgnorableKillError(result.stderr)) return [];
+        if (await executableIsMissing()) return [];
+        throw new Error(
+          `list tmux pane locations failed: ${result.stderr || `exit ${result.exitCode}`}`,
+        );
+      }
+      const identities = new Map<string, TmuxPaneIdentity>();
+      for (const line of result.stdout.split('\n')) {
+        const [paneId, reportedSessionName, windowName, encodedOwner = ''] = line
+          .trim()
+          .split('\t');
+        if (!paneId || !reportedSessionName || !windowName) continue;
+        const owner = decodePaneOwnerTag(encodedOwner);
+        if (owner === null && reportedSessionName.startsWith(`${VIEWER_SESSION_PREFIX}-`)) continue;
+        const identity = {
+          paneId,
+          sessionName: owner?.ownerSessionName ?? reportedSessionName,
+          windowName,
+          ownerToken: owner?.ownerToken ?? (encodedOwner || null),
+        };
+        const existing = identities.get(paneId);
+        if (existing === undefined || owner !== null) identities.set(paneId, identity);
+      }
+      return [...identities.values()];
     },
   };
 }

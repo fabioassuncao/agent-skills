@@ -1,21 +1,38 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: placeholders are user data.
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentSessionDeps } from '../agents/session/open.js';
+import { type AgentSessionDeps, listAgentSessions } from '../agents/session/open.js';
 import { createAgentSession, saveSession } from '../agents/session/store.js';
 import type { TmuxGateway } from '../runtime/tmux/gateway.js';
 import type { CreatedWorktree, ManagedWorktree } from '../runtime/worktree/lifecycle.js';
-import { type PlanRepositoryContext, resetPlanRepositories } from '../storage/db/repository.js';
+import {
+  loadWorktree,
+  type PlanRepositoryContext,
+  resetPlanRepositories,
+  saveWorktree,
+} from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import type { SessionsApiProject } from './sessions-api.js';
 import {
+  archiveWorktreeRoute,
   ciLogsRoute,
+  createWorktreeRoute,
+  createWorktreeTabRoute,
   formatElapsed,
+  labelWorktreeRoute,
+  listBaseBranchesRoute,
+  listBranchesRoute,
   listWorktreesRoute,
   matchCiLogs,
   matchSyncPullRequests,
+  matchWorktreeAgentRefresh,
+  matchWorktreeRoute,
+  matchWorktreeTabRoute,
+  pullMainRoute,
   syncWorktreePullRequestsRoute,
+  truncateUtf8,
   type WorktreesApiDeps,
 } from './worktrees-api.js';
 
@@ -48,12 +65,16 @@ vi.mock('../runtime/worktree/git.js', async () => {
 });
 
 function fakeTmux(): TmuxGateway {
+  let location = { sessionName: '', windowName: '' };
+  let ownerToken: string | null = null;
   return {
     isAvailable: async () => true,
     ensureServer: async () => {},
     ensureSession: async () => {},
     hasWindow: async () => false,
+    hasWindowStrict: async () => false,
     killWindow: async () => {},
+    killWindowStrict: async () => {},
     createWindow: async () => {},
     splitWindow: async () => {},
     setWindowOption: async () => {},
@@ -66,13 +87,34 @@ function fakeTmux(): TmuxGateway {
     hasBuffer: async () => false,
     selectPane: async () => {},
     listWindows: async () => [],
-    getPaneId: async () => '%1',
+    getPaneId: async (target) => {
+      const coordinate = target.slice(0, target.lastIndexOf('.'));
+      const colon = coordinate.indexOf(':');
+      location = {
+        sessionName: coordinate.slice(0, colon),
+        windowName: coordinate.slice(colon + 1),
+      };
+      return '%1';
+    },
+    getPaneIdentity: async () => ({ paneId: '%1', ...location, ownerToken }),
+    tagPaneOwner: async (_target, token) => {
+      ownerToken = token;
+    },
+    hasPaneStrict: async () => true,
+    killPaneStrict: async () => {},
+    swapPanes: async () => {},
+    movePaneToWindow: async () => {},
     countPanes: async () => 1,
     killPane: async () => {},
   };
 }
 
-function managed(branch: string, allocatedPorts: Record<string, number> = {}): ManagedWorktree {
+function managed(
+  branch: string,
+  allocatedPorts: Record<string, number> = {},
+  archived = false,
+  startupEnvValues: Record<string, string> = {},
+): ManagedWorktree {
   const path = `/worktrees/${branch}`;
   return {
     branch,
@@ -87,10 +129,11 @@ function managed(branch: string, allocatedPorts: Record<string, number> = {}): M
       profile: 'default',
       agent: 'claude',
       runtime: 'host',
-      startupEnvValues: {},
+      startupEnvValues,
       allocatedPorts,
       source: null,
       conversationId: null,
+      archived,
       createdAt: '2026-09-06T10:00:00.000Z',
       updatedAt: '2026-09-06T10:00:00.000Z',
     },
@@ -153,6 +196,7 @@ describe('the worktree listing', () => {
       storage,
       createAgentSession({
         branch: 'feat/42-x',
+        worktreeId: 'wt-feat/42-x',
         provider: 'claude',
         runId: 'run-42',
         phase: 'execute',
@@ -160,7 +204,12 @@ describe('the worktree listing', () => {
     );
     await saveSession(
       storage,
-      createAgentSession({ branch: 'session/scratch', provider: 'codex', label: 'rascunho' }),
+      createAgentSession({
+        branch: 'session/scratch',
+        worktreeId: 'wt-session/scratch',
+        provider: 'codex',
+        label: 'rascunho',
+      }),
     );
 
     const response = await listWorktreesRoute(deps, 'proj');
@@ -177,9 +226,22 @@ describe('the worktree listing', () => {
   });
 
   it('reports git state and probed service health per workspace', async () => {
-    project = { ...project, services: [{ name: 'web', portEnv: 'PORT', command: 'npm start' }] };
-    worktrees.push(managed('session/a', { PORT: 4321 }));
-    await saveSession(storage, createAgentSession({ branch: 'session/a', provider: 'claude' }));
+    project = {
+      ...project,
+      services: [
+        {
+          name: 'web',
+          portEnv: 'PORT',
+          command: 'npm start',
+          urlTemplate: 'http://${HOST}:${PORT}',
+        },
+      ],
+    };
+    worktrees.push(managed('session/a', { PORT: 4321 }, false, { HOST: 'localhost' }));
+    await saveSession(
+      storage,
+      createAgentSession({ branch: 'session/a', worktreeId: 'wt-session/a', provider: 'claude' }),
+    );
 
     const response = await listWorktreesRoute(deps, 'proj');
     const row = (response.body as { worktrees: Array<Record<string, unknown>> }).worktrees[0];
@@ -187,13 +249,19 @@ describe('the worktree listing', () => {
     expect(row?.dirty).toBe(true);
     expect(row?.unpushed).toBe(true);
     expect(row?.profile).toBe('default');
-    expect(row?.services).toEqual([{ name: 'web', port: 4321, running: true, url: null }]);
+    expect(row?.services).toEqual([
+      { name: 'web', port: 4321, running: true, url: 'http://localhost:4321' },
+    ]);
   });
 
   it('leaves out a session that is no longer live, so no row offers a dead terminal', async () => {
     worktrees.push(managed('session/gone'));
     const stopped = {
-      ...createAgentSession({ branch: 'session/gone', provider: 'claude' }),
+      ...createAgentSession({
+        branch: 'session/gone',
+        worktreeId: 'wt-session/gone',
+        provider: 'claude',
+      }),
       status: 'stopped' as const,
     };
     await saveSession(storage, stopped);
@@ -202,9 +270,35 @@ describe('the worktree listing', () => {
     expect((response.body as { worktrees: unknown[] }).worktrees).toHaveLength(0);
   });
 
+  it('keeps an archived stopped worktree reachable without offering its dead terminal', async () => {
+    worktrees.push(managed('session/archived', {}, true));
+    await saveSession(storage, {
+      ...createAgentSession({
+        branch: 'session/archived',
+        worktreeId: 'wt-session/archived',
+        provider: 'claude',
+      }),
+      status: 'stopped',
+    });
+
+    const response = await listWorktreesRoute(deps, 'proj');
+    const row = (response.body as { worktrees: Array<Record<string, unknown>> }).worktrees[0];
+    expect(row).toMatchObject({ branch: 'session/archived', archived: true, mux: false });
+  });
+
+  it('round-trips archive curation in the canonical worktree binding', async () => {
+    const binding = managed('session/persisted', {}, true).binding;
+    expect(binding).not.toBeNull();
+    await saveWorktree(storage, binding!);
+    expect((await loadWorktree(storage, 'session/persisted'))?.archived).toBe(true);
+  });
+
   it('never claims a pull request state nobody observed', async () => {
     worktrees.push(managed('session/a'));
-    await saveSession(storage, createAgentSession({ branch: 'session/a', provider: 'claude' }));
+    await saveSession(
+      storage,
+      createAgentSession({ branch: 'session/a', worktreeId: 'wt-session/a', provider: 'claude' }),
+    );
 
     const withoutSync = await listWorktreesRoute(deps, 'proj');
     expect(
@@ -267,6 +361,194 @@ describe('the §20 read surfaces', () => {
     );
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ logs: 'gh run view failed for run 9: not found' });
+  });
+});
+
+describe('Block A worktree transport', () => {
+  it('recognises encoded slashy branch resources', () => {
+    expect(matchWorktreeRoute('/api/worktrees/feat%2F42/archive')).toEqual({
+      branch: 'feat/42',
+      action: 'archive',
+    });
+    expect(matchWorktreeRoute('/api/worktrees/feat/42/archive')).toBeNull();
+    expect(matchWorktreeTabRoute('/api/worktrees/feat%2F42/tabs')).toEqual({
+      branch: 'feat/42',
+      tabId: null,
+      action: 'create',
+    });
+    expect(matchWorktreeTabRoute('/api/worktrees/feat%2F42/tabs/session-2/select')).toEqual({
+      branch: 'feat/42',
+      tabId: 'session-2',
+      action: 'select',
+    });
+    expect(matchWorktreeTabRoute('/api/worktrees/feat%2F42/tabs/session-2')).toEqual({
+      branch: 'feat/42',
+      tabId: 'session-2',
+      action: 'delete',
+    });
+    expect(matchWorktreeAgentRefresh('/api/worktrees/feat%2F42/agent-terminal/refresh')).toBe(
+      'feat/42',
+    );
+  });
+
+  it('refuses every mutation unless the worktree capability is writable', async () => {
+    const readOnly = { resolveProject: async () => null, writable: false };
+    expect((await createWorktreeRoute(readOnly, null, {})).status).toBe(403);
+    expect((await createWorktreeRoute(readOnly, null, [])).status).toBe(403);
+    expect((await archiveWorktreeRoute(readOnly, null, 'feat/x', { archived: true })).status).toBe(
+      403,
+    );
+    expect((await labelWorktreeRoute(readOnly, null, 'feat/x', { label: 'x' })).status).toBe(403);
+    expect((await pullMainRoute(readOnly, null, {})).status).toBe(403);
+    expect((await createWorktreeTabRoute(readOnly, null, 'feat/x')).status).toBe(403);
+  });
+
+  it('validates mutation bodies before delegating them', async () => {
+    const writable = {
+      resolveProject: async () => null,
+      writable: true,
+      resolveRuntime: async () => ({ profileNames: [] }) as never,
+    };
+    expect((await labelWorktreeRoute(writable, null, 'feat/x', {})).status).toBe(400);
+    expect(
+      (await labelWorktreeRoute(writable, null, 'feat/x', { label: 'x'.repeat(81) })).status,
+    ).toBe(400);
+    expect((await archiveWorktreeRoute(writable, null, 'feat/x', {})).status).toBe(400);
+    expect((await createWorktreeRoute(writable, null, [])).status).toBe(400);
+    expect((await createWorktreeRoute(writable, null, { source: 'other' })).status).toBe(400);
+    expect(
+      (
+        await createWorktreeRoute(writable, null, {
+          mode: 'existing',
+          branch: 'feat/x',
+          agents: ['claude', 'codex'],
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it('keeps branch reads available independently of the mutation gate', async () => {
+    const runtime = {
+      projectRoot: '/repo',
+      git: {
+        listLocalBranches: async () => ['main', 'feat/local'],
+        listRemoteBranches: async () => ['feat/remote', 'feat/local'],
+        listWorktrees: async () => [
+          { branch: 'main', path: '/repo', head: null, bare: false, detached: false },
+        ],
+      },
+    };
+    const readOnly = {
+      resolveProject: async () => null,
+      writable: false,
+      resolveRuntime: async () => runtime as never,
+    };
+    expect(await listBranchesRoute(readOnly, null, true)).toEqual({
+      status: 200,
+      body: { branches: [{ name: 'feat/local' }, { name: 'feat/remote' }] },
+    });
+    expect(await listBaseBranchesRoute(readOnly, null)).toEqual({
+      status: 200,
+      body: { branches: [{ name: 'feat/local' }, { name: 'main' }] },
+    });
+  });
+
+  it('uses effective auto-name through the canonical opener and preserves env overrides', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'issue-flow-worktree-create-api-'));
+    const storage: PlanRepositoryContext = {
+      tasksPath: '',
+      projectId: 'proj-create',
+      issueId: '',
+      projectRoot: home,
+      databaseOptions: { env: { [GLOBAL_ROOT_ENV]: home } },
+    };
+    let rows: ManagedWorktree[] = [];
+    const create = vi.fn(async (input: { branch: string }) => {
+      const path = join(home, 'worktrees', input.branch);
+      rows = [
+        {
+          ...managed(input.branch),
+          path,
+          entry: { path, branch: input.branch, head: null, bare: false, detached: false },
+        },
+      ];
+      return {
+        branch: input.branch,
+        worktreeId: `wt-${input.branch}`,
+        path,
+        runtimeEnvPath: join(path, '.git', 'issue-flow', 'runtime.env'),
+        meta: { allocatedPorts: {} },
+      } as CreatedWorktree;
+    });
+    const sessionDeps: AgentSessionDeps = {
+      projectId: 'proj-create',
+      projectRoot: home,
+      storage,
+      worktrees: { create, list: async () => rows, remove: async () => {} },
+      tmux: fakeTmux(),
+      git: { resolveWorktreeGitDir: async (path) => `${path}/.git` },
+      branchExists: async () => false,
+      panes: [{ id: 'agent', kind: 'agent', focus: true }],
+      profileName: 'default',
+    };
+    const context = {
+      deps: sessionDeps,
+      projectRoot: home,
+      storage,
+      worktrees: sessionDeps.worktrees,
+      startupEnv: { SHARED: 'base' },
+      services: [],
+    };
+    try {
+      await writeFile(
+        join(home, '.issue-flow.json'),
+        JSON.stringify({
+          agents: {
+            gemini: { label: 'Gemini', startCommand: 'gemini "${PROMPT}"' },
+          },
+          autoName: true,
+        }),
+      );
+      const response = await createWorktreeRoute(
+        {
+          writable: true,
+          resolveProject: async () => null,
+          resolveRuntime: async () => context as never,
+          generateBranchName: async () => 'generated-http-branch',
+        },
+        null,
+        {
+          baseBranch: 'develop',
+          agent: 'gemini',
+          prompt: 'Implementar transporte HTTP',
+          envOverrides: { SHARED: 'override', EXTRA: 'yes' },
+        },
+      );
+      expect(response).toEqual({
+        status: 201,
+        body: { primaryBranch: 'generated-http-branch', branches: ['generated-http-branch'] },
+      });
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          branch: 'generated-http-branch',
+          baseBranch: 'develop',
+          source: 'ui',
+          startupEnvValues: { SHARED: 'override', EXTRA: 'yes' },
+        }),
+      );
+      expect(await listAgentSessions(storage)).toEqual([
+        expect.objectContaining({ provider: 'gemini' }),
+      ]);
+    } finally {
+      resetPlanRepositories();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('limits diffs by UTF-8 bytes without splitting a code point', () => {
+    const result = truncateUtf8(`${'a'.repeat(7)}é`, 8);
+    expect(result).toEqual({ value: 'aaaaaaa', truncated: true });
+    expect(Buffer.byteLength(result.value, 'utf8')).toBeLessThanOrEqual(8);
   });
 });
 

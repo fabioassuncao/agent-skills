@@ -50,9 +50,15 @@ export function buildWorktreeWindowName(branch: string): string {
   return `${TMUX_NAME_PREFIX}-${sanitizeTmuxNameSegment(branch, 40)}`;
 }
 
-/** Hidden window holding a worktree's parked (inactive) panes. */
-export function buildWorktreeParkingWindowName(branch: string): string {
-  return `${buildWorktreeWindowName(branch)}-parked`;
+/**
+ * Hidden window holding a worktree's parked (inactive) panes.
+ *
+ * `ifp-` is a disjoint namespace from every visible `if-` window, so a branch
+ * such as `foo-parked` can never alias another worktree's parking window.
+ */
+export function buildWorktreeParkingWindowName(worktreeId: string): string {
+  const digest = createHash('sha256').update(worktreeId).digest('hex').slice(0, 12);
+  return `ifp-${sanitizeTmuxNameSegment(worktreeId, 18)}-${digest}`;
 }
 
 /** `session:window.pane`, the only form tmux targets are built in. */
@@ -92,3 +98,8 @@ export function parseWindowSummaries(output: string): TmuxWindowSummary[] {
     })
     .filter((entry) => entry.sessionName.length > 0 && entry.windowName.length > 0);
 }
+
+import { createHash } from 'node:crypto';
+
+/** Grouped terminal viewers share owner windows but never own runtime panes. */
+export const VIEWER_SESSION_PREFIX = 'if-view';

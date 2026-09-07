@@ -43,6 +43,7 @@ export {
   syncPullRequests,
 } from './monitor.js';
 export {
+  type BranchPullRequestEvidence,
   type FetchPullRequestsOptions,
   type FetchPullRequestsResult,
   fetchBranchPullRequestStates,

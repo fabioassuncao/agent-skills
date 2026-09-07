@@ -307,19 +307,24 @@ describe('fetchBranchPullRequestStates', () => {
   it('aggregates the states of every repository, current one first', async () => {
     mockRun
       .mockResolvedValueOnce(
-        result({ stdout: JSON.stringify([{ headRefName: 'b', state: 'MERGED' }]) }),
+        result({
+          stdout: JSON.stringify([{ headRefName: 'b', state: 'MERGED', headRefOid: 'a1' }]),
+        }),
       )
       .mockResolvedValueOnce(
-        result({ stdout: JSON.stringify([{ headRefName: 'b', state: 'OPEN' }]) }),
+        result({ stdout: JSON.stringify([{ headRefName: 'b', state: 'OPEN', headRefOid: 'b2' }]) }),
       );
 
     const states = await fetchBranchPullRequestStates([{ repo: 'acme/api', alias: 'api' }]);
 
-    expect(states?.get('b')).toEqual(['merged', 'open']);
+    expect(states?.get('b')).toEqual([
+      { state: 'merged', headCommit: 'a1', currentRepository: true },
+      { state: 'open', headCommit: 'b2', currentRepository: false },
+    ]);
     expect(mockRun).toHaveBeenNthCalledWith(
       1,
       'gh',
-      ['pr', 'list', '--state', 'all', '--json', 'headRefName,state', '--limit', '50'],
+      ['pr', 'list', '--state', 'all', '--json', 'headRefName,state,headRefOid', '--limit', '50'],
       expect.anything(),
     );
     expect(mockRun).toHaveBeenNthCalledWith(

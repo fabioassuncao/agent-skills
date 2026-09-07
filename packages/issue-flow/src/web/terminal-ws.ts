@@ -37,6 +37,26 @@ import { buildPaneTarget } from '../runtime/tmux/names.js';
 export const TERMINAL_WS_PATH = '/ws/terminal';
 
 /**
+ * Match the hub socket and its multi-project form.
+ *
+ * HTTP requests have their project prefix stripped by `router.ts`; an upgrade
+ * bypasses that request handler entirely, so the WebSocket transport has to
+ * perform the equivalent split itself. `undefined` means another upgrade
+ * handler may own the path, `null` is the unprefixed compatibility route, and
+ * a string is the project prefix the resolver must authorize.
+ */
+export function matchTerminalWebSocketPath(pathname: string): string | null | undefined {
+  if (pathname === TERMINAL_WS_PATH) return null;
+  const match = /^\/([^/]+)\/ws\/terminal$/.exec(pathname);
+  if (match?.[1] === undefined) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Send buffer above which output is dropped rather than queued.
  *
  * One megabyte is roughly a second of a very loud agent on a local socket. Past
@@ -65,9 +85,15 @@ export interface TerminalWebSocketOptions {
    * done here.
    */
   resolveTarget: (input: {
+    projectPrefix: string | null;
     sessionId: string | null;
     branch: string | null;
-  }) => Promise<{ ownerSessionName: string; windowName: string; cwd?: string } | null>;
+  }) => Promise<{
+    ownerSessionName: string;
+    windowName: string;
+    cwd?: string;
+    paneTarget?: string;
+  } | null>;
   /**
    * The two tmux operations that act on the **owner's** window rather than on
    * this viewer's pty: a key sequence xterm cannot express as bytes, and moving
@@ -98,7 +124,11 @@ export interface TerminalWebSocketOptions {
    * keyboard *is* the signal. Absent leaves the behaviour of a monitor that
    * does not know about runs.
    */
-  onHumanInput?: (input: { sessionId: string | null; branch: string | null }) => void;
+  onHumanInput?: (input: {
+    projectPrefix: string | null;
+    sessionId: string | null;
+    branch: string | null;
+  }) => void;
   onWarn?: (message: string) => void;
 }
 
@@ -214,7 +244,8 @@ export async function startTerminalWebSocket(
 
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    if (url.pathname !== TERMINAL_WS_PATH) return;
+    const projectPrefix = matchTerminalWebSocketPath(url.pathname);
+    if (projectPrefix === undefined) return;
 
     const address = options.server.address();
     const port = typeof address === 'object' && address !== null ? address.port : 0;
@@ -232,14 +263,23 @@ export async function startTerminalWebSocket(
     }
 
     wss.handleUpgrade(request, socket, head, (ws) => {
-      void handleConnection(ws, url);
+      void handleConnection(ws, url, projectPrefix);
     });
   };
 
-  async function handleConnection(ws: WebSocket, url: URL): Promise<void> {
+  async function handleConnection(
+    ws: WebSocket,
+    url: URL,
+    projectPrefix: string | null,
+  ): Promise<void> {
     connections.add(ws);
     let attachment: TerminalAttachment | null = null;
-    let resolved: { ownerSessionName: string; windowName: string; cwd?: string } | null = null;
+    let resolved: {
+      ownerSessionName: string;
+      windowName: string;
+      cwd?: string;
+      paneTarget?: string;
+    } | null = null;
 
     /**
      * The window and the gateway a tmux operation needs, or `null` after
@@ -318,6 +358,7 @@ export async function startTerminalWebSocket(
               return;
             }
             const target = await options.resolveTarget({
+              projectPrefix,
               sessionId: url.searchParams.get('session'),
               branch: url.searchParams.get('branch'),
             });
@@ -334,6 +375,7 @@ export async function startTerminalWebSocket(
               rows: message.rows,
               ...(options.socketName === undefined ? {} : { socketName: options.socketName }),
               ...(message.initialPane === undefined ? {} : { initialPane: message.initialPane }),
+              ...(target.paneTarget === undefined ? {} : { paneTarget: target.paneTarget }),
               ...(target.cwd === undefined ? {} : { cwd: target.cwd }),
             });
 
@@ -356,6 +398,7 @@ export async function startTerminalWebSocket(
               if (!reportedHumanInput) {
                 reportedHumanInput = true;
                 options.onHumanInput?.({
+                  projectPrefix,
                   sessionId: url.searchParams.get('session'),
                   branch: url.searchParams.get('branch'),
                 });

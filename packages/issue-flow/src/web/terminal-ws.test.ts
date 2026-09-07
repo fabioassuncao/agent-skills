@@ -4,6 +4,7 @@ import {
   frameScrollback,
   isAllowedOrigin,
   MAX_BUFFERED_BYTES,
+  matchTerminalWebSocketPath,
   parseTerminalClientMessage,
   TERMINAL_WS_PATH,
 } from './terminal-ws.js';
@@ -116,5 +117,13 @@ describe('protocol constants', () => {
 
   it('caps the send buffer, which the upstream never does', () => {
     expect(MAX_BUFFERED_BYTES).toBe(1024 * 1024);
+  });
+
+  it('routes both the hub socket and the project-prefixed socket', () => {
+    expect(matchTerminalWebSocketPath('/ws/terminal')).toBeNull();
+    expect(matchTerminalWebSocketPath('/project-alpha/ws/terminal')).toBe('project-alpha');
+    expect(matchTerminalWebSocketPath('/project%20alpha/ws/terminal')).toBe('project alpha');
+    expect(matchTerminalWebSocketPath('/project-alpha/ws/other')).toBeUndefined();
+    expect(matchTerminalWebSocketPath('/%ZZ/ws/terminal')).toBeUndefined();
   });
 });

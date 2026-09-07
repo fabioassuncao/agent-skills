@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: placeholders are user data.
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaneTemplate } from '../../runtime/profiles.js';
 import { createReconciler } from '../../runtime/reconcile.js';
 import type { TmuxGateway } from '../../runtime/tmux/gateway.js';
@@ -11,11 +12,15 @@ import {
   type TmuxWindowSummary,
 } from '../../runtime/tmux/names.js';
 import type { CreatedWorktree, ManagedWorktree } from '../../runtime/worktree/lifecycle.js';
+import { getWorktreeMutationLockPath } from '../../runtime/worktree/lock.js';
 import {
+  deleteWorktree,
   listStoredAgentSessions,
   type PlanRepositoryContext,
   resetPlanRepositories,
+  saveWorktree,
 } from '../../storage/db/repository.js';
+import { acquireRunLock } from '../../storage/lock.js';
 import { GLOBAL_ROOT_ENV } from '../../storage/paths.js';
 import { sessionPayload } from '../../web/sessions-api.js';
 import type { AgentPhase } from '../types.js';
@@ -40,10 +45,16 @@ function fakeTmux(windows: Map<string, number> = new Map()): TmuxGateway & {
   windows: Map<string, number>;
   commands: Array<{ target: string; command: string }>;
   buffers: Array<{ target: string; content: string }>;
+  getPaneIdentity: NonNullable<TmuxGateway['getPaneIdentity']>;
 } {
   const commands: Array<{ target: string; command: string }> = [];
   const buffers: Array<{ target: string; content: string }> = [];
   const pending = new Map<string, string>();
+  const paneLocations = new Map<string, { sessionName: string; windowName: string }>();
+  const paneByCoordinate = new Map<string, string>();
+  const paneOwners = new Map<string, string>();
+  const paneOwnerSessions = new Map<string, string>();
+  let nextPane = 1;
   let current: { session: string; window: string } | null = null;
 
   const key = (session: string, window: string): string => `${session}:${window}`;
@@ -56,8 +67,26 @@ function fakeTmux(windows: Map<string, number> = new Map()): TmuxGateway & {
     ensureServer: async () => {},
     ensureSession: async () => {},
     hasWindow: async (session, window) => windows.has(key(session, window)),
+    hasWindowStrict: async (session, window) => windows.has(key(session, window)),
     killWindow: async (session, window) => {
       windows.delete(key(session, window));
+      for (const [paneId, location] of paneLocations) {
+        if (location.sessionName === session && location.windowName === window) {
+          paneLocations.delete(paneId);
+          paneOwners.delete(paneId);
+          paneOwnerSessions.delete(paneId);
+        }
+      }
+    },
+    killWindowStrict: async (session, window) => {
+      windows.delete(key(session, window));
+      for (const [paneId, location] of paneLocations) {
+        if (location.sessionName === session && location.windowName === window) {
+          paneLocations.delete(paneId);
+          paneOwners.delete(paneId);
+          paneOwnerSessions.delete(paneId);
+        }
+      }
     },
     createWindow: async ({ sessionName, windowName }) => {
       windows.set(key(sessionName, windowName), 1);
@@ -89,9 +118,63 @@ function fakeTmux(windows: Map<string, number> = new Map()): TmuxGateway & {
         const [sessionName = '', windowName = ''] = k.split(':');
         return { sessionName, windowName, paneCount };
       }),
-    getPaneId: async () => '%1',
+    getPaneId: async (target) => {
+      const existing = paneByCoordinate.get(target);
+      if (existing !== undefined && paneLocations.has(existing)) return existing;
+      const dot = target.lastIndexOf('.');
+      const coordinate = dot < 0 ? target : target.slice(0, dot);
+      const colon = coordinate.indexOf(':');
+      const paneId = `%${nextPane++}`;
+      paneByCoordinate.set(target, paneId);
+      paneLocations.set(paneId, {
+        sessionName: coordinate.slice(0, colon),
+        windowName: coordinate.slice(colon + 1),
+      });
+      return paneId;
+    },
+    getPaneIdentity: async (target) => {
+      const location = paneLocations.get(target);
+      if (location === undefined) throw new Error(`missing pane ${target}`);
+      return {
+        paneId: target,
+        ...location,
+        sessionName: paneOwnerSessions.get(target) ?? location.sessionName,
+        ownerToken: paneOwners.get(target) ?? null,
+      };
+    },
+    tagPaneOwner: async (target, token, ownerSessionName) => {
+      paneOwners.set(target, token);
+      paneOwnerSessions.set(target, ownerSessionName);
+    },
+    hasPaneStrict: async (target) => {
+      const location = paneLocations.get(target);
+      return location !== undefined && windows.has(key(location.sessionName, location.windowName));
+    },
     countPanes: async (session, window) => windows.get(key(session, window)) ?? 0,
-    killPane: async () => {},
+    killPane: async (target) => {
+      paneLocations.delete(target);
+      paneOwners.delete(target);
+      paneOwnerSessions.delete(target);
+    },
+    killPaneStrict: async (target) => {
+      paneLocations.delete(target);
+      paneOwners.delete(target);
+      paneOwnerSessions.delete(target);
+    },
+    swapPanes: async (source, destination) => {
+      const left = paneLocations.get(source);
+      const right = paneLocations.get(destination);
+      if (left === undefined || right === undefined) throw new Error('missing swap pane');
+      paneLocations.set(source, right);
+      paneLocations.set(destination, left);
+    },
+    movePaneToWindow: async (source, destination) => {
+      const colon = destination.indexOf(':');
+      paneLocations.set(source, {
+        sessionName: destination.slice(0, colon),
+        windowName: destination.slice(colon + 1),
+      });
+    },
   };
 }
 
@@ -101,14 +184,14 @@ const PANES: readonly PaneTemplate[] = [
 ];
 
 /** A worktree manager backed by a map, so no `git worktree add` is involved. */
-function fakeWorktrees(): AgentSessionDeps['worktrees'] & { created: string[] } {
+function fakeWorktrees(root = '/worktrees'): AgentSessionDeps['worktrees'] & { created: string[] } {
   const created: string[] = [];
   const live = new Map<string, ManagedWorktree>();
   return {
     created,
     create: async ({ branch }): Promise<CreatedWorktree> => {
       created.push(branch);
-      const path = `/worktrees/${branch}`;
+      const path = join(root, branch);
       live.set(branch, {
         branch,
         path,
@@ -140,6 +223,32 @@ function deps(
   tmux: ReturnType<typeof fakeTmux>;
   worktrees: ReturnType<typeof fakeWorktrees>;
 } {
+  const createWorktree = worktrees.create.bind(worktrees);
+  worktrees.create = async (options) => {
+    const created = await createWorktree(options);
+    const scoped = { ...created, worktreeId: `${storage.projectId}-${created.worktreeId}` };
+    const timestamp = new Date().toISOString();
+    await saveWorktree(storage, {
+      worktreeId: scoped.worktreeId,
+      branch: scoped.branch,
+      path: scoped.path,
+      baseBranch: options.baseBranch ?? 'main',
+      label: null,
+      profile: 'default',
+      agent: options.agent ?? 'claude',
+      runtime: options.runtime ?? 'host',
+      startupEnvValues: options.startupEnvValues ?? {},
+      allocatedPorts: {},
+      source: options.source ?? null,
+      conversationId: null,
+      archived: false,
+      activeAgentSessionId: null,
+      tabSequenceCounter: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    return scoped;
+  };
   return {
     projectId,
     projectRoot: '/repo',
@@ -178,7 +287,7 @@ describe('§49.5 — the free session', () => {
 
   describe('S1 — `session new --agent codex` in a project with no issues', () => {
     it('creates the session, leaves run/phase/story empty and opens a pane', async () => {
-      const context = deps(storage, 'proj-a');
+      const context = deps(storage, 'proj-a', fakeTmux(), fakeWorktrees(home));
       const opened = await openAgentSession(context, {
         provider: 'codex',
         permission: 'workspace',
@@ -197,11 +306,9 @@ describe('§49.5 — the free session', () => {
 
       // A pane exists, and it is the agent's own — not merely the focused one.
       expect(opened.layout.mode).toBe('fresh');
-      expect(opened.paneTarget).toBe(
-        `${buildProjectSessionName('proj-a')}:${buildWorktreeWindowName(opened.branch)}.0`,
-      );
+      expect(opened.paneTarget).toBe('%1');
       const agentCommand = context.tmux.commands.find((entry) => entry.command.includes('codex'));
-      expect(agentCommand?.target).toBe(opened.paneTarget);
+      expect(agentCommand?.target).toContain(buildProjectSessionName('proj-a'));
       // ADR-04: the argv is serialized once, at the tmux boundary, and the
       // hooks flag is what keeps agent state knowable (ADR-05).
       expect(agentCommand?.command).toContain("'codex' '--enable' 'hooks'");
@@ -218,6 +325,73 @@ describe('§49.5 — the free session', () => {
       expect(rows[0]?.runId).toBeNull();
       // The row the pipeline would have created does not exist.
       expect(await listSessions(storage, { runId: 'anything' })).toEqual([]);
+    });
+
+    it('passes profile instructions into structured Codex thread creation', async () => {
+      const context = deps(storage, 'proj-a');
+      const prepareConversation = vi.fn(async () => 'codex-thread-with-profile');
+      context.systemPrompt = 'Observe the repository policy.';
+      context.prepareConversation = prepareConversation;
+
+      const opened = await openAgentSession(context, {
+        provider: 'codex',
+        permission: 'workspace',
+        branch: 'session/codex-profile',
+      });
+
+      expect(prepareConversation).toHaveBeenCalledWith(
+        'codex',
+        expect.stringContaining('session/codex-profile'),
+        'Observe the repository policy.',
+      );
+      expect(opened.session.conversationId).toBe('codex-thread-with-profile');
+    });
+
+    it('starts and resumes a custom agent from argv with semantic permission', async () => {
+      const context = deps(storage, 'proj-a', fakeTmux(), fakeWorktrees(home));
+      context.systemPrompt = 'profile-only instructions';
+      const definition = {
+        id: 'gemini',
+        label: 'Gemini',
+        startCommand: 'gemini start "${PROMPT}" "${PERMISSION}"',
+        resumeCommand: 'gemini resume "${BRANCH}"',
+      };
+      const opened = await openAgentSession(context, {
+        provider: 'gemini',
+        customAgent: definition,
+        permission: 'read-only',
+        branch: 'session/custom',
+        prompt: '$(touch /tmp/nope); still one argument',
+      });
+
+      const first = context.tmux.commands.find((entry) => entry.command.includes("'gemini'"));
+      expect(first?.command).toContain("'start'");
+      expect(first?.command).toContain('"${ISSUE_FLOW_AGENT_PROMPT}"');
+      expect(first?.command).toContain('"${ISSUE_FLOW_AGENT_PERMISSION}"');
+      expect(first?.command).not.toContain('touch /tmp/nope');
+      expect(first?.command).not.toContain('profile-only instructions');
+      expect(opened.session.provider).toBe('gemini');
+      expect(opened.session.permission).toBe('read-only');
+      const environmentDir = join(home, 'session', 'custom', '.git', 'issue-flow');
+      const environmentFile = (await readdir(environmentDir)).find((name) =>
+        name.startsWith('agent-'),
+      );
+      expect(environmentFile).toBeDefined();
+      expect(await readFile(join(environmentDir, environmentFile as string), 'utf8')).toContain(
+        "ISSUE_FLOW_AGENT_SYSTEM_PROMPT='profile-only instructions'",
+      );
+
+      await stopAgentSession(context, opened.session);
+      const reopened = await openAgentSession(context, {
+        provider: 'gemini',
+        customAgent: definition,
+        permission: 'workspace',
+        branch: opened.branch,
+      });
+      expect(reopened.session.id).toBe(opened.session.id);
+      expect(reopened.session.permission).toBe('read-only');
+      expect(reopened.launchMode).toBe('resume');
+      expect(context.tmux.commands.at(-1)?.command).toContain("'resume'");
     });
   });
 
@@ -270,9 +444,12 @@ describe('§49.5 — the free session', () => {
 
       // Same branch, same window name — different tmux *session*, which is the
       // isolation boundary (§13): one session per project.
-      expect(a.paneTarget.startsWith(buildProjectSessionName('proj-a'))).toBe(true);
-      expect(b.paneTarget.startsWith(buildProjectSessionName('proj-b'))).toBe(true);
-      expect(a.paneTarget).not.toBe(b.paneTarget);
+      expect((await tmux.getPaneIdentity(a.paneTarget)).sessionName).toBe(
+        buildProjectSessionName('proj-a'),
+      );
+      expect((await tmux.getPaneIdentity(b.paneTarget)).sessionName).toBe(
+        buildProjectSessionName('proj-b'),
+      );
       expect(tmux.windows.size).toBe(2);
 
       // And each database context only ever sees its own.
@@ -409,6 +586,228 @@ describe('§49.5 — the free session', () => {
       expect(second.session.id).toBe(first.session.id);
       expect(second.launchMode).toBe('resume');
       expect(context.tmux.commands.at(-1)?.command.includes("'--resume' 'conv-free'")).toBe(true);
+    });
+
+    it('reopens a deliberately stopped worktree by resuming its conversation', async () => {
+      const context = deps(storage, 'proj-a');
+      const first = await openAgentSession(context, {
+        provider: 'claude',
+        permission: 'workspace',
+        branch: 'session/reopen',
+      });
+      await saveSession(storage, { ...first.session, conversationId: 'conv-stopped' });
+      await stopAgentSession(context, { ...first.session, conversationId: 'conv-stopped' });
+
+      const reopened = await openAgentSession(context, {
+        provider: 'claude',
+        permission: 'workspace',
+        branch: 'session/reopen',
+      });
+
+      expect(reopened.session.id).toBe(first.session.id);
+      expect(reopened.session.status).toBe('starting');
+      expect(reopened.session.endedAt).toBeNull();
+      expect(reopened.launchMode).toBe('resume');
+      expect(context.tmux.commands.at(-1)?.command.includes("'--resume' 'conv-stopped'")).toBe(
+        true,
+      );
+    });
+
+    it('kills a newly launched pane when atomic activation loses a pre-existing binding', async () => {
+      const context = deps(storage, 'proj-a');
+      const first = await openAgentSession(context, {
+        provider: 'claude',
+        permission: 'workspace',
+        branch: 'session/persist-failure',
+      });
+      await stopAgentSession(context, first.session);
+
+      const originalRun = context.tmux.runCommand.bind(context.tmux);
+      let dropped = false;
+      context.tmux.runCommand = async (target, command) => {
+        await originalRun(target, command);
+        if (!dropped) {
+          dropped = true;
+          await deleteWorktree(storage, first.branch);
+        }
+      };
+
+      await expect(
+        openAgentSession(context, {
+          provider: 'claude',
+          permission: 'workspace',
+          branch: first.branch,
+        }),
+      ).rejects.toThrow(`Worktree binding disappeared: ${first.branch}`);
+
+      expect(await context.tmux.hasPaneStrict?.('%2')).toBe(false);
+      expect((await listSessions(storage, { branch: first.branch }))[0]).toMatchObject({
+        id: first.session.id,
+        status: 'stopped',
+      });
+    });
+
+    it.each([
+      {
+        boundary: 'getPaneId',
+        fault: (tmux: ReturnType<typeof fakeTmux>) => {
+          tmux.getPaneId = async () => {
+            throw new Error('getPaneId fault');
+          };
+        },
+        expectedPane: null,
+      },
+      {
+        boundary: 'tagPaneOwner',
+        fault: (tmux: ReturnType<typeof fakeTmux>) => {
+          tmux.tagPaneOwner = async () => {
+            throw new Error('tagPaneOwner fault');
+          };
+        },
+        expectedPane: '%2',
+      },
+      {
+        boundary: 'getPaneIdentity',
+        fault: (tmux: ReturnType<typeof fakeTmux>) => {
+          tmux.getPaneIdentity = async () => {
+            throw new Error('getPaneIdentity fault');
+          };
+        },
+        expectedPane: '%2',
+      },
+    ])('persists orphan evidence when $boundary fails after a writer starts in a pre-existing worktree', async ({
+      fault,
+      expectedPane,
+    }) => {
+      const context = deps(storage, 'proj-a');
+      const first = await openAgentSession(context, {
+        provider: 'claude',
+        permission: 'workspace',
+        branch: 'session/post-layout-fault',
+      });
+      await stopAgentSession(context, first.session);
+      fault(context.tmux);
+
+      await expect(
+        openAgentSession(context, {
+          provider: 'claude',
+          permission: 'workspace',
+          branch: first.branch,
+        }),
+      ).rejects.toThrow('orphan evidence persisted');
+
+      const rows = await listSessions(storage, { branch: first.branch });
+      expect(rows.find((session) => session.status === 'orphaned')).toMatchObject({
+        status: 'orphaned',
+        paneTarget: expectedPane,
+      });
+      expect(rows.find((session) => session.id === first.session.id)?.status).toBe('stopped');
+      expect(context.tmux.windows.size).toBe(1);
+    });
+
+    it.each([
+      {
+        boundary: 'getPaneId failure',
+        fault: (tmux: ReturnType<typeof fakeTmux>) => {
+          tmux.getPaneId = async () => {
+            throw new Error('stale reattach pane id unavailable');
+          };
+        },
+        expectedPane: null,
+      },
+      {
+        boundary: 'getPaneIdentity failure',
+        fault: (tmux: ReturnType<typeof fakeTmux>) => {
+          tmux.getPaneIdentity = async () => {
+            throw new Error('stale reattach identity unavailable');
+          };
+        },
+        expectedPane: '%1',
+      },
+      {
+        boundary: 'foreign owner tag',
+        fault: (_tmux: ReturnType<typeof fakeTmux>) => {},
+        expectedPane: '%1',
+      },
+    ])('preserves a stale reattached window and new checkout on $boundary', async ({
+      fault,
+      expectedPane,
+    }) => {
+      const branch = 'session/reused-branch';
+      const tmux = fakeTmux();
+      const sessionName = buildProjectSessionName('proj-a');
+      const windowName = buildWorktreeWindowName(branch);
+      await tmux.createWindow({ sessionName, windowName, cwd: home, command: '/bin/bash' });
+      await tmux.splitWindow({
+        target: `${sessionName}:${windowName}.0`,
+        split: 'right',
+        cwd: home,
+        command: '/bin/bash',
+      });
+      fault(tmux);
+      const tagPane = vi.fn(tmux.tagPaneOwner);
+      const killPane = vi.fn(tmux.killPaneStrict);
+      const killWindow = vi.fn(tmux.killWindowStrict);
+      tmux.tagPaneOwner = tagPane;
+      tmux.killPaneStrict = killPane;
+      tmux.killWindowStrict = killWindow;
+      const worktrees = fakeWorktrees(home);
+      const remove = vi.fn(worktrees.remove);
+      worktrees.remove = remove;
+      const context = deps(storage, 'proj-a', tmux, worktrees);
+
+      await expect(
+        openAgentSession(context, { provider: 'claude', permission: 'workspace', branch }),
+      ).rejects.toMatchObject({ status: 409 });
+
+      expect(tagPane).not.toHaveBeenCalled();
+      expect(killPane).not.toHaveBeenCalled();
+      expect(killWindow).not.toHaveBeenCalled();
+      expect(remove).not.toHaveBeenCalled();
+      expect(tmux.windows.has(`${sessionName}:${windowName}`)).toBe(true);
+      expect(await listSessions(storage, { branch })).toEqual([
+        expect.objectContaining({ status: 'orphaned', paneTarget: expectedPane }),
+      ]);
+    });
+
+    it('treats mode=new as a conflict instead of adopting an existing worktree', async () => {
+      const context = deps(storage, 'proj-a');
+      await openAgentSession(context, {
+        provider: 'claude',
+        permission: 'workspace',
+        branch: 'session/already-there',
+      });
+
+      await expect(
+        openAgentSession(context, {
+          provider: 'claude',
+          permission: 'workspace',
+          mode: 'new',
+          branch: 'session/already-there',
+        }),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(context.worktrees.created).toEqual(['session/already-there']);
+    });
+
+    it('rolls back a partially opened checkout but keeps a pre-existing local branch', async () => {
+      const worktrees = fakeWorktrees();
+      const remove = vi.fn(worktrees.remove);
+      worktrees.remove = remove;
+      const tmux = fakeTmux();
+      tmux.createWindow = async () => {
+        throw new Error('tmux layout failed');
+      };
+      const context = deps(storage, 'proj-a', tmux, worktrees);
+
+      await expect(
+        openAgentSession(context, {
+          provider: 'claude',
+          permission: 'workspace',
+          mode: 'existing',
+          branch: 'feature/from-local',
+        }),
+      ).rejects.toThrow('tmux layout failed');
+      expect(remove).toHaveBeenCalledWith('feature/from-local', { keepBranch: true });
     });
   });
 
@@ -573,6 +972,38 @@ describe('§49.5 — the free session', () => {
       // The worktree survives unless it was asked for explicitly: the work in
       // it is the reason the session existed.
       expect(context.worktrees.created).toContain('session/a');
+    });
+
+    it('locks stop-and-remove before changing the row or killing the window', async () => {
+      const context = deps(storage, 'proj-a');
+      const lockDir = join(home, 'worktree-locks');
+      context.worktreeLockDir = lockDir;
+      const opened = await openAgentSession(context, {
+        provider: 'claude',
+        permission: 'workspace',
+        branch: 'session/remove',
+      });
+      const remove = vi.fn(context.worktrees.remove);
+      context.worktrees.remove = remove;
+      const acquired = await acquireRunLock(
+        getWorktreeMutationLockPath(lockDir, 'session/remove'),
+        { target: 'worktree:session/remove', pid: process.ppid, heartbeat: false },
+      );
+      expect(acquired.ok).toBe(true);
+      if (!acquired.ok) return;
+
+      try {
+        await expect(
+          stopAgentSession(context, opened.session, { removeWorktree: true }),
+        ).rejects.toThrow('is being changed by');
+        expect((await listSessions(storage, { branch: 'session/remove' }))[0]?.status).toBe(
+          'starting',
+        );
+        expect(context.tmux.windows.size).toBe(1);
+        expect(remove).not.toHaveBeenCalled();
+      } finally {
+        await acquired.handle.release();
+      }
     });
   });
 });

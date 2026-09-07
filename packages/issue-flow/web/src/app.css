@@ -66,37 +66,6 @@
   --color-focus-ring: var(--focus-ring);
 }
 
-/*
-  One role the Issue Flow palette did not have: a merged pull request.
-
-  It is not "ok" — a merged PR is not a passing state, and painting it green
-  next to a green check is exactly the confusion the closed vocabulary exists to
-  prevent. Both pairs are calculated (WCAG 2.x relative luminance), not
-  eyeballed, and are recorded in `web/AGENTS.md` alongside the other eighteen:
-  5.98:1 light, 8.18:1 dark, against a 4.5:1 minimum.
-
-  Declared in `:root` for the light value and overridden in the two twin dark
-  blocks, exactly like every other token — never defined only inside a `@media`
-  or a `[data-theme]`.
-*/
-:root {
-  --state-merged: #6d28d9;
-  --state-merged-surface: #ede9fe;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --state-merged: #c4b5fd;
-    --state-merged-surface: #2a2140;
-  }
-}
-
-/* Twin of the block above — same list of overrides, they change together. */
-:root[data-theme='dark'] {
-  --state-merged: #c4b5fd;
-  --state-merged-surface: #2a2140;
-}
-
 body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   background: var(--surface-page);

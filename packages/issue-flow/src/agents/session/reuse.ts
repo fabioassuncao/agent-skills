@@ -68,6 +68,7 @@ export function selectReusableSession(input: {
   const candidates = input.sessions.filter(
     (session) =>
       session.branch === input.branch &&
+      (session.parentSessionId ?? null) === null &&
       session.conversationId !== null &&
       session.status !== 'orphaned' &&
       // The pipeline never adopts a session a person opened for themselves.

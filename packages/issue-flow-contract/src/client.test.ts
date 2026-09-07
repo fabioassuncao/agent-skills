@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createApi } from './client.js';
+import { apiContract } from './contract.js';
 
 /**
  * PORT of `packages/api-contract/src/client.test.ts` @ d8c9d5f — 4 cases,
@@ -16,6 +17,11 @@ function success(body: unknown): { status: number; body: unknown; headers: Heade
 }
 
 describe('createApi', () => {
+  it('declares the real configuration access errors served by the monitor', () => {
+    expect(apiContract.fetchConfig.responses).toHaveProperty('403');
+    expect(apiContract.fetchAutoNameConfig.responses).toHaveProperty('501');
+  });
+
   it('encodes slash-containing path params before ts-rest interpolates them', async () => {
     const paths: string[] = [];
     const api = createApi('https://example.com', {

@@ -25,10 +25,11 @@
    *
    * Structure and behaviour are the upstream's; three things changed:
    *
-   * - **Theme is the panel's three options** (Sistema/Claro/Escuro) over one
-   *   measured palette, not the upstream's five hard-coded palettes — see
-   *   `themes.ts` for why.
-   * - **The Linear section is gone** (ADR-14).
+   * - **Theme keeps the panel's three modes** (Sistema/Claro/Escuro) and adds
+   *   the upstream's five named palettes. Every option uses measured role
+   *   tokens rather than runtime colour copying — see `themes.ts`.
+   * - Linear automation appears only when its backend capability is announced;
+   *   the credential remains exclusively in the monitor environment.
    * - **Every write is capability-gated.** The rule the current panel already
    *   enforces: a control that mutates configuration appears only when
    *   `/api/health.capabilities` announces it, never inferred from a version,
@@ -56,9 +57,12 @@
     currentTheme,
     useWebChatUi,
     autoRemoveOnMerge,
+    linearAutoCreate,
+    linearAvailability,
     onthemechange,
     onwebchatuichange,
     onautoremovechange,
+    onlinearautocreatechange,
     onagentschange,
     onsave,
     onclose,
@@ -66,9 +70,12 @@
     currentTheme: ThemeKey;
     useWebChatUi: boolean;
     autoRemoveOnMerge: boolean;
+    linearAutoCreate: boolean;
+    linearAvailability: import('./types').LinearIssueAvailability;
     onthemechange: (key: ThemeKey) => void;
     onwebchatuichange: (enabled: boolean) => void;
     onautoremovechange: (enabled: boolean) => void;
+    onlinearautocreatechange: (enabled: boolean) => void;
     onagentschange: (agents: AgentSummary[]) => void;
     onsave: (sshHost: string) => void;
     onclose: () => void;
@@ -79,6 +86,10 @@
   let pendingAutoRemove = $state<boolean | null>(null);
   let autoRemove = $derived(pendingAutoRemove ?? autoRemoveOnMerge);
   let autoRemoveSaving = $state(false);
+  let pendingLinearAutoCreate = $state<boolean | null>(null);
+  let linearAutoCreateValue = $derived(pendingLinearAutoCreate ?? linearAutoCreate);
+  let linearAutoCreateSaving = $state(false);
+  let integrationError = $state('');
 
   let agents = $state<AgentDetails[]>([]);
   let customAgents = $derived(agents.filter((agent) => agent.kind === 'custom'));
@@ -90,12 +101,15 @@
   let deleteCandidate = $state<AgentDetails | null>(null);
   let deletingAgentId = $state<string | null>(null);
 
-  const canManageAgents = canCall('fetchAgents');
+  const canReadAgents = canCall('fetchAgents');
+  const canWriteAgents = canCall('createAgent');
   const canToggleAutoRemove = canCall('setAutoRemoveOnMerge');
-  const worktreesAvailable = hasCapability(CAPABILITY.worktrees);
+  const canToggleLinearAutoCreate = canCall('setLinearAutoCreate');
+  const worktreesAvailable =
+    hasCapability(CAPABILITY.sessions) || hasCapability(CAPABILITY.worktreeMutations);
 
   async function loadAgentList(): Promise<void> {
-    if (!canManageAgents) {
+    if (!canReadAgents) {
       agentsUnavailable = true;
       agentsLoading = false;
       return;
@@ -129,6 +143,7 @@
   });
 
   function handleAutoRemoveToggle(enabled: boolean) {
+    integrationError = '';
     pendingAutoRemove = enabled;
     autoRemoveSaving = true;
     api
@@ -136,10 +151,30 @@
       .then((result) => {
         onautoremovechange(result.enabled);
       })
-      .catch(() => {})
+      .catch((error) => {
+        integrationError = error instanceof Error ? error.message : String(error);
+      })
       .finally(() => {
         pendingAutoRemove = null;
         autoRemoveSaving = false;
+      });
+  }
+
+  function handleLinearAutoCreateToggle(enabled: boolean) {
+    integrationError = '';
+    pendingLinearAutoCreate = enabled;
+    linearAutoCreateSaving = true;
+    api
+      .setLinearAutoCreate({ body: { enabled } })
+      .then((result) => {
+        onlinearautocreatechange(result.enabled);
+      })
+      .catch((error) => {
+        integrationError = error instanceof Error ? error.message : String(error);
+      })
+      .finally(() => {
+        pendingLinearAutoCreate = null;
+        linearAutoCreateSaving = false;
       });
   }
 
@@ -235,7 +270,7 @@
 
     <div class="mb-5">
       <span class="block text-xs text-muted mb-2">Tema</span>
-      <div class="grid grid-cols-3 gap-2" role="group" aria-label="Tema">
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" role="group" aria-label="Tema">
         {#each THEMES as theme (theme.key)}
           <button
             type="button"
@@ -288,7 +323,7 @@
               Agentes de terminal que o issue-flow pode iniciar a partir do painel.
             </p>
           </div>
-          {#if canManageAgents}
+          {#if canWriteAgents}
             <Btn type="button" variant="cta" onclick={openCreateAgentEditor}>Adicionar</Btn>
           {/if}
         </div>
@@ -322,7 +357,8 @@
                     {/if}
                   </div>
 
-                  <div class="flex shrink-0 gap-2 text-[11px]">
+                  {#if canWriteAgents}
+                    <div class="flex shrink-0 gap-2 text-[11px]">
                     <button
                       type="button"
                       class="text-accent hover:underline"
@@ -345,7 +381,8 @@
                     >
                       Excluir
                     </button>
-                  </div>
+                    </div>
+                  {/if}
                 </div>
               </div>
             {/each}
@@ -375,6 +412,39 @@
           />
         </div>
       </div>
+    {/if}
+
+    {#if canToggleLinearAutoCreate}
+      <div class="mb-5">
+        <span class="block text-xs text-muted mb-2">Linear</span>
+        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-edge bg-surface">
+          <div>
+            <span class="text-[13px] text-primary">Criar worktrees automaticamente</span>
+            <p class="text-[11px] text-muted mt-0.5">
+              Abre um worktree para tickets atribuídos, não iniciados e marcados com <code>issue-flow</code>.
+            </p>
+            {#if linearAvailability === 'missing_api_key'}
+              <p class="text-[11px] text-warning mt-1">
+                Defina <code>LINEAR_API_KEY</code> no ambiente do monitor para ativar a automação.
+              </p>
+            {:else if linearAvailability === 'disabled'}
+              <p class="text-[11px] text-muted mt-1">A integração está desativada neste projeto.</p>
+            {/if}
+          </div>
+          <Toggle
+            checked={linearAutoCreateValue}
+            disabled={linearAutoCreateSaving || linearAvailability !== 'ready'}
+            ontoggle={handleLinearAutoCreateToggle}
+            aria-label="Criar worktrees automaticamente a partir do Linear"
+          />
+        </div>
+      </div>
+    {/if}
+
+    {#if integrationError}
+      <p class="mb-5 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger" role="alert">
+        {integrationError}
+      </p>
     {/if}
 
     {#if !worktreesAvailable}

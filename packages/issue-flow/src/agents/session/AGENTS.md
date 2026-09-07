@@ -55,9 +55,12 @@ launcher, and adding one would be the duplication §25 forbids.
 - **`context.ts` is the wiring, not a second model.** The CLI and the HTTP
   surface both call `resolveAgentSessionDeps` so they cannot disagree about
   which profile a session used or which tmux socket its window is on.
-- **The branch is generated when nobody names one** — `session/<slug>-<8 hex>`.
-  Requiring a branch would reinstate the ceremony a free session exists to skip.
-  No model is consulted; the upstream's optional auto-namer is not ported.
+- **The branch is generated when nobody names one.** Explicit creation through
+  the configured HTTP flow uses the canonical auto-namer ported in
+  `config/auto-name.ts`; `session new` keeps the offline
+  `session/<slug>-<8 hex>` fallback so the direct CLI never requires a model or
+  network call. Requiring a branch would reinstate the ceremony a free session
+  exists to skip.
 - **`decideAdoption` answers two different questions.** *Resumable* is
   `selectReusableSession`, where ADR-07 lives and is never restated. *Adoptable*
   is wider: a live session with no conversation id yet still owns the window,
@@ -87,6 +90,64 @@ launcher, and adding one would be the duplication §25 forbids.
 - Never mint a `runs` row to make a link succeed.
 - Never let a phase that must stay independent land in a window somebody else's
   agent is already running in.
+
+## Tabs — several AgentSessions, one worktree (`tabs.ts`)
+
+- **A tab is another `AgentSession` row in the same worktree.** `tabId` on the
+  wire is exactly `AgentSession.id`; `conversationId` remains the provider's
+  separate identity. There is no tabs table and no copied transcript.
+- **The worktree id, not the branch, is the incarnation boundary.** A reused
+  branch must never adopt, stop or display sessions from its prior checkout.
+- **`tabs[0]` is the root.** Forks point to it with `parentSessionId`, and
+  `tabSequence` orders them. The worktree's `tabSequenceCounter` is monotonic,
+  so deleting Fork 2 never makes a later fork reuse that label.
+- **The active tab belongs to the worktree binding.** Selection updates
+  `activeAgentSessionId`; it never stops or recreates a provider process.
+- **Only Claude and Codex are forkable.** A provider without a native,
+  resumable fork primitive is refused instead of approximated with a new
+  conversation. Review and PR-review are refused too: their independence rule
+  is the same `assertSessionReuseAllowed` guard used by ordinary resume.
+- **Conversation identity is structured and durable.** Codex uses app-server
+  `thread/start` / `thread/fork`, Claude is launched with a pinned session id,
+  and no tab operation scans provider files or guesses by cwd.
+- **A stable pane id is necessary but not sufficient identity.** Every managed
+  pane carries a durable random `paneToken`; tmux's `@issue-flow-owner` pane
+  option encodes both that nonce and the project owner session. An operation may move, select, stop or
+  reconcile it only after proving the full tuple `{paneId, project session,
+  worktree main/parking window, paneToken}`. tmux may reuse `%N` after a server
+  restart; a matching number without the matching tuple is another process.
+- **Every create/select/delete/refresh is under the durable branch lock.** The
+  lock covers tmux and both persisted rows, preventing duplicate sequences and
+  split-brain active pointers across CLI and HTTP processes.
+- **Launching and activating are one durable write.** Once a new pane is
+  running, its AgentSession row and the worktree's active pointer are committed
+  in one transaction. If that commit fails, only the freshly launched,
+  re-authenticated pane is killed; an existing reattached process is preserved.
+  The same cleanup boundary covers failures resolving, tagging or reading the
+  pane after layout. If ownership cannot be proved or strict cleanup fails, the
+  worktree stays in place and an `orphaned` row records the possible writer. A
+  newly created checkout that collides with a stale same-branch tmux window is
+  especially never removed after a failed reattach: that window predates the
+  call, so neither its process nor the checkout underneath it may be destroyed.
+- **Reconciliation preserves evidence.** A missing pane marks the AgentSession
+  `orphaned`; it never deletes the row. Refresh reattaches a live pane or
+  resumes that same conversation when dead. It never kill/recreates a live one.
+- **Every worktree-opening surface allocates service ports before creation.**
+  `openManagedWorktrees` and the interactive runtime inspect the durable
+  bindings, call `allocateServicePorts`, and pass the result to
+  `openAgentSession`. Reopening reuses the allocation already stored in the
+  binding; it does not silently choose a second port set.
+- **The root cannot be deleted.** Closing a fork requires confirmation at the
+  human-facing caller and kills only that fork's pane. An authoritatively absent
+  pane is a dismissible orphan; a present pane whose owner tuple differs is
+  foreign and makes deletion fail closed.
+- **Stopping participates in the same lock and tab projection.** Stopping an
+  active fork first promotes an authenticated sibling (the visible sibling or
+  root), persists the new active pointer, then persists stop intent and kills
+  only the authenticated target. A failed kill restores the live row or reports
+  both the original and compensation failures. Whole-worktree teardown proves
+  every target first and changes every exact-worktree sibling to stopped in one
+  database operation.
 
 ## O canal estruturado — `claude-stream.ts`, `claude.ts`, `codex.ts`, `codex-conversation.ts`, `export.ts`
 

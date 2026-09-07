@@ -38,6 +38,7 @@ export function createWorktree(
     oneshot: null,
     tabs: [],
     activeTabId: null,
+    supportsTabs: false,
     executionId: null,
     issueRef: null,
     ...overrides,

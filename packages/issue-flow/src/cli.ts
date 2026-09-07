@@ -1,4 +1,6 @@
-import { Argument, Command, InvalidArgumentError, Option } from 'commander';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { Argument, Command, Help, InvalidArgumentError, Option } from 'commander';
 import { parseAgentPhaseFlag } from './agents/resolve.js';
 import {
   AGENT_PHASES,
@@ -8,6 +10,7 @@ import {
   isAgentProviderId,
 } from './agents/types.js';
 import { BENCH_MODES, TASK_CLASSES } from './benchmark/corpus.js';
+import { buildRootHelp } from './cli-help.js';
 import {
   CliFlagError,
   resolveQueueScopeFlags,
@@ -256,7 +259,14 @@ function withIssueOptions(cmd: Command): Command {
     .option('--ask', 'On divergence, ask which version to use (interactive only)');
 }
 
-const program = new Command();
+export const program = new Command();
+
+const defaultHelp = new Help();
+program.configureHelp({
+  formatHelp(command, helper) {
+    return command === program ? buildRootHelp() : defaultHelp.formatHelp(command, helper);
+  },
+});
 
 program
   .name('issue-flow')
@@ -1034,6 +1044,171 @@ sessionCommand
     process.exit(await runSessionLink(id, options));
   });
 
+// ── tab ─────────────────────────────────────────────────────────────────────
+// Tabs are AgentSessions in the same worktree. These commands call the same
+// locked domain operations as the HTTP surface; the CLI is not a second model.
+const tabCommand = program
+  .command('tab')
+  .description('List, fork, switch and close agent tabs in one worktree');
+
+tabCommand
+  .command('list')
+  .alias('ls')
+  .description('List tabs; the active AgentSession is marked with *')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(async (branch: string, options: { project?: string; json?: boolean }) => {
+    const { runTabList } = await import('./commands/tab.js');
+    process.exit(await runTabList(branch, options));
+  });
+
+tabCommand
+  .command('create')
+  .description('Fork the root provider conversation into a new AgentSession')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(async (branch: string, options: { project?: string; json?: boolean }) => {
+    const { runTabCreate } = await import('./commands/tab.js');
+    process.exit(await runTabCreate(branch, options));
+  });
+
+tabCommand
+  .command('switch')
+  .description('Bring an existing tab pane to the worktree window')
+  .argument('<branch>', 'Worktree branch')
+  .argument('<tab-id>', 'AgentSession id from `tab list`')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(async (branch: string, tabId: string, options: { project?: string; json?: boolean }) => {
+    const { runTabSwitch } = await import('./commands/tab.js');
+    process.exit(await runTabSwitch(branch, tabId, options));
+  });
+
+tabCommand
+  .command('close')
+  .description('Stop and close one fork tab after confirmation')
+  .argument('<branch>', 'Worktree branch')
+  .argument('<tab-id>', 'Fork AgentSession id from `tab list`')
+  .option('--yes', 'Confirm stopping the fork without prompting')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(
+    async (
+      branch: string,
+      tabId: string,
+      options: { yes?: boolean; project?: string; json?: boolean },
+    ) => {
+      const { runTabClose } = await import('./commands/tab.js');
+      process.exit(await runTabClose(branch, tabId, options));
+    },
+  );
+
+// ── worktree ────────────────────────────────────────────────────────────────
+// Durable worktree curation independent of the monitor. The command bodies use
+// the same session/worktree control layer as the HTTP routes.
+const worktreeCommand = program
+  .command('worktree')
+  .description('List and curate managed worktrees without a running monitor');
+
+worktreeCommand
+  .command('refresh')
+  .description('Reattach the active terminal, or resume its same conversation if dead')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(async (branch: string, options: { project?: string; json?: boolean }) => {
+    const { runWorktreeRefresh } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeRefresh(branch, options));
+  });
+
+worktreeCommand
+  .command('ls')
+  .alias('list')
+  .description('List managed worktrees; closed worktrees remain visible')
+  .option('--all', 'Include archived worktrees')
+  .option('--archived', 'Show only archived worktrees')
+  .option('--project <path>', 'Repository to inspect (default: the current one)')
+  .option('--json', 'Emit the list as JSON')
+  .action(
+    async (options: { all?: boolean; archived?: boolean; project?: string; json?: boolean }) => {
+      const { runWorktreeLs } = await import('./commands/worktree.js');
+      process.exit(await runWorktreeLs(options));
+    },
+  );
+
+worktreeCommand
+  .command('archive')
+  .description('Archive a worktree and close its live sessions')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(async (branch: string, options: { project?: string }) => {
+    const { runWorktreeArchive } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeArchive(branch, options));
+  });
+
+worktreeCommand
+  .command('unarchive')
+  .description('Return an archived worktree to the active list')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(async (branch: string, options: { project?: string }) => {
+    const { runWorktreeUnarchive } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeUnarchive(branch, options));
+  });
+
+worktreeCommand
+  .command('label')
+  .description('Set or clear a worktree caption')
+  .argument('<branch>', 'Worktree branch')
+  .argument('[label]', 'Caption (80 characters maximum)')
+  .option('--clear', 'Clear the caption')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(
+    async (
+      branch: string,
+      label: string | undefined,
+      options: { clear?: boolean; project?: string },
+    ) => {
+      const { runWorktreeLabel } = await import('./commands/worktree.js');
+      process.exit(await runWorktreeLabel(branch, label, options));
+    },
+  );
+
+worktreeCommand
+  .command('remove')
+  .description('Remove a worktree and its branch after confirmation')
+  .argument('<branch>', 'Worktree branch')
+  .option('--yes', 'Confirm deletion without prompting')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(async (branch: string, options: { yes?: boolean; project?: string }) => {
+    const { runWorktreeRemove } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeRemove(branch, options));
+  });
+
+worktreeCommand
+  .command('merge')
+  .description('Merge into the base branch and remove the worktree')
+  .argument('<branch>', 'Worktree branch')
+  .option('--yes', 'Confirm merge and cleanup without prompting')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(async (branch: string, options: { yes?: boolean; project?: string }) => {
+    const { runWorktreeMerge } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeMerge(branch, options));
+  });
+
+worktreeCommand
+  .command('prune')
+  .description('Preview closed-worktree cleanup; --yes applies the shown plan')
+  .option('--dry-run', 'Only show the cleanup plan (the default)')
+  .option('--yes', 'Remove every worktree shown by the plan')
+  .option('--project <path>', 'Repository whose closed worktrees to prune')
+  .action(async (options: { dryRun?: boolean; yes?: boolean; project?: string }) => {
+    const { runWorktreePrune } = await import('./commands/worktree.js');
+    process.exit(await runWorktreePrune(options));
+  });
+
 // ── web ─────────────────────────────────────────────────────────────────────
 const webCommand = program.command('web').description('Manage the web monitoring server');
 
@@ -1303,16 +1478,18 @@ withGlobalOptions(
   },
 );
 
-program.action(async () => {
-  const { listLiveRuns } = await import('./execution/registry.js');
-  const runs = await listLiveRuns();
-  if (runs.length === 0) {
-    program.help();
-    return;
-  }
-  const { runPs } = await import('./commands/ps.js');
-  process.exit(await runPs());
-});
+program.action(() => program.help());
 
 attachCompletion(program);
-program.parse();
+
+function isEntrypoint(): boolean {
+  const invoked = process.argv[1];
+  if (invoked === undefined) return false;
+  try {
+    return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint()) program.parse();

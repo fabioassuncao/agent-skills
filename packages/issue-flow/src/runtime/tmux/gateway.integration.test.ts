@@ -116,6 +116,69 @@ describe('tmux gateway against a real server', () => {
     );
   });
 
+  it.runIf(tmuxAvailable)(
+    'keeps stable owner pane ids when a grouped viewer shares the same socket',
+    async () => {
+      const layout = plan([{ id: 'agent', kind: 'agent', focus: true }]);
+      await ensureSessionLayout(tmux, layout);
+      const ownerPane = await tmux.getPaneId(`${layout.sessionName}:${layout.windowName}.0`);
+      const parkingWindow = 'ifp-feature-a1b2c3d4e5f6';
+      const forkPane = await tmux.createParkedPane?.({
+        sessionName: layout.sessionName,
+        parkingWindow,
+        cwd,
+        command: 'sleep 30',
+      });
+      expect(forkPane).toMatch(/^%\d+$/);
+      await tmux.tagPaneOwner?.(ownerPane, 'owner-token', layout.sessionName);
+      await tmux.tagPaneOwner?.(forkPane as string, 'fork-token', layout.sessionName);
+
+      const viewer = `if-view-${randomUUID().slice(0, 8)}`;
+      await execa('tmux', [
+        '-L',
+        socketName,
+        'new-session',
+        '-d',
+        '-s',
+        viewer,
+        '-t',
+        layout.sessionName,
+      ]);
+
+      // Aggregated ownership must ignore linked viewer aliases. Otherwise the
+      // last duplicate would make reconciliation believe an owner pane moved.
+      const locations = await tmux.listPaneLocations?.();
+      expect(locations?.filter((entry) => entry.paneId === ownerPane)).toEqual([
+        {
+          paneId: ownerPane,
+          sessionName: layout.sessionName,
+          windowName: layout.windowName,
+          ownerToken: 'owner-token',
+        },
+      ]);
+      expect(locations?.filter((entry) => entry.paneId === forkPane)).toEqual([
+        {
+          paneId: forkPane,
+          sessionName: layout.sessionName,
+          windowName: parkingWindow,
+          ownerToken: 'fork-token',
+        },
+      ]);
+      await expect(tmux.getPaneIdentity?.(forkPane as string)).resolves.toEqual({
+        paneId: forkPane,
+        sessionName: layout.sessionName,
+        windowName: parkingWindow,
+        ownerToken: 'fork-token',
+      });
+
+      await tmux.swapPanes?.(forkPane as string, ownerPane);
+      await expect(tmux.hasPaneStrict?.(ownerPane)).resolves.toBe(true);
+      await expect(tmux.hasPaneStrict?.(forkPane as string)).resolves.toBe(true);
+      await expect(tmux.getPaneWindow?.(forkPane as string)).resolves.toBe(layout.windowName);
+      await expect(tmux.getPaneWindow?.(ownerPane)).resolves.toBe(parkingWindow);
+    },
+  );
+
   it.runIf(tmuxAvailable)('rebuilds the window when forced, giving it new panes', async () => {
     const layout = plan([{ id: 'agent', kind: 'agent' }]);
     await ensureSessionLayout(tmux, layout);
@@ -151,6 +214,21 @@ describe('tmux gateway against a real server', () => {
     // Already gone is not a failure: teardown runs on paths that may have
     // raced with a server exit.
     await expect(tmux.killWindow(layout.sessionName, layout.windowName)).resolves.toBeUndefined();
+  });
+
+  it.runIf(tmuxAvailable)('strictly kills a window and confirms it is absent', async () => {
+    const layout = plan([{ id: 'agent', kind: 'agent' }]);
+    await ensureSessionLayout(tmux, layout);
+
+    expect(tmux.killWindowStrict).toBeDefined();
+    await expect(
+      tmux.killWindowStrict?.(layout.sessionName, layout.windowName),
+    ).resolves.toBeUndefined();
+    await expect(tmux.hasWindow(layout.sessionName, layout.windowName)).resolves.toBe(false);
+    // An already absent session is a proved absence, not an error.
+    await expect(
+      tmux.killWindowStrict?.(layout.sessionName, layout.windowName),
+    ).resolves.toBeUndefined();
   });
 
   // ADR-13: reconciliation asks once for everything, never once per entity.

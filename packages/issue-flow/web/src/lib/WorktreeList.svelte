@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import AgentStatusIcon, { agentIconVisible } from './AgentStatusIcon.svelte';
+  import LinearBadge from './LinearBadge.svelte';
   import PrBadge from './PrBadge.svelte';
   import type { WorktreeListRow } from './types';
   import { worktreeCreationPhaseLabel } from './utils';
@@ -14,8 +15,7 @@
   /**
    * The sidebar list.
    *
-   * PORT of `frontend/src/lib/WorktreeList.svelte` @ d8c9d5f (474 lines), minus
-   * the Linear badge and the "post to Linear" menu entry (ADR-14). §50.3 makes
+   * PORT of `frontend/src/lib/WorktreeList.svelte` @ d8c9d5f (474 lines). §50.3 makes
    * this the single sidebar list — Tasks and Sessions as two groups over the
    * same rows — and phase 8C adds the grouping; the row itself already carries
    * what it needs (`issueRef`, `executionId`).
@@ -55,6 +55,9 @@
     onremove,
     oneditprofile,
     oncreatesubworktree,
+    canPostToLinear = false,
+    postingLinear = new Set<string>(),
+    onposttolinear,
   }: {
     rows: WorktreeListRow[];
     selected: string | null;
@@ -70,6 +73,9 @@
     onremove: (branch: string) => void;
     oneditprofile: (branch: string) => void;
     oncreatesubworktree: (branch: string) => void;
+    canPostToLinear?: boolean;
+    postingLinear?: Set<string>;
+    onposttolinear?: (branch: string) => void;
   } = $props();
 
   function toggleMenu(branch: string): void {
@@ -241,6 +247,7 @@
         isInitializing ||
         isClosed ||
         wt.prs.length > 0 ||
+        !!wt.linearIssue ||
         !!wt.issueRef ||
         wt.source === 'oneshot'}
       <li
@@ -313,6 +320,9 @@
                   {#each wt.prs as pr (`${pr.repo}#${pr.number}`)}
                     <PrBadge {pr} />
                   {/each}
+                  {#if wt.linearIssue}
+                    <LinearBadge issue={wt.linearIssue} />
+                  {/if}
                   {#if wt.issueRef}
                     <span
                       class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted"
@@ -432,6 +442,23 @@
             >
               Criar worktree derivado
             </button>
+            {#if canPostToLinear && onposttolinear}
+              <button
+                type="button"
+                disabled={isCreating || postingLinear.has(wt.branch)}
+                class="w-full px-2 py-1.5 rounded text-left text-xs text-primary hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                onclick={(event) => {
+                  event.stopPropagation();
+                  runMenuAction(wt.branch, onposttolinear);
+                }}
+              >
+                {postingLinear.has(wt.branch)
+                  ? 'Enviando ao Linear…'
+                  : wt.linearIssue
+                    ? `Enviar conversa para ${wt.linearIssue.identifier}`
+                    : 'Enviar conversa ao Linear…'}
+              </button>
+            {/if}
             <button
               type="button"
               class="w-full px-2 py-1.5 rounded text-left text-xs text-danger hover:bg-hover"

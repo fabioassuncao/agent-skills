@@ -4,7 +4,8 @@ Origin-agnostic Issue model, registry, resolution, relation graph, and
 the only place commands may talk to GitHub or local issues. Built-in
 providers live under `providers/`; everything the CLI **reads** from
 GitHub about a Pull Request, its CI and its review comments lives under
-`github/`.
+`github/`. The Linear dashboard integration lives under `linear/`; it does not
+register a competing `IssueSource` for the CLI resolver.
 
 User-facing behaviour: [`docs/issues.md`](../../../../docs/issues.md).
 Pure Markdown parsing, hashing and schema distribution to standalone Skills:
@@ -48,6 +49,21 @@ Pure Markdown parsing, hashing and schema distribution to standalone Skills:
 - **Read cheaply.** Review comments use `If-None-Match`; an unchanged
   `updatedAt` skips the read entirely; the periodic refresh is
   activity-gated and makes zero calls while nothing is watching.
+- **Linear credentials are environment-only.** `LINEAR_API_KEY` is captured in
+  the client closure and never returned, persisted, interpolated in argv,
+  logged or sent to telemetry. Every error and response is redacted again at
+  the HTTP/maintenance boundary.
+- **Linear attachment upload is an SSRF boundary.** Only HTTPS Google Storage
+  hosts on port 443 are accepted; redirects, URL credentials,
+  credential-bearing URLs and unsafe/credential-bearing headers are rejected
+  before the PUT.
+- **The Linear attachment is canonical.** It carries the versioned
+  `ConversationExportPayload` produced by `agents/session/export.ts`; a summary
+  comment is best-effort and cannot turn a successful durable upload into loss.
+- **Linear auto-create is headless and uses the canonical lifecycle.** It
+  selects assigned, unstarted tickets labelled `issue-flow`, checks git's raw
+  branch registry, and delegates to `openManagedWorktrees`. No title or
+  description is logged.
 - **Local provider:** never mutate the filesystem in `isAvailable`;
   never write under `<projectRoot>/issues/`; paths go through
   `resolveIssuePaths`; create uses `wx`.
@@ -73,6 +89,8 @@ Pure Markdown parsing, hashing and schema distribution to standalone Skills:
 - Never shell `gh issue view|create|close` from commands or prompts.
 - Never call `gh` for Pull Request, CI or review-comment state outside
   `github/`.
+- Never persist `LINEAR_API_KEY`, accept an arbitrary attachment upload host,
+  or construct a worktree directly from a Linear poll.
 - Never poll GitHub without a gate on the interactive path, and never
   turn a `304` into "no comments".
 - Never invent an Issue Type or default labels for "absent".

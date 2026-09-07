@@ -15,8 +15,9 @@ import {
  * @ d8c9d5f, whose own suite is
  * `backend/src/__tests__/oneshot-watcher-service.test.ts` (12 cases).
  *
- * Ten of the twelve are ported; the two that are not are the `postToLinear`
- * ones, and Linear is a documented `DISCARD` (ADR-14). The mapping of the
+ * Ten of the twelve are ported; the two that are not are the implicit
+ * `postToLinear` ones. ADR-14 was later reversed for explicit UI/API posting
+ * and headless pickup, not for a side effect at the end of every run. The mapping of the
  * upstream vocabulary onto this one is:
  *
  * | upstream | here |

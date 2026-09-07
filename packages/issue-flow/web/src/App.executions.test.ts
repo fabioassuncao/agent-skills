@@ -6,7 +6,7 @@ import type { SessionSummary } from './lib/types';
  * The shell, from the execution side.
  *
  * Defends **U1** (one execution opens straight into the detail), **U3** (the
- * disconnection banner), **U15** (three theme options, applied before the first
+ * disconnection banner), **U15** (three theme modes plus named palettes, applied before the first
  * paint, with the OS listener attached only in `system`), **U16** (one refresh
  * value across both headers) and **U17** (a replaced monitor reloads the page).
  *
@@ -53,10 +53,14 @@ vi.mock('./lib/api', () => ({
     terminalAttach: 'terminal:attach',
     sessions: 'sessions',
     sessionOpen: 'session:open',
+    worktreeMutations: 'worktrees:mutate',
     worktrees: 'worktrees',
     conversation: 'agent:conversation',
     services: 'services',
     pullRequests: 'pr:ci',
+    linearRead: 'linear:read',
+    linearWrite: 'linear:write',
+    settingsWrite: 'settings:write',
   },
   api: {
     closeWorktree: vi.fn(),
@@ -85,6 +89,8 @@ vi.mock('./lib/api', () => ({
   connectWorktreeConversationStream: vi.fn(),
   fetchWorktreeConversationHistory: vi.fn(),
   fetchWorktrees: vi.fn(async () => []),
+  fetchLinearIssues: vi.fn(async () => ({ availability: 'disabled', issues: [] })),
+  postWorktreeToLinear: vi.fn(),
   interruptWorktreeConversation: vi.fn(),
   refreshWorktreeAgentTerminal: vi.fn(),
   sendWorktreeConversationMessage: vi.fn(),
@@ -124,6 +130,7 @@ vi.mock('./lib/api', () => ({
 
 import App from './App.svelte';
 import {
+  api,
   canCall,
   canOpenSessions,
   fetchAgentSessions,
@@ -341,6 +348,13 @@ describe('the theme (U15)', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
 
+  it('restores a named palette as an explicit choice', () => {
+    localStorage.setItem('issue-flow:theme', 'github-dark');
+    render(App);
+    expect(document.documentElement.getAttribute('data-theme')).toBe('github-dark');
+    expect(systemThemeListeners).toHaveLength(0);
+  });
+
   it('removes the attribute in system mode rather than writing "system"', () => {
     // It is the **absence** of `data-theme` that hands the decision back to the
     // `@media` query. Writing the word would pin the panel to the light branch.
@@ -437,6 +451,49 @@ describe('opening a free session (I3)', () => {
       await screen.findByText(/Falha ao abrir a sessão: tmux não está disponível/),
     ).toBeInTheDocument();
   });
+
+  it('keeps the full worktree dialog reachable when free sessions are also available', async () => {
+    vi.mocked(canOpenSessions).mockReturnValue(true);
+    vi.mocked(hasCapability).mockImplementation(
+      (name: string) => name.startsWith('config:') || name === 'worktrees:mutate',
+    );
+    vi.mocked(canCall).mockImplementation((route: string) => route === 'fetchConfig');
+    vi.mocked(api.fetchConfig).mockResolvedValue({
+      name: 'repo',
+      services: [],
+      profiles: [{ name: 'default' }],
+      agents: [
+        {
+          id: 'claude',
+          label: 'Claude',
+          kind: 'builtin',
+          capabilities: {
+            terminal: true,
+            inAppChat: true,
+            conversationHistory: true,
+            interrupt: true,
+            resume: true,
+          },
+        },
+      ],
+      defaultProfileName: 'default',
+      defaultAgentId: 'claude',
+      autoName: false,
+      linearAvailability: 'disabled',
+      linearAutoCreateWorktrees: false,
+      startupEnvs: {},
+      linkedRepos: [],
+      autoRemoveOnMerge: false,
+      projectDir: '/repo',
+      mainBranch: 'main',
+    });
+
+    render(App);
+    expect(await screen.findByTitle('Nova sessão (Cmd+K)')).toBeInTheDocument();
+    const worktreeButton = await screen.findByTitle('Novo worktree');
+    await fireEvent.click(worktreeButton);
+    expect(await screen.findByRole('heading', { name: 'Novo worktree' })).toBeInTheDocument();
+  });
 });
 
 /**
@@ -476,6 +533,7 @@ describe('promoting a session (I4)', () => {
         oneshot: null,
         tabs: [],
         activeTabId: null,
+        supportsTabs: false,
         // The one field that decides it.
         executionId: 'run-1',
         issueRef: null,

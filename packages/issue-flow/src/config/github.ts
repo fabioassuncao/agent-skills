@@ -1,7 +1,8 @@
 import type { GitHubConfig } from '../schemas.js';
 import { githubConfigSchema } from '../schemas.js';
 import { printWarning } from '../ui/logger.js';
-import { readNumberEnv } from './layers.js';
+import { parseBooleanEnv, readNumberEnv } from './layers.js';
+import { updateProjectConfigSection } from './project-settings.js';
 import { PROJECT_CONFIG_FILENAME, readProjectConfigFile } from './sources.js';
 
 /**
@@ -68,7 +69,21 @@ function readGitHubConfigEnv(
     layer.syncIntervalMs = interval;
   }
 
+  if (env.ISSUE_FLOW_GITHUB_AUTO_REMOVE_ON_MERGE !== undefined) {
+    layer.autoRemoveOnMerge = parseBooleanEnv(env.ISSUE_FLOW_GITHUB_AUTO_REMOVE_ON_MERGE);
+  }
+
   return layer;
+}
+
+export async function persistGitHubAutoRemoveOnMerge(
+  projectRoot: string,
+  enabled: boolean,
+): Promise<void> {
+  await updateProjectConfigSection(projectRoot, 'github', (github) => ({
+    ...github,
+    autoRemoveOnMerge: enabled,
+  }));
 }
 
 async function readGitHubConfigFile(

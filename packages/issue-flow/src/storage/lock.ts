@@ -1,6 +1,8 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
-import { dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { writeFileAtomic } from '../utils/fs.js';
 import { type RunLock, runLockSchema } from './schemas.js';
 
 /**
@@ -42,6 +44,9 @@ export const RUN_LOCK_STALE_INTERVALS = 3;
 /** How many times a claim is retried after clearing a stale lock. */
 const CLAIM_RETRIES = 3;
 
+/** A live local predecessor gets a short window; after that we fail closed. */
+const RESERVATION_WAIT_MS = 250;
+
 export interface RunLockHandle {
   readonly lock: RunLock;
   /**
@@ -72,6 +77,10 @@ export interface AcquireRunLockOptions {
   clock?: () => number;
   /** Called once, when a stale lock is taken over. Never throws through. */
   onTakeover?: (previous: RunLock) => void;
+  /** Test seam after a stale owner is observed and before reclaim arbitration. */
+  beforeReclaim?: (previous: RunLock) => Promise<void>;
+  /** Test seam after malformed lock bytes are observed, before reclaim arbitration. */
+  beforeMalformedReclaim?: (raw: string) => Promise<void>;
   /**
    * Start the rewriting timer. Default true; a test that drives the clock by
    * hand turns it off and calls `touchRunLock` itself.
@@ -104,15 +113,19 @@ export function isProcessAlive(pid: number): boolean {
  * failing a run. Same behaviour as `readWebLock` and `loadGlobalConfig`.
  */
 export async function readRunLock(lockFile: string): Promise<RunLock | null> {
-  let raw: string;
-  try {
-    raw = await readFile(lockFile, 'utf-8');
-  } catch {
-    return null;
-  }
+  const raw = await readRawRunLock(lockFile);
+  if (raw === null) return null;
   try {
     const result = runLockSchema.safeParse(JSON.parse(raw));
     return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readRawRunLock(lockFile: string): Promise<string | null> {
+  try {
+    return await readFile(lockFile, 'utf-8');
   } catch {
     return null;
   }
@@ -162,6 +175,189 @@ function isSelf(lock: RunLock, pid: number, host: string): boolean {
   return lock.pid === pid && lock.host === host;
 }
 
+function ownershipIdentity(lock: RunLock): string {
+  return lock.ownerId ?? `${lock.pid}\0${lock.host}\0${lock.target}\0${lock.startedAt}`;
+}
+
+function hasSameOwnership(left: RunLock, right: RunLock): boolean {
+  return ownershipIdentity(left) === ownershipIdentity(right);
+}
+
+function ownershipReservationPrefix(lockFile: string, identity: string): string {
+  const digest = createHash('sha256').update(identity).digest('hex');
+  return `${basename(lockFile)}.owner-${digest}.`;
+}
+
+interface OwnershipReservation {
+  file: string;
+  release(): Promise<void>;
+}
+
+interface ReservationRecord {
+  reservationId: string;
+  pid: number;
+  host: string;
+  choosing: boolean;
+  number: number;
+}
+
+type ReservationPeers = { ok: true; records: ReservationRecord[] } | { ok: false };
+
+function parseReservationRecord(value: unknown): ReservationRecord | null {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('reservationId' in value) ||
+    typeof value.reservationId !== 'string' ||
+    !('pid' in value) ||
+    typeof value.pid !== 'number' ||
+    !Number.isInteger(value.pid) ||
+    value.pid <= 0 ||
+    !('host' in value) ||
+    typeof value.host !== 'string' ||
+    !('choosing' in value) ||
+    typeof value.choosing !== 'boolean' ||
+    !('number' in value) ||
+    typeof value.number !== 'number' ||
+    !Number.isInteger(value.number) ||
+    value.number < 0
+  ) {
+    return null;
+  }
+  return value as ReservationRecord;
+}
+
+async function readReservationRecord(
+  file: string,
+): Promise<ReservationRecord | 'gone' | 'invalid'> {
+  try {
+    return parseReservationRecord(JSON.parse(await readFile(file, 'utf-8'))) ?? 'invalid';
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'gone' : 'invalid';
+  }
+}
+
+async function readReservationPeers(
+  directory: string,
+  prefix: string,
+  ownFile: string,
+  localHost: string,
+): Promise<ReservationPeers> {
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch {
+    return { ok: false };
+  }
+
+  const records: ReservationRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.startsWith(prefix) || !entry.endsWith('.guard')) continue;
+    const candidateFile = join(directory, entry);
+    if (candidateFile === ownFile) continue;
+
+    const candidate = await readReservationRecord(candidateFile);
+    if (candidate === 'gone') continue;
+    if (candidate === 'invalid' || candidate.host !== localHost) return { ok: false };
+    if (!isProcessAlive(candidate.pid)) continue;
+    records.push(candidate);
+  }
+  return { ok: true, records };
+}
+
+function reservationPrecedes(left: ReservationRecord, right: ReservationRecord): boolean {
+  return (
+    left.number < right.number ||
+    (left.number === right.number && left.reservationId < right.reservationId)
+  );
+}
+
+/**
+ * Serialize every mutation that is conditional on one observed ownership.
+ *
+ * Lamport's bakery algorithm gives unique guards a total order without any
+ * contender deleting another contender's file. A dead local guard is ignored
+ * in place; a foreign or unreadable guard fails closed.
+ */
+async function reserveIdentity(
+  lockFile: string,
+  identity: string,
+): Promise<OwnershipReservation | null> {
+  const directory = dirname(lockFile);
+  const prefix = ownershipReservationPrefix(lockFile, identity);
+  const reservationId = randomUUID();
+  const file = join(directory, `${prefix}${reservationId}.guard`);
+  const reservationRecord: ReservationRecord = {
+    reservationId,
+    pid: process.pid,
+    host: hostname(),
+    choosing: true,
+    number: 0,
+  };
+  try {
+    await writeFileAtomic(file, JSON.stringify(reservationRecord));
+  } catch {
+    return null;
+  }
+
+  let released = false;
+  const reservation: OwnershipReservation = {
+    file,
+    release: async () => {
+      if (released) return;
+      released = true;
+      // UUID pathnames are never reused. This invocation therefore owns this
+      // pathname for its whole lifetime and cannot unlink a successor guard.
+      try {
+        await rm(file);
+      } catch {
+        /* best-effort cleanup */
+      }
+    },
+  };
+
+  const initialPeers = await readReservationPeers(directory, prefix, file, reservationRecord.host);
+  if (!initialPeers.ok) {
+    await reservation.release();
+    return null;
+  }
+
+  reservationRecord.number =
+    initialPeers.records.reduce((maximum, record) => Math.max(maximum, record.number), 0) + 1;
+  reservationRecord.choosing = false;
+  try {
+    await writeFileAtomic(file, JSON.stringify(reservationRecord));
+  } catch {
+    await reservation.release();
+    return null;
+  }
+
+  const deadline = Date.now() + RESERVATION_WAIT_MS;
+  while (true) {
+    const peers = await readReservationPeers(directory, prefix, file, reservationRecord.host);
+    if (!peers.ok) {
+      await reservation.release();
+      return null;
+    }
+    const predecessor = peers.records.some(
+      (record) => record.choosing || reservationPrecedes(record, reservationRecord),
+    );
+    if (!predecessor) return reservation;
+    if (Date.now() >= deadline) {
+      await reservation.release();
+      return null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
+async function reserveOwnership(
+  lockFile: string,
+  lock: RunLock,
+): Promise<OwnershipReservation | null> {
+  return reserveIdentity(lockFile, ownershipIdentity(lock));
+}
+
 /**
  * One line naming the owner, for the message a refused invocation prints.
  *
@@ -175,12 +371,19 @@ export function describeRunLockOwner(lock: RunLock): string {
 /** Rewrite the lock with a fresh heartbeat. Never rejects. */
 export async function touchRunLock(lockFile: string, lock: RunLock, at: string): Promise<RunLock> {
   const next: RunLock = { ...lock, lastHeartbeatAt: at };
+  const reservation = await reserveOwnership(lockFile, lock);
+  if (reservation === null) return next;
   try {
-    await writeFile(lockFile, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+    const current = await readRunLock(lockFile);
+    if (current !== null && hasSameOwnership(current, lock)) {
+      await writeFileAtomic(lockFile, `${JSON.stringify(next, null, 2)}\n`);
+    }
   } catch {
     // A heartbeat that cannot be written is not worth failing a run over: the
     // worst case is that another invocation eventually judges us stale, which
     // is the same outcome as this process having died.
+  } finally {
+    await reservation.release();
   }
   return next;
 }
@@ -237,19 +440,20 @@ export async function acquireRunLock(
     host,
   };
 
+  const startedAt = new Date(clock()).toISOString();
+  const mine: RunLock = {
+    pid,
+    ownerId: randomUUID(),
+    host,
+    target: options.target,
+    startedAt,
+    lastHeartbeatAt: startedAt,
+    ...(options.detached === true ? { detached: true } : {}),
+  };
+
   let reclaimedFrom: RunLock | null = null;
 
   for (let attempt = 0; attempt <= CLAIM_RETRIES; attempt++) {
-    const at = new Date(clock()).toISOString();
-    const mine: RunLock = {
-      pid,
-      host,
-      target: options.target,
-      startedAt: at,
-      lastHeartbeatAt: at,
-      ...(options.detached === true ? { detached: true } : {}),
-    };
-
     if (await claim(lockFile, mine)) {
       return { ok: true, handle: startHandle(lockFile, mine, reclaimedFrom, options) };
     }
@@ -259,7 +463,20 @@ export async function acquireRunLock(
     if (existing === null) {
       // Unreadable: a partial write, or a file from a shape we do not know.
       // Treated as absent, exactly as `readRunLock` documents.
-      await removeRunLock(lockFile);
+      const observedRaw = await readRawRunLock(lockFile);
+      if (observedRaw === null) continue;
+      await options.beforeMalformedReclaim?.(observedRaw);
+      const reservation = await reserveIdentity(lockFile, `malformed\0${observedRaw}`);
+      if (reservation === null) continue;
+      try {
+        if ((await readRawRunLock(lockFile)) !== observedRaw) continue;
+        await removeRunLock(lockFile);
+        if (await claim(lockFile, mine)) {
+          return { ok: true, handle: startHandle(lockFile, mine, null, options) };
+        }
+      } finally {
+        await reservation.release();
+      }
       continue;
     }
 
@@ -271,13 +488,27 @@ export async function acquireRunLock(
       return { ok: false, owner: existing };
     }
 
-    reclaimedFrom = existing;
+    await options.beforeReclaim?.(existing);
+    const reservation = await reserveOwnership(lockFile, existing);
+    if (reservation === null) continue;
     try {
-      options.onTakeover?.(existing);
-    } catch {
-      // A caller's bookkeeping must not decide whether the run starts.
+      const current = await readRunLock(lockFile);
+      if (current === null || !hasSameOwnership(current, existing)) continue;
+      if (!isRunLockStale(current, staleness)) return { ok: false, owner: current };
+
+      await removeRunLock(lockFile);
+      if (!(await claim(lockFile, mine))) continue;
+
+      reclaimedFrom = existing;
+      try {
+        options.onTakeover?.(existing);
+      } catch {
+        // A caller's bookkeeping must not decide whether the run starts.
+      }
+      return { ok: true, handle: startHandle(lockFile, mine, reclaimedFrom, options) };
+    } finally {
+      await reservation.release();
     }
-    await removeRunLock(lockFile);
   }
 
   // Every attempt lost the race and every lock read was stale or unreadable:
@@ -306,11 +537,12 @@ function startHandle(
   const clock = options.clock ?? Date.now;
   let current = lock;
   let timer: NodeJS.Timeout | null = null;
+  let heartbeatTail = Promise.resolve();
 
   if (options.heartbeat !== false) {
     timer = setInterval(() => {
-      void touchRunLock(lockFile, current, new Date(clock()).toISOString()).then((next) => {
-        current = next;
+      heartbeatTail = heartbeatTail.then(async () => {
+        current = await touchRunLock(lockFile, current, new Date(clock()).toISOString());
       });
     }, heartbeatMs);
     // The heartbeat must never be the reason a process stays alive.
@@ -325,7 +557,17 @@ function startHandle(
         clearInterval(timer);
         timer = null;
       }
-      await removeRunLock(lockFile);
+      await heartbeatTail;
+      const reservation = await reserveOwnership(lockFile, current);
+      if (reservation === null) return;
+      try {
+        const owner = await readRunLock(lockFile);
+        if (owner !== null && hasSameOwnership(owner, current)) {
+          await removeRunLock(lockFile);
+        }
+      } finally {
+        await reservation.release();
+      }
     },
   };
 }
@@ -333,4 +575,43 @@ function startHandle(
 /** A re-entrant acquisition: same owner, no timer of its own, no removal. */
 function nestedHandle(lock: RunLock): RunLockHandle {
   return { lock, reclaimedFrom: null, release: async () => {} };
+}
+
+const serializedFileTails = new Map<string, Promise<void>>();
+
+/** Serialize a short file mutation using the canonical durable lock protocol. */
+export async function withSerializedFileLock<T>(
+  lockFile: string,
+  target: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = serializedFileTails.get(lockFile) ?? Promise.resolve();
+  let releaseLocal = (): void => {};
+  const gate = new Promise<void>((resolve) => {
+    releaseLocal = resolve;
+  });
+  const tail = previous.catch(() => {}).then(() => gate);
+  serializedFileTails.set(lockFile, tail);
+  await previous.catch(() => {});
+
+  let handle: RunLockHandle | null = null;
+  try {
+    const deadline = Date.now() + 5_000;
+    while (handle === null) {
+      const acquired = await acquireRunLock(lockFile, { target, heartbeat: false });
+      if (acquired.ok) {
+        handle = acquired.handle;
+        break;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for ${describeRunLockOwner(acquired.owner)}.`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return await operation();
+  } finally {
+    await handle?.release();
+    releaseLocal();
+    if (serializedFileTails.get(lockFile) === tail) serializedFileTails.delete(lockFile);
+  }
 }

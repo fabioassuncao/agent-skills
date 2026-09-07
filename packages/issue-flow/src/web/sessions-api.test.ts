@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -12,6 +12,7 @@ import {
   type PlanRepositoryContext,
   resetPlanRepositories,
   saveSessionEvent,
+  saveWorktree,
 } from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import {
@@ -34,6 +35,10 @@ import {
 
 function fakeTmux(): TmuxGateway & { pasted: string[]; keys: string[][] } {
   const windows = new Set<string>();
+  const panes = new Map<string, { sessionName: string; windowName: string }>();
+  const paneByCoordinate = new Map<string, string>();
+  const owners = new Map<string, { sessionName: string; token: string }>();
+  let nextPane = 1;
   const pasted: string[] = [];
   const keys: string[][] = [];
   const pending = new Map<string, string>();
@@ -44,11 +49,24 @@ function fakeTmux(): TmuxGateway & { pasted: string[]; keys: string[][] } {
     ensureServer: async () => {},
     ensureSession: async () => {},
     hasWindow: async (session, window) => windows.has(`${session}:${window}`),
+    hasWindowStrict: async (session, window) => windows.has(`${session}:${window}`),
     killWindow: async (session, window) => {
       windows.delete(`${session}:${window}`);
+      for (const [pane, location] of panes) {
+        if (location.sessionName === session && location.windowName === window) panes.delete(pane);
+      }
+    },
+    killWindowStrict: async (session, window) => {
+      windows.delete(`${session}:${window}`);
+      for (const [pane, location] of panes) {
+        if (location.sessionName === session && location.windowName === window) panes.delete(pane);
+      }
     },
     createWindow: async ({ sessionName, windowName }) => {
       windows.add(`${sessionName}:${windowName}`);
+      const pane = `%${nextPane++}`;
+      panes.set(pane, { sessionName, windowName });
+      paneByCoordinate.set(`${sessionName}:${windowName}.0`, pane);
     },
     splitWindow: async () => {},
     setWindowOption: async () => {},
@@ -68,23 +86,75 @@ function fakeTmux(): TmuxGateway & { pasted: string[]; keys: string[][] } {
     hasBuffer: async () => false,
     selectPane: async () => {},
     listWindows: async () => [],
-    getPaneId: async () => '%1',
-    countPanes: async () => 2,
-    killPane: async () => {},
+    getPaneId: async (target) => paneByCoordinate.get(target) ?? target,
+    getPaneIdentity: async (target) => {
+      const location = panes.get(target);
+      if (location === undefined) throw new Error(`missing pane ${target}`);
+      const owner = owners.get(target);
+      return {
+        paneId: target,
+        sessionName: owner?.sessionName ?? location.sessionName,
+        windowName: location.windowName,
+        ownerToken: owner?.token ?? null,
+      };
+    },
+    tagPaneOwner: async (target, token, sessionName) => {
+      owners.set(target, { sessionName, token });
+    },
+    hasPaneStrict: async (target) => panes.has(target),
+    countPanes: async (session, window) =>
+      [...panes.values()].filter(
+        (location) => location.sessionName === session && location.windowName === window,
+      ).length,
+    killPane: async (target) => {
+      panes.delete(target);
+      owners.delete(target);
+    },
+    killPaneStrict: async (target) => {
+      panes.delete(target);
+      owners.delete(target);
+    },
+    swapPanes: async () => {},
+    movePaneToWindow: async () => {},
   };
 }
 
-function fakeWorktrees(): AgentSessionDeps['worktrees'] {
+function fakeWorktrees(
+  storage: PlanRepositoryContext,
+  root = '/worktrees',
+): AgentSessionDeps['worktrees'] {
   const live = new Map<string, ManagedWorktree>();
   return {
-    create: async ({ branch }): Promise<CreatedWorktree> => {
-      const path = `/worktrees/${branch}`;
+    create: async (options): Promise<CreatedWorktree> => {
+      const { branch } = options;
+      const path = join(root, branch);
+      const timestamp = new Date().toISOString();
+      const binding = {
+        worktreeId: `wt-${branch}`,
+        branch,
+        path,
+        baseBranch: options.baseBranch ?? 'main',
+        label: null,
+        profile: options.profile ?? 'default',
+        agent: options.agent ?? 'claude',
+        runtime: options.runtime ?? 'host',
+        startupEnvValues: options.startupEnvValues ?? {},
+        allocatedPorts: options.allocatedPorts ?? {},
+        source: options.source ?? null,
+        conversationId: null,
+        archived: false,
+        activeAgentSessionId: null,
+        tabSequenceCounter: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      } as const;
+      await saveWorktree(storage, binding);
       live.set(branch, {
         branch,
         path,
         entry: { path, branch, head: null, bare: false, detached: false },
-        binding: null,
-        state: 'unmanaged',
+        binding,
+        state: 'managed',
       } as ManagedWorktree);
       return {
         branch,
@@ -113,15 +183,15 @@ describe('agent-session routes', () => {
       tasksPath: '',
       projectId: 'proj',
       issueId: '',
-      projectRoot: '/repo',
+      projectRoot: home,
       databaseOptions: { env: { [GLOBAL_ROOT_ENV]: home } },
     };
     tmux = fakeTmux();
     const sessionDeps: AgentSessionDeps = {
       projectId: 'proj',
-      projectRoot: '/repo',
+      projectRoot: home,
       storage,
-      worktrees: fakeWorktrees(),
+      worktrees: fakeWorktrees(storage, home),
       tmux,
       git: { resolveWorktreeGitDir: async (path: string) => `${path}/.git` },
       branchExists: async () => false,
@@ -199,6 +269,19 @@ describe('agent-session routes', () => {
       expect(body.session.free).toBe(true);
       expect(body.session.runId).toBeNull();
       expect(body.terminal).toEqual({ path: '/ws/terminal', branch: body.branch });
+    });
+
+    it('resolves a persisted custom agent instead of rejecting its open id', async () => {
+      await writeFile(
+        join(home, '.issue-flow.json'),
+        JSON.stringify({ agents: { gemini: { label: 'Gemini', startCommand: 'gemini' } } }),
+      );
+      const response = await createSessionRoute(deps, 'proj', {
+        agent: 'gemini',
+        permission: 'read-only',
+      });
+      expect(response.status).toBe(201);
+      expect((response.body as { session: AgentSession }).session.provider).toBe('gemini');
     });
 
     it('refuses on a binding that is not loopback (ADR-10)', async () => {

@@ -22,6 +22,23 @@ import { readDiagnostics } from '../storage/diagnostics.js';
 import { printInfo, printWarning } from '../ui/logger.js';
 import { getPackageVersion } from '../version.js';
 import {
+  type AgentsApiDeps,
+  createAgentRoute,
+  deleteAgentRoute,
+  listAgentsRoute,
+  matchAgentResource,
+  updateAgentRoute,
+  validateAgentRoute,
+} from './agents-api.js';
+import {
+  autoNameConfigRoute,
+  type IntegrationsApiDeps,
+  listLinearIssuesRoute,
+  postWorktreeToLinearRoute,
+  setAutoRemoveOnMergeRoute,
+  setLinearAutoCreateRoute,
+} from './integrations-api.js';
+import {
   type ApiResponse,
   addProject,
   listProjectInits,
@@ -47,12 +64,33 @@ import {
   type TerminalWebSocketOptions,
 } from './terminal-ws.js';
 import {
+  archiveWorktreeRoute,
   ciLogsRoute,
+  closeWorktreeRoute,
+  createWorktreeRoute,
+  createWorktreeTabRoute,
+  deleteWorktreeTabRoute,
+  labelWorktreeRoute,
+  listBaseBranchesRoute,
+  listBranchesRoute,
   listWorktreesRoute,
   matchCiLogs,
   matchSyncPullRequests,
+  matchWorktreeAgentRefresh,
+  matchWorktreeRoute,
+  matchWorktreeTabRoute,
+  mergeWorktreeRoute,
+  openWorktreeRoute,
+  profileWorktreeRoute,
+  projectWorktreeConfigRoute,
+  pullMainRoute,
+  refreshWorktreeAgentTerminalRoute,
+  removeWorktreeRoute,
+  selectWorktreeTabRoute,
+  sendWorktreeRoute,
   syncWorktreePullRequestsRoute,
   type WorktreesApiDeps,
+  worktreeDiffRoute,
 } from './worktrees-api.js';
 
 /**
@@ -173,6 +211,10 @@ export interface WebServerOptions {
    * do: it has one execution and no session registry behind it.
    */
   worktrees?: WorktreesApiDeps;
+  /** Built-in/custom agent registry. Reads may be remote; writes are loopback-only. */
+  agents?: AgentsApiDeps;
+  /** Optional Linear and GitHub project integrations. Mutations are loopback-only. */
+  integrations?: IntegrationsApiDeps;
 }
 
 export interface WebServerHandle {
@@ -482,10 +524,16 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > 64 * 1024) throw new Error('Request body too large.');
+    if (size > 64 * 1024) {
+      throw Object.assign(new Error('Request body too large.'), { status: 413 });
+    }
     chunks.push(buffer);
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
+  } catch {
+    throw Object.assign(new Error('Malformed JSON request body.'), { status: 400 });
+  }
 }
 
 /**
@@ -513,6 +561,26 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const projects = options.projects ?? null;
   const agentSessions = options.agentSessions ?? null;
   const worktrees = options.worktrees ?? null;
+  const agents = options.agents ?? null;
+  const integrations = options.integrations ?? null;
+  // A dependency claiming to be writable is not sufficient: the actual bind
+  // is the authority. Passing this narrowed view to every mutation makes the
+  // loopback + capability gate impossible for an individual route to forget.
+  const mutableWorktrees =
+    worktrees === null
+      ? null
+      : { ...worktrees, writable: isLoopbackHost(options.host) && worktrees.writable === true };
+  const mutableAgents =
+    agents === null
+      ? null
+      : { ...agents, writable: isLoopbackHost(options.host) && agents.writable === true };
+  const mutableIntegrations =
+    integrations === null
+      ? null
+      : {
+          ...integrations,
+          writable: isLoopbackHost(options.host) && integrations.writable === true,
+        };
 
   // JSON serialization memoized per session id: an unchanged poll answers 304
   // with an empty body. Content-hashed rather than counter-based, unlike the
@@ -640,6 +708,43 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
         ? null
         : (projects?.manager.getByPrefix(projectRoute.prefix)?.entry.id ?? null);
 
+    if (req.method === 'GET' && path === '/api/agents') {
+      respondApi(res, await listAgentsRoute(mutableAgents, routedProjectId));
+      return;
+    }
+    if (req.method === 'POST' && path === '/api/agents/validate') {
+      respondApi(res, validateAgentRoute(await readJsonBody(req)));
+      return;
+    }
+    if (req.method === 'POST' && path === '/api/agents') {
+      respondApi(
+        res,
+        await createAgentRoute(mutableAgents, routedProjectId, await readJsonBody(req)),
+      );
+      return;
+    }
+    const agentResource = matchAgentResource(path);
+    if (agentResource !== null && 'error' in agentResource) {
+      respondApi(res, { status: 400, body: { error: agentResource.error } });
+      return;
+    }
+    if (req.method === 'PUT' && agentResource !== null) {
+      respondApi(
+        res,
+        await updateAgentRoute(
+          mutableAgents,
+          routedProjectId,
+          agentResource.id,
+          await readJsonBody(req),
+        ),
+      );
+      return;
+    }
+    if (req.method === 'DELETE' && agentResource !== null) {
+      respondApi(res, await deleteAgentRoute(mutableAgents, routedProjectId, agentResource.id));
+      return;
+    }
+
     if (req.method === 'POST' && path === '/api/projects') {
       respondApi(res, await addProject(projects ?? null, await readJsonBody(req)));
       return;
@@ -682,6 +787,219 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     if (req.method === 'GET' && path === '/api/worktrees') {
       respondApi(res, await listWorktreesRoute(worktrees, routedProjectId));
       return;
+    }
+
+    if (req.method === 'POST' && path === '/api/worktrees') {
+      respondApi(
+        res,
+        await createWorktreeRoute(mutableWorktrees, routedProjectId, await readJsonBody(req)),
+      );
+      return;
+    }
+
+    if (req.method === 'GET' && path === '/api/branches') {
+      respondApi(
+        res,
+        await listBranchesRoute(
+          worktrees,
+          routedProjectId,
+          requestUrl.searchParams.get('includeRemote') === 'true',
+        ),
+      );
+      return;
+    }
+    if (req.method === 'GET' && path === '/api/base-branches') {
+      respondApi(res, await listBaseBranchesRoute(worktrees, routedProjectId));
+      return;
+    }
+    if (req.method === 'GET' && path === '/api/config/project') {
+      if (!isLoopbackHost(options.host)) {
+        respondApi(res, {
+          status: 403,
+          body: { error: 'Project runtime configuration is only available on loopback.' },
+        });
+        return;
+      }
+      respondApi(res, await projectWorktreeConfigRoute(worktrees, routedProjectId));
+      return;
+    }
+    if (req.method === 'GET' && path === '/api/linear/issues') {
+      respondApi(res, await listLinearIssuesRoute(integrations, routedProjectId));
+      return;
+    }
+    if (req.method === 'PUT' && path === '/api/linear/auto-create') {
+      respondApi(
+        res,
+        await setLinearAutoCreateRoute(
+          mutableIntegrations,
+          routedProjectId,
+          await readJsonBody(req),
+        ),
+      );
+      return;
+    }
+    if (req.method === 'PUT' && path === '/api/github/auto-remove-on-merge') {
+      respondApi(
+        res,
+        await setAutoRemoveOnMergeRoute(
+          mutableIntegrations,
+          routedProjectId,
+          await readJsonBody(req),
+        ),
+      );
+      return;
+    }
+    if (req.method === 'GET' && path === '/api/project/auto-name') {
+      respondApi(res, await autoNameConfigRoute(integrations, routedProjectId));
+      return;
+    }
+    if (req.method === 'POST' && path === '/api/pull-main') {
+      respondApi(
+        res,
+        await pullMainRoute(mutableWorktrees, routedProjectId, await readJsonBody(req)),
+      );
+      return;
+    }
+
+    const tabResource = matchWorktreeTabRoute(path);
+    if (tabResource !== null) {
+      if (req.method === 'POST' && tabResource.action === 'create') {
+        respondApi(
+          res,
+          await createWorktreeTabRoute(mutableWorktrees, routedProjectId, tabResource.branch),
+        );
+        return;
+      }
+      if (req.method === 'POST' && tabResource.action === 'select' && tabResource.tabId !== null) {
+        respondApi(
+          res,
+          await selectWorktreeTabRoute(
+            mutableWorktrees,
+            routedProjectId,
+            tabResource.branch,
+            tabResource.tabId,
+          ),
+        );
+        return;
+      }
+      if (
+        req.method === 'DELETE' &&
+        tabResource.action === 'delete' &&
+        tabResource.tabId !== null
+      ) {
+        respondApi(
+          res,
+          await deleteWorktreeTabRoute(
+            mutableWorktrees,
+            routedProjectId,
+            tabResource.branch,
+            tabResource.tabId,
+          ),
+        );
+        return;
+      }
+    }
+
+    const refreshBranch = req.method === 'POST' ? matchWorktreeAgentRefresh(path) : null;
+    if (refreshBranch !== null) {
+      respondApi(
+        res,
+        await refreshWorktreeAgentTerminalRoute(mutableWorktrees, routedProjectId, refreshBranch),
+      );
+      return;
+    }
+
+    const worktreeResource = matchWorktreeRoute(path);
+    if (worktreeResource !== null) {
+      const { branch, action } = worktreeResource;
+      if (req.method === 'DELETE' && action === null) {
+        respondApi(res, await removeWorktreeRoute(mutableWorktrees, routedProjectId, branch));
+        return;
+      }
+      if (req.method === 'POST' && action === 'open') {
+        respondApi(
+          res,
+          await openWorktreeRoute(
+            mutableWorktrees,
+            routedProjectId,
+            branch,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
+      if (req.method === 'POST' && action === 'close') {
+        respondApi(res, await closeWorktreeRoute(mutableWorktrees, routedProjectId, branch));
+        return;
+      }
+      if (req.method === 'POST' && action === 'merge') {
+        respondApi(res, await mergeWorktreeRoute(mutableWorktrees, routedProjectId, branch));
+        return;
+      }
+      if (req.method === 'PUT' && action === 'archive') {
+        respondApi(
+          res,
+          await archiveWorktreeRoute(
+            mutableWorktrees,
+            routedProjectId,
+            branch,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
+      if (req.method === 'PUT' && action === 'label') {
+        respondApi(
+          res,
+          await labelWorktreeRoute(
+            mutableWorktrees,
+            routedProjectId,
+            branch,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
+      if (req.method === 'PUT' && action === 'profile') {
+        respondApi(
+          res,
+          await profileWorktreeRoute(
+            mutableWorktrees,
+            routedProjectId,
+            branch,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
+      if (req.method === 'POST' && action === 'send') {
+        respondApi(
+          res,
+          await sendWorktreeRoute(
+            mutableWorktrees,
+            routedProjectId,
+            branch,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
+      if (req.method === 'GET' && action === 'diff') {
+        respondApi(res, await worktreeDiffRoute(worktrees, routedProjectId, branch));
+        return;
+      }
+      if (req.method === 'POST' && action === 'linear') {
+        respondApi(
+          res,
+          await postWorktreeToLinearRoute(
+            mutableIntegrations,
+            routedProjectId,
+            branch,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
     }
 
     // §20's two read surfaces, both gated by `pr:ci`: the manual refresh and
@@ -991,11 +1309,18 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
           // dashboard never offers a "New session" button that would answer
           // 501 (no project surface) or 403 (not loopback, ADR-10).
           ...(agentSessions?.writable ? ['session:open'] : []),
+          ...(agents === null ? [] : ['agents:read']),
+          ...(mutableAgents?.writable === true ? ['agents:write'] : []),
+          ...(integrations === null ? [] : ['linear:read']),
+          ...(mutableIntegrations?.writable === true ? ['linear:write', 'settings:write'] : []),
           // Listing sessions and the worktrees they run in. Split from
           // `worktrees` in phase 8D: that name gates twenty mutation routes
           // whose backends are not ported, and one promise must not smuggle
           // in the other.
           ...(worktrees === null ? [] : ['sessions']),
+          ...(mutableWorktrees?.writable === true && mutableWorktrees.resolveRuntime !== undefined
+            ? ['worktrees:mutate', 'worktrees:tabs', 'terminal:refresh']
+            : []),
           // §20's display sync. Announced only where a pass can actually run,
           // so the PR badge and the CI dialog are offered exactly where they
           // have something to show.
@@ -1017,7 +1342,10 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const server = createServer((req, res) => {
     void handleRequest(req, res).catch((err) => {
       try {
-        respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        const status = (err as { status?: unknown })?.status;
+        respondJson(res, typeof status === 'number' ? status : 500, {
+          error: err instanceof Error ? err.message : String(err),
+        });
       } catch {
         // Response already destroyed — nothing to do, never crash the process.
       }

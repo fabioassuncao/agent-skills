@@ -7,7 +7,7 @@ import type { AgentDetails, AgentSummary, AppConfig } from './types';
 
 /**
  * PORT of `frontend/src/lib/SettingsDialog.test.ts` @ d8c9d5f — 4 cases, plus 1
- * for the capability gate. The Linear toggle is gone (ADR-14).
+ * for the capability gate, including the optional Linear automation toggle.
  */
 
 vi.mock('./api', () => ({
@@ -16,6 +16,8 @@ vi.mock('./api', () => ({
     configRoutingWrite: 'config:routing:write',
     streamSessions: 'stream:sessions',
     terminalAttach: 'terminal:attach',
+    sessions: 'sessions',
+    worktreeMutations: 'worktrees:mutate',
     worktrees: 'worktrees',
     conversation: 'agent:conversation',
     services: 'services',
@@ -24,6 +26,7 @@ vi.mock('./api', () => ({
   api: {
     fetchConfig: vi.fn(),
     setAutoRemoveOnMerge: vi.fn(),
+    setLinearAutoCreate: vi.fn(),
   },
   canCall: vi.fn(() => true),
   hasCapability: vi.fn(() => true),
@@ -111,6 +114,8 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     defaultProfileName: 'default',
     defaultAgentId: 'claude',
     autoName: false,
+    linearAvailability: 'disabled',
+    linearAutoCreateWorktrees: false,
     startupEnvs: {},
     linkedRepos: [],
     autoRemoveOnMerge: false,
@@ -125,9 +130,12 @@ function renderDialog(props: Record<string, unknown> = {}) {
     currentTheme: 'system',
     useWebChatUi: false,
     autoRemoveOnMerge: false,
+    linearAutoCreate: false,
+    linearAvailability: 'disabled',
     onthemechange: vi.fn(),
     onwebchatuichange: vi.fn(),
     onautoremovechange: vi.fn(),
+    onlinearautocreatechange: vi.fn(),
     onagentschange: vi.fn(),
     onsave: vi.fn(),
     onclose: vi.fn(),
@@ -137,6 +145,7 @@ function renderDialog(props: Record<string, unknown> = {}) {
 
 describe('SettingsDialog agent management', () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.mocked(canCall).mockReturnValue(true);
     vi.mocked(hasCapability).mockReturnValue(true);
     HTMLDialogElement.prototype.showModal = function showModal() {
@@ -185,6 +194,34 @@ describe('SettingsDialog agent management', () => {
     expect(onwebchatuichange).toHaveBeenCalledWith(true);
   });
 
+  it('saves the SSH host used by Abrir no Cursor', async () => {
+    const onsave = vi.fn();
+    vi.mocked(fetchAgents).mockResolvedValue([]);
+    renderDialog({ onsave });
+
+    await fireEvent.input(screen.getByLabelText(/Host SSH/), { target: { value: 'devbox' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    expect(onsave).toHaveBeenCalledWith('devbox');
+    expect(localStorage.getItem('issue-flow:ssh-host')).toBe('devbox');
+  });
+
+  it('persists the Linear auto-create toggle when the key is available', async () => {
+    const onlinearautocreatechange = vi.fn();
+    vi.mocked(fetchAgents).mockResolvedValue([]);
+    vi.mocked(api.setLinearAutoCreate).mockResolvedValue({ ok: true, enabled: true });
+    renderDialog({ linearAvailability: 'ready', onlinearautocreatechange });
+
+    await fireEvent.click(
+      screen.getByRole('switch', {
+        name: 'Criar worktrees automaticamente a partir do Linear',
+      }),
+    );
+    await waitFor(() =>
+      expect(api.setLinearAutoCreate).toHaveBeenCalledWith({ body: { enabled: true } }),
+    );
+    expect(onlinearautocreatechange).toHaveBeenCalledWith(true);
+  });
+
   it('shows an empty state when no custom agents are configured', async () => {
     vi.mocked(fetchAgents).mockResolvedValue([
       createAgentDetails({
@@ -216,6 +253,18 @@ describe('SettingsDialog agent management', () => {
     expect(fetchAgents).not.toHaveBeenCalled();
   });
 
+  it('lists agents but hides mutations when only the remote-safe capability exists', async () => {
+    vi.mocked(canCall).mockImplementation((route) => route === 'fetchAgents');
+    vi.mocked(fetchAgents).mockResolvedValue([createAgentDetails()]);
+
+    renderDialog();
+
+    expect(await screen.findByText('Gemini CLI')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Adicionar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
+  });
+
   it('validates, creates, and deletes custom agents', async () => {
     const onagentschange = vi.fn();
     vi.mocked(fetchAgents)
@@ -233,6 +282,7 @@ describe('SettingsDialog agent management', () => {
 
     await screen.findByText('Adicionar');
     await fireEvent.click(screen.getByRole('button', { name: 'Adicionar' }));
+    expect(screen.getByText('${PERMISSION}')).toBeInTheDocument();
     await fireEvent.input(screen.getByLabelText('Nome do agente'), {
       target: { value: 'Gemini CLI' },
     });

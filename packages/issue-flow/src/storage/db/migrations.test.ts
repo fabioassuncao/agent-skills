@@ -214,6 +214,15 @@ describe('SQLite migrations', () => {
         '2026-01-01T00:00:03.000Z',
         '2026-01-01T00:00:03.000Z',
       );
+      expect(
+        upgraded
+          .prepare('SELECT archived FROM worktrees WHERE id = ?')
+          .get<{ archived: number }>('wt-1'),
+      ).toEqual({ archived: 0 });
+      upgraded.prepare('UPDATE worktrees SET archived = 1 WHERE id = ?').run('wt-1');
+      expect(() =>
+        upgraded.prepare('UPDATE worktrees SET archived = 2 WHERE id = ?').run('wt-1'),
+      ).toThrow();
       // One binding per branch: a second row for the same branch would let two
       // worktrees claim it.
       expect(() =>
@@ -400,6 +409,46 @@ describe('SQLite migrations', () => {
     }
   });
 
+  it('upgrades legacy sessions to workspace permission and constrains new values', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'issue-flow-db-'));
+    directories.push(directory);
+    const path = join(directory, 'issue-flow.db');
+    const before = await openDatabase(path);
+    try {
+      for (const migration of migrations.filter((entry) => entry.version < 21)) {
+        migration.up(before);
+      }
+      before.exec('PRAGMA user_version = 20');
+      before
+        .prepare('INSERT INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)')
+        .run('project', '/repo', '2026-01-01', '2026-01-01');
+      before
+        .prepare(
+          `INSERT INTO agent_sessions
+             (id, project_id, branch, provider, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run('legacy', 'project', 'feature', 'claude', 'idle', '2026-01-01', '2026-01-01');
+    } finally {
+      before.close();
+    }
+
+    const upgraded = await openDatabase(path);
+    try {
+      expect(migrateDatabase(upgraded)).toBe(CURRENT_SCHEMA_VERSION);
+      expect(
+        upgraded
+          .prepare('SELECT permission FROM agent_sessions WHERE id = ?')
+          .get<{ permission: string }>('legacy'),
+      ).toEqual({ permission: 'workspace' });
+      expect(() =>
+        upgraded.prepare('UPDATE agent_sessions SET permission = ?').run('yolo'),
+      ).toThrow();
+    } finally {
+      upgraded.close();
+    }
+  });
+
   it('creates the execution-history indexes required by query readers', async () => {
     const db = await database();
     try {
@@ -524,6 +573,118 @@ describe('SQLite migrations', () => {
       ).toEqual([{ id: 'inline-abcdef012345', state: 'open' }]);
     } finally {
       reopened.close();
+    }
+  });
+
+  it('migrates tabs without adopting ambiguous sessions from an older branch incarnation', async () => {
+    const db = await database();
+    try {
+      for (const migration of migrations.filter((entry) => entry.version <= 21)) {
+        migration.up(db);
+      }
+      db.exec('PRAGMA user_version = 21');
+      const at = '2026-09-06T12:00:00.000Z';
+      db.prepare('INSERT INTO projects (id, root, created_at, updated_at) VALUES (?, ?, ?, ?)').run(
+        'project-tabs',
+        '/repo',
+        at,
+        at,
+      );
+      const insertWorktree = db.prepare(
+        `INSERT INTO worktrees
+           (id, project_id, branch, path, profile, agent, runtime,
+            startup_env_json, allocated_ports_json, created_at, updated_at)
+         VALUES (?, 'project-tabs', ?, ?, 'default', 'claude', 'host', '{}', '{}', ?, ?)`,
+      );
+      insertWorktree.run('wt-solo', 'solo', '/repo/solo', at, at);
+      insertWorktree.run('wt-reused', 'reused', '/repo/reused', at, at);
+      insertWorktree.run('wt-exact', 'exact', '/repo/exact', at, at);
+
+      const insertSession = db.prepare(
+        `INSERT INTO agent_sessions
+           (id, project_id, branch, worktree_id, provider, conversation_id, status,
+            pane_target, created_at, updated_at, permission)
+         VALUES (?, 'project-tabs', ?, ?, 'claude', ?, ?, ?, ?, ?, 'workspace')`,
+      );
+      insertSession.run('solo-root', 'solo', null, 'conv-solo', 'running', '%1', at, at);
+      insertSession.run('reused-old', 'reused', null, 'conv-old', 'stopped', null, at, at);
+      insertSession.run(
+        'reused-newer',
+        'reused',
+        null,
+        'conv-newer',
+        'running',
+        '%2',
+        at,
+        '2026-09-06T12:01:00.000Z',
+      );
+      insertSession.run('exact-older', 'exact', 'wt-exact', 'conv-a', 'idle', '%3', at, at);
+      insertSession.run(
+        'exact-live',
+        'exact',
+        'wt-exact',
+        'conv-b',
+        'running',
+        '%4',
+        at,
+        '2026-09-06T12:02:00.000Z',
+      );
+
+      expect(migrateDatabase(db)).toBe(CURRENT_SCHEMA_VERSION);
+      expect(
+        db
+          .prepare(
+            `SELECT id, worktree_id, parent_session_id, tab_sequence, pane_token
+               FROM agent_sessions
+              ORDER BY id`,
+          )
+          .all(),
+      ).toEqual([
+        {
+          id: 'exact-live',
+          worktree_id: 'wt-exact',
+          parent_session_id: null,
+          tab_sequence: 0,
+          pane_token: null,
+        },
+        {
+          id: 'exact-older',
+          worktree_id: 'wt-exact',
+          parent_session_id: null,
+          tab_sequence: null,
+          pane_token: null,
+        },
+        {
+          id: 'reused-newer',
+          worktree_id: null,
+          parent_session_id: null,
+          tab_sequence: null,
+          pane_token: null,
+        },
+        {
+          id: 'reused-old',
+          worktree_id: null,
+          parent_session_id: null,
+          tab_sequence: null,
+          pane_token: null,
+        },
+        {
+          id: 'solo-root',
+          worktree_id: 'wt-solo',
+          parent_session_id: null,
+          tab_sequence: 0,
+          pane_token: null,
+        },
+      ]);
+      expect(
+        db.prepare('SELECT id, active_agent_session_id FROM worktrees ORDER BY id').all(),
+      ).toEqual([
+        { id: 'wt-exact', active_agent_session_id: 'exact-live' },
+        { id: 'wt-reused', active_agent_session_id: null },
+        { id: 'wt-solo', active_agent_session_id: 'solo-root' },
+      ]);
+    } finally {
+      db.close();
     }
   });
 });

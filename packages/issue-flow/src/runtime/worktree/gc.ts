@@ -1,5 +1,5 @@
 import type { GitWorktreeGateway } from './git.js';
-import type { WorktreeManager } from './lifecycle.js';
+import type { ManagedWorktree, WorktreeManager } from './lifecycle.js';
 
 /**
  * Keeping the worktree container from growing without bound.
@@ -11,8 +11,23 @@ import type { WorktreeManager } from './lifecycle.js';
  * checkouts because nobody looked at a UI.
  */
 
-/** Pull states of one branch across every repository that has a pull request for it. */
-export type BranchPullRequestStates = Map<string, string[]>;
+/** Merge evidence of one branch across every repository that has a pull request for it. */
+export interface BranchPullRequestEvidence {
+  state: string;
+  headCommit: string | null;
+  currentRepository: boolean;
+}
+export type BranchPullRequestStates = Map<string, BranchPullRequestEvidence[]>;
+
+export type AutoRemoveCandidateResult =
+  | 'removed'
+  | 'dirty'
+  | 'not-merged'
+  | 'no-pull-request'
+  | 'busy'
+  | 'identity-changed'
+  | 'head-mismatch'
+  | 'inconclusive';
 
 export interface AutoRemoveDependencies {
   worktrees: WorktreeManager;
@@ -28,6 +43,8 @@ export interface AutoRemoveDependencies {
    * cross-repository pull request is still open.
    */
   branchPullRequestStates: () => Promise<BranchPullRequestStates | null>;
+  /** Locked destructive gate supplied by the canonical session/worktree operation. */
+  removeCandidate: (worktree: ManagedWorktree) => Promise<AutoRemoveCandidateResult>;
   /** Branches a removal is already running for, so a sweep never races itself. */
   isRemoving?: (branch: string) => boolean;
   markRemoving?: (branch: string) => void;
@@ -39,7 +56,7 @@ export interface AutoRemoveDependencies {
 export interface AutoRemoveResult {
   removed: string[];
   /** Branches examined and deliberately left alone, with the reason. */
-  skipped: Array<{ branch: string; reason: 'dirty' | 'not-merged' | 'no-pull-request' | 'busy' }>;
+  skipped: Array<{ branch: string; reason: Exclude<AutoRemoveCandidateResult, 'removed'> }>;
   /** True when the pull request query was inconclusive and nothing was attempted. */
   inconclusive: boolean;
 }
@@ -47,7 +64,9 @@ export interface AutoRemoveResult {
 /** Remove every worktree whose pull requests are all merged and whose tree is clean. */
 export async function runAutoRemove(deps: AutoRemoveDependencies): Promise<AutoRemoveResult> {
   const result: AutoRemoveResult = { removed: [], skipped: [], inconclusive: false };
-  const managed = (await deps.worktrees.list()).filter((entry) => entry.state !== 'orphaned');
+  const managed = (await deps.worktrees.list()).filter(
+    (entry) => entry.state === 'managed' && entry.entry !== null && entry.binding !== null,
+  );
   if (managed.length === 0) return result;
 
   const states = await deps.branchPullRequestStates();
@@ -68,25 +87,21 @@ export async function runAutoRemove(deps: AutoRemoveDependencies): Promise<AutoR
       result.skipped.push({ branch, reason: 'no-pull-request' });
       continue;
     }
-    if (!branchStates.every((state) => state === 'merged')) {
+    if (!branchStates.every((evidence) => evidence.state === 'merged')) {
       result.skipped.push({ branch, reason: 'not-merged' });
-      continue;
-    }
-
-    // A merged pull request does not mean the checkout is disposable: work
-    // committed nowhere lives only here, and removing the worktree destroys it.
-    const status = await deps.git.readWorktreeStatus(worktree.path);
-    if (status.dirty) {
-      result.skipped.push({ branch, reason: 'dirty' });
-      deps.onInfo?.(`Skipping dirty worktree: ${branch}`);
       continue;
     }
 
     deps.markRemoving?.(branch);
     try {
-      await deps.worktrees.remove(branch);
-      result.removed.push(branch);
-      deps.onInfo?.(`Removed merged worktree: ${branch}`);
+      const decision = await deps.removeCandidate(worktree);
+      if (decision === 'removed') {
+        result.removed.push(branch);
+        deps.onInfo?.(`Removed merged worktree: ${branch}`);
+      } else {
+        result.skipped.push({ branch, reason: decision });
+        if (decision === 'dirty') deps.onInfo?.(`Skipping dirty worktree: ${branch}`);
+      }
     } catch (error) {
       deps.onError?.(
         `Failed to remove worktree ${branch}: ${

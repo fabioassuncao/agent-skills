@@ -1,13 +1,16 @@
+import { randomUUID } from 'node:crypto';
 import { loadRuntimeConfig } from '../../config/runtime.js';
-import { resolveProfile } from '../../runtime/profiles.js';
+import { resolveProfile, resolveProfileSystemPrompt } from '../../runtime/profiles.js';
 import type { ServiceSpec } from '../../runtime/services.js';
 import { createTmuxGateway } from '../../runtime/tmux/gateway.js';
-import { createGitWorktreeGateway } from '../../runtime/worktree/git.js';
-import { createWorktreeManager } from '../../runtime/worktree/lifecycle.js';
+import { createGitWorktreeGateway, type GitWorktreeGateway } from '../../runtime/worktree/git.js';
+import { createWorktreeManager, type WorktreeManager } from '../../runtime/worktree/lifecycle.js';
+import { getWorktreeMutationLockDir } from '../../runtime/worktree/lock.js';
 import type { PlanRepositoryContext } from '../../storage/db/repository.js';
 import { resolveProjectPaths } from '../../storage/resolve.js';
 import { printWarning } from '../../ui/logger.js';
 import { getBaseBranch, getProjectRootOf, localBranchExists } from '../../utils/git.js';
+import { CodexAppServerClient } from './codex.js';
 import type { AgentSessionDeps } from './open.js';
 
 /**
@@ -42,6 +45,12 @@ export interface ResolvedAgentSessionContext {
   /** The profile actually resolved, which may not be the one asked for. */
   profileName: string;
   mainBranch: string;
+  worktrees: WorktreeManager;
+  git: GitWorktreeGateway;
+  /** Names accepted by profile-changing HTTP operations. */
+  profileNames: readonly string[];
+  profileConfigs: readonly { name: string; systemPrompt?: string }[];
+  startupEnv: Readonly<Record<string, string>>;
   /**
    * Services declared by the project (§19).
    *
@@ -68,19 +77,45 @@ export async function resolveAgentSessionDeps(
 
   const runtime = await loadRuntimeConfig({ projectRoot, warn });
   const resolved = resolveProfile(runtime.profiles, options.profile ?? runtime.profile, warn);
+  const systemPrompt = resolveProfileSystemPrompt(resolved.profile, runtime.startupEnv);
   const mainBranch = await getBaseBranch(projectRoot);
   const git = createGitWorktreeGateway();
+  const worktreeLockDir = getWorktreeMutationLockDir(paths.projectDir);
 
+  const worktrees = createWorktreeManager({
+    projectRoot,
+    storage,
+    mainBranch,
+    git,
+    mutationLockDir: worktreeLockDir,
+  });
   const deps: AgentSessionDeps = {
     projectId: paths.projectId,
     projectRoot,
     storage,
-    worktrees: createWorktreeManager({ projectRoot, storage, mainBranch, git }),
+    worktrees,
     tmux: createTmuxGateway(),
     git,
     branchExists: (branch) => localBranchExists(branch, projectRoot),
     panes: resolved.profile.panes,
     profileName: resolved.name,
+    ...(systemPrompt === undefined ? {} : { systemPrompt }),
+    worktreeLockDir,
+    prepareConversation: async (provider, cwd, developerInstructions) => {
+      if (provider === 'claude') return randomUUID();
+      if (provider !== 'codex') return null;
+      const client = new CodexAppServerClient({ clientName: 'issue-flow-session-open' });
+      try {
+        return (
+          await client.threadStart({
+            cwd,
+            ...(developerInstructions === undefined ? {} : { developerInstructions }),
+          })
+        ).thread.id;
+      } finally {
+        client.close();
+      }
+    },
     ...(options.shellPath === undefined ? {} : { shellPath: options.shellPath }),
   };
 
@@ -91,6 +126,14 @@ export async function resolveAgentSessionDeps(
     storage,
     profileName: resolved.name,
     mainBranch,
+    worktrees,
+    git,
+    profileNames: Object.keys(runtime.profiles),
+    profileConfigs: Object.entries(runtime.profiles).map(([name, profile]) => ({
+      name,
+      ...(profile.systemPrompt === undefined ? {} : { systemPrompt: profile.systemPrompt }),
+    })),
+    startupEnv: runtime.startupEnv,
     services: runtime.services,
   };
 }

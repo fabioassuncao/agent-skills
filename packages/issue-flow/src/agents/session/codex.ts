@@ -333,6 +333,7 @@ export interface CodexAppServerThreadStartParams {
   modelProvider?: string | null;
   personality?: CodexAppServerPersonality | null;
   sandbox?: CodexAppServerSandboxMode | null;
+  developerInstructions?: string | null;
 }
 
 export interface CodexAppServerThreadResumeParams {
@@ -370,6 +371,8 @@ export interface CodexAppServerGateway {
   threadRead(threadId: string, includeTurns: boolean): Promise<CodexAppServerThreadReadResponse>;
   threadResume(params: CodexAppServerThreadResumeParams): Promise<CodexAppServerThreadContext>;
   threadStart(params: CodexAppServerThreadStartParams): Promise<CodexAppServerThreadContext>;
+  /** Provider-native fork; the structured response is the new conversation identity. */
+  threadFork(threadId: string): Promise<CodexAppServerThreadContext>;
   turnStart(params: CodexAppServerTurnStartParams): Promise<CodexAppServerTurnStartResponse>;
   turnInterrupt(params: CodexAppServerTurnInterruptParams): Promise<void>;
 }
@@ -575,6 +578,10 @@ export class CodexAppServerClient implements CodexAppServerGateway {
 
   async threadStart(params: CodexAppServerThreadStartParams): Promise<CodexAppServerThreadContext> {
     return await this.request('thread/start', ThreadContextSchema, params);
+  }
+
+  async threadFork(threadId: string): Promise<CodexAppServerThreadContext> {
+    return await this.request('thread/fork', ThreadContextSchema, { threadId });
   }
 
   async turnStart(params: CodexAppServerTurnStartParams): Promise<CodexAppServerTurnStartResponse> {

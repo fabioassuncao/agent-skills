@@ -26,9 +26,12 @@ import {
   ErrorResponseSchema,
   HealthResponseSchema,
   JournalResponseSchema,
+  LinearIssuesResponseSchema,
   NotificationIdParamsSchema,
   OkResponseSchema,
   OpenWorktreeRequestSchema,
+  PostWorktreeToLinearRequestSchema,
+  PostWorktreeToLinearResponseSchema,
   ProjectInitsResponseSchema,
   ProjectPrefixParamsSchema,
   ProjectSnapshotSchema,
@@ -65,9 +68,9 @@ import {
  * @ d8c9d5f (527 lines). The router shape, the `apiPaths` map and
  * `strictStatusCodes` are the upstream's; what changed is the route set:
  *
- * - the Linear routes are gone (ADR-14) and so is the migration sensor
- *   (`/api/instances`, `/api/projects/migrate`), which only fed
- *   `MigrationBanner.svelte`;
+ * - the migration sensor (`/api/instances`, `/api/projects/migrate`) is gone;
+ *   the optional Linear routes use an environment-only credential and expose
+ *   availability explicitly instead of persisting authentication material;
  * - the terminal socket is keyed by **session**, not by branch (§48.3), and it
  *   carries a token (ADR-10) — the upstream's unauthenticated
  *   `WS /<prefix>/ws/:branch` is not portable as-is;
@@ -138,6 +141,9 @@ export const apiPaths = {
   mergeWorktree: '/api/worktrees/:name/merge',
   fetchWorktreeDiff: '/api/worktrees/:name/diff',
   fetchAutoNameConfig: '/api/project/auto-name',
+  fetchLinearIssues: '/api/linear/issues',
+  setLinearAutoCreate: '/api/linear/auto-create',
+  postWorktreeToLinear: '/api/worktrees/:name/linear',
   setAutoRemoveOnMerge: '/api/github/auto-remove-on-merge',
   pullMain: '/api/pull-main',
   fetchCiLogs: '/api/ci-logs/:runId',
@@ -170,14 +176,48 @@ export const SERVED_TODAY: ReadonlySet<ApiRouteName> = new Set<ApiRouteName>([
   'addProject',
   'projectInits',
   'removeProject',
+  'fetchWorktrees',
+  'fetchConfig',
+  'createWorktree',
+  'removeWorktree',
+  'openWorktree',
+  'closeWorktree',
+  'refreshWorktreeAgentTerminal',
+  'setWorktreeArchived',
+  'setWorktreeLabel',
+  'setWorktreeProfile',
+  'sendWorktreePrompt',
+  'createWorktreeTab',
+  'selectWorktreeTab',
+  'deleteWorktreeTab',
+  'mergeWorktree',
+  'fetchWorktreeDiff',
+  'fetchAvailableBranches',
+  'fetchBaseBranches',
+  'pullMain',
+  'syncWorktreePrs',
+  'fetchCiLogs',
+  'fetchAgents',
+  'createAgent',
+  'updateAgent',
+  'deleteAgent',
+  'validateAgent',
+  'fetchLinearIssues',
+  'setLinearAutoCreate',
+  'postWorktreeToLinear',
+  'setAutoRemoveOnMerge',
+  'fetchAutoNameConfig',
 ]);
 
 const commonErrorResponses = {
   400: ErrorResponseSchema,
+  412: ErrorResponseSchema,
+  413: ErrorResponseSchema,
   403: ErrorResponseSchema,
   404: ErrorResponseSchema,
   409: ErrorResponseSchema,
   500: ErrorResponseSchema,
+  501: ErrorResponseSchema,
   502: ErrorResponseSchema,
   503: ErrorResponseSchema,
 } as const;
@@ -333,7 +373,9 @@ export const apiContract = c.router(
       path: apiPaths.fetchConfig,
       responses: {
         200: AppConfigSchema,
+        403: ErrorResponseSchema,
         404: ErrorResponseSchema,
+        501: ErrorResponseSchema,
       },
     },
     fetchAvailableBranches: {
@@ -345,6 +387,7 @@ export const apiContract = c.router(
         400: ErrorResponseSchema,
         404: ErrorResponseSchema,
         500: ErrorResponseSchema,
+        501: ErrorResponseSchema,
       },
     },
     fetchBaseBranches: {
@@ -354,6 +397,7 @@ export const apiContract = c.router(
         200: BranchListResponseSchema,
         404: ErrorResponseSchema,
         500: ErrorResponseSchema,
+        501: ErrorResponseSchema,
       },
     },
     fetchProject: {
@@ -371,8 +415,10 @@ export const apiContract = c.router(
       path: apiPaths.fetchAgents,
       responses: {
         200: AgentListResponseSchema,
+        403: ErrorResponseSchema,
         404: ErrorResponseSchema,
         500: ErrorResponseSchema,
+        501: ErrorResponseSchema,
       },
     },
     createAgent: {
@@ -382,9 +428,11 @@ export const apiContract = c.router(
       responses: {
         200: AgentResponseSchema,
         400: ErrorResponseSchema,
+        403: ErrorResponseSchema,
         404: ErrorResponseSchema,
         409: ErrorResponseSchema,
         500: ErrorResponseSchema,
+        501: ErrorResponseSchema,
       },
     },
     updateAgent: {
@@ -395,9 +443,11 @@ export const apiContract = c.router(
       responses: {
         200: AgentResponseSchema,
         400: ErrorResponseSchema,
+        403: ErrorResponseSchema,
         404: ErrorResponseSchema,
         409: ErrorResponseSchema,
         500: ErrorResponseSchema,
+        501: ErrorResponseSchema,
       },
     },
     deleteAgent: {
@@ -408,8 +458,10 @@ export const apiContract = c.router(
       responses: {
         200: OkResponseSchema,
         400: ErrorResponseSchema,
+        403: ErrorResponseSchema,
         404: ErrorResponseSchema,
         500: ErrorResponseSchema,
+        501: ErrorResponseSchema,
       },
     },
     validateAgent: {
@@ -419,8 +471,10 @@ export const apiContract = c.router(
       responses: {
         200: ValidateCustomAgentResponseSchema,
         400: ErrorResponseSchema,
+        403: ErrorResponseSchema,
         404: ErrorResponseSchema,
         500: ErrorResponseSchema,
+        501: ErrorResponseSchema,
       },
     },
     attachAgentsWorktreeConversation: {
@@ -625,6 +679,34 @@ export const apiContract = c.router(
         200: AutoNameConfigResponseSchema,
         404: ErrorResponseSchema,
         500: ErrorResponseSchema,
+        501: ErrorResponseSchema,
+      },
+    },
+    fetchLinearIssues: {
+      method: 'GET',
+      path: apiPaths.fetchLinearIssues,
+      responses: {
+        200: LinearIssuesResponseSchema,
+        ...commonErrorResponses,
+      },
+    },
+    setLinearAutoCreate: {
+      method: 'PUT',
+      path: apiPaths.setLinearAutoCreate,
+      body: ToggleEnabledRequestSchema,
+      responses: {
+        200: EnabledResponseSchema,
+        ...commonErrorResponses,
+      },
+    },
+    postWorktreeToLinear: {
+      method: 'POST',
+      path: apiPaths.postWorktreeToLinear,
+      pathParams: WorktreeNameParamsSchema,
+      body: PostWorktreeToLinearRequestSchema,
+      responses: {
+        200: PostWorktreeToLinearResponseSchema,
+        ...commonErrorResponses,
       },
     },
     setAutoRemoveOnMerge: {

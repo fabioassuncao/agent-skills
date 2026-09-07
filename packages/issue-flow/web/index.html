@@ -17,7 +17,15 @@
       // depois. Mudou o formato do valor, mude nos dois lugares.
       try {
         var stored = localStorage.getItem('issue-flow:theme');
-        if (stored === 'light' || stored === 'dark') {
+        if (
+          stored === 'light' ||
+          stored === 'dark' ||
+          stored === 'github-dark' ||
+          stored === 'dracula' ||
+          stored === 'nord' ||
+          stored === 'solarized-dark' ||
+          stored === 'one-dark'
+        ) {
           document.documentElement.setAttribute('data-theme', stored);
         }
       } catch (_) {

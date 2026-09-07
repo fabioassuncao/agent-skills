@@ -379,6 +379,10 @@ export const globalConfigSchema = z
     agent: agentConfigInputSchema,
     telemetry: telemetryConfigInputSchema,
     routing: routingConfigInputSchema,
+    /** Machine-wide custom agents; projects may override or mask them by id. */
+    // Entry validation is deliberately owned by config/custom-agents.ts so a
+    // malformed agent cannot make otherwise valid global preferences vanish.
+    agents: z.record(z.string(), z.unknown()),
   })
   .partial();
 
@@ -412,6 +416,8 @@ export const webLockSchema = z.object({
  */
 export const runLockSchema = z.object({
   pid: z.number().int().positive(),
+  /** Unique possession identity; absent only on locks written by older releases. */
+  ownerId: z.string().min(1).optional(),
   /** `os.hostname()`. A pid only means something on the host that wrote it. */
   host: z.string().min(1),
   /** The issue (or queue) identifier the owner is running. */

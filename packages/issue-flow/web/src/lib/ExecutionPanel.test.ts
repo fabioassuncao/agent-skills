@@ -9,6 +9,7 @@ vi.mock('./api', () => ({
     terminalAttach: 'terminal:attach',
     sessions: 'sessions',
     sessionOpen: 'session:open',
+    worktreeMutations: 'worktrees:mutate',
     worktrees: 'worktrees',
     conversation: 'agent:conversation',
     services: 'services',

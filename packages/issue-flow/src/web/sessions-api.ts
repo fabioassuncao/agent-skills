@@ -1,3 +1,4 @@
+import { findRegisteredAgent } from '../agents/custom-registry.js';
 import {
   AgentSessionError,
   interruptAgentSession,
@@ -8,7 +9,8 @@ import {
 } from '../agents/session/open.js';
 import { linkSessionToRun, loadSession } from '../agents/session/store.js';
 import { type AgentSession, isFreeSession } from '../agents/session/types.js';
-import { type AgentPermission, type AgentProviderId, isAgentProviderId } from '../agents/types.js';
+import type { AgentPermission } from '../agents/types.js';
+import { loadCustomAgentsConfig } from '../config/custom-agents.js';
 import type { ServiceSpec } from '../runtime/services.js';
 import { findLatestRunIdForIssue } from '../storage/db/repository.js';
 import type { ApiResponse } from './projects-api.js';
@@ -158,7 +160,11 @@ export async function createSessionRoute(
 
   const input = record(body);
   const agent = optionalString(input.agent) ?? 'claude';
-  if (!isAgentProviderId(agent)) {
+  const registered = findRegisteredAgent(
+    await loadCustomAgentsConfig({ projectRoot: project.deps.projectRoot }),
+    agent,
+  );
+  if (registered === null) {
     return { status: 400, body: { error: `Unknown agent '${agent}'.` } };
   }
   const permissionRaw = optionalString(input.permission) ?? 'workspace';
@@ -187,7 +193,8 @@ export async function createSessionRoute(
 
   try {
     const opened = await openAgentSession(project.deps, {
-      provider: agent as AgentProviderId,
+      provider: agent,
+      ...(registered.kind === 'custom' ? { customAgent: registered } : {}),
       permission: permissionRaw as AgentPermission,
       ...(optionalString(input.branch) === undefined
         ? {}

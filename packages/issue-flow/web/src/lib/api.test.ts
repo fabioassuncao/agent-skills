@@ -106,6 +106,35 @@ describe('capability gate', () => {
     expect(api.canCall('mergeWorktree')).toBe(false);
     expect(api.canCall('setWorktreeProfile')).toBe(false);
   });
+
+  it('announces Block A without enabling later agent, tab or settings routes', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities(['worktrees:mutate']);
+
+    expect(api.canCall('createWorktree')).toBe(true);
+    expect(api.canCall('setWorktreeProfile')).toBe(true);
+    expect(api.canCall('fetchAgents')).toBe(false);
+    expect(api.canCall('createWorktreeTab')).toBe(false);
+    expect(api.canCall('setAutoRemoveOnMerge')).toBe(false);
+  });
+
+  it('keeps the provider-neutral auto-name policy readable without a mutation capability', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities([]);
+
+    expect(api.canCall('fetchAutoNameConfig')).toBe(true);
+  });
+
+  it('keeps remote-safe agent reads separate from custom-agent writes', async () => {
+    const api = await loadApiAt('/myproject/');
+    api.setCapabilities(['agents:read']);
+
+    expect(api.canCall('fetchAgents')).toBe(true);
+    expect(api.canCall('validateAgent')).toBe(true);
+    expect(api.canCall('createAgent')).toBe(false);
+    expect(api.canCall('updateAgent')).toBe(false);
+    expect(api.canCall('deleteAgent')).toBe(false);
+  });
 });
 
 describe('agent sessions (§49.3)', () => {

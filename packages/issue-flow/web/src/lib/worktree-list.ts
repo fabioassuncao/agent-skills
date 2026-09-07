@@ -14,9 +14,8 @@ import { searchMatch } from './utils';
  * the worktree it was branched from. Recorded as a specification divergence,
  * not silently renamed.
  *
- * The Linear identifier is dropped from the search haystack (ADR-14) and the
- * Issue Flow `issueRef` takes its place: the field it replaces did exactly the
- * same job — find a worktree by the ticket it belongs to.
+ * Both provider-neutral `issueRef` and the optional Linear identifier enter
+ * the search haystack, so a linked workspace remains findable by either id.
  */
 
 export interface FilterWorktreesOptions {
@@ -47,6 +46,8 @@ export function matchesWorktreeSearch(worktree: WorktreeInfo, query: string): bo
     worktree.agentLabel ?? '',
     worktree.agentName ?? '',
     worktree.issueRef ?? '',
+    worktree.linearIssue?.identifier ?? '',
+    worktree.linearIssue?.title ?? '',
   ].some((value) => searchMatch(trimmedQuery, value));
 }
 

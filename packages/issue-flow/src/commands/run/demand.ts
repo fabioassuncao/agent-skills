@@ -13,7 +13,8 @@ import { parseIssueArguments } from '../../issues/args.js';
  * is its posture, not its flags: a demand is required, a demand given twice in
  * two spellings is rejected rather than silently resolved, and every rejection
  * names the offending argument. The `--linear` and `--branch` clauses are not
- * ported (ADR-14, and `run` derives its branch from the plan).
+ * ported: restored Linear posting/pickup live in the integration surface, and
+ * `run` derives its branch from the plan.
  */
 
 /** Malformed or contradictory demand flags, reported as a CLI error. */

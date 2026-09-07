@@ -12,8 +12,8 @@ import type {
  * PORT of `frontend/src/lib/types.ts` @ d8c9d5f (160 lines).
  *
  * Types and interfaces only — no runtime logic, as upstream. The re-export list
- * is the upstream's minus every `Linear*` name (ADR-14) and `InstanceSummary`
- * (the migration sensor, §48.1), plus the Issue Flow half of the contract.
+ * omits the migration sensor (`InstanceSummary`, §48.1) and includes the
+ * environment-authenticated Linear surface, plus the Issue Flow contract.
  */
 
 export type {
@@ -52,8 +52,13 @@ export type {
   HealthResponse,
   JournalEntry,
   JournalResponse,
+  LinearIssue,
+  LinearIssueAvailability,
+  LinearIssuesResponse,
   LinkedRepoInfo,
   OneshotConfig,
+  PostWorktreeToLinearRequest,
+  PostWorktreeToLinearResponse,
   PrComment,
   PrEntry,
   ProfileConfig,
@@ -143,8 +148,11 @@ export interface WorktreeInfo {
   oneshot: OneshotConfig | null;
   tabs: WorktreeTab[];
   activeTabId: string | null;
+  supportsTabs: boolean;
   executionId: string | null;
   issueRef: string | null;
+  /** Assigned Linear issue inferred from the canonical issue branch name. */
+  linearIssue?: import('@issue-flow/contract').LinearIssue | null;
 }
 
 export interface WorktreeListRow {

@@ -10,6 +10,7 @@ import {
   PROJECT_CONFIG_FILENAME,
 } from './config/sources.js';
 
+export { loadAutoNameConfig } from './config/auto-name.js';
 export { getInstallHint, validateDependencies } from './config/dependencies.js';
 export { createConfig, DEFAULTS, resolvePaths } from './config/engine.js';
 
@@ -33,12 +34,30 @@ export {
   loadAgentConfig,
   setAgentCliOverrides,
 } from './config/agent.js';
-export { type LoadGitHubConfigOptions, loadGitHubConfig } from './config/github.js';
+export {
+  type CustomAgentsConfig,
+  type LoadCustomAgentsConfigOptions,
+  loadCustomAgentsConfig,
+  persistCustomAgent,
+  removeCustomAgent,
+} from './config/custom-agents.js';
+export {
+  type LoadGitHubConfigOptions,
+  loadGitHubConfig,
+  persistGitHubAutoRemoveOnMerge,
+} from './config/github.js';
 export {
   type LoadIssuesConfigOptions,
   loadIssuesConfig,
   setIssuesCliOverrides,
 } from './config/issues.js';
+export {
+  type LinearConfig,
+  type LoadLinearConfigOptions,
+  linearApiKey,
+  loadLinearConfig,
+  persistLinearAutoCreate,
+} from './config/linear.js';
 export {
   type LoadPolicyConfigOptions,
   loadPolicyConfig,

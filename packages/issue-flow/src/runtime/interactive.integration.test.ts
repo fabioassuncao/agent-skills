@@ -171,7 +171,11 @@ describe('the interactive runtime against real git and tmux', () => {
     const rows = await listSessions(storage, { branch: 'feat/interactive' });
     expect(rows).toHaveLength(1);
     expect(rows[0]?.runId).toBe('run-1');
-    expect(rows[0]?.paneTarget).toBe(`${sessionName}:${windowName}.0`);
+    expect(rows[0]?.paneTarget).toMatch(/^%\d+$/);
+    await expect(deps.session.tmux.getPaneIdentity?.(rows[0]!.paneTarget)).resolves.toMatchObject({
+      sessionName,
+      windowName,
+    });
   });
 
   it.runIf(ready)('reuses the worktree on a second prepare instead of recreating it', async () => {

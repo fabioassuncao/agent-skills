@@ -18,10 +18,11 @@ import {
  *
  * Ported from
  * `.references/webmux-main/backend/src/__tests__/conversation-export-service.test.ts`.
- * The Linear cases — `exportConversationToLinear` (4) and `buildSeedFromLinear`
- * (4) — are not ported: ADR-14 discards Linear, and every one of them asserts
- * against a Linear API stub. What replaces them is the file transport and the
- * data-notice rule, neither of which the upstream had.
+ * The Linear transport cases live now in `issues/linear/client.test.ts`, which
+ * reuses this canonical payload. The `buildSeedFromLinear` cases remain out:
+ * importing an external attachment has a different prompt-injection boundary.
+ * This suite instead owns file transport and the data-notice rule, neither of
+ * which the upstream had.
  */
 
 function makeConversation(): ConversationState {

@@ -56,7 +56,7 @@
   function resolvedColorScheme(): ColorSchemeType {
     if (typeof document === 'undefined') return ColorSchemeType.LIGHT;
     const forced = document.documentElement.getAttribute('data-theme');
-    if (forced === 'dark') return ColorSchemeType.DARK;
+    if (forced !== null && forced !== 'light') return ColorSchemeType.DARK;
     if (forced === 'light') return ColorSchemeType.LIGHT;
     return window.matchMedia('(prefers-color-scheme: dark)').matches
       ? ColorSchemeType.DARK

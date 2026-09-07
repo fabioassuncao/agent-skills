@@ -53,6 +53,7 @@
     '${REPO_PATH}',
     '${BRANCH}',
     '${PROFILE}',
+    '${PERMISSION}',
   ];
 
   $effect(() => {
@@ -155,8 +156,8 @@
         {/each}
       </div>
       <p class="mt-2 text-[11px] text-muted">
-        Os valores entram como argumentos do processo, não como texto dentro de um shell. Não é
-        preciso escapar aspas.
+        Os placeholders viram referências a variáveis de ambiente. Os valores são expandidos com
+        segurança como um único argumento e não entram no comando salvo.
       </p>
     </div>
 

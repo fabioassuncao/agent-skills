@@ -5,6 +5,7 @@ import type { SessionLogLevel } from '../core/session-state.js';
 import { isoNow } from '../core/state-manager.js';
 import { getOutputCallback } from '../core/verbose.js';
 import { writeDiagnostic } from '../storage/diagnostics.js';
+import { redactSecrets } from '../telemetry/redact.js';
 
 /**
  * Detect if unicode output is supported.
@@ -140,6 +141,21 @@ export function printInfo(message: string): void {
   } else {
     emit(`${icons.info} ${message}`);
   }
+}
+
+/** Format a long-lived process event without introducing a second logger. */
+export function formatSubsystemLine(
+  subsystem: string,
+  message: string,
+  now: Date = new Date(),
+): string {
+  const timestamp = now.toISOString().slice(11, 23);
+  return `[${timestamp}] [${subsystem}] ${redactSecrets(message)}`;
+}
+
+/** One timestamped operational event, routed through the CLI's single writer. */
+export function printSubsystem(subsystem: string, message: string): void {
+  emit(formatSubsystemLine(subsystem, message));
 }
 
 /**

@@ -1,23 +1,13 @@
-// biome-ignore-all lint/suspicious/noTemplateCurlyInString: `${PROMPT}` is the
-// literal placeholder syntax of a custom agent's command template, written by
-// the user in configuration. It is data this module substitutes, never a
-// template literal that lost its backticks — which is exactly what these cases
-// exist to pin down.
-
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: placeholders are data.
 import { describe, expect, it } from 'vitest';
 import {
-  buildCustomAgentCommand,
-  buildCustomAgentExports,
+  buildCustomAgentArgv,
+  buildCustomAgentEnvironment,
   customAgentCapabilities,
+  parseCustomAgentCommand,
   renderCustomCommandTemplate,
 } from './custom.js';
 
-/**
- * Ported from the custom-agent path of WebMux
- * `backend/src/services/agent-service.ts` @ d8c9d5f. §45.2-L absorbs only this
- * from the upstream's agent layer, and the reason to have it at all is that it
- * lets someone run a harness this project has never heard of.
- */
 const context = {
   prompt: 'do the thing',
   systemPrompt: 'be careful',
@@ -25,102 +15,121 @@ const context = {
   repoRoot: '/repo',
   branch: 'feature',
   profileName: 'default',
+  permission: 'workspace' as const,
 };
 
 describe('renderCustomCommandTemplate', () => {
-  // A variable reference, not the value: that is what keeps a prompt containing
-  // `'` or `$(…)` from becoming part of the command line.
-  it('turns a placeholder into a reference to the variable that carries it', () => {
+  it('replaces every known placeholder with an environment reference, never its value', () => {
     expect(renderCustomCommandTemplate('my-agent --prompt "${PROMPT}"')).toBe(
-      'my-agent --prompt "$ISSUE_FLOW_AGENT_PROMPT"',
+      'my-agent --prompt "${ISSUE_FLOW_AGENT_PROMPT}"',
     );
-    expect(renderCustomCommandTemplate('cd ${WORKTREE_PATH} && run ${BRANCH}')).toBe(
-      'cd $ISSUE_FLOW_AGENT_WORKTREE_PATH && run $ISSUE_FLOW_AGENT_BRANCH',
-    );
-  });
-
-  it('replaces every occurrence, not only the first', () => {
     expect(renderCustomCommandTemplate('${BRANCH} ${BRANCH}')).toBe(
-      '$ISSUE_FLOW_AGENT_BRANCH $ISSUE_FLOW_AGENT_BRANCH',
+      '${ISSUE_FLOW_AGENT_BRANCH} ${ISSUE_FLOW_AGENT_BRANCH}',
     );
   });
 
-  // The template belongs to the user and may reference a variable of their own.
-  it('leaves an unknown placeholder alone', () => {
+  it('keeps adjacent suffixes outside the exact environment reference token', () => {
+    expect(renderCustomCommandTemplate('${PROMPT}_suffix ${PROMPT}X')).toBe(
+      '${ISSUE_FLOW_AGENT_PROMPT}_suffix ${ISSUE_FLOW_AGENT_PROMPT}X',
+    );
+  });
+
+  it('leaves unknown placeholders alone', () => {
     expect(renderCustomCommandTemplate('run ${MY_OWN_THING}')).toBe('run ${MY_OWN_THING}');
   });
 });
 
-describe('buildCustomAgentExports', () => {
-  it('exports every value the template can reference', () => {
-    const exports = buildCustomAgentExports(context);
-    expect(exports).toContain("export ISSUE_FLOW_AGENT_PROMPT='do the thing'");
-    expect(exports).toContain("export ISSUE_FLOW_AGENT_SYSTEM_PROMPT='be careful'");
-    expect(exports).toContain("export ISSUE_FLOW_AGENT_WORKTREE_PATH='/wt/feature'");
-    expect(exports).toContain("export ISSUE_FLOW_AGENT_REPO_PATH='/repo'");
-    expect(exports).toContain("export ISSUE_FLOW_AGENT_BRANCH='feature'");
-    expect(exports).toContain("export ISSUE_FLOW_AGENT_PROFILE='default'");
+describe('buildCustomAgentEnvironment', () => {
+  it('provides every context value and the semantic permission', () => {
+    const env = buildCustomAgentEnvironment(context);
+    expect(env).toMatchObject({
+      ISSUE_FLOW_AGENT_PROMPT: 'do the thing',
+      ISSUE_FLOW_AGENT_SYSTEM_PROMPT: 'be careful',
+      ISSUE_FLOW_AGENT_WORKTREE_PATH: '/wt/feature',
+      ISSUE_FLOW_AGENT_REPO_PATH: '/repo',
+      ISSUE_FLOW_AGENT_BRANCH: 'feature',
+      ISSUE_FLOW_AGENT_PROFILE: 'default',
+      ISSUE_FLOW_AGENT_PERMISSION: 'workspace',
+    });
   });
 
-  // An absent value becomes an empty variable rather than an unset one, so a
-  // template referencing it expands to nothing instead of to the literal text.
-  it('exports an empty value rather than omitting the variable', () => {
-    const exports = buildCustomAgentExports({ ...context, prompt: undefined });
-    expect(exports).toContain("export ISSUE_FLOW_AGENT_PROMPT=''");
-  });
-
-  it('quotes a value that would otherwise break the command', () => {
-    const exports = buildCustomAgentExports({ ...context, prompt: "'; rm -rf ~; echo '" });
-    expect(exports).toContain("export ISSUE_FLOW_AGENT_PROMPT=''\\''; rm -rf ~; echo '\\'''");
+  it('keeps hostile text in one environment argv element', () => {
+    const env = buildCustomAgentEnvironment({ ...context, prompt: "'; rm -rf ~; echo '" });
+    expect(env.ISSUE_FLOW_AGENT_PROMPT).toBe("'; rm -rf ~; echo '");
   });
 });
 
-describe('buildCustomAgentCommand', () => {
+describe('parseCustomAgentCommand', () => {
+  it('supports quoted, empty, and escaped arguments without invoking a shell', () => {
+    expect(parseCustomAgentCommand(`tool --name 'two words' "" escaped\\ value`)).toEqual([
+      'tool',
+      '--name',
+      'two words',
+      '',
+      'escaped value',
+    ]);
+  });
+
+  it('rejects malformed quoting instead of guessing a command', () => {
+    expect(() => parseCustomAgentCommand(`tool 'unfinished`)).toThrow('unclosed quote');
+    expect(() => parseCustomAgentCommand('tool trailing\\')).toThrow('incomplete escape');
+  });
+});
+
+describe('buildCustomAgentArgv', () => {
   const definition = {
     id: 'my-agent',
+    label: 'My agent',
     startCommand: 'my-agent start --prompt "${PROMPT}"',
     resumeCommand: 'my-agent resume --prompt "${PROMPT}"',
   };
 
-  it('exports the context, then runs the rendered template', () => {
-    const command = buildCustomAgentCommand({ definition, context });
-    expect(command.startsWith("export ISSUE_FLOW_AGENT_PROMPT='do the thing';")).toBe(true);
-    expect(command.endsWith('my-agent start --prompt "$ISSUE_FLOW_AGENT_PROMPT"')).toBe(true);
+  it('returns environment and command as discrete argv entries', () => {
+    const argv = buildCustomAgentArgv({ definition });
+    expect(argv).toEqual(['my-agent', 'start', '--prompt', '${ISSUE_FLOW_AGENT_PROMPT}']);
+    expect(argv.join(' ')).not.toContain(context.prompt);
   });
 
-  it('uses the resume command when asked and one exists', () => {
-    expect(buildCustomAgentCommand({ definition, context, launchMode: 'resume' })).toContain(
-      'my-agent resume',
-    );
-  });
-
-  it('falls back to the start command when the agent cannot resume', () => {
+  it('uses resume when available and start otherwise', () => {
+    expect(buildCustomAgentArgv({ definition, launchMode: 'resume' }).slice(-4)).toEqual([
+      'my-agent',
+      'resume',
+      '--prompt',
+      '${ISSUE_FLOW_AGENT_PROMPT}',
+    ]);
     expect(
-      buildCustomAgentCommand({
-        definition: { id: 'x', startCommand: 'x start' },
-        context,
+      buildCustomAgentArgv({
+        definition: { id: 'x', label: 'X', startCommand: 'x start' },
         launchMode: 'resume',
-      }),
-    ).toContain('x start');
+      }).slice(-2),
+    ).toEqual(['x', 'start']);
+  });
+
+  it('keeps hostile shell syntax in one argv value', () => {
+    const argv = buildCustomAgentArgv({
+      definition: { id: 'x', label: 'X', startCommand: 'x "${PROMPT}"' },
+    });
+    expect(argv.slice(-2)).toEqual(['x', '${ISSUE_FLOW_AGENT_PROMPT}']);
+    expect(argv.join(' ')).not.toContain('touch');
   });
 });
 
 describe('customAgentCapabilities', () => {
-  // This project knows nothing about the binary beyond its command line, so it
-  // cannot claim to read its history or interrupt it meaningfully.
-  it('claims only what a command line can support', () => {
-    expect(customAgentCapabilities({ id: 'x', startCommand: 'x' })).toEqual({
+  it('claims only terminal and configured resume support', () => {
+    expect(customAgentCapabilities({ id: 'x', label: 'X', startCommand: 'x' })).toEqual({
       terminal: true,
       structuredChat: false,
       conversationHistory: false,
       interrupt: false,
       resume: false,
     });
-  });
-
-  it('claims resume only when a resume command was actually given', () => {
     expect(
-      customAgentCapabilities({ id: 'x', startCommand: 'x', resumeCommand: 'x --resume' }).resume,
+      customAgentCapabilities({
+        id: 'x',
+        label: 'X',
+        startCommand: 'x',
+        resumeCommand: 'x --resume',
+      }).resume,
     ).toBe(true);
   });
 });

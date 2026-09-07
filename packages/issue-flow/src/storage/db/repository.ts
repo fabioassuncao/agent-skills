@@ -1445,6 +1445,12 @@ export interface StoredWorktree {
   allocatedPorts: Record<string, number>;
   source: string | null;
   conversationId: string | null;
+  /** Absent only in legacy/test callers; persisted and read back as false. */
+  archived?: boolean;
+  /** Active AgentSession tab in this worktree. Null/absent means the root. */
+  activeAgentSessionId?: string | null;
+  /** Monotonic allocator for fork labels; deleted sequences are not reused. */
+  tabSequenceCounter?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -1462,6 +1468,9 @@ function toStoredWorktree(row: {
   allocated_ports_json: string;
   source: string | null;
   conversation_id: string | null;
+  archived: number;
+  active_agent_session_id: string | null;
+  tab_sequence_counter: number;
   created_at: string;
   updated_at: string;
 }): StoredWorktree {
@@ -1478,6 +1487,9 @@ function toStoredWorktree(row: {
     allocatedPorts: JSON.parse(row.allocated_ports_json) as Record<string, number>,
     source: row.source,
     conversationId: row.conversation_id,
+    archived: row.archived === 1,
+    activeAgentSessionId: row.active_agent_session_id,
+    tabSequenceCounter: row.tab_sequence_counter,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1485,7 +1497,7 @@ function toStoredWorktree(row: {
 
 /** Read order, shared by every worktree query so the row shape stays one thing. */
 const WORKTREE_COLUMNS =
-  'id, branch, path, base_branch, label, profile, agent, runtime, startup_env_json, allocated_ports_json, source, conversation_id, created_at, updated_at';
+  'id, branch, path, base_branch, label, profile, agent, runtime, startup_env_json, allocated_ports_json, source, conversation_id, archived, active_agent_session_id, tab_sequence_counter, created_at, updated_at';
 
 /**
  * Record what a worktree is bound to.
@@ -1514,8 +1526,9 @@ export async function saveWorktree(
         .prepare(
           `INSERT INTO worktrees
            (project_id, id, branch, path, base_branch, label, profile, agent, runtime,
-            startup_env_json, allocated_ports_json, source, conversation_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            startup_env_json, allocated_ports_json, source, conversation_id, archived,
+            active_agent_session_id, tab_sequence_counter, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(project_id, branch) DO UPDATE SET
            path = excluded.path,
            base_branch = excluded.base_branch,
@@ -1527,6 +1540,9 @@ export async function saveWorktree(
            allocated_ports_json = excluded.allocated_ports_json,
            source = excluded.source,
            conversation_id = excluded.conversation_id,
+           archived = excluded.archived,
+           active_agent_session_id = excluded.active_agent_session_id,
+           tab_sequence_counter = excluded.tab_sequence_counter,
            updated_at = excluded.updated_at`,
         )
         .run(
@@ -1543,6 +1559,9 @@ export async function saveWorktree(
           JSON.stringify(worktree.allocatedPorts),
           worktree.source,
           worktree.conversationId,
+          worktree.archived ? 1 : 0,
+          worktree.activeAgentSessionId ?? null,
+          worktree.tabSequenceCounter ?? 0,
           worktree.createdAt,
           worktree.updatedAt,
         );
@@ -1583,7 +1602,7 @@ export async function deleteWorktree(
 }
 
 const AGENT_SESSION_COLUMNS =
-  'id, run_id, phase, story_id, branch, worktree_id, provider, conversation_id, status, pane_target, label, created_at, updated_at, ended_at';
+  'id, run_id, phase, story_id, branch, worktree_id, provider, permission, conversation_id, status, pane_target, pane_token, parent_session_id, tab_sequence, label, created_at, updated_at, ended_at';
 
 interface AgentSessionRow {
   id: string;
@@ -1593,9 +1612,13 @@ interface AgentSessionRow {
   branch: string;
   worktree_id: string | null;
   provider: string;
+  permission: StoredAgentSession['permission'];
   conversation_id: string | null;
   status: string;
   pane_target: string | null;
+  pane_token: string | null;
+  parent_session_id: string | null;
+  tab_sequence: number | null;
   label: string | null;
   created_at: string;
   updated_at: string;
@@ -1611,9 +1634,13 @@ function toStoredAgentSession(row: AgentSessionRow): StoredAgentSession {
     branch: row.branch,
     worktreeId: row.worktree_id,
     provider: row.provider as StoredAgentSession['provider'],
+    permission: row.permission,
     conversationId: row.conversation_id,
     status: row.status as StoredAgentSession['status'],
     paneTarget: row.pane_target,
+    paneToken: row.pane_token,
+    parentSessionId: row.parent_session_id,
+    tabSequence: row.tab_sequence,
     label: row.label,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1630,9 +1657,13 @@ export interface StoredAgentSession {
   branch: string;
   worktreeId: string | null;
   provider: string;
+  permission: 'read-only' | 'workspace' | 'autonomous';
   conversationId: string | null;
   status: 'starting' | 'running' | 'idle' | 'stopped' | 'orphaned';
   paneTarget: string | null;
+  paneToken: string | null;
+  parentSessionId: string | null;
+  tabSequence: number | null;
   /** Free caption for a session no issue names (ADR-16). */
   label: string | null;
   createdAt: string;
@@ -1658,9 +1689,10 @@ export async function saveAgentSession(
       database
         .prepare(
           `INSERT INTO agent_sessions
-             (project_id, id, run_id, phase, story_id, branch, worktree_id, provider,
-              conversation_id, status, pane_target, label, created_at, updated_at, ended_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (project_id, id, run_id, phase, story_id, branch, worktree_id, provider, permission,
+              conversation_id, status, pane_target, pane_token, parent_session_id, tab_sequence, label,
+              created_at, updated_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              run_id = excluded.run_id,
              phase = excluded.phase,
@@ -1668,9 +1700,13 @@ export async function saveAgentSession(
              branch = excluded.branch,
              worktree_id = excluded.worktree_id,
              provider = excluded.provider,
+             permission = excluded.permission,
              conversation_id = excluded.conversation_id,
              status = excluded.status,
              pane_target = excluded.pane_target,
+             pane_token = excluded.pane_token,
+             parent_session_id = excluded.parent_session_id,
+             tab_sequence = excluded.tab_sequence,
              label = excluded.label,
              updated_at = excluded.updated_at,
              ended_at = excluded.ended_at`,
@@ -1684,14 +1720,200 @@ export async function saveAgentSession(
           session.branch,
           session.worktreeId,
           session.provider,
+          session.permission,
           session.conversationId,
           session.status,
           session.paneTarget,
+          session.paneToken,
+          session.parentSessionId,
+          session.tabSequence,
           session.label,
           session.createdAt,
           session.updatedAt,
           session.endedAt,
         );
+    });
+  }, context.databaseOptions);
+}
+
+/** Upsert one session and its worktree active pointer in the same transaction. */
+export async function saveAgentSessionActivation(
+  context: PlanRepositoryContext,
+  session: StoredAgentSession,
+  worktree: StoredWorktree,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      database
+        .prepare(
+          `INSERT INTO projects (id, root, remote_url, created_at, updated_at)
+           VALUES (?, ?, NULL, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+        )
+        .run(context.projectId, context.projectRoot, session.createdAt, session.updatedAt);
+      database
+        .prepare(
+          `INSERT INTO agent_sessions
+             (project_id, id, run_id, phase, story_id, branch, worktree_id, provider, permission,
+              conversation_id, status, pane_target, pane_token, parent_session_id, tab_sequence, label,
+              created_at, updated_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             run_id = excluded.run_id,
+             phase = excluded.phase,
+             story_id = excluded.story_id,
+             branch = excluded.branch,
+             worktree_id = excluded.worktree_id,
+             provider = excluded.provider,
+             permission = excluded.permission,
+             conversation_id = excluded.conversation_id,
+             status = excluded.status,
+             pane_target = excluded.pane_target,
+             pane_token = excluded.pane_token,
+             parent_session_id = excluded.parent_session_id,
+             tab_sequence = excluded.tab_sequence,
+             label = excluded.label,
+             updated_at = excluded.updated_at,
+             ended_at = excluded.ended_at`,
+        )
+        .run(
+          context.projectId,
+          session.id,
+          session.runId,
+          session.phase,
+          session.storyId,
+          session.branch,
+          session.worktreeId,
+          session.provider,
+          session.permission,
+          session.conversationId,
+          session.status,
+          session.paneTarget,
+          session.paneToken,
+          session.parentSessionId,
+          session.tabSequence,
+          session.label,
+          session.createdAt,
+          session.updatedAt,
+          session.endedAt,
+        );
+      const updated = database
+        .prepare(
+          `UPDATE worktrees
+              SET active_agent_session_id = ?, updated_at = ?
+            WHERE project_id = ? AND id = ? AND branch = ?`,
+        )
+        .run(
+          session.id,
+          worktree.updatedAt,
+          context.projectId,
+          worktree.worktreeId,
+          worktree.branch,
+        );
+      if (updated.changes !== 1) {
+        throw new Error(`Worktree binding disappeared: ${worktree.branch}`);
+      }
+    });
+  }, context.databaseOptions);
+}
+
+/** Persist stop intent for every live AgentSession of one worktree atomically. */
+export async function stopAgentSessionsForWorktree(
+  context: PlanRepositoryContext,
+  worktreeId: string,
+  at: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare(
+        `UPDATE agent_sessions
+            SET status = 'stopped', updated_at = ?, ended_at = ?
+          WHERE project_id = ? AND worktree_id = ?
+            AND status IN ('starting', 'running', 'idle', 'orphaned')`,
+      )
+      .run(at, at, context.projectId, worktreeId);
+  }, context.databaseOptions);
+}
+
+/** Restore a stop-intent snapshot atomically when physical teardown fails. */
+export async function restoreAgentSessionStates(
+  context: PlanRepositoryContext,
+  sessions: readonly StoredAgentSession[],
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      const update = database.prepare(
+        `UPDATE agent_sessions
+            SET status = ?, updated_at = ?, ended_at = ?
+          WHERE project_id = ? AND id = ? AND worktree_id IS ?`,
+      );
+      for (const session of sessions) {
+        update.run(
+          session.status,
+          session.updatedAt,
+          session.endedAt,
+          context.projectId,
+          session.id,
+          session.worktreeId,
+        );
+      }
+    });
+  }, context.databaseOptions);
+}
+
+/** Persist a new fork row and its worktree active/counter pointer atomically. */
+export async function saveAgentTabCreation(
+  context: PlanRepositoryContext,
+  session: StoredAgentSession,
+  worktree: StoredWorktree,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      database
+        .prepare(
+          `INSERT INTO agent_sessions
+             (project_id, id, run_id, phase, story_id, branch, worktree_id, provider, permission,
+              conversation_id, status, pane_target, pane_token, parent_session_id, tab_sequence, label,
+              created_at, updated_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          context.projectId,
+          session.id,
+          session.runId,
+          session.phase,
+          session.storyId,
+          session.branch,
+          session.worktreeId,
+          session.provider,
+          session.permission,
+          session.conversationId,
+          session.status,
+          session.paneTarget,
+          session.paneToken,
+          session.parentSessionId,
+          session.tabSequence,
+          session.label,
+          session.createdAt,
+          session.updatedAt,
+          session.endedAt,
+        );
+      const updated = database
+        .prepare(
+          `UPDATE worktrees
+              SET active_agent_session_id = ?, tab_sequence_counter = ?, updated_at = ?
+            WHERE project_id = ? AND id = ? AND branch = ?`,
+        )
+        .run(
+          worktree.activeAgentSessionId ?? null,
+          worktree.tabSequenceCounter ?? 0,
+          worktree.updatedAt,
+          context.projectId,
+          worktree.worktreeId,
+          worktree.branch,
+        );
+      if (updated.changes !== 1)
+        throw new Error(`Worktree binding disappeared: ${worktree.branch}`);
     });
   }, context.databaseOptions);
 }
