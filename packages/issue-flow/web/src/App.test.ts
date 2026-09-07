@@ -7,19 +7,6 @@ import type {
   WorktreeInfo,
 } from './lib/types';
 
-/**
- * PORT of `frontend/src/App.test.ts` @ d8c9d5f — 26 cases.
- *
- * Six upstream cases were Linear (the panel's two states, the ticket option's
- * two, and the two "post conversation to Linear" flows). During the initial
- * frontend port they were **replaced** by six cases covering the capability
- * gate, the optional
- * issue link that keeps a free session one click away (ADR-16/ADR-17), the
- * authenticated session-keyed terminal (ADR-10), and the push channel that
- * replaced polling (§35). The restored Linear surface has its own focused
- * component/API cases below and in `LinearComponents.test.ts`.
- */
-
 const { MockFitAddon, MockTerminal, MockWebSocket } = vi.hoisted(() => {
   class MockFitAddon {
     static instances: MockFitAddon[] = [];
@@ -149,7 +136,6 @@ vi.mock('./lib/api', () => ({
   openSession: vi.fn(async () => ({ branch: '', sessionId: '' })),
   fetchAgentSessions: vi.fn(async () => []),
   attachWorktreeConversation: vi.fn(),
-  connectWorktreeConversationStream: vi.fn(),
   fetchWorktreeConversationHistory: vi.fn(),
   fetchWorktrees: vi.fn(),
   fetchLinearIssues: vi.fn(async () => ({ availability: 'disabled', issues: [] })),
@@ -202,7 +188,6 @@ import {
   api,
   attachWorktreeConversation,
   canCall,
-  connectWorktreeConversationStream,
   createWorktreeTab,
   deleteWorktreeTab,
   fetchWorktrees,
@@ -445,7 +430,6 @@ describe('App create selection', () => {
     vi.mocked(api.pullMain).mockResolvedValue({ status: 'updated' });
     vi.mocked(api.fetchCiLogs).mockResolvedValue({ logs: '' });
     vi.mocked(api.sendWorktreePrompt).mockResolvedValue({ ok: true });
-    vi.mocked(connectWorktreeConversationStream).mockReturnValue(() => {});
     vi.mocked(refreshWorktreeAgentTerminal).mockResolvedValue(undefined);
     vi.mocked(setWorktreeLabel).mockResolvedValue(null);
     vi.mocked(setWorktreeProfile).mockResolvedValue({ profile: 'full', restarted: true });
@@ -744,9 +728,6 @@ describe('App create selection', () => {
   });
 
   it('opens the terminal socket with a token and the selected session', async () => {
-    // Replaced an upstream Linear case during the initial frontend port: the socket is a remote shell
-    // and never opens unauthenticated (ADR-10), and it is keyed by session
-    // rather than branch (§48.3).
     localStorage.setItem(LAST_SELECTED_WORKTREE_STORAGE_KEY, 'feature/live');
     vi.mocked(fetchWorktrees).mockResolvedValue([
       createWorktree('feature/live', {
@@ -777,8 +758,6 @@ describe('App create selection', () => {
   });
 
   it('refreshes on a pushed frame rather than waiting for an interval', async () => {
-    // Replaced an upstream Linear case during the initial frontend port. §35 puts a hard 250 ms p95
-    // ceiling on output→screen; the interval is a safety net, not the path.
     let pushSessions: (() => void) | undefined;
     vi.mocked(subscribeSessions).mockImplementation((callbacks) => {
       pushSessions = () => callbacks.onSessions?.([]);
@@ -842,9 +821,6 @@ describe('App create selection', () => {
   });
 
   it('says so honestly when the monitor does not serve worktrees', async () => {
-    // Replaced an upstream Linear-panel case during the initial frontend port. A monitor bound inline
-    // by a pipeline run has no worktree surface; an empty list would read as a
-    // failure, so the panel says which monitor this is.
     vi.mocked(canCall).mockReturnValue(false);
     vi.mocked(hasCapability).mockReturnValue(false);
 
@@ -857,7 +833,6 @@ describe('App create selection', () => {
   });
 
   it('offers no worktree creation on a monitor that does not serve them', async () => {
-    // Replaced an upstream Linear-panel case during the initial frontend port.
     vi.mocked(canCall).mockReturnValue(false);
     vi.mocked(hasCapability).mockReturnValue(false);
 
@@ -979,9 +954,6 @@ describe('App create selection', () => {
   });
 
   it('keeps the issue link optional so a free session is one click away', async () => {
-    // Replaced an upstream Linear-ticket case during the initial frontend port. ADR-16/ADR-17: nothing
-    // in this dialog may become required, or the free-session route (Roteiro A)
-    // is blocked by the workflow route (Roteiro B).
     vi.mocked(fetchWorktrees).mockResolvedValue([]);
 
     render(App);
@@ -994,7 +966,6 @@ describe('App create selection', () => {
   });
 
   it('submits the linked issue when one is provided', async () => {
-    // Replaced an upstream Linear-ticket case during the initial frontend port.
     vi.mocked(fetchWorktrees).mockResolvedValue([]);
     vi.mocked(api.createWorktree).mockResolvedValue({
       primaryBranch: 'feature/linked',

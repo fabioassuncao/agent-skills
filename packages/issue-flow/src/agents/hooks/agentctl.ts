@@ -1,21 +1,6 @@
-/**
- * The helper an agent's hooks invoke to report a lifecycle event.
- *
- * Ported from `buildAgentCtlScript()` in WebMux
- * `backend/src/adapters/agent-runtime.ts` @ d8c9d5f, rewritten from Python to
- * Node (§23 of the absorption plan): Issue Flow already requires Node ≥ 22.13,
- * and depending on `python3` would add a prerequisite the project does not have
- * today.
- *
- * It is generated as a file rather than shelling out to `issue-flow` itself
- * because it runs on the hot path of every prompt and every tool call. A hook
- * that costs a CLI boot is a hook the user feels.
- */
-
 /** Filename of the generated helper. `.mjs` so Node's module type is never ambiguous. */
 export const AGENTCTL_FILENAME = 'issue-flow-agentctl.mjs';
 
-/** Quote a path for a POSIX shell command string, the way the upstream does. */
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }

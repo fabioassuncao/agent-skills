@@ -86,20 +86,6 @@ async function writeIssue(id: string, markdown: string, meta?: IssueMetadata | s
   }
 }
 
-/**
- * Fixture in the legacy `<projectRoot>/issues/<id>/` layout, written without
- * resolving anything — resolving would mark the issue as already checked and
- * skip the very migration these cases exercise.
- */
-async function writeLegacyIssue(id: string, markdown: string, meta?: IssueMetadata | string) {
-  const dir = join(root, 'issues', id);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'issue.md'), markdown, 'utf-8');
-  if (meta !== undefined) {
-    await writeFile(join(dir, 'metadata.json'), serializeMetadata(meta), 'utf-8');
-  }
-}
-
 async function readMetadata(id: string): Promise<IssueMetadata> {
   return JSON.parse(await readFile((await paths(id)).metadataFile, 'utf-8'));
 }
@@ -282,32 +268,6 @@ describe('get', () => {
 });
 
 describe('global storage', () => {
-  it('reads an issue that still only exists in the legacy tree, leaving it untouched', async () => {
-    await writeLegacyIssue('23', '# Legacy issue\n\nStill in the repo.\n', metadata());
-
-    expect(await provider.get('23')).toMatchObject({
-      id: '23',
-      title: 'Legacy issue',
-      body: 'Still in the repo.',
-    });
-
-    // Migrated, not moved: the copy landed in the global tree and the source is
-    // byte for byte what it was.
-    const { issueFile } = await paths('23');
-    expect(await readFile(issueFile, 'utf-8')).toBe('# Legacy issue\n\nStill in the repo.\n');
-    expect(await readFile(join(root, 'issues', '23', 'issue.md'), 'utf-8')).toBe(
-      '# Legacy issue\n\nStill in the repo.\n',
-    );
-  });
-
-  it('allocates above a number that only the legacy tree knows about', async () => {
-    await writeLegacyIssue('41', '# Legacy\n\nBody\n');
-
-    expect(await provider.create({ title: 'Next', body: 'Body', labels: [] })).toMatchObject({
-      id: '42',
-    });
-  });
-
   it('never writes under <projectRoot>/issues/', async () => {
     await provider.create({ title: 'Fresh', body: 'Body', labels: [] });
     await provider.close('1');

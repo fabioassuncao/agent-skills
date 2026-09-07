@@ -96,8 +96,7 @@ breaks on every harness release.
 
 - **`contract.ts`** is the four-type taxonomy and its parser. Four, not five:
   it is the complete set a harness hook can report, and inventing a fifth
-  would mean inventing a producer for it. Correlation is `runId` + `phase`
-  (the upstream this was ported from uses `worktreeId` + `branch`).
+  would mean inventing a producer for it. Correlation is `runId` + `phase`.
 - **`agentctl.ts`** generates the helper the hooks invoke. It is a file rather
   than a call into the CLI because it runs on the hot path of every prompt and
   every tool call — a hook that costs a CLI boot is a hook the user feels.
@@ -124,8 +123,7 @@ breaks on every harness release.
   outlive an invocation, and a stale one would move a live run's state on
   evidence from a dead one.
 - Never make an invocation depend on any of this. Every failure path here
-  returns "no reporting" and the run proceeds exactly as it did before phase 2
-  of the WebMux absorption.
+  returns "no reporting" and the run proceeds.
 
 ## `tty.ts` / `custom.ts`: the same agents, in a pane
 
@@ -144,10 +142,9 @@ built the same way in both: **argv** (ADR-04).
   paste/Enter race against a TUI that is not ready yet.
 - **`codex` always gets `--enable hooks`.** Without it the lifecycle hooks never
   fire and the agent's state becomes unknowable (ADR-05).
-- **Permission stays semantic.** The upstream has a `yolo` boolean; only
-  `autonomous` maps to skipping permission here, and `read-only` still gets
-  `--permission-mode plan`. Collapsing three levels into a boolean is on the
-  §45.3 list of regressions to avoid.
+- **Permission stays semantic.** Only `autonomous` maps to skipping permission,
+  and `read-only` still gets `--permission-mode plan`. Do not collapse the three
+  permission levels into a boolean.
 - **A custom agent receives its context through exported environment
   variables**, never by substituting the values into the command. A prompt
   containing `'`, `$(…)` or a newline is then data the shell expands, not a

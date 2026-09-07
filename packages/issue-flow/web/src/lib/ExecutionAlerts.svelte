@@ -2,21 +2,7 @@
   import { formatAgo, formatClock, formatDuration } from './format';
   import type { ExecutionSnapshot } from './snapshot';
 
-  /**
-   * Errors and warnings (U4).
-   *
-   * PORT of `renderAlerts`. `aria-live="polite"` and **above** the tabs, so a
-   * failure is announced and is never behind an inactive tab.
-   *
-   * §50.3 keeps this and the toast stack side by side with distinct jobs, and
-   * the distinction is the whole reason both exist: a toast is feedback for
-   * something *you* just did and it disappears; this card is the execution's
-   * **persistent** state and it stays until the execution stops saying it.
-   *
-   * The §32 escalation is rendered here as its own row rather than left to blend
-   * into the warning list: "nobody answered the agent" is the one line that
-   * means the run has stopped moving until a person acts.
-   */
+
 
   const PREVIEW = 3;
 

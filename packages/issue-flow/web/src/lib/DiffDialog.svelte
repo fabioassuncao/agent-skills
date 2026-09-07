@@ -9,21 +9,7 @@
   import type { DiffDialogProps, UnpushedCommit } from './types';
   import { errorMessage } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/DiffDialog.svelte` @ d8c9d5f (228 lines).
-   *
-   * `diff2html` renders the diff; §50.3 makes this the one diff surface, so the
-   * commit list the panel shows in its "Saída" block opens here rather than
-   * growing a second renderer.
-   *
-   * One adaptation: the upstream hard-codes `ColorSchemeType.DARK` because it
-   * only has dark themes. Here the scheme follows the resolved theme, or the
-   * diff is dark-on-light in the light theme and unreadable.
-   *
-   * `initialTabSet` picks the first tab that actually has content, once: doing
-   * it on every render would yank the user back to "diff" the moment a refresh
-   * finds an uncommitted change.
-   */
+
 
   let { branch, cursorUrl = null, onclose }: DiffDialogProps = $props();
 

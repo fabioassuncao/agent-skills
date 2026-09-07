@@ -344,8 +344,7 @@ reset_capture() { # repo
   mkdir -p "$1/.smoke/prompts"
 }
 
-# A workspace owns one global storage project. Assertions inspect its projections;
-# the legacy input tree is deliberately never treated as the current write target.
+# A workspace owns one storage project. Assertions inspect its projections.
 artifact_path() { # repo issue filename
   local projects
   projects=("$1"/.smoke/state/projects/*)
@@ -492,14 +491,13 @@ scenario_both_divergent() {
 
 # ── main ────────────────────────────────────────────────────────────────────
 
-# ── scenario D: a free prompt, with no Issue behind it (§17) ────────────────
+# ── scenario D: a free prompt, with no Issue behind it ─────────────────────
 
-# `issue-flow run --prompt` is the entry `webmux oneshot` had and `run` did not.
 # What this proves is the point of the convergence: the demand becomes an Issue
 # of the `inline` origin, and from there the pipeline, the prompts and the
 # summary are the ordinary ones — no shorter path, no skipped phase.
 scenario_inline_prompt() {
-  echo "[D] Free prompt -- no Issue behind it (§17)"
+  echo "[D] Free prompt -- no Issue behind it"
   local repo out
   repo="$(new_workspace unauthed)"
   WORKSPACES="$WORKSPACES $repo"

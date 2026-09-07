@@ -231,9 +231,9 @@ describe('formatIssueHeadline', () => {
     );
   });
 
-  it('omits the version for a session written before it was recorded', () => {
+  it('omits the version when it was not reported', () => {
     const base = createInitialSnapshot();
-    const legacy: SessionSnapshot = {
+    const withoutVersion: SessionSnapshot = {
       ...base,
       issue: { ...base.issue, number: 63, title: 'Autonomous execution' },
       environment: {
@@ -244,7 +244,7 @@ describe('formatIssueHeadline', () => {
         cliVersion: null,
       },
     };
-    expect(formatIssueHeadline(legacy)).toBe('Issue Flow · #63 · Autonomous execution');
+    expect(formatIssueHeadline(withoutVersion)).toBe('Issue Flow · #63 · Autonomous execution');
   });
 });
 

@@ -111,7 +111,7 @@ describe('integration API handlers', () => {
         writable: false,
         createLinearClient: () => ({
           fetchAssignedIssues: async () => {
-            throw new Error('upstream echoed remote-secret-value');
+            throw new Error('remote echoed remote-secret-value');
           },
           postConversation: vi.fn(),
         }),

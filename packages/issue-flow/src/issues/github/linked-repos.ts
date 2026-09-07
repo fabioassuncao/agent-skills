@@ -1,16 +1,5 @@
 import type { PullRequestEntry } from './types.js';
 
-/**
- * Linked repositories — the sibling repositories whose Pull Requests belong to
- * the same unit of work as the current one.
- *
- * `PORT` per §20: the Issue Flow had no concept of a repository other than the
- * one it runs in. WebMux declares them in configuration
- * (`backend/src/domain/config.ts:60`) and queries each one with its own
- * `gh pr list --repo <slug>`; the alias is what the UI shows, so a Pull Request
- * from `acme/api` reads as "api" and not as an opaque slug.
- */
-
 export interface LinkedRepo {
   /** `owner/name` as `gh --repo` expects it. */
   repo: string;

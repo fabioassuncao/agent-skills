@@ -192,7 +192,7 @@ export function parseTemplateMetadata(source: string): TemplateMetadata {
 
   return {
     name: readScalar(regions.get('name')),
-    // Issue Forms spell it `description`, legacy markdown templates `about`.
+    // Issue Forms spell it `description`, Markdown templates `about`.
     about: readScalar(regions.get('about')) ?? readScalar(regions.get('description')),
     title: readScalar(regions.get('title')),
     labels: readSequence(regions.get('labels')),

@@ -1,19 +1,6 @@
 import { ghBounded } from './client.js';
 import type { GhReviewComment, PullRequestComment } from './types.js';
 
-/**
- * Inline review comments of a Pull Request, with the ETag cache.
- *
- * `MERGE` per §20: the Issue Flow already publishes conversation comments
- * (`core/pr-review/publisher.ts`), but had no way to *read* the inline review
- * comments and no conditional-request cache. Both come from WebMux
- * `backend/src/services/pr-service.ts` @ d8c9d5f.
- *
- * The cache is the point: a `304 Not Modified` answer to an `If-None-Match`
- * request does not count against the GitHub rate limit, so a monitor polling
- * every ten seconds costs almost nothing while a Pull Request is idle.
- */
-
 /** How many comments a single Pull Request contributes, most recent first. */
 export const REVIEW_COMMENT_LIMIT = 50;
 

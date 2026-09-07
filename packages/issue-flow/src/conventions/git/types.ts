@@ -119,7 +119,7 @@ export interface GitConvention {
 export interface AutoNameConvention {
   /** Overrides the default instruction handed to the generator. */
   systemPrompt?: string | null;
-  /** Hard ceiling on the generated name. Defaults to 40, as upstream. */
+
   maxLength?: number;
   /** Deadline after which the deterministic fallback is used instead. */
   timeoutMs?: number;

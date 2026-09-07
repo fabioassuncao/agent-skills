@@ -19,6 +19,7 @@ function makePlan(overrides: Partial<TaskPlan['pipeline']> = {}): TaskPlan {
     issueNumber: 1,
     issueUrl: '',
     branchName: 'test-branch',
+    noBranch: false,
     description: '',
     issueStatus: 'pending',
     completedAt: null,
@@ -26,6 +27,7 @@ function makePlan(overrides: Partial<TaskPlan['pipeline']> = {}): TaskPlan {
     lastError: null,
     correctionCycle: 0,
     maxCorrectionCycles: 3,
+    lastReviewFindings: null,
     pipeline: {
       prdCompleted: false,
       jsonCompleted: false,
@@ -73,12 +75,6 @@ describe('PipelineManager', () => {
         '/tmp/tasks.json',
       );
       expect(mgr.getNextPhase()).toBe('execute');
-    });
-
-    it('handles old tasks.json with analyzeCompleted field', () => {
-      const mgr = new PipelineManager(makePlan({ analyzeCompleted: true }), '/tmp/tasks.json');
-      // analyzeCompleted is ignored; pipeline starts from prd
-      expect(mgr.getNextPhase()).toBe('prd');
     });
   });
 

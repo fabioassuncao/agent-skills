@@ -3,28 +3,13 @@ import type { NetworkInterfaceInfo } from 'node:os';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ValidatedSessionSnapshot } from '../storage/session-file.js';
+import type { ValidatedSessionSnapshot } from '../schemas.js';
 import type { WebServerHandle } from '../web/server.js';
 import type {
   ActiveSession,
   SessionDirectoryChange,
   SessionDirectoryHandle,
 } from '../web/session-directory.js';
-
-/**
- * What `serve` tells the person who typed it.
- *
- * `web serve` could afford to say nothing: it is spawned detached with
- * `stdio: 'ignore'`, so there is nobody to talk to. `serve` inherited that
- * silence when it became the canonical command (§47.4) and kept passing
- * `info: noop, warn: noop` into the bind — which made every outcome look
- * identical from a terminal. A foreground server that prints nothing cannot be
- * told apart from one that hung, and an invocation that exits 0 without a word
- * cannot be told apart from one that did nothing.
- *
- * These cases pin the three outcomes to output. They deliberately assert *that
- * something was said* rather than the exact wording, which is copy and moves.
- */
 
 const bind = vi.hoisted(() => ({
   result: null as WebServerHandle | null,

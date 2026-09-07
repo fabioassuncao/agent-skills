@@ -9,16 +9,6 @@ import type { AgentPhase, AgentProviderId } from '../types.js';
 import { isAgentPhase, isAgentProviderId } from '../types.js';
 import type { Handoff } from './types.js';
 
-/**
- * Writing a handoff at the end of a phase, and reading it at the start of the
- * next one.
- *
- * Nothing travels through a terminal (§29). A phase writes a row; the phase
- * that follows reads it. That makes the exchange auditable after the fact —
- * which is the difference between "the reviewer saw the plan" and "the reviewer
- * probably saw the plan".
- */
-
 export interface CreateHandoffInput {
   runId: string;
   from: { sessionId?: string | null; phase: AgentPhase; provider: AgentProviderId };

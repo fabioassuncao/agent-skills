@@ -12,22 +12,6 @@ import { hashIssueContent } from '../hash.js';
 import type { IssueProvider } from '../provider.js';
 import type { Issue, IssueDraft } from '../types.js';
 
-/**
- * The origin of a demand typed straight into the command line.
- *
- * §17 of the absorption plan converges `webmux oneshot` into `issue-flow run`,
- * and the first of its three clauses is that a free prompt is accepted **as an
- * Issue**, under `source: 'inline'`. That is the whole design: `--prompt` does
- * not open a second, lighter execution path with fewer guarantees — it mints an
- * Issue, and from there every phase, the acceptance contract and the
- * independent reviewer run exactly as they do for a GitHub or a local one.
- *
- * What makes it a *provider* rather than a special case inside `run` is that
- * the pipeline re-resolves its Issue by id: `resume` does, and so does the
- * closure re-query. An inline demand that only existed in the argv of one
- * invocation would be unresumable, which is the one thing a long run cannot be.
- */
-
 /** `inline-` plus twelve hex characters. Nothing else is ours to answer for. */
 const INLINE_ID = /^inline-[0-9a-f]{12}$/;
 
@@ -77,10 +61,6 @@ export function inlineIssueTitle(prompt: string): string {
 async function address(): Promise<InlineIssueAddress | null> {
   try {
     const project = await resolveProjectPaths();
-    // The demand is stored in SQLite, so a project still on the legacy JSON
-    // store has no inline origin. It is reported as unavailable rather than
-    // failing mid-run: every other origin keeps working.
-    if (project.storageDriver !== 'sqlite') return null;
     return {
       projectId: project.projectId,
       projectRoot: await getProjectRoot(),

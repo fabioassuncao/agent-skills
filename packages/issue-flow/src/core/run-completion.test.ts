@@ -9,26 +9,6 @@ import {
   settleRun,
 } from './run-completion.js';
 
-/**
- * Parity suite for the port of
- * `.references/webmux-main/backend/src/services/oneshot-watcher-service.ts`
- * @ d8c9d5f, whose own suite is
- * `backend/src/__tests__/oneshot-watcher-service.test.ts` (12 cases).
- *
- * Ten of the twelve are ported; the two that are not are the implicit
- * `postToLinear` ones. ADR-14 was later reversed for explicit UI/API posting
- * and headless pickup, not for a side effect at the end of every run. The mapping of the
- * upstream vocabulary onto this one is:
- *
- * | upstream | here |
- * |---|---|
- * | `meta.oneshot` present | no `human_hold` on the run — `isArmed` |
- * | `agentLifecycle` `stopped`/`error` | `lifecycle: 'stopped'` |
- * | `agentLifecycle` `closed` (never reported in) | `lifecycle: null` |
- * | `closeWorktree` | `closeRun` — the run's live agent sessions |
- * | `disarmOneshot` | `disarm` |
- */
-
 function target(overrides: Partial<RunCompletionTarget> = {}): RunCompletionTarget {
   return {
     runId: 'run-1',
@@ -75,8 +55,6 @@ describe('run completion', () => {
     vi.restoreAllMocks();
   });
 
-  // Upstream: "skips worktrees that are not oneshot source". The guarantee is
-  // the same — a pass never touches a run it was not handed.
   it('only settles the runs it was given', async () => {
     const recorded = deps({
       targets: [target({ runId: 'mine', pipelineOutcome: 'completed' })],
@@ -86,7 +64,6 @@ describe('run completion', () => {
     expect(recorded.disarmed).toEqual(['mine']);
   });
 
-  // Upstream: "skips when meta is missing oneshot block (disarmed)".
   it('stands down when a person took the run over', async () => {
     const recorded = deps({
       targets: [target({ pipelineOutcome: 'completed' })],
@@ -97,14 +74,12 @@ describe('run completion', () => {
     expect(recorded.disarmed).toEqual([]);
   });
 
-  // Upstream: "does not fire while agent is still running".
   it('does not fire while the agent is still working', async () => {
     const recorded = deps({ targets: [target({ lifecycle: 'running' })] });
     expect(await runCompletionPass(recorded.deps)).toBe(0);
     expect(recorded.closed).toEqual([]);
   });
 
-  // Upstream: "waits the idle grace before firing on idle".
   it('waits out the grace before firing on idle', async () => {
     let clock = 1_000;
     const recorded = deps({
@@ -124,7 +99,6 @@ describe('run completion', () => {
     expect(recorded.closed).toEqual(['run-1']);
   });
 
-  // Upstream: "fires immediately on stopped without waiting for grace".
   it('fires immediately when the agent reports it stopped', async () => {
     const recorded = deps({ targets: [target({ lifecycle: 'stopped' })] });
     expect(await runCompletionPass(recorded.deps)).toBe(1);
@@ -132,11 +106,6 @@ describe('run completion', () => {
     expect(recorded.disarmed).toEqual(['run-1']);
   });
 
-  /**
-   * The Issue Flow half of §17's convergence, and the reason the agent's own
-   * signals stay *additional*: the pipeline's verdict is terminal on its own,
-   * with no grace and regardless of what the agent last said.
-   */
   it("fires immediately on the pipeline's own verdict, whatever the agent said", async () => {
     const recorded = deps({
       targets: [target({ pipelineOutcome: 'completed', lifecycle: 'running' })],
@@ -145,7 +114,6 @@ describe('run completion', () => {
     expect(recorded.closed).toEqual(['run-1']);
   });
 
-  // Upstream: "respects autoCloseOnDone=false but still posts to Linear".
   it('respects autoClose=false and still stands the run down', async () => {
     const recorded = deps({
       targets: [target({ pipelineOutcome: 'completed' })],
@@ -156,9 +124,6 @@ describe('run completion', () => {
     expect(recorded.disarmed).toEqual(['run-1']);
   });
 
-  // Upstream: "bails on close + disarm when meta is disarmed during
-  // postToLinear". The window is different — here it is the run's own
-  // finalization — but the race, and the rule, are identical.
   it('aborts the close when a person takes over between the decision and the close', async () => {
     let reads = 0;
     const recorded = deps({
@@ -174,7 +139,6 @@ describe('run completion', () => {
     expect(reads).toBe(2);
   });
 
-  // Upstream: "still disarms when closeWorktree throws".
   it('still stands the run down when the close throws', async () => {
     const recorded = deps({
       targets: [target({ pipelineOutcome: 'completed' })],
@@ -186,16 +150,12 @@ describe('run completion', () => {
     expect(recorded.disarmed).toEqual(['run-1']);
   });
 
-  // Upstream: "does not immediately fire on a freshly upserted closed worktree
-  // (cold-start guard)". `null` is this port's `closed`: no hook has reported
-  // in, which is also what every run looks like in its first seconds.
   it('does not fire on a run whose agent has not reported in yet', async () => {
     const recorded = deps({ targets: [target({ lifecycle: null })] });
     expect(await runCompletionPass(recorded.deps)).toBe(0);
     expect(recorded.closed).toEqual([]);
   });
 
-  // Upstream: "fires on `closed` once the idle grace has elapsed".
   it('fires on a silent run once the grace has elapsed', async () => {
     let clock = 1_000;
     const recorded = deps({ targets: [target({ lifecycle: null })], now: () => clock });
@@ -205,7 +165,6 @@ describe('run completion', () => {
     expect(recorded.closed).toEqual(['run-1']);
   });
 
-  /** The upstream `inFlight` guard: a slow close must not be started twice. */
   it('never settles the same run twice concurrently', async () => {
     let release: (() => void) | null = null;
     const gate = new Promise<void>((resolve) => {

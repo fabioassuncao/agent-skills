@@ -304,7 +304,7 @@ describe('executeClaude — the inactivity watchdog (US-026)', () => {
     expect(result.output).toBe('slow but finished');
   });
 
-  it('is off when the timeout is 0, which is the behaviour before it existed', async () => {
+  it('is off when the timeout is 0', async () => {
     const { subprocess, killed } = silentSubprocess();
     mockExeca.mockReturnValue(subprocess);
 

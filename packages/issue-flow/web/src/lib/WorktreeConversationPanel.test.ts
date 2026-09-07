@@ -4,12 +4,6 @@ import { createWorktree as createBaseWorktree } from './test-fixtures';
 import type { AgentsUiConversationState, WorktreeInfo } from './types';
 import WorktreeConversationPanel from './WorktreeConversationPanel.svelte';
 
-/**
- * PORT of `frontend/src/lib/WorktreeConversationPanel.test.ts` @ d8c9d5f — 14
- * cases. Interface strings are pt-BR; conversation payloads are data and stay
- * as they were.
- */
-
 function createWorktree(overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
   return createBaseWorktree('feature/mobile-chat', {
     mux: '✓',

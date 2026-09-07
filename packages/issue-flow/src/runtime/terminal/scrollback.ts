@@ -1,16 +1,3 @@
-/**
- * What a viewer that connects late, or reconnects, needs to see.
- *
- * Ported from the scrollback ring of WebMux `backend/src/adapters/terminal.ts`
- * @ d8c9d5f, with the **sequence offset** §15 requires as a mandatory addition.
- *
- * The upstream replays its whole 1 MB buffer on every reconnect — and a browser
- * reconnects on `visibilitychange`, `focus` and `online`, so switching tabs
- * twice costs two megabytes and a full terminal repaint. Numbering the bytes
- * lets a returning client say how far it got and receive only the difference.
- */
-
-/** Ring capacity. The upstream's, and it is about one screen of history at any width. */
 export const MAX_SCROLLBACK_BYTES = 1024 * 1024;
 
 export interface ScrollbackReplay {

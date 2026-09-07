@@ -18,7 +18,7 @@ import {
 function info(overrides: Partial<RunSummaryInfo> = {}): RunSummaryInfo {
   return {
     issueNumber: '42',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
     noBranch: false,
     storyCount: 3,
     elapsedSeconds: 90,
@@ -30,7 +30,7 @@ function info(overrides: Partial<RunSummaryInfo> = {}): RunSummaryInfo {
 describe('buildRunSummaryLines', () => {
   it('sem a fase pr-review, as linhas são as de sempre', () => {
     expect(buildRunSummaryLines(info())).toEqual([
-      '  Branch:   issue/42-sample',
+      '  Branch:   feat/42-sample',
       '  Stories:  3',
       '  Duration: 1m 30s',
       '  PR:       https://github.com/acme/repo/pull/184',
@@ -40,7 +40,7 @@ describe('buildRunSummaryLines', () => {
   it('--no-branch marca a branch como current e omite a linha do PR', () => {
     const lines = buildRunSummaryLines(info({ noBranch: true }));
 
-    expect(lines[0]).toBe('  Branch:   issue/42-sample (current)');
+    expect(lines[0]).toBe('  Branch:   feat/42-sample (current)');
     expect(lines.some((l) => l.includes('PR:'))).toBe(false);
   });
 
@@ -103,7 +103,8 @@ function plan(): TaskPlan {
     project: 'issue-flow',
     issueNumber: 42,
     issueUrl: '',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
+    noBranch: false,
     description: '',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -153,7 +154,7 @@ describe('buildRunSummaryLines (tokens)', () => {
     );
 
     expect(lines).toEqual([
-      '  Branch:   issue/42-sample',
+      '  Branch:   feat/42-sample',
       '  Stories:  3',
       '  Duration: 1m 30s',
       '  Tokens:   2 in / 4 out · 15.5k cache · ~$0.1607',
@@ -265,7 +266,7 @@ describe('buildQueueSummaryLines', () => {
   function queueInfo(overrides: Partial<QueueSummaryInfo> = {}): QueueSummaryInfo {
     return {
       queueId: '50',
-      branchName: 'issue/50-multi',
+      branchName: 'feat/50-multi',
       issues: [
         { id: '50', title: 'Discovery', storyCount: 3, elapsedSeconds: 65 },
         { id: '51', title: 'Ordering', storyCount: 2, elapsedSeconds: 30 },
@@ -280,7 +281,7 @@ describe('buildQueueSummaryLines', () => {
   it('breaks the queue down per issue and totals it once', () => {
     const lines = buildQueueSummaryLines(queueInfo());
 
-    expect(lines[0]).toBe('  Branch:   issue/50-multi');
+    expect(lines[0]).toBe('  Branch:   feat/50-multi');
     expect(lines[1]).toBe('  Issues:   2');
     expect(lines[2]).toBe('    #50 Discovery — 3 stories, 1m 5s');
     expect(lines[3]).toBe('    #51 Ordering — 2 stories, 30s');

@@ -2,9 +2,8 @@
  * The repository policy layer: what the *consumer* repository already declares
  * about how issues, Pull Requests, branches and agents are supposed to work.
  *
- * Every field is discovered, never invented. A repository that declares nothing
- * produces an empty policy — which is exactly the behaviour Issue Flow had
- * before this layer existed.
+ * Every field is discovered, never invented. A repository that declares
+ * nothing produces an empty policy.
  */
 
 /**
@@ -65,7 +64,7 @@ export interface PolicySource {
 export interface IssueTemplate {
   /** Repository-relative path, or the org-level template name when remote. */
   path: string;
-  /** `form` for a GitHub Issue Form (`.yml`), `markdown` for a legacy template. */
+  /** `form` for a GitHub Issue Form (`.yml`), `markdown` for a Markdown template. */
   format: 'form' | 'markdown';
   /** Where the template was found — the local tree or the organization defaults. */
   origin: 'filesystem' | 'organization';
@@ -154,11 +153,7 @@ export interface PolicyGit {
    * the repository wrote down, so it is a declaration, not a hint.
    */
   commitTemplate: string | null;
-  /**
-   * True when at least one Git convention above came from a source the
-   * repository *declares*, as opposed to one inferred from history. Only a
-   * declaration turns the Issue Flow fallback off (§11).
-   */
+
   declared: boolean;
 }
 

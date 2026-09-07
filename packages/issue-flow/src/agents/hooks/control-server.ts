@@ -3,22 +3,6 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { type AgentRuntimeEvent, parseAgentRuntimeEvent } from './contract.js';
 
-/**
- * The endpoint an agent's hooks report to, owned by the process running the
- * agent.
- *
- * WebMux points its hooks at the long-lived project server. Issue Flow cannot:
- * `headless` is the default and must keep working with no monitor, no daemon
- * and no `--web` (ADR-03). Binding the endpoint in the pipeline process itself
- * makes lifecycle events work in a plain `issue-flow execute`, which is exactly
- * what phase 2's completion criterion asks for — `awaiting_input` visible
- * during a headless execute.
- *
- * ADR-10 applies in full even though this is not a browser surface: loopback
- * bind, bearer token, and a token that exists only for the duration of one
- * invocation.
- */
-
 /** Max accepted body. A lifecycle event is a few hundred bytes. */
 const MAX_BODY_BYTES = 64 * 1024;
 

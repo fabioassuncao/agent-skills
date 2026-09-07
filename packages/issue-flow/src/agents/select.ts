@@ -2,6 +2,7 @@ import { getActiveResilienceConfig } from '../config.js';
 import { getShutdownSignal } from '../core/shutdown.js';
 import type { FailureKind } from '../resilience/errors.js';
 import { abortableDelay, resolvePolicy, shouldFailover } from '../resilience/policy.js';
+import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import { resolveProjectPaths } from '../storage/resolve.js';
 import type { ProviderHealthRecord, ResilienceConfig } from '../storage/schemas.js';
 import {
@@ -23,7 +24,7 @@ export interface AgentSelection {
   primary: AgentProviderId;
   provider: AgentProviderId;
   settings: ResolvedAgentSettings;
-  healthFile: string | null;
+  health: PlanRepositoryContext | null;
   failover: boolean;
   reason: FailureKind | null;
   cooldownUntil: string | null;
@@ -69,7 +70,7 @@ async function verdictFor(
   provider: AgentProviderId,
   record: ProviderHealthRecord | undefined,
   options: {
-    healthFile: string;
+    health: PlanRepositoryContext;
     config: ResilienceConfig;
     primary: boolean;
     nowMs: number;
@@ -94,7 +95,7 @@ async function verdictFor(
   if (record.status === 'degraded') {
     const due = failoverIsDue(record, options.config);
     const opened = due
-      ? await openProviderCircuit(options.healthFile, provider, {
+      ? await openProviderCircuit(options.health, provider, {
           now: () => options.nowMs,
           config: options.config.providers,
         })
@@ -127,7 +128,7 @@ async function verdictFor(
         blocked: false,
       };
     }
-    const probe = await acquireHalfOpenProbe(options.healthFile, provider, {
+    const probe = await acquireHalfOpenProbe(options.health, provider, {
       now: () => options.nowMs,
       config: options.config.providers,
     });
@@ -187,22 +188,22 @@ export async function selectAgentForInvocation(
       primary: base.provider,
       provider: base.provider,
       settings: base,
-      healthFile: null,
+      health: null,
       failover: false,
       reason: null,
       cooldownUntil: null,
     };
   }
 
-  let healthFile: string;
+  let health: PlanRepositoryContext;
   try {
-    healthFile = (await resolveProjectPaths()).providersHealthFile;
+    health = (await resolveProjectPaths()).providerHealthContext;
   } catch {
     return {
       primary: base.provider,
       provider: base.provider,
       settings: base,
-      healthFile: null,
+      health: null,
       failover: true,
       reason: null,
       cooldownUntil: null,
@@ -212,14 +213,14 @@ export async function selectAgentForInvocation(
   const delay = options.delay ?? abortableDelay;
   selection: for (;;) {
     const nowMs = options.now?.() ?? Date.now();
-    const health = await readProvidersHealth(healthFile);
+    const providerHealth = await readProvidersHealth(health);
     const waits: number[] = [];
     let primaryReason: FailureKind | null = null;
     let primaryCooldown: string | null = null;
 
     for (const provider of providerOrder(base.provider, config)) {
-      const verdict = await verdictFor(provider, health.providers[provider], {
-        healthFile,
+      const verdict = await verdictFor(provider, providerHealth.providers[provider], {
+        health,
         config,
         primary: provider === base.provider,
         nowMs,
@@ -235,7 +236,7 @@ export async function selectAgentForInvocation(
         provider === base.provider &&
         !verdict.available &&
         verdict.waitMs !== null &&
-        !failoverIsDue(health.providers[provider], config)
+        !failoverIsDue(providerHealth.providers[provider], config)
       ) {
         if (!(await delay(Math.max(1, verdict.waitMs), { signal: getShutdownSignal() }))) {
           throw new Error('Agent provider selection was interrupted while waiting for cooldown.');
@@ -247,7 +248,7 @@ export async function selectAgentForInvocation(
           primary: base.provider,
           provider,
           settings: settingsFor(base, provider),
-          healthFile,
+          health,
           failover: provider !== base.provider,
           reason: provider === base.provider ? null : primaryReason,
           cooldownUntil: primaryCooldown,

@@ -2,8 +2,6 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WorktreeLabelDialog from './WorktreeLabelDialog.svelte';
 
-/** PORT of `frontend/src/lib/WorktreeLabelDialog.test.ts` @ d8c9d5f — 5 cases. */
-
 const originalDialogShowModal = HTMLDialogElement.prototype.showModal;
 const originalDialogClose = HTMLDialogElement.prototype.close;
 

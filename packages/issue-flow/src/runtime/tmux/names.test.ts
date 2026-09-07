@@ -10,10 +10,6 @@ import {
   sanitizeTmuxNameSegment,
 } from './names.js';
 
-/**
- * Ported from WebMux `backend/src/__tests__/tmux-adapter.test.ts` @ d8c9d5f —
- * the pure half. What needs a tmux server is in `gateway.integration.test.ts`.
- */
 describe('tmux names', () => {
   it('reduces a value to what tmux accepts in a name', () => {
     expect(sanitizeTmuxNameSegment('Feature/63 Thing!')).toBe('feature-63-thing');

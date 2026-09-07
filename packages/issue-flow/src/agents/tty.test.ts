@@ -12,14 +12,6 @@ import {
   SANDBOX_PATH_ENTRIES,
 } from './tty.js';
 
-/**
- * **C4** of §34: starting an agent produces the exact command the pane runs, and
- * the prompt is present in the argv **after `--`**.
- *
- * Adapted from WebMux `backend/src/services/agent-service.ts` @ d8c9d5f. The
- * upstream asserts on a shell string; these assert on the argv, because that is
- * what Issue Flow builds (ADR-04) and the string is only its serialization.
- */
 describe('buildTtyAgentArgv — claude', () => {
   it('starts a fresh autonomous session with the prompt after --', () => {
     expect(
@@ -52,7 +44,6 @@ describe('buildTtyAgentArgv — claude', () => {
     ]);
   });
 
-  // Issue Flow's three semantic levels, not the upstream's yolo boolean.
   it('translates the semantic permission rather than a yolo flag', () => {
     expect(buildTtyAgentArgv({ provider: 'claude', permission: 'workspace' })).toEqual(['claude']);
     expect(buildTtyAgentArgv({ provider: 'claude', permission: 'read-only' })).toEqual([
@@ -278,14 +269,6 @@ describe('buildPaneCommand', () => {
   });
 });
 
-/**
- * The sandbox pane commands.
- *
- * Ported from the upstream's `builds docker commands that exec inside the
- * container` case, including its negative assertion: the *shell* enters the
- * container, so the agent command typed into it must **not** wrap itself in a
- * second `docker exec`.
- */
 describe('the container pane commands', () => {
   it('execs into the container with the worktree as the working directory', () => {
     expect(buildDockerExecCommand('if-feature-1', '/repos/feature', 'echo hi')).toBe(
@@ -336,7 +319,7 @@ describe('the container pane commands', () => {
     expect(agent).not.toContain('docker exec');
   });
 
-  it('drops the two upstream PATH entries the image of this project never creates', () => {
+  it('does not add PATH entries absent from the image', () => {
     // Bun is not adopted (no `/root/.bun/bin`), and nothing in
     // `sandbox/Dockerfile.sandbox` installs a cargo binary.
     expect(SANDBOX_PATH_ENTRIES).toEqual(['/root/.local/bin', '/usr/local/bin']);

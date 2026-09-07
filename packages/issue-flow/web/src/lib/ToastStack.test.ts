@@ -1,10 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import NotificationItem from './NotificationItem.svelte';
 import ToastStack from './ToastStack.svelte';
-import type { AppNotification, ToastItem } from './types';
-
-/** PORT of `frontend/src/lib/ToastStack.test.ts` @ d8c9d5f — 4 cases. */
+import type { ToastItem } from './types';
 
 afterEach(() => {
   cleanup();
@@ -12,27 +9,13 @@ afterEach(() => {
 
 function createToast(overrides: Partial<ToastItem> = {}): ToastItem {
   return {
-    id: 'notification:1',
-    source: 'notification',
-    notificationId: 1,
+    id: 'ui:1',
+    source: 'ui',
     tone: 'info',
     message: 'Texto da notificação',
     detail: 'https://example.com/notifications/1',
-    branch: 'feature/toast-sizing',
     ...overrides,
   } as ToastItem;
-}
-
-function createNotification(overrides: Partial<AppNotification> = {}): AppNotification {
-  return {
-    id: 1,
-    branch: 'feature/toast-sizing',
-    type: 'runtime_error',
-    message: 'Texto da notificação',
-    url: 'https://example.com/notifications/1',
-    timestamp: Date.UTC(2026, 2, 24, 10, 30, 0),
-    ...overrides,
-  };
 }
 
 describe('ToastStack', () => {
@@ -41,7 +24,6 @@ describe('ToastStack', () => {
       props: {
         toasts: [createToast()],
         ondismiss: vi.fn(),
-        onselect: vi.fn(),
       },
     });
 
@@ -63,7 +45,6 @@ describe('ToastStack', () => {
       props: {
         toasts: [createToast({ message, detail })],
         ondismiss: vi.fn(),
-        onselect: vi.fn(),
       },
     });
 
@@ -78,44 +59,20 @@ describe('ToastStack', () => {
     expect(detailNode.className).not.toContain('truncate');
   });
 
-  it('keeps actionable toasts clickable and dismissible', async () => {
+  it('keeps toasts dismissible', async () => {
     const ondismiss = vi.fn();
-    const onselect = vi.fn();
 
     render(ToastStack, {
       props: {
         toasts: [createToast()],
         ondismiss,
-        onselect,
       },
     });
 
-    const selectButton = screen.getByRole('button', { name: /texto da notificação/i });
     const dismissButton = screen.getByRole('button', { name: 'Dispensar aviso' });
 
-    await fireEvent.click(selectButton);
     await fireEvent.click(dismissButton);
 
-    expect(onselect).toHaveBeenCalledWith('notification:1');
-    expect(ondismiss).toHaveBeenCalledWith('notification:1');
-  });
-});
-
-describe('NotificationItem', () => {
-  it('keeps non-toast notification rows truncated by default', () => {
-    const message = 'A linha padrão de notificação continua truncada';
-    const url = 'https://example.com/default/truncation';
-
-    render(NotificationItem, {
-      props: {
-        notification: createNotification({ message, url }),
-      },
-    });
-
-    const messageNode = screen.getByText(message);
-    const urlNode = screen.getByText(url);
-
-    expect(messageNode.className).toContain('truncate');
-    expect(urlNode.className).toContain('truncate');
+    expect(ondismiss).toHaveBeenCalledWith('ui:1');
   });
 });

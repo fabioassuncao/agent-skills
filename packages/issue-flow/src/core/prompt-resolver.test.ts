@@ -70,9 +70,6 @@ describe('resolvePackageDir', () => {
     expect(resolvePackageDir('prompts')).toBe(join(packageRoot, 'prompts'));
   });
 
-  // Was `web/public` — the previous panel's directory, removed by §50.8. The
-  // case keeps its subject (a nested package directory found from `dist/`) with
-  // the directory that actually ships now.
   it('resolves web/dist from the compiled dist/ layout', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'issue-flow-package-layout-'));
     mkdirSync(join(fixture, 'web', 'dist'), { recursive: true });

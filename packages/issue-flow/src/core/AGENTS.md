@@ -15,13 +15,7 @@ split across commits.
 `schemaVersion` stays `1` for purely additive fields — bump it only when an
 existing field changes shape or disappears.
 
-A newly added snapshot field must also be tolerant on **input**, or a
-`session.json` written by an earlier release stops parsing: the snapshot's
-non-optional fields (`number | null` and friends) need `.default(null)` in
-`src/schemas.ts` so "absent" and "not reported" resolve to the same value. The
-output type is unchanged, so `satisfies z.ZodType<SessionSnapshot>` still
-compiles. Fields on `UserStory` are plainly `.optional()` instead — a plan that
-never had them must not gain artificial nulls on a round trip.
+The snapshot schema describes only the current release. New required fields must be added to the TypeScript interface, reducer initializer and Zod schema in the same change; do not add defaults solely to accept obsolete payloads. Optional fields remain optional only when absence has current domain meaning.
 
 ## Reducer contract (`applyEvent`)
 
@@ -33,9 +27,7 @@ never had them must not gain artificial nulls on a round trip.
   publish. Anything accumulated per story by other events (`completedAt`,
   metrics) must be copied over from the `previous` map, or the next update
   wipes it.
-- `verification` on the snapshot is additive (`verify:end`). Absent
-  session.json parses as `null` (`.default(null)`). `unverified` is a
-  first-class verdict, never presented as verified success.
+- `verification` on the snapshot is set by `verify:end`. `null` means no contract has run; `unverified` is a first-class verdict, never presented as verified success.
 - A phase's `durationSeconds` comes only from `phase:start`/`phase:end`. Other
   events carrying a duration must not write it. Additive timing on the same
   event (`harnessExecutionMs`, `orchestrationOverheadMs`, `harnessStartupMs`,
@@ -53,7 +45,7 @@ never had them must not gain artificial nulls on a round trip.
   overwrites it — that is why they go through `reported()` instead of `??`.
   New repository data belongs on this event, not on a second one, or the two
   sections drift apart on `branch`.
-- `execution:update` projects the canonical `tasks.json.executions` row into
+- `execution:update` projects the canonical SQLite execution row into
   the live snapshot; it must upsert by execution id so begin/end publications
   describe one invocation, not two. `process:output` is a bounded redacted tail,
   while durable diagnostics belong to `storage/diagnostics.ts`.
@@ -85,36 +77,11 @@ never had them must not gain artificial nulls on a round trip.
 - `undefined` in a metric field means "not reported", never zero: it leaves the
   accumulator at `null`. An explicitly reported `0` is a value and is kept.
 
-## journal.ts: the history beside the projection
+## journal.ts: serialized event utilities
 
-- **`session.json` is a projection; `events.jsonl` is the history.** The reducer
-  folds every event into one snapshot and discards the events, which is right
-  for a dashboard and useless for an audit — after a six-hour run, "what
-  happened at 3am" has no answer. The journal writes the events themselves, one
-  JSON line each, in order, with a monotonic `seq`.
-- **Agent output is activity, not a heartbeat guess.** `agent:activity` is
-  published from each runner `onLine` callback and feeds
-  `snapshot.resilience.lastActivityAt`; filesystem mtime and `updatedAt` are
-  transport/projection timestamps and must not replace it in the dashboard.
-- **It sits *beside* `FilePublisher`, never in its place.** `MultiPublisher`
-  holds both and fans one event stream out; `snapshot()` and `version()` answer
-  from the first member, so the dashboard reads exactly what it always read.
-  Dropping either surface leaves the other untouched.
-- **Replaying the journal must reproduce the snapshot.** `replayJournal()` runs
-  the same `reduceSessionEvent` over the lines in order, and `journal.test.ts`
-  asserts the result equals the live snapshot. A file that cannot do that is a
-  log, not a journal — if you add an event type, that test is what proves the
-  two paths did not drift.
-- **The invariant of this directory is unchanged**: `publish()` is synchronous
-  and never throws, writes are serialized on a promise chain so lines never
-  interleave, and every I/O failure is swallowed after a single warning.
-  Nothing is throttled — coalescing is what the snapshot already does.
-- **Rotation keeps exactly one previous generation**, and happens *before* the
-  write that would cross `maxFileBytes`, so a line is never split across two
-  files. `maxFileBytes: 0` disables it.
-- **The journal is opt-in** (`resilience.journal.enabled`), because "monitoring
-  off means the pipeline creates nothing at all" is a documented invariant of
-  issue 25 and a journal writing by default would break it.
+- Canonical event history lives in SQLite. `parseJournal()` and `replayJournal()` consume serialized records for diagnostics and decomposition without owning persistence.
+- Replaying ordered records must reproduce the same snapshot as the live reducer.
+- Invalid or incomplete diagnostic lines are ignored; persisted rows are validated at their storage boundary.
 
 ## shutdown.ts: the order of a Ctrl+C is the design
 
@@ -124,8 +91,8 @@ never had them must not gain artificial nulls on a round trip.
   The signal fires first because every retry backoff already waits on it, so an
   interrupt during a fifteen-minute delay stops in that instant. The checkpoint
   runs **while the child is still alive**, because checkpointing after the kill
-  races the very writes it is trying to capture. The journal and the snapshot
-  close **last**, so everything the steps above published is on disk.
+  races the very writes it is trying to capture. The SQLite publisher closes
+  **last**, so everything the steps above published is durable.
 - **A second interrupt ends it now.** Someone who pressed `Ctrl+C` twice has
   said what they want, and waiting out the remaining grace to be polite is not
   it.
@@ -138,8 +105,8 @@ never had them must not gain artificial nulls on a round trip.
 - **Every child must be deregistered when it finishes normally.** `registerChild`
   returns the function that does it; a set that only grows has the shutdown
   signalling pids that belong to something else entirely by then.
-- **A hook that throws does not stop the ones after it.** The journal still has
-  to be closed even when the checkpoint could not be written.
+- **A hook that throws does not stop the ones after it.** Storage still has to
+  be closed even when the checkpoint could not be written.
 
 ## The post-commit story checkpoint is a net, not a source
 
@@ -268,13 +235,6 @@ and the README documented a third number. The execute loop is the deliberate
 exception, running with `timeout: 0` (`executor.ts`) because its iteration
 budget is what bounds it.
 
-Before decomposition, `runHeadless` reads the issue journal for the phase's
-timeout history. Two recorded timeouts widen that shared/user-provided ceiling
-to **2×**, never more: the multiplier is capped, not compounded, and
-`--timeout 0` remains the off switch. The phase and journal paths arrive via
-`HeadlessOptions.timeoutHistory`; inferring either from prompt text or an
-`addDirs` entry would couple execution policy to presentation/path ordering.
-
 ## Parsing CLI metrics
 
 All token/cost parsing goes through `core/metrics.ts` (`parseUsage`,
@@ -361,8 +321,4 @@ iteration costs real seconds — and `../resilience/policy.js`'s `abortableDelay
 which is what the retry backoff waits on since the loop delegated to
 `resilience/retry.ts:withRetry`.
 
-Both artifacts are user-facing contracts: any new field on `SessionSnapshot` or
-`UserStory` also belongs in [`docs/storage.md`](../../../../docs/storage.md)
-(`session.json` for the snapshot, `tasks.json` for the plan), which documents
-each field's meaning and states that `null` / absent means "not reported",
-never zero.
+Both contracts are user-facing: any new field on `SessionSnapshot` or `UserStory` also belongs in [`docs/storage.md`](../../../../docs/storage.md), which documents each field's meaning and states that `null` / absent means "not reported", never zero.

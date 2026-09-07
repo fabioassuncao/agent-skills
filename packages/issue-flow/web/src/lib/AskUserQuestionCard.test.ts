@@ -3,8 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import AskUserQuestionCard from './AskUserQuestionCard.svelte';
 import type { AskUserQuestionInput } from './types';
 
-/** PORT of `frontend/src/lib/AskUserQuestionCard.test.ts` @ d8c9d5f — 5 cases. */
-
 const singleSelect: AskUserQuestionInput = {
   questions: [
     {

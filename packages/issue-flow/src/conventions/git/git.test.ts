@@ -138,7 +138,7 @@ describe('branchName', () => {
         title: 'dark mode',
         convention: 'issue/{N}-{slug}',
       }),
-    ).toBe('issue/42-dark-mode');
+    ).toBe('feat/42-dark-mode');
   });
 
   it('keeps every generated name legal for git check-ref-format --branch', () => {
@@ -155,21 +155,12 @@ describe('branchName', () => {
 });
 
 describe('parseBranch', () => {
-  it('reads type and number from the new convention', () => {
-    expect(parseBranch('feat/42-legacy')).toEqual({
+  it('reads type and number from the convention', () => {
+    expect(parseBranch('feat/42-dashboard')).toEqual({
       type: 'feat',
       issueNumber: 42,
-      slug: 'legacy',
-      raw: 'feat/42-legacy',
-    });
-  });
-
-  it('still recognises the historical issue/{N}-* form', () => {
-    expect(parseBranch('issue/42-legacy')).toEqual({
-      type: 'issue',
-      issueNumber: 42,
-      slug: 'legacy',
-      raw: 'issue/42-legacy',
+      slug: 'dashboard',
+      raw: 'feat/42-dashboard',
     });
   });
 
@@ -183,9 +174,8 @@ describe('parseBranch', () => {
 });
 
 describe('archiveFolderName', () => {
-  it('works for issue/ and feat/ alike', () => {
-    expect(archiveFolderName('issue/42-legacy')).toBe('42-legacy');
-    expect(archiveFolderName('feat/42-legacy')).toBe('42-legacy');
+  it('removes the change type prefix', () => {
+    expect(archiveFolderName('feat/42-dashboard')).toBe('42-dashboard');
   });
 });
 

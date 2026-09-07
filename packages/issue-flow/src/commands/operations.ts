@@ -1,10 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { parseJournal } from '../core/journal.js';
 import { PIPELINE_PHASES, PipelineManager, type PipelinePhase } from '../core/pipeline.js';
 import type { SessionEvent, SessionSnapshot } from '../core/session-state.js';
 import { loadTaskPlan } from '../core/state-manager.js';
-import { loadExecutionPlan } from '../execution/plan.js';
 import type { ExecutionPlan } from '../execution/types.js';
 import {
   latestStoredIssueSnapshot,
@@ -13,7 +9,7 @@ import {
   listStoredQueues,
 } from '../storage/db/queries.js';
 import { describeRunLockOwner, isRunLockStale, readRunLock } from '../storage/lock.js';
-import { getIssuePaths, QUEUES_DIR_NAME } from '../storage/paths.js';
+import type { getIssuePaths } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import type { RunLock } from '../storage/schemas.js';
 import type { TaskPlan } from '../types.js';
@@ -28,15 +24,13 @@ import { printError, printInfo, printWarning } from '../ui/logger.js';
  * unattended execution the only way to find out was to read JSON by hand, and
  * the only way to stop it was to find the pid.
  *
- * Everything here **reads state that already exists** — `run.lock`,
- * `tasks.json`, `session.json`, `execution-plan.json`, `events.jsonl` — and
- * writes nothing except the two control commands, which do the one thing a
- * person cannot do from outside: ask the owner to stop, gracefully.
+ * Reads the run lock and canonical SQLite state. Only the two control commands
+ * write, asking the owning process to stop gracefully.
  */
 
 interface ProjectPaths {
   projectId: string;
-  storageDriver: 'sqlite' | 'json';
+  databaseOptions: Awaited<ReturnType<typeof resolveProjectPaths>>['databaseOptions'];
   projectDir: string;
   issuesDir: string;
   runLockFile: string;
@@ -72,21 +66,10 @@ async function project(json = false): Promise<ProjectPaths | null> {
   }
 }
 
-async function readJson<T>(path: string): Promise<T | null> {
-  try {
-    return JSON.parse(await readFile(path, 'utf-8')) as T;
-  } catch {
-    return null;
-  }
-}
-
 async function loadIssueState(project: ProjectPaths, id: string): Promise<IssueState | null> {
-  let paths: ReturnType<typeof getIssuePaths>;
+  let paths: Awaited<ReturnType<typeof resolveIssuePaths>>;
   try {
-    paths =
-      project.storageDriver === 'sqlite'
-        ? await resolveIssuePaths(id)
-        : getIssuePaths(project.projectId, id);
+    paths = await resolveIssuePaths(id);
   } catch {
     return null;
   }
@@ -99,10 +82,11 @@ async function loadIssueState(project: ProjectPaths, id: string): Promise<IssueS
   }
   if (plan === null) return null;
 
-  const snapshot =
-    project.storageDriver === 'sqlite'
-      ? await latestStoredIssueSnapshot({ projectId: project.projectId, issueId: id })
-      : await readJson<SessionSnapshot>(paths.sessionFile);
+  const snapshot = await latestStoredIssueSnapshot({
+    projectId: project.projectId,
+    issueId: id,
+    databaseOptions: project.databaseOptions,
+  });
   const phases: PipelinePhase[] =
     plan.noBranch === true
       ? PIPELINE_PHASES.filter((phase) => phase !== 'pr')
@@ -122,10 +106,10 @@ async function loadIssueState(project: ProjectPaths, id: string): Promise<IssueS
 async function allIssues(paths: ProjectPaths): Promise<IssueState[]> {
   let ids: string[];
   try {
-    ids =
-      paths.storageDriver === 'sqlite'
-        ? await listStoredIssueIds({ projectId: paths.projectId })
-        : await readdir(paths.issuesDir);
+    ids = await listStoredIssueIds({
+      projectId: paths.projectId,
+      databaseOptions: paths.databaseOptions,
+    });
   } catch {
     return [];
   }
@@ -145,23 +129,10 @@ function attemptedAt(plan: TaskPlan | null): number {
 
 /** Every queue plan of the project. */
 async function allQueues(paths: ProjectPaths): Promise<ExecutionPlan[]> {
-  if (paths.storageDriver === 'sqlite') {
-    return listStoredQueues({ projectId: paths.projectId });
-  }
-  const dir = join(paths.projectDir, QUEUES_DIR_NAME);
-  let entries: string[];
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return [];
-  }
-
-  const plans: ExecutionPlan[] = [];
-  for (const entry of entries) {
-    const plan = await loadExecutionPlan(join(dir, entry, 'execution-plan.json'));
-    if (plan !== null) plans.push(plan);
-  }
-  return plans;
+  return listStoredQueues({
+    projectId: paths.projectId,
+    databaseOptions: paths.databaseOptions,
+  });
 }
 
 /** `2m 13s ago`, or `never`. */
@@ -374,14 +345,13 @@ export async function runLogs(issue?: string, options: LogsOptions = {}): Promis
 
   const shown = new Set<number>();
   const readEntries = async (): Promise<Array<{ seq: number; event: SessionEvent }>> => {
-    if (paths.storageDriver === 'sqlite') {
-      return (await listStoredIssueEvents({ projectId: paths.projectId, issueId: target })).map(
-        ({ seq, event }) => ({ seq, event: event as SessionEvent }),
-      );
-    }
-    const issuePaths = getIssuePaths(paths.projectId, target);
-    const content = `${await readIfPresent(issuePaths.rotatedEventsFile)}${await readIfPresent(issuePaths.eventsFile)}`;
-    return parseJournal(content);
+    return (
+      await listStoredIssueEvents({
+        projectId: paths.projectId,
+        issueId: target,
+        databaseOptions: paths.databaseOptions,
+      })
+    ).map(({ seq, event }) => ({ seq, event: event as SessionEvent }));
   };
 
   const renderEntries = (
@@ -399,9 +369,7 @@ export async function runLogs(issue?: string, options: LogsOptions = {}): Promis
 
   const initial = await readEntries();
   if (initial.length === 0) {
-    printInfo(
-      `Issue #${target} has no journal. Enable it with resilience.journal.enabled or --continuous.`,
-    );
+    printInfo(`Issue #${target} has no recorded events.`);
     return 0;
   }
   renderEntries(initial, tail);
@@ -438,14 +406,6 @@ function describeEvent(event: SessionEvent): string {
       return event.status;
     default:
       return '';
-  }
-}
-
-async function readIfPresent(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf-8');
-  } catch {
-    return '';
   }
 }
 

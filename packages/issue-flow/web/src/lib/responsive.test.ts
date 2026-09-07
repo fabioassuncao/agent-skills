@@ -3,30 +3,6 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-/**
- * **U20** — no horizontal scrolling at 360, 768 or 1440.
- *
- * `happy-dom` has no layout engine: `getBoundingClientRect()` returns zeros and
- * `scrollWidth` is always `0` (verified before this suite was written), so the
- * width cannot be *measured* in this suite. The measurement is taken in a real
- * browser and recorded in `docs/absorption-trace.md`, at all three widths and
- * in both themes.
- *
- * What this suite is, then, is the **regression guard on the CSS contract that
- * produces the result**, and each rule below is one of the ways the panel
- * actually loses it:
- *
- * 1. A fixed or minimum width above the narrowest breakpoint, on anything that
- *    is not explicitly inside a scrolling box. 360px is the narrowest width the
- *    panel supports, so a `min-width: 480px` in the page flow is a horizontal
- *    scrollbar on a phone.
- * 2. A wide box that is **not** wrapped in `.if-scroll-x`. Tables, boards, log
- *    lines and the phase grid all exceed 360px by design; each must scroll
- *    inside itself.
- * 3. A third breakpoint. The panel has exactly two (640 and 960); a component
- *    that invents its own is how a layout starts disagreeing with itself.
- */
-
 const libDir = fileURLToPath(new URL('.', import.meta.url));
 const srcDir = fileURLToPath(new URL('..', import.meta.url));
 
@@ -110,8 +86,6 @@ describe('the shared layer', () => {
     const breakpoints = [...appCss.matchAll(/@media\s*\(\s*(?:min|max)-width:\s*(\d+)px/g)].map(
       (match) => Number(match[1]),
     );
-    // 768 is the upstream's mobile switch, which the port keeps for the mobile
-    // surface; the panel's own two are 640 and 960.
     for (const breakpoint of breakpoints) {
       expect([640, 768, 960]).toContain(breakpoint);
     }

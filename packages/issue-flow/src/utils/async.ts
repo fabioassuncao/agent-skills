@@ -1,13 +1,4 @@
 /**
- * Async scheduling primitives shared by the periodic monitors.
- *
- * Ported from WebMux `backend/src/lib/async.ts` @ d8c9d5f. Neither function
- * touches a Bun API, so the port keeps the original structure verbatim —
- * including the injectable scheduler, which is what lets a caller test the
- * coalescing behaviour without a real clock.
- */
-
-/**
  * Map `items` through `fn` with at most `limit` concurrent calls, preserving
  * input order in the result.
  *

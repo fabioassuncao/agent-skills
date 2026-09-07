@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,10 +35,6 @@ vi.mock('../config.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../storage/resolve.js', () => ({
-  resolveIssuePaths: vi.fn(async () => ({ sessionFile: join(runtime.dir, 'session.json') })),
-}));
-
 vi.mock('../web/lock.js', () => ({ ensureWebMonitor: vi.fn(async () => null) }));
 
 const plan = vi.hoisted(
@@ -48,6 +43,7 @@ const plan = vi.hoisted(
     issueNumber: 75,
     issueUrl: 'https://github.com/fabioassuncao/issue-flow/issues/75',
     branchName: 'develop',
+    noBranch: false,
     description: 'Monitor web',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -55,6 +51,7 @@ const plan = vi.hoisted(
     lastError: null,
     correctionCycle: 0,
     maxCorrectionCycles: 3,
+    lastReviewFindings: null,
     pipeline: {
       prdCompleted: true,
       jsonCompleted: true,
@@ -88,9 +85,8 @@ vi.mock('../core/state-manager.js', async (importOriginal) => {
 vi.mock('../core/engine.js', () => ({
   runEngine: vi.fn(async () => {
     const { getSessionPublisher } = await import('../core/session-publisher.js');
-    const { FilePublisher } = await import('../core/session-state.js');
     const publisher = getSessionPublisher();
-    runtime.publisherWasInstalled = publisher instanceof FilePublisher;
+    runtime.publisherWasInstalled = !(publisher instanceof NullPublisher);
     publisher.publish({
       type: 'stories:update',
       at: '2026-08-30T05:01:00Z',
@@ -119,33 +115,28 @@ describe('runExecute — standalone web monitoring', () => {
     await rm(runtime.dir, { recursive: true, force: true });
   });
 
-  it('creates no publisher, timer or session file when web monitoring is off', async () => {
-    expect(await runExecute(undefined, { issue: '75' })).toBe(0);
+  it('creates no publisher or monitor when web monitoring is off', async () => {
+    expect(await runExecute({ issue: '75' })).toBe(0);
 
     expect(runtime.publisherWasInstalled).toBe(false);
     expect(getSessionPublisher()).toBeInstanceOf(NullPublisher);
-    expect(existsSync(join(runtime.dir, 'session.json'))).toBe(false);
     expect(ensureWebMonitor).not.toHaveBeenCalled();
   });
 
-  it('owns a file publisher for direct execute --web and flushes its final snapshot', async () => {
+  it('owns a publisher for direct execute --web and releases it at the end', async () => {
     runtime.webEnabled = true;
 
-    expect(await runExecute(undefined, { issue: '75' })).toBe(0);
+    expect(await runExecute({ issue: '75' })).toBe(0);
 
     expect(runtime.publisherWasInstalled).toBe(true);
     expect(ensureWebMonitor).toHaveBeenCalledTimes(1);
     expect(getSessionPublisher()).toBeInstanceOf(NullPublisher);
-    const snapshot = JSON.parse(await readFile(join(runtime.dir, 'session.json'), 'utf-8'));
-    expect(snapshot.status).toBe('completed');
-    expect(snapshot.currentPhase).toBeNull();
-    expect(snapshot.stories.map((story: { id: string }) => story.id)).toEqual(['US-001']);
   });
 
   it('forwards the one-shot restart request only for direct execute monitoring', async () => {
     runtime.webEnabled = true;
 
-    expect(await runExecute(undefined, { issue: '75', restartWeb: true })).toBe(0);
+    expect(await runExecute({ issue: '75', restartWeb: true })).toBe(0);
 
     expect(ensureWebMonitor).toHaveBeenCalledWith(
       expect.objectContaining({ port: 3737, host: '127.0.0.1' }),

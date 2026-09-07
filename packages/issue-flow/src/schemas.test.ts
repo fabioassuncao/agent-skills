@@ -15,7 +15,8 @@ function validTaskPlan() {
     project: 'test',
     issueNumber: 1,
     issueUrl: 'https://github.com/test/test/issues/1',
-    branchName: 'issue/1-test',
+    branchName: 'feat/1-test',
+    noBranch: false,
     description: 'Test issue',
     issueStatus: 'pending' as const,
     completedAt: null,
@@ -23,8 +24,8 @@ function validTaskPlan() {
     lastError: null,
     correctionCycle: 0,
     maxCorrectionCycles: 3,
+    lastReviewFindings: null,
     pipeline: {
-      analyzeCompleted: false,
       prdCompleted: false,
       jsonCompleted: false,
       executionCompleted: false,
@@ -77,11 +78,10 @@ describe('taskPlanSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('defaults issueUrl to an empty string when absent', () => {
+  it('requires issueUrl, using an empty string for local issues', () => {
     const { issueUrl: _omitted, ...plan } = validTaskPlan();
-    const result = taskPlanSchema.safeParse(plan);
-    expect(result.success).toBe(true);
-    expect(result.success && result.data.issueUrl).toBe('');
+    expect(taskPlanSchema.safeParse(plan).success).toBe(false);
+    expect(taskPlanSchema.safeParse({ ...plan, issueUrl: '' }).success).toBe(true);
   });
 
   it('accepts a non-numeric local issueNumber', () => {
@@ -236,7 +236,6 @@ describe('userStorySchema', () => {
 describe('pipelineStateSchema', () => {
   it('validates correct pipeline state', () => {
     const result = pipelineStateSchema.safeParse({
-      analyzeCompleted: true,
       prdCompleted: false,
       jsonCompleted: false,
       executionCompleted: false,
@@ -248,8 +247,7 @@ describe('pipelineStateSchema', () => {
 
   it('rejects non-boolean values', () => {
     const result = pipelineStateSchema.safeParse({
-      analyzeCompleted: 'yes',
-      prdCompleted: false,
+      prdCompleted: 'yes',
       jsonCompleted: false,
       executionCompleted: false,
       reviewCompleted: false,
@@ -315,7 +313,7 @@ describe('sessionSnapshotSchema', () => {
       sessionId: 'abc',
       issueNumber: 22,
       issueUrl: 'https://github.com/test/test/issues/22',
-      branch: 'issue/22-test',
+      branch: 'feat/22-test',
       baseBranch: 'main',
       phases: ['init', 'prd', 'execute'],
       environment: { node: 'v22.0.0', platform: 'darwin', agent: null, model: null },
@@ -363,194 +361,6 @@ describe('sessionSnapshotSchema', () => {
   });
 });
 
-/**
- * Artifacts written by releases that predate the token/cost instrumentation.
- * Both must keep parsing: the metrics extension is additive, and an absent
- * field means "not reported", never zero.
- */
-describe('backwards compatibility with pre-metrics artifacts', () => {
-  /** A session.json exactly as the FilePublisher wrote it before the metrics. */
-  function legacySessionSnapshot() {
-    return {
-      schemaVersion: 1,
-      sessionId: 's-42',
-      readOnly: true,
-      capabilities: ['read'],
-      issue: { number: 42, url: 'https://github.com/acme/repo/issues/42' },
-      status: 'completed',
-      startedAt: '2026-07-01T10:00:00Z',
-      updatedAt: '2026-07-01T10:30:00Z',
-      endedAt: '2026-07-01T10:30:00Z',
-      elapsedSeconds: 1800,
-      estimatedRemainingSeconds: null,
-      progress: {
-        percent: 100,
-        phasesCompleted: 1,
-        phasesTotal: 1,
-        storiesCompleted: 1,
-        storiesTotal: 1,
-      },
-      currentPhase: null,
-      currentActivity: null,
-      phases: [
-        {
-          name: 'execute',
-          status: 'completed',
-          startedAt: '2026-07-01T10:00:00Z',
-          endedAt: '2026-07-01T10:30:00Z',
-          durationSeconds: 1800,
-          error: null,
-        },
-      ],
-      stories: [
-        {
-          id: 'US-001',
-          title: 'Legacy story',
-          priority: 1,
-          passes: true,
-          completedAt: '2026-07-01T10:30:00Z',
-        },
-      ],
-      execution: { iteration: 1, retries: 0, correctionCycle: 0, maxCorrectionCycles: 3 },
-      git: { branch: 'issue/42-legacy', baseBranch: 'main', commits: [] },
-      pullRequests: [],
-      logs: [],
-      errors: [],
-      warnings: [],
-      lastError: null,
-      nextSteps: [],
-      environment: null,
-    };
-  }
-
-  it('parses a session.json written before the metrics existed', () => {
-    const result = sessionSnapshotSchema.safeParse(legacySessionSnapshot());
-    expect(result.success).toBe(true);
-  });
-
-  it('fills the absent snapshot metrics with null, never with zeros', () => {
-    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
-
-    expect(snapshot.metrics).toEqual({
-      totalInputTokens: null,
-      totalOutputTokens: null,
-      totalCacheReadTokens: null,
-      totalCacheCreationTokens: null,
-      totalCostUsd: null,
-    });
-    expect(snapshot.phases[0]).toMatchObject({
-      inputTokens: null,
-      outputTokens: null,
-      cacheReadTokens: null,
-      cacheCreationTokens: null,
-      costUsd: null,
-      // The pre-existing fields are untouched.
-      durationSeconds: 1800,
-      harnessExecutionMs: null,
-      orchestrationOverheadMs: null,
-      harnessStartupMs: null,
-      ttftMs: null,
-      attemptCount: null,
-      retryDurationMs: null,
-    });
-    expect(snapshot.stories[0]).toMatchObject({
-      durationSeconds: null,
-      inputTokens: null,
-      costUsd: null,
-      completedAt: '2026-07-01T10:30:00Z',
-    });
-  });
-
-  it('fills the absent issue enrichment of an older session.json', () => {
-    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
-
-    expect(snapshot.issue).toEqual({
-      number: 42,
-      url: 'https://github.com/acme/repo/issues/42',
-      title: null,
-      description: null,
-      labels: [],
-      state: null,
-    });
-  });
-
-  it('fills the absent repository section of an older session.json', () => {
-    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
-
-    expect(snapshot.repository).toEqual({
-      name: null,
-      remoteUrl: null,
-      branch: null,
-      headCommit: null,
-      root: null,
-    });
-  });
-
-  it('fills the absent resilience projection of an older session.json', () => {
-    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
-
-    expect(snapshot.resilience).toEqual({
-      attempt: 0,
-      provider: null,
-      model: null,
-      lastFailureKind: null,
-      cooldownUntil: null,
-      lastActivityAt: null,
-    });
-  });
-
-  it('fills the absent story status and dependencies of an older session.json', () => {
-    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
-
-    expect(snapshot.stories[0]).toMatchObject({ status: 'backlog', dependencies: [] });
-  });
-
-  it('fills the absent story description and acceptance criteria of an older session.json', () => {
-    const snapshot = sessionSnapshotSchema.parse(legacySessionSnapshot());
-
-    // The panel's story drawer reads these directly: absent must resolve to an
-    // empty value, never to undefined reaching the DOM.
-    expect(snapshot.stories[0]).toMatchObject({ description: '', acceptanceCriteria: [] });
-  });
-
-  it('parses a tasks.json written before the metrics existed', () => {
-    const result = taskPlanSchema.safeParse(validTaskPlan());
-    expect(result.success).toBe(true);
-    // Optional by design: the story keeps exactly the keys it had on disk.
-    expect(result.success && Object.keys(result.data.userStories[0]!).sort()).toEqual([
-      'acceptanceCriteria',
-      'description',
-      'id',
-      'notes',
-      'passes',
-      'priority',
-      'title',
-    ]);
-  });
-
-  it('keeps the metrics of a story that does carry them', () => {
-    const plan = validTaskPlan();
-    plan.userStories[0] = {
-      ...plan.userStories[0]!,
-      inputTokens: 10,
-      outputTokens: 4,
-      cacheReadTokens: 500,
-      cacheCreationTokens: 1_200,
-      costUsd: 0.42,
-      durationSeconds: 90,
-    } as (typeof plan.userStories)[number];
-
-    const result = taskPlanSchema.safeParse(plan);
-
-    expect(result.success).toBe(true);
-    expect(result.success && result.data.userStories[0]).toMatchObject({
-      inputTokens: 10,
-      costUsd: 0.42,
-      durationSeconds: 90,
-    });
-  });
-});
-
 describe('webConfigSchema', () => {
   it('fills in the documented defaults for an empty object', () => {
     const result = webConfigSchema.parse({});
@@ -583,12 +393,8 @@ describe('webConfigSchema', () => {
 });
 
 describe('TaskPlan.runState (US-016)', () => {
-  it('is absent — not defaulted — in a plan written before it existed', () => {
+  it('is absent before execution starts', () => {
     const parsed = taskPlanSchema.parse(validTaskPlan());
-
-    // Absent means "this plan predates the field", which is a different
-    // statement from `idle`. Materialising a default here would make a plan
-    // from an older release indistinguishable from one that ran and idled.
     expect(parsed.runState).toBeUndefined();
     expect('runState' in parsed).toBe(false);
   });
@@ -608,18 +414,10 @@ describe('TaskPlan.runState (US-016)', () => {
     expect(parsed.runState).toEqual(runState);
   });
 
-  it('fills every field of a half-written state instead of invalidating the plan', () => {
-    // What a process killed mid-write leaves behind.
-    const parsed = taskPlanSchema.parse({ ...validTaskPlan(), runState: { status: 'paused' } });
-
-    expect(parsed.runState).toEqual({
-      status: 'paused',
-      currentPhase: null,
-      attempt: 0,
-      lastHeartbeatAt: null,
-      blockedReason: null,
-      owner: null,
-    });
+  it('rejects an incomplete state', () => {
+    expect(
+      taskPlanSchema.safeParse({ ...validTaskPlan(), runState: { status: 'paused' } }).success,
+    ).toBe(false);
   });
 
   it('accepts every status of the issue-level projection', () => {
@@ -632,9 +430,19 @@ describe('TaskPlan.runState (US-016)', () => {
       'blocked',
       'failed',
     ]) {
-      expect(taskPlanSchema.safeParse({ ...validTaskPlan(), runState: { status } }).success).toBe(
-        true,
-      );
+      expect(
+        taskPlanSchema.safeParse({
+          ...validTaskPlan(),
+          runState: {
+            status,
+            currentPhase: null,
+            attempt: 0,
+            lastHeartbeatAt: null,
+            blockedReason: null,
+            owner: null,
+          },
+        }).success,
+      ).toBe(true);
     }
   });
 
@@ -642,16 +450,33 @@ describe('TaskPlan.runState (US-016)', () => {
     // `completed` and `cancelled` live on `RunStatus`; on an issue the answer
     // is `issueStatus`, and two answers to one question is the bug.
     for (const status of ['completed', 'cancelled', 'queued']) {
-      expect(taskPlanSchema.safeParse({ ...validTaskPlan(), runState: { status } }).success).toBe(
-        false,
-      );
+      expect(
+        taskPlanSchema.safeParse({
+          ...validTaskPlan(),
+          runState: {
+            status,
+            currentPhase: null,
+            attempt: 0,
+            lastHeartbeatAt: null,
+            blockedReason: null,
+            owner: null,
+          },
+        }).success,
+      ).toBe(false);
     }
   });
 
   it('keeps the pipeline booleans untouched beside it', () => {
     const parsed = taskPlanSchema.parse({
       ...validTaskPlan(),
-      runState: { status: 'running' },
+      runState: {
+        status: 'running',
+        currentPhase: null,
+        attempt: 0,
+        lastHeartbeatAt: null,
+        blockedReason: null,
+        owner: null,
+      },
     });
 
     // PipelineManager reads these and nothing else; runState is additional

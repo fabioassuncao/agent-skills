@@ -2,12 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AgentRuntimeEvent } from './contract.js';
 import { type AgentControlServerHandle, startAgentControlServer } from './control-server.js';
 
-/**
- * ADR-10 applies here even though this is not a browser surface: it accepts
- * writes about a live run, so it binds to loopback and requires a bearer token.
- * The cases §23 of the absorption plan calls for — an invalid token answering
- * 401 among them — are the reason this file exists.
- */
 describe('startAgentControlServer', () => {
   const handles: AgentControlServerHandle[] = [];
   const received: AgentRuntimeEvent[] = [];

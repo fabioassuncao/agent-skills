@@ -72,8 +72,6 @@ describe('formatUsage', () => {
   });
 
   it('never renders a missing count as zero (U18)', () => {
-    // An old session.json has none of these fields. Nothing may reach the
-    // screen as `0 in / 0 out` or as NaN.
     const rendered = formatUsage({
       inputTokens: undefined,
       outputTokens: null,

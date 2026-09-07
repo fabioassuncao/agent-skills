@@ -10,8 +10,7 @@ a menu on `/`, it submits on an embedded newline, it debounces and drops. Loadin
 the text into a tmux buffer and pasting it delivers the whole block as one paste
 event the TUI already knows how to handle.
 
-§2.4 of the absorption plan calls this the best isolated artefact in the whole
-upstream, and it is.
+This is deliberately kept as an isolated terminal primitive.
 
 ## Invariants
 
@@ -80,8 +79,8 @@ runs a tmux *client*, and only tmux can change the size of the window it draws.
 `node-pty` is in `optionalDependencies` and is used when it works. It is probed
 with a **real spawn**, not a `require`, because the failure this exists for is a
 module that imports fine and then throws at `fork` — which is exactly what it
-does on the machine this was ported on (`posix_spawnp failed`). The `script` /
-`python3` wrapper is not a formality; it is the path that works.
+can do at runtime (`posix_spawnp failed`). The `script` / `python3` wrapper is
+the supported fallback.
 
 macOS uses `python3` unconditionally rather than probing, because its `script`
 has a different, incompatible interface.
@@ -100,9 +99,9 @@ the allowlist and the retry policy with it.
 
 ## `scrollback.ts`: numbered bytes
 
-The ring is the upstream's (1 MB). The **offsets are not**: §15 adds them so a
-reconnecting client can ask for the difference instead of receiving the whole
-buffer. A browser reconnects on `visibilitychange`, `focus` and `online`, so
+The ring is capped at 1 MB and includes monotonic offsets so a reconnecting
+client can ask for the difference instead of receiving the whole buffer. A
+browser reconnects on `visibilitychange`, `focus` and `online`, so
 switching tabs twice costs two megabytes and two full repaints without them.
 
 Eviction drops **whole chunks**. Splitting one risks cutting a multi-byte

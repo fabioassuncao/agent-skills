@@ -19,22 +19,6 @@ import { getProjectRootOf } from '../utils/git.js';
 import { detectActiveInstance, getWebLockFile } from '../web/lock.js';
 import { repositoryNeedsSetup } from '../web/projects-api.js';
 
-/**
- * `issue-flow project ls | add | rm | use`.
- *
- * PORT + ADAPT of `bin/src/project-commands.ts` @ d8c9d5f, with the one
- * adaptation §47.5 marks as mandatory: **these commands talk to SQLite, not to
- * a server.** The upstream CLI is a thin HTTP client and prints
- * "connection refused" when nothing is listening; here the registry is the
- * authority and the server is a *consumer* of it, so `project ls` has to work
- * on a laptop with nothing running (P12). A live server is told about the
- * change afterwards, best effort, purely so it starts serving a new project
- * without being restarted.
- *
- * `migrate` is deliberately absent: it folds old single-project WebMux servers
- * into one, and there has never been an Issue Flow server per project.
- */
-
 export interface ProjectCommandOptions {
   json?: boolean;
 }

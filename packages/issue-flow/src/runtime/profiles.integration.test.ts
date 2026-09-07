@@ -9,19 +9,6 @@ import { parseRuntimeProfiles, type RuntimeProfile } from './profiles.js';
 import { createTmuxGateway, type TmuxGateway } from './tmux/gateway.js';
 import { ensureSessionLayout, planSessionLayout } from './tmux/layout.js';
 
-/**
- * **C8** against a real tmux server: switching profile really does replace the
- * window's layout, and does it inside the §35 budget for `ensureSessionLayout`
- * (≤ 400 ms; the upstream measures 254 ms for the two-pane case).
- *
- * The colocated `profiles.characterization.test.ts` pins the *decisions* — which
- * tmux calls a switch makes and that the agent comes back on the same
- * conversation. This file answers the question a fake gateway cannot: after the
- * switch, does tmux itself report the new window?
- *
- * Everything runs on a throwaway socket, never `issue-flow`: a test that killed
- * windows on the real project socket would kill a real agent.
- */
 const socketName = `issue-flow-test-${randomUUID().slice(0, 8)}`;
 
 // Probed synchronously at module load: `it.runIf` is evaluated during
@@ -121,8 +108,6 @@ describe('C8 against a real tmux server', () => {
     );
   });
 
-  // §35: a profile switch is one `ensureSessionLayout`, so it answers to the
-  // same 400 ms ceiling as the layout it rebuilds.
   it.runIf(tmuxAvailable)('switches profile within the 400 ms budget', async () => {
     const samples: number[] = [];
     await ensureSessionLayout(tmux, planFor(requireProfile('default')));

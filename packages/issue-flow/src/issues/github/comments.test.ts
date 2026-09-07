@@ -39,8 +39,6 @@ beforeEach(() => {
   resetReviewCommentCache();
 });
 
-/* ── migrated from backend/src/__tests__/pr.test.ts ─────────────────────── */
-
 describe('parseReviewComments', () => {
   it('parses normal review comments', () => {
     const json = JSON.stringify([

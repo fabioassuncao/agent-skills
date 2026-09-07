@@ -9,14 +9,6 @@ import { sendPrompt } from '../runtime/terminal/input.js';
 import { createTmuxGateway, type TmuxGateway } from '../runtime/tmux/gateway.js';
 import { buildPaneCommand, buildTtyAgentArgv, renderShellCommand } from './tty.js';
 
-/**
- * **C4** and **C5** of §34, against a real shell and a real tmux server.
- *
- * The unit tests assert on the argv this project builds. These assert the thing
- * that actually matters afterwards: that a real `/bin/sh` parses the rendered
- * command back into exactly that argv, and that a prompt pasted through a tmux
- * buffer arrives whole in a pane with no buffer left behind.
- */
 const socketName = `issue-flow-tty-${randomUUID().slice(0, 8)}`;
 const tmuxAvailable = spawnSync('tmux', ['-V']).status === 0;
 

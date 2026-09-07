@@ -40,16 +40,7 @@ export const storyStageSchema = z.enum([
   'failed',
 ]);
 
-/**
- * The metrics fields are additive and optional: plans written before they
- * existed keep parsing, and nothing is filled in with artificial zeros.
- *
- * `status` and `dependencies` follow the same rule and are `.optional()` rather
- * than `.default()` on purpose: a legacy plan must not gain a `'backlog'` and an
- * empty array it never declared just because `saveTaskPlan` rewrote it. `stage`
- * and friends follow the exact same treatment — nothing in the pipeline writes
- * them back onto `tasks.json`, so they stay `.optional()` too.
- */
+/** Optional observations are omitted when they were not reported. */
 export const userStorySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -68,7 +59,6 @@ export const userStorySchema = z.object({
 });
 
 export const pipelineStateSchema = z.object({
-  analyzeCompleted: z.boolean().optional(),
   prdCompleted: z.boolean(),
   jsonCompleted: z.boolean(),
   executionCompleted: z.boolean(),
@@ -77,10 +67,7 @@ export const pipelineStateSchema = z.object({
   prReviewCompleted: z.boolean().optional(),
 });
 
-/**
- * Pull Request opened by the `pr` phase. Optional on the plan: plans written
- * before the field existed (and runs with `--no-branch`) simply omit it.
- */
+/** Pull Request opened by the `pr` phase. */
 export const pullRequestRefSchema = z.object({
   number: z.number().int().positive(),
   url: z.string(),
@@ -94,14 +81,10 @@ export const prReviewRecommendationSchema = z.enum([
   'REQUEST_CHANGES',
 ]);
 
-/**
- * State of the opt-in `pr-review` phase. `enabled` and `rounds` carry defaults
- * so a partially written object still parses instead of invalidating the plan.
- */
 export const prReviewStateSchema = z.object({
-  enabled: z.boolean().default(false),
+  enabled: z.boolean(),
   pullRequestNumber: z.number().int().positive().optional(),
-  rounds: z.number().int().min(0).default(0),
+  rounds: z.number().int().min(0),
   lastRecommendation: prReviewRecommendationSchema.optional(),
   lastReviewedAt: z.string().optional(),
 });
@@ -139,17 +122,9 @@ export const issueMetadataSchema = z.object({
 }) satisfies z.ZodType<IssueMetadata>;
 
 /**
- * tasks.json structure. Deliberately permissive: plans written by older
- * versions must keep loading, so `issueUrl` is optional (Issues with no remote
- * have no URL) and `issueNumber` accepts non-numeric local identifiers.
- */
-/**
  * `TaskPlan.runState`, written by the pipeline and read on resumption.
  *
- * Optional as a whole — a plan from before it existed has none — but every
- * field inside carries a default, so a partially written object (a process
- * killed mid-write) still parses into a usable state instead of invalidating
- * the plan. That is the same discipline `prReviewStateSchema` follows.
+ * Optional as a whole because a plan has no active run before execution starts.
  */
 export const runOwnerSchema = z.object({
   pid: z.number().int().positive(),
@@ -158,14 +133,12 @@ export const runOwnerSchema = z.object({
 });
 
 export const issueRunStateSchema = z.object({
-  status: z
-    .enum(['idle', 'running', 'waiting', 'retrying', 'paused', 'blocked', 'failed'])
-    .default('idle'),
-  currentPhase: z.string().nullable().default(null),
-  attempt: z.number().int().min(0).default(0),
-  lastHeartbeatAt: z.string().nullable().default(null),
-  blockedReason: z.string().nullable().default(null),
-  owner: runOwnerSchema.nullable().default(null),
+  status: z.enum(['idle', 'running', 'waiting', 'retrying', 'paused', 'blocked', 'failed']),
+  currentPhase: z.string().nullable(),
+  attempt: z.number().int().min(0),
+  lastHeartbeatAt: z.string().nullable(),
+  blockedReason: z.string().nullable(),
+  owner: runOwnerSchema.nullable(),
 });
 
 const failureKindSchema = z.enum([
@@ -326,9 +299,9 @@ export const taskPlanSchema = z.object({
   issueClosedAt: z.string().optional(),
   project: z.string(),
   issueNumber: z.union([z.number().int().positive(), z.string().min(1)]),
-  issueUrl: z.string().optional().default(''),
+  issueUrl: z.string(),
   branchName: z.string(),
-  noBranch: z.boolean().optional().default(false),
+  noBranch: z.boolean(),
   description: z.string(),
   issueStatus: z.enum(['pending', 'in_progress', 'completed']),
   completedAt: z.string().nullable(),
@@ -342,22 +315,13 @@ export const taskPlanSchema = z.object({
    * already true — the execute phase must address these before the field is
    * cleared back to null. See core/engine.ts's early-return guards.
    */
-  lastReviewFindings: z.string().nullable().optional().default(null),
+  lastReviewFindings: z.string().nullable(),
   pipeline: pipelineStateSchema,
-  /**
-   * Where the run stands right now. Purely additive: absent in every plan
-   * written before it, and absent is not the same as `idle` — it means the
-   * plan predates the field, which is why there is no `.default()` here.
-   */
+  /** Where the run stands right now; absent before a run has started. */
   runState: issueRunStateSchema.optional(),
   pullRequest: pullRequestRefSchema.optional(),
   prReview: prReviewStateSchema.optional(),
   userStories: z.array(userStorySchema),
-  /**
-   * Per-invocation history. `.optional()` and no `.default([])`: a plan that
-   * predates the field must not grow an empty array just because it was saved.
-   */
-  executions: z.array(executionRecordSchema).optional(),
 });
 
 export const headlessResultSchema = z.object({
@@ -378,16 +342,13 @@ const sessionLogEntrySchema = z.object({
  * Unlike claudeUsageSchema (a single invocation, optional fields), these are
  * always present and nullable: null means "never reported", not zero.
  *
- * They default to null on input so a session.json written before the metrics
- * existed still parses -- absent and null mean the same thing here, and the
- * parsed value keeps the `number | null` shape the snapshot interface declares.
  */
 const sessionUsageShape = {
-  inputTokens: z.number().nullable().default(null),
-  outputTokens: z.number().nullable().default(null),
-  cacheReadTokens: z.number().nullable().default(null),
-  cacheCreationTokens: z.number().nullable().default(null),
-  costUsd: z.number().nullable().default(null),
+  inputTokens: z.number().nullable(),
+  outputTokens: z.number().nullable(),
+  cacheReadTokens: z.number().nullable(),
+  cacheCreationTokens: z.number().nullable(),
+  costUsd: z.number().nullable(),
 };
 
 const sessionPhaseSchema = z.object({
@@ -397,12 +358,12 @@ const sessionPhaseSchema = z.object({
   endedAt: z.string().nullable(),
   durationSeconds: z.number().nullable(),
   error: z.string().nullable(),
-  harnessExecutionMs: z.number().nullable().default(null),
-  orchestrationOverheadMs: z.number().nullable().default(null),
-  harnessStartupMs: z.number().nullable().default(null),
-  ttftMs: z.number().nullable().default(null),
-  attemptCount: z.number().nullable().default(null),
-  retryDurationMs: z.number().nullable().default(null),
+  harnessExecutionMs: z.number().nullable(),
+  orchestrationOverheadMs: z.number().nullable(),
+  harnessStartupMs: z.number().nullable(),
+  ttftMs: z.number().nullable(),
+  attemptCount: z.number().nullable(),
+  retryDurationMs: z.number().nullable(),
   ...sessionUsageShape,
 });
 
@@ -412,33 +373,21 @@ const sessionStorySchema = z.object({
   priority: z.number(),
   passes: z.boolean(),
   completedAt: z.string().nullable(),
-  // Also introduced with the metrics, hence the same tolerant default.
-  durationSeconds: z.number().nullable().default(null),
-  // Snapshot fields are always present on output and defaulted on input, so a
-  // session.json written before they existed still parses. This is the mirror
-  // image of userStorySchema, where the same two fields are plainly optional.
-  status: userStoryStatusSchema.default('backlog'),
-  dependencies: z.array(z.string()).default([]),
-  // Published for the panel's story detail view. Same tolerant default as the
-  // fields above: absent (older session.json) and empty resolve to the same
-  // value, so the client never has to tell them apart.
-  description: z.string().default(''),
-  acceptanceCriteria: z.array(z.string()).default([]),
-  // Additive like the rest of this schema: a session.json written before
-  // `stage` existed parses into 'pending'/null, the same values a fresh
-  // snapshot starts a story at.
-  stage: storyStageSchema.default('pending'),
-  stageSince: z.string().nullable().default(null),
-  stageDetail: z.string().nullable().default(null),
-  history: z
-    .array(
-      z.object({
-        at: z.string(),
-        stage: storyStageSchema,
-        detail: z.string().nullable(),
-      }),
-    )
-    .default([]),
+  durationSeconds: z.number().nullable(),
+  status: userStoryStatusSchema,
+  dependencies: z.array(z.string()),
+  description: z.string(),
+  acceptanceCriteria: z.array(z.string()),
+  stage: storyStageSchema,
+  stageSince: z.string().nullable(),
+  stageDetail: z.string().nullable(),
+  history: z.array(
+    z.object({
+      at: z.string(),
+      stage: storyStageSchema,
+      detail: z.string().nullable(),
+    }),
+  ),
   ...sessionUsageShape,
 });
 
@@ -463,17 +412,12 @@ const sessionConfigurationSchema = z.object({
 });
 
 /**
- * Session snapshot served by the web monitoring mode (session.json and the
- * HTTP endpoint). `satisfies` keeps this schema in lockstep with the
+ * Session snapshot served by the web monitoring HTTP endpoint. `satisfies`
+ * keeps this schema in lockstep with the
  * SessionSnapshot interface in src/core/session-state.ts — changing one
  * without the other fails the typecheck.
  */
-/**
- * Whether an agent's own hooks report its lifecycle, and where the artifacts
- * live. Off means the pipeline never writes into the working tree's `.claude/`
- * or `.codex/` — the behaviour every release before phase 2 of the WebMux
- * absorption had.
- */
+
 export const agentHooksConfigSchema = z.object({
   enabled: z.boolean().default(true),
 });
@@ -488,12 +432,10 @@ export const sessionSnapshotSchema = z.object({
   issue: z.object({
     number: z.number().nullable(),
     url: z.string().nullable(),
-    // Additive: a session.json written before the Issue section was enriched
-    // parses into the same "not reported" values createInitialSnapshot() uses.
-    title: z.string().nullable().default(null),
-    description: z.string().nullable().default(null),
-    labels: z.array(z.string()).default([]),
-    state: z.string().nullable().default(null),
+    title: z.string().nullable(),
+    description: z.string().nullable(),
+    labels: z.array(z.string()),
+    state: z.string().nullable(),
   }),
   status: z.enum(['idle', 'running', 'completed', 'failed']),
   startedAt: z.string().nullable(),
@@ -519,133 +461,86 @@ export const sessionSnapshotSchema = z.object({
     .nullable(),
   phases: z.array(sessionPhaseSchema),
   stories: z.array(sessionStorySchema),
-  // The whole aggregate is additive: a snapshot from before it existed parses
-  // into the same "nothing reported" object the reducer starts from.
-  metrics: z
-    .object({
-      totalInputTokens: z.number().nullable().default(null),
-      totalOutputTokens: z.number().nullable().default(null),
-      totalCacheReadTokens: z.number().nullable().default(null),
-      totalCacheCreationTokens: z.number().nullable().default(null),
-      totalCostUsd: z.number().nullable().default(null),
-    })
-    .default({
-      totalInputTokens: null,
-      totalOutputTokens: null,
-      totalCacheReadTokens: null,
-      totalCacheCreationTokens: null,
-      totalCostUsd: null,
-    }),
+  metrics: z.object({
+    totalInputTokens: z.number().nullable(),
+    totalOutputTokens: z.number().nullable(),
+    totalCacheReadTokens: z.number().nullable(),
+    totalCacheCreationTokens: z.number().nullable(),
+    totalCostUsd: z.number().nullable(),
+  }),
   execution: z.object({
     iteration: z.number(),
     retries: z.number(),
     correctionCycle: z.number(),
     maxCorrectionCycles: z.number().nullable(),
   }),
-  executions: z.array(executionRecordSchema).default([]),
-  processLogs: z
-    .array(
-      z.object({
-        at: z.string(),
-        phase: z.string(),
-        executionId: z.string().nullable(),
-        provider: z.string(),
-        stream: z.enum(['stdout', 'stderr', 'combined']),
-        message: z.string(),
-      }),
-    )
-    .default([]),
-  configuration: sessionConfigurationSchema.nullable().default(null),
-  // Additive resilience projection. Every field defaults so session.json from
-  // before provider failover/observability remains readable without a schema
-  // version bump.
-  resilience: z
-    .object({
-      attempt: z.number().int().nonnegative().default(0),
-      provider: z.string().nullable().default(null),
-      model: z.string().nullable().default(null),
-      lastFailureKind: z
-        .enum([
-          'network',
-          'timeout',
-          'stalled',
-          'rate_limit',
-          'provider_down',
-          'provider_crash',
-          'authentication',
-          'configuration',
-          'repository_state',
-          'task_execution',
-          'internal',
-          'unknown',
-        ])
-        .nullable()
-        .default(null),
-      cooldownUntil: z.string().nullable().default(null),
-      lastActivityAt: z.string().nullable().default(null),
-    })
-    .default({
-      attempt: 0,
-      provider: null,
-      model: null,
-      lastFailureKind: null,
-      cooldownUntil: null,
-      lastActivityAt: null,
+  executions: z.array(executionRecordSchema),
+  processLogs: z.array(
+    z.object({
+      at: z.string(),
+      phase: z.string(),
+      executionId: z.string().nullable(),
+      provider: z.string(),
+      stream: z.enum(['stdout', 'stderr', 'combined']),
+      message: z.string(),
     }),
+  ),
+  configuration: sessionConfigurationSchema.nullable(),
+  resilience: z.object({
+    attempt: z.number().int().nonnegative(),
+    provider: z.string().nullable(),
+    model: z.string().nullable(),
+    lastFailureKind: z
+      .enum([
+        'network',
+        'timeout',
+        'stalled',
+        'rate_limit',
+        'provider_down',
+        'provider_crash',
+        'authentication',
+        'configuration',
+        'repository_state',
+        'task_execution',
+        'internal',
+        'unknown',
+      ])
+      .nullable(),
+    cooldownUntil: z.string().nullable(),
+    lastActivityAt: z.string().nullable(),
+  }),
   git: z.object({
     branch: z.string().nullable(),
     baseBranch: z.string().nullable(),
-    branchCreated: z.boolean().nullable().default(null),
-    startCommit: z.string().nullable().default(null),
+    branchCreated: z.boolean().nullable(),
+    startCommit: z.string().nullable(),
     commits: z.array(
       z.object({
         hash: z.string(),
         subject: z.string(),
-        committedAt: z.string().nullable().default(null),
-        storyId: z.string().nullable().default(null),
+        committedAt: z.string().nullable(),
+        storyId: z.string().nullable(),
       }),
     ),
   }),
-  // Additive like the metrics aggregate: a session.json written before the
-  // repository section existed parses into the same all-null object
-  // createInitialSnapshot() starts from.
-  repository: z
-    .object({
-      name: z.string().nullable().default(null),
-      remoteUrl: z.string().nullable().default(null),
-      branch: z.string().nullable().default(null),
-      headCommit: z.string().nullable().default(null),
-      root: z.string().nullable().default(null),
-    })
-    .default({ name: null, remoteUrl: null, branch: null, headCommit: null, root: null }),
-  // Additive like the resilience projection: a snapshot written before agent
-  // hooks existed parses into the same "never reported" object the reducer
-  // starts from, so no schema version bump is needed to keep reading it.
-  agent: z
-    .object({
-      lifecycle: z.enum(['busy', 'awaiting-input']).nullable().default(null),
-      since: z.string().nullable().default(null),
-      phase: z.string().nullable().default(null),
-      awaitingInputCount: z.number().int().nonnegative().default(0),
-      // Additive within the additive section: a session.json written before
-      // the §32 escalation existed parses as "never escalated" rather than
-      // failing, so schemaVersion stays 1.
-      awaitingInputEscalatedAt: z.string().nullable().default(null),
-      awaitingInputWaitedMs: z.number().nonnegative().nullable().default(null),
-      humanHold: z
-        .object({ since: z.string(), reason: z.enum(['takeover', 'requested']) })
-        .nullable()
-        .default(null),
-    })
-    .default({
-      lifecycle: null,
-      since: null,
-      phase: null,
-      awaitingInputCount: 0,
-      awaitingInputEscalatedAt: null,
-      awaitingInputWaitedMs: null,
-      humanHold: null,
-    }),
+  repository: z.object({
+    name: z.string().nullable(),
+    remoteUrl: z.string().nullable(),
+    branch: z.string().nullable(),
+    headCommit: z.string().nullable(),
+    root: z.string().nullable(),
+  }),
+  agent: z.object({
+    lifecycle: z.enum(['busy', 'awaiting-input']).nullable(),
+    since: z.string().nullable(),
+    phase: z.string().nullable(),
+    awaitingInputCount: z.number().int().nonnegative(),
+    awaitingInputEscalatedAt: z.string().nullable(),
+    awaitingInputWaitedMs: z.number().nonnegative().nullable(),
+    humanHold: z
+      .object({ since: z.string(), reason: z.enum(['takeover', 'requested']) })
+      .nullable(),
+  }),
   pullRequests: z.array(z.object({ number: z.number(), url: z.string(), title: z.string() })),
   logs: z.array(sessionLogEntrySchema),
   errors: z.array(sessionLogEntrySchema),
@@ -656,23 +551,18 @@ export const sessionSnapshotSchema = z.object({
     .object({
       node: z.string(),
       platform: z.string(),
-      agent: z.string().nullable().default(null),
-      model: z.string().nullable().default(null),
-      // Additive, like agent/model: a session written before the version was
-      // recorded parses as "not reported" instead of failing validation.
-      cliVersion: z.string().nullable().default(null),
+      agent: z.string().nullable(),
+      model: z.string().nullable(),
+      cliVersion: z.string().nullable(),
     })
     .nullable(),
-  // Additive: a session.json written before the acceptance contract existed
-  // parses as "not reported". schemaVersion stays 1.
   verification: z
     .object({
       verdict: z.enum(['passed', 'failed', 'unverified']).nullable(),
       level: z.string().nullable(),
       independence: z.string().nullable(),
     })
-    .nullable()
-    .default(null),
+    .nullable(),
 }) satisfies z.ZodType<SessionSnapshot>;
 
 /**
@@ -729,15 +619,6 @@ export const linkedRepoSchema = z.object({
   dir: z.string().min(1).optional(),
 });
 
-/**
- * Resolved GitHub integration configuration (the `github` key of
- * .issue-flow.json).
- *
- * Both fields default to the behaviour of releases without linked
- * repositories: no sibling repository is queried, and the display sync uses
- * WebMux's measured ten-second interval — which only ever runs while something
- * is actually watching, because the monitor is activity-gated.
- */
 export const githubConfigSchema = z.object({
   linkedRepos: z.array(linkedRepoSchema).default([]),
   syncIntervalMs: z.number().int().min(1_000).default(10_000),
@@ -777,16 +658,7 @@ export const verifyConfigSchema = z.object({
   crossVerify: z.boolean().default(true),
 });
 
-/**
- * The `run` key of .issue-flow.json.
- *
- * `autoClose` is the option §17 absorbs from `webmux oneshot`
- * (`meta.oneshot.autoCloseOnDone`): once the run is over, close what it left
- * open. It defaults to `false` — upstream defaults it on because a oneshot
- * *is* the session it would close, while `run` has always left its sessions in
- * place, and an option added to an existing command must not change what the
- * command already did.
- */
+/** The `run` key of .issue-flow.json. */
 export const runConfigSchema = z.object({
   autoClose: z.boolean().default(false),
 });

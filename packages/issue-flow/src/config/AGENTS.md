@@ -71,8 +71,3 @@ file. `cachedAgentConfig` invalidation stays next to `setAgentCliOverrides` in
 4. Add `src/config/<name>.test.ts` colocated with the loader.
 5. Document the new env / JSON keys in `docs/configuration.md`.
 6. Keep the file under ~350 lines; keep the façade under ~150 lines.
-
-## Deprecations
-
-`WEB_CONFIG_FILENAME` on the façade is `@deprecated` — use
-`PROJECT_CONFIG_FILENAME`.

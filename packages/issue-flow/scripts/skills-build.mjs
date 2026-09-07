@@ -181,7 +181,7 @@ export async function sync() {
     await mkdir(dirname(dest), { recursive: true });
     await writeFile(dest, bytes);
   }
-  // Remove now-empty source/legacy directories, never follow links.
+  // Remove now-empty source or artifact directories, never follow links.
   async function prune(root) {
     for (const entry of await readdir(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;

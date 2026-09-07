@@ -10,7 +10,7 @@ type AtomicWriteFs = Pick<typeof fsp, 'mkdir' | 'writeFile' | 'rename' | 'copyFi
  *
  * A crash mid-write leaves the previous content untouched instead of a
  * truncated file, which matters for every artifact the pipeline reloads on the
- * next run (tasks.json, metadata.json, session.json).
+ * next run (tasks.json and metadata.json).
  *
  * The temp file sits beside the target so rename stays on one filesystem; on
  * EXDEV (cross-device rename) it falls back to copy + unlink. The destination

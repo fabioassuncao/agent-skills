@@ -4,23 +4,6 @@ import { type PolicyConfig, resolvePolicy } from '../../resilience/policy.js';
 import type { RetryPolicyFor } from '../../resilience/retry.js';
 import { type ExecResult, run } from '../../utils/shell.js';
 
-/**
- * The single `gh` invocation point of the Issue Flow GitHub integration.
- *
- * WebMux spawns `gh` from four different services, each rebuilding its own
- * timeout race. Here every call goes through `run()` — the project's shell
- * chokepoint — with argv, never a shell string, and carries the resilience
- * policy of the failure it actually hits (§45.3: the retry taxonomy is a
- * guarantee the port must not lose).
- */
-
-/**
- * Hard ceiling for a `gh` call, matching WebMux's `GH_TIMEOUT_MS`.
- *
- * WebMux races `proc.exited` against `Bun.sleep` and kills the child; execa's
- * `timeout` does the same thing, and `run()` reports the timeout as a
- * classified failure instead of a bare non-zero exit.
- */
 export const GH_TIMEOUT_MS = 15_000;
 
 /**

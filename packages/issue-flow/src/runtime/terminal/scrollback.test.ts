@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SCROLLBACK_BYTES, Scrollback } from './scrollback.js';
 
-/**
- * The scrollback ring, plus the sequence offsets §15 requires the upstream does
- * not have. The upstream replays its whole 1 MB buffer on every reconnect, and a
- * browser reconnects on `visibilitychange`, `focus` and `online`.
- */
 describe('Scrollback', () => {
-  it('keeps the upstream ring size', () => {
+  it('keeps the configured ring size', () => {
     expect(MAX_SCROLLBACK_BYTES).toBe(1024 * 1024);
   });
 

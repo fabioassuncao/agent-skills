@@ -70,7 +70,8 @@ function makePlan(overrides?: Partial<TaskPlan>): TaskPlan {
     project: 'test',
     issueNumber: 42,
     issueUrl: 'https://github.com/acme/repo/issues/42',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
+    noBranch: false,
     description: 'Test plan',
     issueStatus: 'completed',
     completedAt: '2026-01-02T00:00:00Z',
@@ -214,7 +215,7 @@ describe('runReview — persisting review outcome to tasks.json', () => {
     expect(tasksPath.startsWith(globalHome)).toBe(true);
     expect(String(headlessOptions.last?.prompt)).toContain(tasksPath);
     expect(headlessOptions.last?.addDirs).toEqual([issueDir]);
-    // Nothing was written under the legacy tree.
+    // No repository-local duplicate was written.
     await expect(readFile(join(tmpDir, 'issues', '42', 'tasks.json'), 'utf-8')).rejects.toThrow();
   });
 

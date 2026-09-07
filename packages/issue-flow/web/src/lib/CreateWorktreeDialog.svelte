@@ -15,19 +15,7 @@
   } from './types';
   import { readStored, writeStored } from './utils';
 
-  /**
-   * ADAPT of `frontend/src/lib/CreateWorktreeDialog.svelte` @ d8c9d5f (529 lines).
-   *
-   * Everything about creating a worktree is the upstream's — new or existing
-   * branch, base branch, profile, one or several agents, prompt, startup env,
-   * and the remembered defaults. Linear pickup lives in `LinearPanel`/the
-   * headless auto-create loop instead of adding a second ticket selector here;
-   * the Issue Flow addition of §48.3 is an **optional** issue to link.
-   *
-   * Optional is the whole point (ADR-16 / ADR-17): a free session opens with no
-   * issue, no plan and no workflow, in one click. Nothing here may become
-   * required, and `canSubmit` must never depend on `issueRef`.
-   */
+
 
   let {
     profiles = [],

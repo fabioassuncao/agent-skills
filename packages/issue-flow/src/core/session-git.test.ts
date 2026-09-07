@@ -4,7 +4,7 @@ import { MemoryPublisher, NullPublisher } from './session-state.js';
 
 function makeSources(overrides?: Partial<GitStateSources>): GitStateSources {
   return {
-    currentBranch: async () => 'issue/22-test',
+    currentBranch: async () => 'feat/22-test',
     baseBranch: async () => 'main',
     commitsSince: async () => [{ hash: 'abc1234', subject: 'feat: US-001' }],
     pullRequests: async () => [{ number: 30, url: 'https://example.com/30', title: 'PR' }],
@@ -23,14 +23,14 @@ describe('publishGitState', () => {
 
     const snap = publisher.snapshot();
     expect(publisher.version()).toBe(1);
-    expect(snap.git.branch).toBe('issue/22-test');
+    expect(snap.git.branch).toBe('feat/22-test');
     expect(snap.git.baseBranch).toBe('main');
     expect(snap.git.commits).toEqual([{ hash: 'abc1234', subject: 'feat: US-001' }]);
     expect(snap.pullRequests).toEqual([{ number: 30, url: 'https://example.com/30', title: 'PR' }]);
   });
 
   it('short-circuits with the NullPublisher before touching any source', async () => {
-    const currentBranch = vi.fn(async () => 'issue/22-test');
+    const currentBranch = vi.fn(async () => 'feat/22-test');
     await publishGitState(new NullPublisher(), makeSources({ currentBranch }));
     expect(currentBranch).not.toHaveBeenCalled();
   });
@@ -59,7 +59,7 @@ describe('publishGitState', () => {
       name: 'acme/repo',
       remoteUrl: 'git@github.com:acme/repo.git',
       // The same publication feeds git.branch and repository.branch.
-      branch: 'issue/22-test',
+      branch: 'feat/22-test',
       headCommit: 'c56b163',
       root: '/repo/root',
     });
@@ -88,7 +88,7 @@ describe('publishGitState', () => {
     expect(publisher.snapshot().repository).toMatchObject({
       name: null,
       remoteUrl: null,
-      branch: 'issue/22-test',
+      branch: 'feat/22-test',
       headCommit: 'c56b163',
       root: '/repo/root',
     });
@@ -124,7 +124,7 @@ describe('publishGitState', () => {
       headCommit: null,
       root: '/repo/root',
     });
-    expect(publisher.snapshot().git.branch).toBe('issue/22-test');
+    expect(publisher.snapshot().git.branch).toBe('feat/22-test');
   });
 
   it('passes the resolved base branch to commitsSince', async () => {

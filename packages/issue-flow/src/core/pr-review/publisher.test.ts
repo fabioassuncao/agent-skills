@@ -18,7 +18,7 @@ function makeReport(overrides?: Partial<PrReviewReport>): PrReviewReport {
       number: 184,
       url: 'https://github.com/acme/repo/pull/184',
       title: 'Add the pr-review phase',
-      headBranch: 'issue/25-pr-review-phase',
+      headBranch: 'feat/25-pr-review-phase',
     },
     round: 1,
     at: '2026-08-03T21:00:00Z',

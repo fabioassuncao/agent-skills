@@ -25,20 +25,7 @@
   import { formatClock } from './format';
   import type { PrEntry } from './types';
 
-  /**
-   * "Review" — I6, and the §50.3 merge that has to happen on **one** screen.
-   *
-   * The two products each had half of it: the Issue Flow knows what its own
-   * independent reviewer concluded, and WebMux knows what people wrote on the
-   * pull request. §50.2's decision for the row is `M` — *one* panel with both —
-   * and this is it. Two tabs would have been the two interfaces again.
-   *
-   * The reviewer's half is read from the executions the pipeline recorded, and
-   * a verdict nobody reached shows as `—`: the same rule U21 states for
-   * verification, applied to a review. The pull-request half is read from the
-   * entries the display sync of §20 observed; without that sync the section
-   * says so instead of pretending the pull request has no comments.
-   */
+
 
   let {
     snapshot = null,

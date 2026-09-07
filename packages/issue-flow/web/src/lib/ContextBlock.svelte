@@ -4,20 +4,7 @@
   import { record } from './snapshot';
   import { configSourceLabel } from './vocabulary';
 
-  /**
-   * "Contexto" — the second of the four blocks (U7).
-   *
-   * PORT of `renderIssueSummary`, `renderRepository` and `renderConfiguration`.
-   * The whole block runs one step down in size (`--font-size-md`): it is
-   * reference, not state — what you read when "Estado agora" was not enough.
-   *
-   * **§50.3 merge.** The *reading* of the effective configuration stays here,
-   * because it describes this execution. The *writing* — the two preference
-   * forms — moved into `SettingsDialog`, which is the one settings surface in
-   * the product; this block links to it instead of growing a second one. The
-   * link only exists when `/api/health` announced the capability, which is also
-   * the only thing that decides whether the forms exist at all (ADR-10, U8).
-   */
+
 
   let {
     snapshot,

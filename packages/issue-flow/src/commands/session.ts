@@ -21,27 +21,6 @@ import { buildProjectSessionName, buildWorktreeWindowName } from '../runtime/tmu
 import { findLatestRunIdForIssue } from '../storage/db/repository.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
 
-/**
- * `issue-flow session new | ls | attach | send | stop | link`.
- *
- * The CLI half of §49: an agent, on a branch, in a worktree, with **no issue,
- * no plan and no workflow behind it**. It is the command that makes ADR-16 a
- * feature rather than a nullable column — everything else in this project
- * starts from an Issue, and this is the one entry point that does not.
- *
- * ADAPT of `bin/src/worktree-commands.ts` @ d8c9d5f (`add` / `open` / `send` /
- * `close`), with the same adaptation `project` needed and for the same reason
- * (§47.5): **the upstream CLI is an HTTP client and this one is not.** `webmux
- * worktree add` prints a connection error with no server running; here the
- * database is the authority and the server is a consumer of it, so every
- * subcommand except `attach` works on a laptop with nothing listening.
- *
- * `link` has no upstream counterpart. It is the promotion §49.2 describes: the
- * session that was opened to poke at something turns out to be the work on
- * issue 42, and pointing its `run_id` at that run is the whole of it. It never
- * creates the run — see `linkSessionToRun`.
- */
-
 export interface SessionCommandOptions {
   json?: boolean;
 }
@@ -122,13 +101,6 @@ function parsePermission(raw: string | undefined): AgentPermission | null {
   return PERMISSIONS.includes(raw as AgentPermission) ? (raw as AgentPermission) : null;
 }
 
-/**
- * `issue-flow session new`.
- *
- * The default permission is `workspace`, not `autonomous`: a session opened by
- * a person is a person's session, and the three semantic levels (§45.2-L) are
- * exactly what this project has instead of the upstream's `yolo` boolean.
- */
 export async function runSessionNew(
   options: SessionNewOptions = {},
   deps: SessionCommandDeps = {},
@@ -391,19 +363,6 @@ export interface SessionLinkOptions extends SessionTargetOptions {
   run?: string;
 }
 
-/**
- * `issue-flow session link <id> --issue 42`.
- *
- * The promotion of §49.2: a session that started with nothing behind it becomes
- * the session of a run. Everything that carries its history stays — the same
- * row, the same conversation, the same branch and the same pane — so the agent
- * does not lose a word of what it already knows.
- *
- * It refuses when the issue has no run rather than creating one. A free session
- * that could conjure an execution into being would be a free session starting
- * the pipeline, which §49.2 forbids in as many words, and the error names the
- * command that does start one.
- */
 export async function runSessionLink(
   id: string,
   options: SessionLinkOptions = {},

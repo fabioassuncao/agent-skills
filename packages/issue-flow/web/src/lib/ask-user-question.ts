@@ -1,18 +1,5 @@
 import type { AskUserQuestionInput, AskUserQuestionItem, AskUserQuestionOption } from './types';
 
-/**
- * PORT of `frontend/src/lib/ask-user-question.ts` @ d8c9d5f (74 lines).
- *
- * This is human-in-the-loop already built (§48.1 marks it a priority port): the
- * agent calls an `AskUserQuestion` tool, the backend forwards its compact JSON
- * verbatim, and this turns it into something clickable.
- *
- * The parser returns `null` on **any** shape mismatch rather than salvaging
- * part of the payload — a half-parsed question renders options the agent did
- * not offer, and the caller's fallback (render it as a plain tool call) is
- * strictly better than a plausible wrong answer.
- */
-
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
 
 function isRecord(value: unknown): value is Record<string, unknown> {

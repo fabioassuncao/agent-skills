@@ -4,15 +4,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadRuntimeConfig, parseStartupEnv, setRuntimeCliOverrides } from './runtime.js';
 
-/**
- * Adapted from the `loadConfig` cases of WebMux
- * `backend/src/__tests__/setup.test.ts` @ d8c9d5f. The upstream reads two YAML
- * files; here the same shapes arrive through `.issue-flow.json` and the
- * project's own precedence ladder, so what carries over is the *behaviour* being
- * asserted — profile overlay by name, a tolerant parse, a usable default — not
- * the file format.
- */
-
 const dirs: string[] = [];
 
 afterEach(async () => {
@@ -52,7 +43,7 @@ describe('loadRuntimeConfig', () => {
         profiles: {
           default: {
             runtime: 'host',
-            yolo: true,
+            permission: 'autonomous',
             envPassthrough: ['GITHUB_TOKEN'],
             panes: [{ id: 'agent', kind: 'agent', focus: true }],
           },
@@ -71,7 +62,6 @@ describe('loadRuntimeConfig', () => {
     expect(config.profile).toBe('sandbox');
     expect(config.profiles.default?.permission).toBe('autonomous');
     expect(config.profiles.default?.envPassthrough).toEqual(['GITHUB_TOKEN']);
-    // Not declared, inferred from the name — the upstream's one special case.
     expect(config.profiles.sandbox?.runtime).toBe('docker');
     expect(config.profiles.sandbox?.image).toBe('issue-flow-sandbox');
     expect(config.services).toEqual([{ name: 'API', portEnv: 'API_PORT', portStart: 4100 }]);
@@ -188,7 +178,7 @@ describe('loadRuntimeConfig', () => {
 });
 
 describe('parseStartupEnv', () => {
-  it('stringifies booleans and numbers, as the upstream does at the point of use', () => {
+  it('stringifies booleans and numbers at the point of use', () => {
     expect(parseStartupEnv({ A: true, B: 3, C: 'x' }, silent)).toEqual({
       A: 'true',
       B: '3',

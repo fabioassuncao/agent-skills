@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim
 
-# The default sandbox image (phase 13, §14 stage 2).
+# The default sandbox image.
 #
 # What an agent needs to take an issue to a Pull Request and nothing else: a
 # shell, git, the GitHub CLI, Node.js, a C toolchain for native npm modules, and

@@ -2,14 +2,7 @@
   import BaseDialog from './BaseDialog.svelte';
   import Btn from './Btn.svelte';
 
-  /**
-   * PORT of `frontend/src/lib/WorktreeLabelDialog.svelte` @ d8c9d5f (66 lines).
-   *
-   * `currentLabel` starts as `null` rather than as the initial value so
-   * "untouched" is distinguishable from "cleared to empty": `canSave` compares
-   * the normalised strings, and without the third state a dialog opened and
-   * closed would look like an edit.
-   */
+
 
   let {
     branch,

@@ -1,19 +1,5 @@
 import { run } from '../../utils/shell.js';
 
-/**
- * Pinning a UTF-8 locale for every tmux command.
- *
- * Ported from WebMux `backend/src/adapters/tmux.ts` @ d8c9d5f
- * (`chooseUtf8Locale`, `pickTmuxLocale`, `detectUtf8Locale`). §2.3 of the
- * absorption plan calls this one of the two defences worth more than the rest of
- * that file, and the reason is worth repeating:
- *
- * **Under a non-UTF-8 locale, tmux rewrites the TAB byte in `-F` output as `_`.**
- * Every parse of `list-windows` then produces nothing, so every window
- * disappears and every session looks closed — silently, with no error anywhere.
- * A macOS launchd agent that inherits no `LANG`/`LC_*` is exactly that case.
- */
-
 let cachedUtf8Locale: string | null = null;
 
 /**

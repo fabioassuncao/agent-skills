@@ -3,40 +3,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isValidBranchName } from './slug.js';
 import type { AutoNameConvention } from './types.js';
 
-/**
- * The generated branch-name path, ported from WebMux's `AutoNameService`
- * (`backend/src/services/auto-name-service.ts` @ d8c9d5f).
- *
- * It answers the one case the `{type}/{N}-{slug}` convention never served: work
- * that has no issue, where the slug came out of an arbitrary document title and
- * usually came out badly.
- *
- * Two adaptations, both deliberate:
- *
- * - **No provider anywhere.** Upstream builds `claude -p …` / `codex exec …`
- *   argv in this module. This directory accepts no provider, agent or model
- *   (`src/conventions/AGENTS.md`), so the model call is an injected
- *   {@link BranchNameGenerator}. The prompt, the normalization and the fallback
- *   — everything that actually decides the name — stay here.
- * - **Failure degrades instead of throwing.** Upstream falls back only on
- *   timeout and throws when the CLI is missing or exits non-zero. Issue Flow
- *   must keep working with no model reachable at all, so every failure yields
- *   the deterministic fallback. G3 pins both halves.
- */
-
-/** Upstream's ceiling. Short on purpose: the name is read in `git branch --list`. */
 export const AUTO_NAME_MAX_LENGTH = 40;
 
-/** Upstream's deadline for the whole call. */
 export const AUTO_NAME_TIMEOUT_MS = 15_000;
 
-/**
- * The instruction handed to the generator, kept literal from upstream.
- *
- * The last sentence is the load-bearing one: without "no prefixes like
- * feature/ or fix/" a model reliably produces `feature/foo`, which then
- * collides with the convention path's own prefix.
- */
 export const DEFAULT_AUTO_NAME_SYSTEM_PROMPT = [
   'Generate a concise git branch name from the task description.',
   'Return only the branch name.',
@@ -64,13 +34,11 @@ export interface AutoNameResult {
   source: 'generated' | 'fallback';
 }
 
-/** `system` prompt in force: the repository's override, else upstream's. */
 export function autoNameSystemPrompt(config: AutoNameBranchOptions = {}): string {
   const declared = config.systemPrompt?.trim();
   return declared === undefined || declared === '' ? DEFAULT_AUTO_NAME_SYSTEM_PROMPT : declared;
 }
 
-/** `user` prompt in force, kept literal from upstream. */
 export function autoNameUserPrompt(task: string): string {
   return `Here is the task description: ${task}. You MUST return the branch name only, no other text or comments. Be fast, make it simple, and concise.`;
 }

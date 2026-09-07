@@ -12,32 +12,6 @@ import {
 } from './contrast';
 import { THEME_KEYS, type ThemeKey } from './themes';
 
-/**
- * **U19** — the nineteen pairs, recomputed, never repeated from the table.
- *
- * `web/AGENTS.md` says to measure **on the page**: read the tokens with
- * `getComputedStyle(document.documentElement)` and compute the ratio in JS, so
- * the resolved cascade is what is measured — including a token one theme
- * inherits from the other by mistake.
- *
- * `happy-dom` has no CSS cascade and no layout: `getComputedStyle` returns an
- * empty string for every custom property (verified before this suite was
- * written). So the cascade is resolved here the way the browser would, from
- * `tokens.css` itself, and this suite is the **regression guard**; the
- * measurement on a real page is recorded in `docs/absorption-trace.md`, taken
- * with `measureContrast(documentTokenReader())` in a browser — the same
- * function, the same pairs, a real cascade.
- *
- * What this catches is what actually breaks: a token changed without its row
- * being recomputed, a token defined only inside a theme block, and a pair that
- * drops below its minimum.
- *
- * It runs under the **node** environment, like `tokens.test.ts` and for the
- * same reason: it reads files. `import '../tokens.css?raw'` is not an option —
- * the Tailwind Vite plugin claims every `.css` import and hands back an empty
- * string.
- */
-
 const tokensCss = readFileSync(fileURLToPath(new URL('../tokens.css', import.meta.url)), 'utf-8');
 
 /**

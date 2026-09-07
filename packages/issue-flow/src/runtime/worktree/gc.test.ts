@@ -3,13 +3,6 @@ import { type BranchPullRequestStates, pullMainBranch, runAutoRemove } from './g
 import type { GitWorktreeGateway, WorktreeStatus } from './git.js';
 import type { ManagedWorktree, WorktreeManager } from './lifecycle.js';
 
-/**
- * Adapted from WebMux `backend/src/services/auto-remove-service.ts` and
- * `auto-pull-service.ts` @ d8c9d5f. Both run headless on a timer upstream, and
- * that is the property worth keeping: a machine left running for a week should
- * not accumulate forty merged checkouts because nobody opened a dashboard.
- */
-
 function managed(branch: string): ManagedWorktree {
   return {
     branch,

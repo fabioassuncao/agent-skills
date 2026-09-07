@@ -92,7 +92,6 @@ export async function runAgent(options: AgentCommandOptions = {}): Promise<numbe
             harness: entry.harness,
             installed: entry.installed,
             version: entry.version,
-            authenticated: entry.authentication !== 'failed' && entry.installed,
             authentication: entry.authentication,
             state: entry.state,
             source: entry.source,

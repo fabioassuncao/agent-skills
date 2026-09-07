@@ -6,29 +6,7 @@
   import type { WorktreeInfo } from './types';
   import { AGENT_LIFECYCLE_LABELS } from './vocabulary';
 
-  /**
-   * The execution's header (U2).
-   *
-   * PORT of `renderHeader`/`renderAgentLifecycle`/`renderTimers` from
-   * `web/public/app.js`, with the status badge replaced by `AgentStatusIcon`
-   * (§50.3 — one status component, the panel's closed vocabulary).
-   *
-   * Two rules carried over verbatim:
-   *
-   * - **The heading is the execution, never the brand.** The product identifies
-   *   itself in the document `<title>`; the most visible line on screen is for
-   *   what is happening. `#N` links to the issue, the title follows it, and the
-   *   issue title appears exactly once.
-   * - **The side must be able to shrink.** The timers are wide, and pinned at
-   *   `flex: 0 0 auto` they blow past 360px. The heading itself is inline flow,
-   *   not flex, or a long title pushes `#N` onto a line of its own.
-   *
-   * §50.5 adds one state rather than a second header: `snapshot` may be `null`,
-   * which is a **free session** — a live agent in a worktree with no run behind
-   * it (§49.2, ADR-16). The same header then names the session and its branch
-   * and drops the timers, because there is no execution to time. A separate
-   * "session header" would have been the second interface growing back.
-   */
+
 
   let {
     snapshot = null,

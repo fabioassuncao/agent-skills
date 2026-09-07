@@ -3,20 +3,7 @@
   import type { ExecutionSnapshot } from './snapshot';
   import { phaseIcon, STORY_STAGE_LABELS, STORY_STATUS_LABELS } from './vocabulary';
 
-  /**
-   * "Andamento" — the third of the four blocks (U9).
-   *
-   * PORT of `renderPhases` and `renderStories`. Every row opens the drawer, by
-   * click and by Enter/Space, and carries its metrics in the shared side slot:
-   * duration and usage joined by ` · `, with empty parts dropping out — an empty
-   * string is the signal not to render the slot, not to render an empty one.
-   *
-   * `part` is the §50.5 adaptation. The unified navigation puts phases under
-   * "Visão geral" and stories under "Stories", beside the Kanban — so the block
-   * renders one half or both. A `part` **parameter** rather than a second
-   * component: two near-identical files are how a phase list and a story list
-   * start disagreeing about what a row looks like.
-   */
+
 
   let {
     snapshot,

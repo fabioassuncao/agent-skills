@@ -86,7 +86,6 @@ vi.mock('./lib/api', () => ({
   fetchAgentSessions: vi.fn(async () => []),
   hasCapability: vi.fn((name: string) => name.startsWith('config:')),
   attachWorktreeConversation: vi.fn(),
-  connectWorktreeConversationStream: vi.fn(),
   fetchWorktreeConversationHistory: vi.fn(),
   fetchWorktrees: vi.fn(async () => []),
   fetchLinearIssues: vi.fn(async () => ({ availability: 'disabled', issues: [] })),
@@ -294,9 +293,6 @@ describe('the execution surface in the shell (U1)', () => {
 
   it('lists the executions in the sidebar, beside the sessions group', async () => {
     render(App);
-    // One sidebar, two groups (§50.3): "Execuções" is the panel's list, and
-    // the worktree list is the other. The row names the execution the same way
-    // the card and the header do.
     expect(await screen.findByText('Execuções')).toBeInTheDocument();
     await waitFor(() => {
       expect(document.querySelector('[data-execution-id="run-1"]')).not.toBeNull();
@@ -408,14 +404,6 @@ describe('instance identity (U17)', () => {
   });
 });
 
-/**
- * I3 — a free session, with no issue, no plan and no workflow, in one click.
- *
- * The invariant of §48.6 in its sharpest form: Roteiro B must not get in
- * Roteiro A's way. The button is offered exactly where a session could be
- * opened (the `session:open` capability, ADR-10) and it opens one with no
- * dialog, because every field of the route is optional (§49.2).
- */
 describe('opening a free session (I3)', () => {
   it('offers nothing where the monitor cannot open one', async () => {
     render(App);
@@ -530,7 +518,6 @@ describe('promoting a session (I4)', () => {
         creating: false,
         creationPhase: null,
         source: 'ui',
-        oneshot: null,
         tabs: [],
         activeTabId: null,
         supportsTabs: false,

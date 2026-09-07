@@ -1,28 +1,6 @@
 import type { OpenIssueFlowDatabaseOptions } from './index.js';
 import { openIssueFlowDatabase } from './index.js';
 
-/**
- * SQL for the `projects` table — the Project Registry (§47.2).
- *
- * It lives here and not next to `storage/projects/registry.ts` because
- * `storage/AGENTS.md` gives `node:sqlite` a single boundary: statements are
- * written under `storage/db/` and nowhere else (`sql-boundary.test.ts` fails
- * the build otherwise). The registry above is the domain facade; this file is
- * the only place that knows the column names.
- */
-
-/**
- * How a project came to be known.
- *
- * - `discovered` — a plain `issue-flow run` created the row on its first
- *   execution. This is the default, so direct mode keeps working untouched.
- * - `registered` — explicit curation, from `issue-flow project add` or the
- *   dashboard. The only value `serve` reloads across restarts.
- * - `ephemeral` — the repository a `serve` process happens to sit in. Present
- *   in the domain and **never written**: persisting the cwd would make *other*
- *   servers start serving that repository on their next restart, which is the
- *   reason the upstream `addEphemeral()` exists at all.
- */
 export type ProjectSource = 'registered' | 'discovered' | 'ephemeral';
 
 export function isProjectSource(value: unknown): value is ProjectSource {

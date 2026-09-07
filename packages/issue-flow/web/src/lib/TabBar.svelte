@@ -1,12 +1,7 @@
 <script lang="ts">
   import type { WorktreeTab } from './types';
 
-  /**
-   * PORT of `frontend/src/lib/TabBar.svelte` @ d8c9d5f (55 lines).
-   *
-   * Session tabs over the terminal: `tabs[0]` is the root and only forks can be
-   * closed, which is why the close button is conditional on `kind`.
-   */
+
 
   let {
     tabs,

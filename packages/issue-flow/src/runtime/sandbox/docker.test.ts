@@ -19,24 +19,6 @@ import {
   selectBranchContainers,
 } from './docker.js';
 
-/**
- * The 23 upstream cases of `backend/src/__tests__/docker.test.ts` @ d8c9d5f,
- * translated from `bun:test` to `vitest`, plus **C7** of §34 — the literal
- * comparison of the whole `docker run` argument list — and the cases the
- * upstream could not write because it read `Bun.env` from inside the function.
- *
- * Everything here exercises a pure function, which is the point: the parity
- * criterion of phase 12 and the hardened baseline of phase 13 are both
- * verifiable on a machine with no docker installed.
- *
- * **C7 no longer matches the upstream, on purpose.** Phase 12 froze the
- * argument list as WebMux produces it; phase 13 hardens it, and §14 stage 2 is
- * precisely a list of things the upstream does not do. The test was not
- * weakened — it still compares the whole list literally — but the baseline it
- * compares against is now this project's, and every difference from the
- * upstream is enumerated in `docker run args differ from the upstream` below.
- */
-
 const HOME = '/home/testuser';
 const UID = 1000;
 const GID = 1000;
@@ -87,20 +69,6 @@ function build(
   });
 }
 
-/** The hardening block every launch carries, in the order it is emitted. */
-const HARDENING_ARGS = [
-  '--cap-drop',
-  'ALL',
-  '--security-opt',
-  'no-new-privileges:true',
-  '--pids-limit',
-  '2048',
-  '--memory',
-  DEFAULT_MEMORY_FLAG,
-  '--network',
-  'bridge',
-];
-
 /** Pull all values of one repeated flag out of an args array. */
 function flagValues(args: string[], flag: string): string[] {
   const result: string[] = [];
@@ -113,13 +81,6 @@ function flagValues(args: string[], flag: string): string[] {
 const mounts = (args: string[]) => flagValues(args, '-v');
 const ports = (args: string[]) => flagValues(args, '-p');
 const envFlags = (args: string[]) => flagValues(args, '-e');
-
-// ---------------------------------------------------------------------------
-// C7 — the whole argument list, compared literally
-//
-// The baseline was the upstream's through phase 12 and is this project's
-// hardened one since phase 13. Same comparison, new expected value.
-// ---------------------------------------------------------------------------
 
 describe('C7 — docker run args are exactly the hardened baseline', () => {
   it('produces the full argument list for a fully-configured launch', () => {
@@ -202,18 +163,6 @@ describe('C7 — docker run args are exactly the hardened baseline', () => {
       '/repos/main/.git:/repos/main/.git',
       '-v',
       '/repos/main:/repos/main:ro',
-      '-v',
-      '/home/testuser/.claude:/root/.claude',
-      '-v',
-      '/home/testuser/.claude.json:/root/.claude.json',
-      '-v',
-      '/home/testuser/.codex:/root/.codex',
-      '-v',
-      '/home/testuser/.gitconfig:/root/.gitconfig:ro',
-      '-v',
-      '/home/testuser/.ssh:/root/.ssh:ro',
-      '-v',
-      '/home/testuser/.config/gh:/root/.config/gh:ro',
       '--mount',
       'type=bind,source=/run/user/1000/keyring/ssh,target=/run/user/1000/keyring/ssh',
       '-e',
@@ -273,12 +222,6 @@ describe('C7 — docker run args are exactly the hardened baseline', () => {
       '/repos/main/.git:/repos/main/.git',
       '-v',
       '/repos/main:/repos/main:ro',
-      '-v',
-      '/home/testuser/.claude:/root/.claude',
-      '-v',
-      '/home/testuser/.claude.json:/root/.claude.json',
-      '-v',
-      '/home/testuser/.codex:/root/.codex',
       'my-image:latest',
       'sleep',
       'infinity',
@@ -301,51 +244,6 @@ describe('C7 — docker run args are exactly the hardened baseline', () => {
     for (const flag of ['--cap-drop', '--security-opt', '--pids-limit', '--memory', '--network']) {
       expect(args).toContain(flag);
     }
-  });
-
-  /**
-   * The complete, enumerated divergence from `.references/webmux-main/backend/
-   * src/adapters/docker.ts` @ d8c9d5f. C7 stopped matching the upstream here and
-   * nowhere else; anything not on this list is still literally the upstream's.
-   */
-  it('docker run args differ from the upstream in exactly the §14 hardenings', () => {
-    const sock = '/run/user/1000/keyring/ssh';
-    const existing = new Set([`${HOME}/.ssh`, sock]);
-
-    // 1. Added: --cap-drop=ALL, no-new-privileges, --pids-limit, --memory,
-    //    --network — as one block, right after --user.
-    const args = build(makeOpts());
-    const userIdx = args.indexOf('--user');
-    expect(args.slice(userIdx + 2, userIdx + 2 + HARDENING_ARGS.length)).toEqual(HARDENING_ARGS);
-
-    // 2. Changed default: the upstream forwards SSH_AUTH_SOCK whenever the
-    //    socket exists. Here it takes an explicit opt-in.
-    const withoutOptIn = build(makeOpts(), existing, sock);
-    expect(withoutOptIn.join('\n')).not.toContain(sock);
-    const withOptIn = build(
-      makeOpts({ sandboxConfig: makeDockerProfile({ security: { sshAgent: true } }) }),
-      existing,
-      sock,
-    );
-    expect(withOptIn).toContain(`type=bind,source=${sock},target=${sock}`);
-
-    // 3. Changed default: nothing. The implicit credential mounts the upstream
-    //    adds are still added — deprecated and reported, not removed.
-    expect(mounts(build(makeOpts(), existing))).toContain(`${HOME}/.ssh:/root/.ssh:ro`);
-
-    // 4. Added: a profile mount of a runtime socket is refused outright.
-    const socketMount = build(
-      makeOpts({
-        sandboxConfig: makeDockerProfile({
-          mounts: [{ hostPath: '/var/run/docker.sock', writable: true }],
-        }),
-      }),
-    );
-    expect(socketMount.join('\n')).not.toContain('docker.sock');
-
-    // 5. Unchanged: everything else. The tail of the list — image and command —
-    //    is still the upstream's, and so is the order of what precedes it.
-    expect(args.slice(-3)).toEqual(['my-image:latest', 'sleep', 'infinity']);
   });
 
   it('never mounts the docker socket', () => {
@@ -470,74 +368,6 @@ describe('buildDockerRunArgs — extraMounts', () => {
 });
 
 // ---------------------------------------------------------------------------
-// extraMounts conflict resolution: config wins over credential defaults
-// ---------------------------------------------------------------------------
-
-describe('buildDockerRunArgs — extraMounts override credential mounts', () => {
-  it('config ~/.ssh writable overrides the default read-only credential mount', () => {
-    const existingPaths = new Set([`${HOME}/.ssh`]);
-    const args = build(
-      makeOpts({
-        sandboxConfig: makeDockerProfile({
-          image: 'img',
-          mounts: [{ hostPath: '~/.ssh', guestPath: '/root/.ssh', writable: true }],
-        }),
-      }),
-      existingPaths,
-    );
-    const m = mounts(args);
-    expect(m).toContain(`${HOME}/.ssh:/root/.ssh`);
-    expect(m).not.toContain(`${HOME}/.ssh:/root/.ssh:ro`);
-  });
-
-  it('config ~/.ssh read-only still suppresses the credential mount (config controls it)', () => {
-    const existingPaths = new Set([`${HOME}/.ssh`]);
-    const args = build(
-      makeOpts({
-        sandboxConfig: makeDockerProfile({
-          image: 'img',
-          mounts: [{ hostPath: '~/.ssh', guestPath: '/root/.ssh', writable: false }],
-        }),
-      }),
-      existingPaths,
-    );
-    const sshMounts = mounts(args).filter((v) => v.includes('/root/.ssh'));
-    expect(sshMounts).toHaveLength(1);
-    expect(sshMounts[0]).toBe(`${HOME}/.ssh:/root/.ssh:ro`);
-  });
-
-  it('config ~/.gitconfig override does not affect unrelated credential mounts', () => {
-    const existingPaths = new Set([`${HOME}/.gitconfig`, `${HOME}/.ssh`]);
-    const args = build(
-      makeOpts({
-        sandboxConfig: makeDockerProfile({
-          image: 'img',
-          mounts: [{ hostPath: '~/.gitconfig', guestPath: '/root/.gitconfig', writable: true }],
-        }),
-      }),
-      existingPaths,
-    );
-    const m = mounts(args);
-    expect(m).toContain(`${HOME}/.gitconfig:/root/.gitconfig`);
-    expect(m).not.toContain(`${HOME}/.gitconfig:/root/.gitconfig:ro`);
-    expect(m).toContain(`${HOME}/.ssh:/root/.ssh:ro`);
-  });
-
-  it('credential mounts are included normally when there are no extraMounts', () => {
-    const existingPaths = new Set([`${HOME}/.gitconfig`, `${HOME}/.ssh`]);
-    const m = mounts(build(makeOpts(), existingPaths));
-    expect(m).toContain(`${HOME}/.gitconfig:/root/.gitconfig:ro`);
-    expect(m).toContain(`${HOME}/.ssh:/root/.ssh:ro`);
-  });
-
-  it('credential mounts are omitted for paths that do not exist on the host', () => {
-    const m = mounts(build(makeOpts()));
-    expect(m).not.toContain(`${HOME}/.gitconfig:/root/.gitconfig:ro`);
-    expect(m).not.toContain(`${HOME}/.ssh:/root/.ssh:ro`);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Port handling
 // ---------------------------------------------------------------------------
 
@@ -610,11 +440,6 @@ describe('buildDockerRunArgs — reserved env vars', () => {
     expect(flags.filter((f) => f.startsWith('IS_SANDBOX='))).toHaveLength(1);
   });
 
-  it('does not inject legacy workmux rpc env vars', () => {
-    const flags = envFlags(build(makeOpts()));
-    expect(flags.some((flag) => flag.startsWith('WORKMUX_RPC_'))).toBe(false);
-  });
-
   it('every GIT_CONFIG reserved key resists both passthrough and runtime env', () => {
     const flags = envFlags(
       build(
@@ -657,8 +482,6 @@ describe('buildDockerRunArgs — reserved env vars', () => {
     expect(flags).toContain('GOOD_KEY=z');
     expect(flags.join('\n')).not.toContain('1BAD');
     expect(flags.join('\n')).not.toContain('a-b');
-    // One per dropped key. Filtered because phase 13 added warnings of its own
-    // (the deprecated implicit mounts) that this case is not about.
     expect(warnings.filter((w) => w.includes('invalid runtime env key'))).toHaveLength(2);
   });
 });
@@ -800,15 +623,6 @@ describe('buildDockerRunArgs — SSH agent forwarding', () => {
     expect(envFlags(args)).toContain(`SSH_AUTH_SOCK=${SOCK}`);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Phase 13 — the §14 threat model, hardening by hardening
-//
-// Every block below asserts two things: that the flag is in the argument list,
-// and that the legitimate operation it could plausibly break is still expressed
-// by that same list. A `--cap-drop` that stopped the agent from writing to its
-// worktree would be a regression wearing a security flag.
-// ---------------------------------------------------------------------------
 
 describe('hardening — capabilities', () => {
   it('drops every capability by default', () => {
@@ -1110,74 +924,6 @@ describe('hardening — the docker socket stays forbidden, explicitly', () => {
   });
 });
 
-describe('hardening — implicit mounts are deprecated, not removed', () => {
-  const existing = new Set([`${HOME}/.gitconfig`, `${HOME}/.ssh`, `${HOME}/.config/gh`]);
-
-  it('still mounts them by default, so agents in the sandbox stay authenticated', () => {
-    const m = mounts(build(makeOpts(), existing));
-    expect(m).toContain(`${HOME}/.claude:/root/.claude`);
-    expect(m).toContain(`${HOME}/.codex:/root/.codex`);
-    expect(m).toContain(`${HOME}/.gitconfig:/root/.gitconfig:ro`);
-  });
-
-  it('names every host directory it reached into', () => {
-    const warnings: string[] = [];
-    build(makeOpts(), existing, undefined, {}, (message) => warnings.push(message));
-    const line = warnings.find((w) => w.includes('implicit credential mounts'));
-    expect(line).toBeDefined();
-    expect(line).toContain('deprecated');
-    for (const path of [
-      `${HOME}/.claude`,
-      `${HOME}/.claude.json`,
-      `${HOME}/.codex`,
-      `${HOME}/.gitconfig`,
-      `${HOME}/.ssh`,
-      `${HOME}/.config/gh`,
-    ]) {
-      expect(line).toContain(path);
-    }
-  });
-
-  it('a profile can decline them, and the worktree keeps working without them', () => {
-    const args = build(
-      makeOpts({ sandboxConfig: makeDockerProfile({ security: { implicitMounts: false } }) }),
-      existing,
-    );
-    const m = mounts(args);
-    expect(m.join('\n')).not.toContain('/root/.claude');
-    expect(m.join('\n')).not.toContain('/root/.ssh');
-    // The three mounts the sandbox exists for are not implicit and never go.
-    expect(m).toContain('/repos/my-branch:/repos/my-branch');
-    expect(m).toContain('/repos/main/.git:/repos/main/.git');
-    expect(m).toContain('/repos/main:/repos/main:ro');
-  });
-
-  it('declining them leaves an explicit mount of the same path free to work', () => {
-    const args = build(
-      makeOpts({
-        sandboxConfig: makeDockerProfile({
-          mounts: [{ hostPath: '~/.gitconfig', guestPath: '/root/.gitconfig' }],
-          security: { implicitMounts: false },
-        }),
-      }),
-      existing,
-    );
-    expect(mounts(args)).toContain(`${HOME}/.gitconfig:/root/.gitconfig:ro`);
-  });
-
-  it('says nothing about implicit mounts when there are none to report', () => {
-    const warnings: string[] = [];
-    build(
-      makeOpts({ sandboxConfig: makeDockerProfile({ security: { implicitMounts: false } }) }),
-      existing,
-      undefined,
-      {},
-      (message) => warnings.push(message),
-    );
-    expect(warnings.join('\n')).not.toContain('implicit credential mounts');
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Container naming and selection
 // ---------------------------------------------------------------------------
@@ -1201,7 +947,7 @@ describe('container naming', () => {
     expect(sanitizeBranchForName('a'.repeat(80))).toHaveLength(46);
   });
 
-  it('is prefixed for this project, not for the upstream', () => {
+  it('uses the Issue Flow prefix', () => {
     expect(CONTAINER_NAME_PREFIX).toBe('if-');
     expect(CONTAINER_NAME_PREFIX).toHaveLength(3);
     expect(containerName('my-branch', 1_757_160_000_000)).toBe('if-my-branch-1757160000000');

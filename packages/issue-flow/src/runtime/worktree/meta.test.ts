@@ -11,12 +11,6 @@ import {
 import { getWorktreeStoragePaths, resolveWorktreePath } from './paths.js';
 import { WorktreeCreationTracker } from './progress.js';
 
-/**
- * Adapted from WebMux `backend/src/__tests__/worktree-storage.test.ts` @ d8c9d5f.
- * The upstream keeps this state in `meta.json` next to the worktree; here the
- * metadata lives in SQLite and only `runtime.env` stays a file, because `bash`
- * and the lifecycle hooks read it and neither can query a database (§45.2-G).
- */
 describe('worktree metadata', () => {
   const dirs: string[] = [];
 

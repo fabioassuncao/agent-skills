@@ -1,34 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { TaskPlan } from '../types.js';
-import { buildUsageReport, formatUsageReport } from './usage.js';
+import type { ExecutionRecord } from '../telemetry/types.js';
+import { buildUsageReportFromRecords, formatUsageReport } from './usage.js';
 
-function planWith(records: TaskPlan['executions']): TaskPlan {
-  return {
-    project: 'test',
-    issueNumber: 63,
-    issueUrl: '',
-    branchName: 'feat/63-x',
-    description: '',
-    issueStatus: 'completed',
-    completedAt: null,
-    lastAttemptAt: null,
-    lastError: null,
-    correctionCycle: 0,
-    maxCorrectionCycles: 3,
-    lastReviewFindings: null,
-    pipeline: {
-      prdCompleted: true,
-      jsonCompleted: true,
-      executionCompleted: true,
-      reviewCompleted: true,
-      prCreated: true,
-    },
-    userStories: [],
-    executions: records,
-  };
-}
-
-const mixed = planWith([
+const mixed: ExecutionRecord[] = [
   {
     id: '1',
     sessionId: null,
@@ -71,12 +45,12 @@ const mixed = planWith([
     status: 'completed',
     failure: null,
   },
-]);
+];
 
 describe('usage', () => {
   it('aggregates by each grouping key without mixing reported and estimated', () => {
     for (const by of ['harness', 'provider', 'model', 'purpose', 'trigger', 'status'] as const) {
-      const report = buildUsageReport([{ id: '63', plan: mixed }], { by, issue: '63' });
+      const report = buildUsageReportFromRecords(mixed, { by, issue: '63' });
       expect(report.total.totalCost.reported).toBe(1.25);
       expect(report.total.totalCost.estimated).toBe(0);
       expect(report.total.totalCost.unknownExecutions).toBe(1);
@@ -87,17 +61,17 @@ describe('usage', () => {
   });
 
   it('groups executions by their retry trigger', () => {
-    const report = buildUsageReport([{ id: '63', plan: mixed }], { by: 'trigger' });
+    const report = buildUsageReportFromRecords(mixed, { by: 'trigger' });
     expect(report.groups.map(({ key }) => key)).toEqual(['initial', 'fallback']);
   });
 
   it('degrades with a message when nothing was recorded', () => {
-    const report = buildUsageReport([{ id: '63', plan: planWith(undefined) }], { issue: '63' });
+    const report = buildUsageReportFromRecords([], { issue: '63' });
     expect(formatUsageReport(report)).toBe('No execution telemetry recorded yet.');
   });
 
   it('filters by --since', () => {
-    const report = buildUsageReport([{ id: '63', plan: mixed }], {
+    const report = buildUsageReportFromRecords(mixed, {
       issue: '63',
       since: '2026-08-30T00:01:30Z',
     });

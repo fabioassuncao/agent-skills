@@ -34,7 +34,7 @@ export const DECOMPOSITION_THRESHOLDS = {
 export const DECOMPOSITION_MIN_SIGNALS = 2;
 
 export interface DecompositionInput {
-  /** Contents of `events.jsonl` (both generations), oldest first. */
+  /** Serialized canonical event records, oldest first. */
   journal?: string;
   plan?: TaskPlan | null;
   /** Body of the issue as the provider resolved it. */

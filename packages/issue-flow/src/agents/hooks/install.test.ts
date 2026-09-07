@@ -11,12 +11,6 @@ import {
   writeControlEnv,
 } from './install.js';
 
-/**
- * Ported from WebMux `backend/src/__tests__/agent-runtime.test.ts` @ d8c9d5f
- * (the 2 cases that do not spawn a process; the other 2 need a real subprocess
- * and live in `agentctl.integration.test.ts`), plus the cases §23 of the
- * absorption plan adds: merge idempotency and clean removal.
- */
 describe('ensureAgentRuntimeArtifacts', () => {
   const tempDirs: string[] = [];
 
@@ -136,10 +130,6 @@ describe('ensureAgentRuntimeArtifacts', () => {
     expect(commands.some((command) => command === staleGeneratedCommand)).toBe(false);
   });
 
-  // The upstream replaces whole event arrays in settings.local.json, which
-  // deletes the user's own Claude hooks. §45.2-D names preserving them as the
-  // behaviour that must not be lost, so the group-preserving merge is applied
-  // to both files here.
   it("preserves the user's own Claude hooks instead of replacing the event", async () => {
     const paths = await fixture();
     await mkdir(join(paths.worktreePath, '.claude'), { recursive: true });

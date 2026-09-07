@@ -7,7 +7,6 @@ import { listAgentSessions } from '../agents/session/open.js';
 import { projectAgentSessionTabs } from '../agents/session/tabs.js';
 import { type AgentSession, isLiveSession } from '../agents/session/types.js';
 import { autoRemoveManagedWorktree } from '../agents/session/worktree-control.js';
-import { loadGlobalConfig } from '../config/sources.js';
 import {
   linearApiKey,
   loadAgentConfig,
@@ -47,7 +46,6 @@ import {
 import { runAutoRemove } from '../runtime/worktree/gc.js';
 import type { WebConfig } from '../schemas.js';
 import { createProjectRegistry } from '../storage/projects/registry.js';
-import { resolveProjectPaths } from '../storage/resolve.js';
 import { printError, printInfo, printSubsystem, printWarning } from '../ui/logger.js';
 import { startSerializedInterval } from '../utils/async.js';
 import { getProjectRootOf, isGitRepository } from '../utils/git.js';
@@ -63,26 +61,6 @@ import {
 } from '../web/session-directory.js';
 import type { SessionsApiDeps, SessionsApiProject } from '../web/sessions-api.js';
 import type { WorktreesApiDeps } from '../web/worktrees-api.js';
-
-/**
- * `issue-flow serve` — one permanent monitor for every curated project (§47.4).
- *
- * It is the same process `issue-flow web serve` already was, and it still owns
- * the same `web.lock`: one server per machine, claimed after a successful bind.
- * What is new is what it serves — the curated project list rather than only
- * whatever happened to be executing.
- *
- * The boot order is the upstream's, and each step is where it is for a reason:
- *
- * 1. bind first, so the dashboard answers while the projects are still loading;
- * 2. load the curated projects, skipping (never aborting on) the ones that fail;
- * 3. auto-add the current repository *ephemerally* — served now, not written,
- *    so no other server on this machine inherits it on its next restart;
- * 4. light loops for every project, heavy loops only for the active one.
- *
- * Linear pickup and merged-worktree GC are headless maintenance loops: they
- * run even with no dashboard open, through the canonical lifecycle services.
- */
 
 /** Extra project roots for a service unit, which has no useful cwd. */
 export const PROJECT_DIR_ENV = 'ISSUE_FLOW_PROJECT_DIR';
@@ -136,8 +114,6 @@ export async function runProjectMaintenance(deps: ProjectMaintenanceDeps): Promi
         });
       } catch (error) {
         if (deps.signal?.aborted) return;
-        // Linear availability is independent of GitHub GC. One upstream must
-        // not suppress the other maintenance pass for this cadence.
         printWarning(`Linear maintenance failed: ${redactLinearError(error, key)}`);
       }
     }
@@ -285,15 +261,6 @@ export function installServeShutdown(
   };
 }
 
-/**
- * Read `ISSUE_FLOW_PROJECT_DIR`.
- *
- * ADAPT of `WEBMUX_PROJECT_DIR`. A `systemd` unit or a launch agent starts in
- * `/`, so "the repository I am standing in" is not a question it can answer —
- * this is how such a deployment names its projects. Several are accepted,
- * separated by the platform's path separator, because one variable per project
- * would not survive contact with a unit file.
- */
 export function projectDirsFromEnv(env: NodeJS.ProcessEnv = process.env): string[] {
   const raw = env[PROJECT_DIR_ENV];
   if (raw === undefined) return [];
@@ -384,15 +351,8 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
   if (options.refresh !== undefined) cli.refreshSeconds = options.refresh;
   const webConfig = await loadWebConfig({ cli });
 
-  let storageDriver = (await loadGlobalConfig()).storage?.driver ?? 'sqlite';
-  try {
-    storageDriver = (await resolveProjectPaths()).storageDriver;
-  } catch {
-    // The machine-wide monitor stays usable outside a repository.
-  }
-
   const registry = createProjectRegistry();
-  const sessions = watchSessionDirectory({ storageDriver, registry });
+  const sessions = watchSessionDirectory({ registry });
   const tracker = new ProjectInitTracker();
   const manager = new ProjectManager({
     registry,
@@ -422,10 +382,6 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
     },
   };
 
-  // The agent-session surface (§49). Its wiring is per project and expensive
-  // to build — a worktree manager, a tmux gateway and a resolved profile map —
-  // so it is built on first use and kept: a dashboard opening a session is not
-  // a reason to re-read `.issue-flow.json` for every request.
   const runtimeCache = new Map<string, Promise<ResolvedAgentSessionContext>>();
   const resolveServedRuntime = async (
     projectId: string | null,
@@ -467,9 +423,6 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
         services: context.services,
       };
     },
-    // §49.4. Built through the same `resolveProject`, so the consolidated view
-    // and the per-project one can never disagree about a project's wiring; a
-    // project whose wiring fails is skipped rather than failing the whole view.
     listProjects: async () => {
       const resolved = await Promise.all(
         manager
@@ -492,16 +445,6 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
     resolveRuntime: resolveServedRuntime,
   };
 
-  /* ------------------------------------------------------------------ *
-   * Pull Requests and CI (§20).
-   *
-   * Phase 14 delivered the pass and left `isActive` as "the point where the
-   * panel plugs in" — this is that point. The gate is the display-sync policy
-   * verbatim: nobody has asked for the session list recently, so nothing is
-   * queried and no rate limit is spent. `GET /api/worktrees` is the activity
-   * signal because it is the request the open dashboard makes and the one whose
-   * answer the Pull Requests decorate.
-   * ------------------------------------------------------------------ */
   const noop = (): void => {};
   const DASHBOARD_ACTIVE_MS = 30_000;
   const pullRequestsByProject = new Map<string, Map<string, PullRequestEntry[]>>();
@@ -595,10 +538,6 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
     agents,
     integrations,
     worktrees,
-    // The transport of §15, refused outright off loopback by the module itself
-    // (ADR-10). Until this phase nothing turned it on, so the ported terminal
-    // had no window to attach to — which is what kept four of Roteiro A's nine
-    // flows red however complete their modules were.
     terminal: {
       tmux: createTmuxGateway(),
       resolveTarget: async (input) => {
@@ -612,10 +551,6 @@ export async function runServe(options: RunServeOptions = {}): Promise<number> {
             : {}),
         };
       },
-      // §32, and the whole of the takeover mechanism: no confirmation and no
-      // mode switch — a person typing **is** the signal. Only a session that
-      // belongs to a run can be taken over; there is nothing automatic to stop
-      // in a free session (§49.2).
       onHumanInput: (input) => {
         void findLiveSession(input).then(async (found) => {
           if (found === null || found.session.runId === null) return;
@@ -759,20 +694,6 @@ export async function loadProjects<R extends ProjectRuntimeLike>(
   await autoAddCwd(manager, input.cwd, input.isRepository);
 }
 
-/**
- * Serve the repository the server was started in, if it is one.
- *
- * Ephemeral by construction (PORT of `autoAddCwd`): the project is served for
- * as long as this process lives and never enters the curated list, so no other
- * server on this machine reloads it. A repository that is already curated is
- * found by root and returned unchanged, so this never demotes anything.
- *
- * It does not follow that the database stays untouched: resolving the storage
- * of a repository has always adopted it (`storage/resolve.ts`), which is what
- * creates its `discovered` row. That row predates the registry and is the same
- * one a plain `issue-flow run` leaves behind — `ephemeral` is about curation,
- * not about whether the project has ever been seen.
- */
 export async function autoAddCwd<R extends ProjectRuntimeLike>(
   manager: ProjectManager<R>,
   cwd: string,

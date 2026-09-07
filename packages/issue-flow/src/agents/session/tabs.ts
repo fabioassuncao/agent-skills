@@ -920,9 +920,8 @@ export async function refreshActiveAgentTab(
 /**
  * Reconcile pane identity in two aggregated tmux reads.
  *
- * A missing pane demotes the row to `orphaned`; it never deletes it. Legacy
- * root rows used a named target, so their liveness falls back to the aggregate
- * window inventory until the first tab operation upgrades them to `%N`.
+ * A missing or unauthenticated pane demotes the row to `orphaned`; it never
+ * deletes it.
  */
 export async function reconcileAgentTabPanes(
   context: Pick<ResolvedAgentSessionContext, 'projectId' | 'storage' | 'deps'>,
@@ -984,8 +983,7 @@ export async function reconcileAgentTabPanes(
           location.windowName === buildWorktreeParkingWindowName(binding.worktreeId)) &&
         session.paneToken !== null &&
         location.ownerToken === session.paneToken;
-      const legacyUnknown = session.paneTarget !== null && !session.paneTarget.startsWith('%');
-      if (isLiveSession(session) && !authenticated && !legacyUnknown) {
+      if (isLiveSession(session) && !authenticated) {
         result.push(
           await updateSessionStatus(context.storage, session, 'orphaned', reconciliationNow),
         );

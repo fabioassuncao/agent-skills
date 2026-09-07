@@ -1,10 +1,8 @@
-import { mkdir } from 'node:fs/promises';
 import { resetAgentInvocationState } from '../../agents/invoke.js';
 import { loadRuntimeConfig } from '../../config/runtime.js';
 import { initResilienceConfig, loadWebConfig } from '../../config.js';
-import { JournalPublisher, MultiPublisher } from '../../core/journal.js';
 import { setSessionPublisher } from '../../core/session-publisher.js';
-import { FilePublisher, MemoryPublisher, type SessionPublisher } from '../../core/session-state.js';
+import type { SessionPublisher } from '../../core/session-state.js';
 import { onShutdown } from '../../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
 import { getInactivityTimeout, setInactivityTimeout } from '../../core/verbose.js';
@@ -75,20 +73,6 @@ export type RunOwnership =
   | { ok: true; interruptedBy: RunLock | null; release: () => Promise<void> }
   | { ok: false; refusal: string };
 
-/**
- * Take an execution slot, or report why it was refused.
- *
- * At the default `runtime.maxConcurrent` of 1 this **is** the project run lock:
- * the same file, the same call, the same outcome — a project does not become
- * parallel by upgrading. Above 1 the exclusion moves to the execution unit and
- * a ceiling takes its place. `runtime/concurrency.ts` is what knows the
- * difference, and this is the single place a run asks it (§31.3).
- *
- * A project whose storage cannot be resolved at all (no git repository yet, no
- * home directory) runs **without** a lock rather than not running: the guard
- * exists to stop two runs from colliding, and it must never be the reason a
- * single run cannot start.
- */
 export async function claimRunOwnership(target: string, detached = false): Promise<RunOwnership> {
   let projectDir: string;
   let projectRunLockFile: string;
@@ -159,8 +143,8 @@ export async function pauseIssue(tasksFile: string, issueNumber: string): Promis
  * Run one issue with its own session publisher and web monitor registration.
  *
  * This is the body `runPipeline` always had; a queue calls it once per issue,
- * which is what gives each of them its own `session.json` (and therefore its
- * own card in the monitor) inside a single process.
+ * which is what gives each of them its own card in the monitor inside a single
+ * process.
  *
  * `runPipelinePhases` is injected so this module never imports the phases layer
  * — that would close a cycle through multi-issue helpers that phases call.
@@ -168,55 +152,17 @@ export async function pauseIssue(tasksFile: string, issueNumber: string): Promis
 
 async function createSessionPublisher(input: {
   paths: Awaited<ReturnType<typeof resolveIssuePaths>>;
-  persistSnapshot: boolean;
-  journalEnabled: boolean;
   webConfig: Awaited<ReturnType<typeof loadWebConfig>>;
-  maxFileBytes: number | undefined;
-}): Promise<SessionPublisher> {
-  const { paths, persistSnapshot, journalEnabled, webConfig, maxFileBytes } = input;
-  const surfaces: SessionPublisher[] = [];
+}): Promise<SqliteSessionPublisher> {
+  const { paths, webConfig } = input;
   const repository = getPlanRepository(paths.tasksFile);
-  if (repository !== undefined) {
-    surfaces.push(
-      new SqliteSessionPublisher(repository, {
-        logLimit: webConfig.logLimit,
-        includeLogs: webConfig.includeLogs,
-      }),
-    );
+  if (repository === undefined) {
+    throw new Error(`No SQLite repository is registered for ${paths.tasksFile}`);
   }
-  if (persistSnapshot || journalEnabled) {
-    // resolveIssuePaths never creates directories, and a run may well be the
-    // first thing to touch this issue's global folder — so the writer creates
-    // it. Only when a surface asked for it: with monitoring off and no journal
-    // the pipeline still creates nothing at all (issue 25, US-009).
-    await mkdir(paths.issueDir, { recursive: true });
-  }
-  if (persistSnapshot) {
-    surfaces.push(
-      new FilePublisher(paths.sessionFile, {
-        logLimit: webConfig.logLimit,
-        includeLogs: webConfig.includeLogs,
-      }),
-    );
-  }
-  if (journalEnabled) {
-    surfaces.push(
-      new JournalPublisher(paths.eventsFile, paths.rotatedEventsFile, {
-        logLimit: webConfig.logLimit,
-        includeLogs: webConfig.includeLogs,
-        ...(maxFileBytes === undefined ? {} : { maxFileBytes }),
-      }),
-    );
-  }
-  // The snapshot writer stays the primary surface, so `snapshot()` and
-  // `version()` keep answering exactly what the dashboard answered before.
-  // With no disk surface the reducer still runs in memory: the terminal
-  // renders that snapshot, and US-009 is preserved because nothing is written.
-  return surfaces.length === 0
-    ? new MemoryPublisher()
-    : surfaces.length === 1
-      ? (surfaces[0] as SessionPublisher)
-      : new MultiPublisher(surfaces);
+  return new SqliteSessionPublisher(repository, {
+    logLimit: webConfig.logLimit,
+    includeLogs: webConfig.includeLogs,
+  });
 }
 
 function registerIssueShutdownHooks(input: {
@@ -262,7 +208,7 @@ async function closeIssueSession(input: {
   releaseCheckpoint();
   releaseClose();
   // A run that only decided to become a queue published nothing: closing the
-  // session here would write a `session.json` for a pipeline that never ran.
+  // session here would record a snapshot for a pipeline that never ran.
   if (result.queue === undefined) {
     publisher.publish({
       type: 'session:end',
@@ -290,8 +236,7 @@ async function applySessionSideEffects(input: {
   restartWeb: boolean | undefined;
 }): Promise<void> {
   const { publisher, interruptedBy, webConfig, restartWeb } = input;
-  // Recorded through the publisher rather than printed, so it lands in the
-  // journal beside the events of the run that replaced it.
+  // Recorded through the publisher so it is kept with the replacement run.
   if (interruptedBy !== undefined) {
     publisher.publish({
       type: 'log',
@@ -309,7 +254,6 @@ async function applySessionSideEffects(input: {
   if (webConfig.enabled) {
     await ensureWebMonitor(
       {
-        publisher,
         port: webConfig.port,
         host: webConfig.host,
         refreshSeconds: webConfig.refreshSeconds,
@@ -359,9 +303,7 @@ export async function runIssueSession(
   runPipelinePhases: RunPipelinePhases,
 ): Promise<IssueRunResult> {
   resetAgentInvocationState();
-  // Resolved once, at the top: every phase that runs below shares the process
-  // cache, so the git call and the legacy migration happen a single time for
-  // the whole run instead of once per phase.
+  // Resolved once at the top so every phase shares the same project paths.
   const paths = await resolveIssuePaths(issueNumber);
   try {
     const project = await resolveProjectPaths();
@@ -380,8 +322,7 @@ export async function runIssueSession(
 
   // The `resilience` key, installed once for the whole run. Every `gh` call
   // below reads it synchronously (`getActiveResilienceConfig()`), so it has to
-  // be in place before the first phase resolves the Issue — and the journal
-  // decision below is the first thing that reads it. Absent configuration
+  // be in place before the first phase resolves the Issue. Absent configuration
   // leaves the base table, so this is a no-op for a project that configured
   // nothing.
   const resilience = await initResilienceConfig();
@@ -398,19 +339,9 @@ export async function runIssueSession(
   // decision from one invocation into the next inside the same process.
   const webConfig = await loadWebConfig();
 
-  const journalEnabled = resilience.journal?.enabled === true;
-  const persistSnapshot = webConfig.enabled || input.runOptions?.detachedChild === true;
-
-  // Two independent surfaces over one event stream: the snapshot the dashboard
-  // reads, and the append-only journal an audit reads. Neither implies the
-  // other — `--web` without a journal is the common case, and a journal
-  // without `--web` is what an unattended run wants.
   const publisher = await createSessionPublisher({
     paths,
-    persistSnapshot,
-    journalEnabled,
     webConfig,
-    maxFileBytes: resilience.journal?.maxFileBytes,
   });
   setSessionPublisher(publisher);
 
@@ -440,8 +371,7 @@ export async function runIssueSession(
     if (result.code !== 0) {
       await reportIfOversized(issueNumber, paths, result);
     }
-    // The end of the run, in the sense §17 absorbs from the oneshot watcher:
-    // the agent's own `agent_stopped`/`pr_opened` corroborate what the
+    // The agent's own `agent_stopped`/`pr_opened` corroborate what the
     // pipeline already decided, and — only when asked for — the sessions the
     // run left open are closed. A run a person took over settles nothing.
     // Deliberately after the phases and before the session is closed, so the

@@ -7,14 +7,6 @@ import { CHANGE_TYPES, resolveGitConvention } from '../conventions/git/index.js'
 import { loadRepositoryPolicy, resetPolicyCache } from './resolve.js';
 import type { PolicyExec, RepositoryPolicy } from './types.js';
 
-/**
- * Characterization tests G4–G7 of the WebMux absorption (§34).
- *
- * They pin the posture change of ADR-11: the repository declares and Issue Flow
- * yields; the repository is silent and Issue Flow decides. G1–G3 and G8–G11 are
- * pure and live in `src/conventions/git/characterization.test.ts`.
- */
-
 let root: string;
 const warn = vi.fn();
 

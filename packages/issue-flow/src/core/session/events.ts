@@ -16,10 +16,7 @@ export type SessionPhaseStatus = 'pending' | 'running' | 'completed' | 'failed';
 /** Default max entries retained in the logs ring buffer. */
 export const DEFAULT_LOG_LIMIT = 200;
 
-/** Default minimum interval between FilePublisher disk writes. */
-export const DEFAULT_THROTTLE_MS = 1000;
-
-/** Default interval for touching a live session file without rewriting it. */
+/** Default interval for recording a live-session heartbeat. */
 export const DEFAULT_SESSION_HEARTBEAT_MS = 10_000;
 
 export type SessionEvent =
@@ -73,13 +70,7 @@ export type SessionEvent =
       type: 'iteration:start';
       at: string;
       iteration: number;
-      /**
-       * Id of the story `execute` is about to work on, computed by
-       * `core/engine.ts` with the same "highest priority, `passes: false`"
-       * rule `prompts/execute.md` gives the agent. Optional so a caller that
-       * cannot determine it (or an older build) is still a valid event —
-       * `applyEvent` simply skips the `executing`/`pending` transition then.
-       */
+      /** Id of the story `execute` is about to work on, when one is selected. */
       storyId?: string;
     }
   | { type: 'iteration:end'; at: string; iteration: number }
@@ -89,12 +80,8 @@ export type SessionEvent =
       attempt: number;
       delaySeconds?: number;
       reason?: string;
-      /**
-       * What the resilience layer classified the failure as. Optional so an
-       * event written by an older build — or by a caller with nothing but a
-       * message — stays valid; the reducer only counts retries either way.
-       */
-      kind?: FailureKind;
+      /** What the resilience layer classified the failure as. */
+      kind: FailureKind;
     }
   | {
       type: 'agent:attempt';
@@ -122,11 +109,6 @@ export type SessionEvent =
     }
   | { type: 'agent:activity'; at: string; provider: string }
   | {
-      /**
-       * A person took over the run (§32). Reported, never inferred: the signal
-       * is somebody typing into the agent's terminal, which is the whole of the
-       * mechanism — there is no confirmation step and no mode to switch.
-       */
       type: 'human:hold';
       at: string;
       reason: 'takeover' | 'requested';
@@ -155,31 +137,12 @@ export type SessionEvent =
       phase: string;
     }
   | {
-      /**
-       * The agent is blocked on a human: a permission prompt, an elicitation
-       * dialog, or a Codex permission request. It is the single most valuable
-       * event absorbed from WebMux (§18), because before it the state was
-       * indistinguishable from "still thinking" — including in `headless`,
-       * where nobody is looking at a terminal.
-       */
+      /** The agent is blocked on a human permission or elicitation prompt. */
       type: 'agent:awaiting-input';
       at: string;
       phase: string;
     }
   | {
-      /**
-       * Nobody answered the agent (§32, last row of its table).
-       *
-       * This is **not** a human hold. A hold means somebody took the run over
-       * and is thinking; this means the agent asked and *nobody came*. Reading
-       * `heldForMs` for this would escalate during a legitimate takeover, which
-       * is precisely what §32 forbids — so the two conditions stay apart, and
-       * an escalation is suppressed while a hold exists.
-       *
-       * The decision is the pipeline's, never the dashboard's: a headless run
-       * with no UI at all still has to escalate (ADR-03). The interface only
-       * displays what this event put in the snapshot.
-       */
       type: 'agent:awaiting-input-escalated';
       at: string;
       phase: string;

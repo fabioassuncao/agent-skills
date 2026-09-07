@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { type GetGlobalRootOptions, getGlobalRoot } from '../paths.js';
 import { type DatabaseDriver, type OpenDatabaseOptions, openDatabase } from './driver.js';
-import { migrateDatabase } from './migrations.js';
+import { ensureDatabaseSchema } from './schema.js';
 
 export const DATABASE_FILENAME = 'issue-flow.db';
 
@@ -33,7 +33,7 @@ export async function openIssueFlowDatabase(
 ): Promise<DatabaseDriver> {
   const database = await openDatabase(getDatabasePath(options), options);
   try {
-    migrateDatabase(database);
+    ensureDatabaseSchema(database);
     return database;
   } catch (error) {
     database.close();

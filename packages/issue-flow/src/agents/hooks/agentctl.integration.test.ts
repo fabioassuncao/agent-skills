@@ -11,17 +11,6 @@ import { MemoryPublisher } from '../../core/session-state.js';
 import { ensureAgentRuntimeArtifacts, writeControlEnv } from './install.js';
 import { startAgentHookSession } from './runtime.js';
 
-/**
- * The generated helper, run as a real process.
- *
- * Ported from the two WebMux `agent-runtime.test.ts` cases that spawn
- * `webmux-agentctl`, plus the end-to-end check for phase 2's completion
- * criterion: `awaiting_input` visible during a headless invocation.
- *
- * Integration, not unit: it spawns Node and binds a socket, and the point of
- * the test is precisely that the generated file works when executed rather than
- * that its text contains the right substrings.
- */
 describe('issue-flow-agentctl', () => {
   const tempDirs: string[] = [];
   const closers: Array<() => Promise<void> | void> = [];

@@ -26,13 +26,6 @@ import {
   stopSessionRoute,
 } from './sessions-api.js';
 
-/**
- * The HTTP half of §49.3.
- *
- * Handlers return `{ status, body }`, so every case here runs without a socket
- * — the same property `projects-api.test.ts` relies on.
- */
-
 function fakeTmux(): TmuxGateway & { pasted: string[]; keys: string[][] } {
   const windows = new Set<string>();
   const panes = new Map<string, { sessionName: string; windowName: string }>();

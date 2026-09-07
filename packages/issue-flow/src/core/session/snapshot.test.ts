@@ -34,7 +34,7 @@ describe('createInitialSnapshot', () => {
     });
   });
 
-  it('starts resilience observability with backward-compatible empty values', () => {
+  it('starts resilience observability with empty values', () => {
     expect(createInitialSnapshot().resilience).toEqual({
       attempt: 0,
       provider: null,

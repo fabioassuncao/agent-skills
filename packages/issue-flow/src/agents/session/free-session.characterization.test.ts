@@ -29,17 +29,6 @@ import { selectReusableSession } from './reuse.js';
 import { createAgentSession, linkSessionToRun, listSessions, saveSession } from './store.js';
 import { type AgentSession, isFreeSession } from './types.js';
 
-/**
- * §49.5 of the absorption plan, S1 to S7 — the acceptance criteria of the free
- * session, each one named after the row it defends.
- *
- * They run against stubbed git and tmux ports on purpose: what these scenarios
- * assert is the *decision* — which columns end up empty, which session the
- * pipeline is allowed to adopt, what a restart concludes about a window that is
- * still there. The versions that need a real `git worktree add` and a real tmux
- * server live in `open.integration.test.ts`, and they exercise the same calls.
- */
-
 /** A tmux server that only remembers which windows exist. */
 function fakeTmux(windows: Map<string, number> = new Map()): TmuxGateway & {
   windows: Map<string, number>;
@@ -263,7 +252,7 @@ function deps(
   };
 }
 
-describe('§49.5 — the free session', () => {
+describe('the free session', () => {
   let home: string;
   let storage: PlanRepositoryContext;
 
@@ -442,8 +431,6 @@ describe('§49.5 — the free session', () => {
         branch: 'session/shared-name',
       });
 
-      // Same branch, same window name — different tmux *session*, which is the
-      // isolation boundary (§13): one session per project.
       expect((await tmux.getPaneIdentity(a.paneTarget)).sessionName).toBe(
         buildProjectSessionName('proj-a'),
       );
@@ -852,8 +839,6 @@ describe('§49.5 — the free session', () => {
       expect(session?.id).toBe(opened.session.id);
       expect(session?.runId).toBeNull();
       expect(session?.status).toBe('starting');
-      // The window survived the restart, so the agent inside it did too —
-      // rebuilding would kill it (§27).
       expect(session?.recovery).toBe('reattach');
       expect(result.orphanedSessionIds).toEqual([]);
     });

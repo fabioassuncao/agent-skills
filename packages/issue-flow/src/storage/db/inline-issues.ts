@@ -3,7 +3,7 @@ import { openIssueFlowDatabase } from './index.js';
 
 /**
  * SQL for the `inline_issues` table — the demand a person typed straight into
- * `issue-flow run --prompt` (§17, migration 18).
+ * `issue-flow run --prompt`.
  *
  * It lives here and not next to `issues/providers/inline.ts` because
  * `storage/AGENTS.md` gives `node:sqlite` a single boundary: statements are

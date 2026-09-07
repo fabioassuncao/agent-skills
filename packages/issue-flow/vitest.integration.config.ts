@@ -9,7 +9,7 @@ export default defineConfig({
      * One integration file at a time.
      *
      * These files share the machine's real resources — tmux servers, a docker
-     * daemon, git — and several of them are the §35 performance budgets,
+     * daemon and git, including the performance budgets,
      * measured as a median of wall-clock samples. Run in parallel, those
      * samples measure the neighbours rather than the code: the same
      * `ensureSessionLayout` was measured at 89 ms alone and 473 ms beside a

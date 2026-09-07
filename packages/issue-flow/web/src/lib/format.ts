@@ -1,22 +1,3 @@
-/**
- * Durations, clocks and metrics, exactly as the panel formats them.
- *
- * PORT of the formatting half of `web/public/app.js` @ the current panel.
- * Nothing here is new; what matters is that it is *identical*, because two of
- * these functions have contracts outside this file:
- *
- * - **`formatUsage` mirrors `formatTokens()` in `src/core/metrics.ts`** — same
- *   segment order (`in / out · cache · ~$`), same compaction (`1.5k`/`2.4M`).
- *   The one deliberate divergence is the cost, which the panel prints with two
- *   decimals (four below a cent) because it is read at a glance while the
- *   terminal is read for precision. **If `metrics.ts` changes format, both move.**
- * - **`metric()` is the U18 guard.** A `session.json` written by an older
- *   release is missing fields entirely (`undefined`), and a newer one may carry
- *   them as `null`. Both mean "not reported" and neither may reach the screen
- *   as `0` or `NaN`. Prefer `x !== null && x !== undefined` over `!x`: zero is a
- *   legitimate value.
- */
-
 /** `null` for anything that is not a finite number — never `0`, never `NaN`. */
 export function metric(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;

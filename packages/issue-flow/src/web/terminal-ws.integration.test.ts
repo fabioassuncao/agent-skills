@@ -15,15 +15,6 @@ import {
   type TerminalWebSocketHandle,
 } from './terminal-ws.js';
 
-/**
- * The terminal transport end to end.
- *
- * **C6**: the first frame a viewer receives is the scrollback, and everything
- * after it is live output. **C9**: reconnecting produces a new attach without
- * killing anything that was running. Plus the two things §15 adds to the
- * upstream — incremental replay and backpressure — and the one thing ADR-10
- * rejects from it: no authentication.
- */
 const socketName = `issue-flow-ws-${randomUUID().slice(0, 8)}`;
 const tmuxAvailable = spawnSync('tmux', ['-V']).status === 0;
 
@@ -270,8 +261,6 @@ describe('terminal WebSocket', () => {
   });
 
   describe('protocol', () => {
-    // The upstream's lazy attach: the client reports its real dimensions before
-    // the pty exists, so the first frame is already the right shape.
     it('refuses anything before the first resize, which is the attach signal', async () => {
       const socket = connect();
       const frames = collect(socket);
@@ -293,19 +282,6 @@ describe('terminal WebSocket', () => {
     });
   });
 
-  /**
-   * I7 of §50.7 — an agent's output reaches the screen in ≤ 250 ms p95, with no
-   * polling anywhere on the path.
-   *
-   * Phase 8D is what made this measurable: the transport existed since phase 8,
-   * but nothing wired it, so the panel's terminal had no window to attach to.
-   * The measurement is deliberately of the *whole* live path a viewer depends
-   * on — pane output, through the pty reader, out of the socket — and the only
-   * step left out is the client's own render, which waits for nobody.
-   *
-   * There is no interval in this test and none in the transport: a frame
-   * arrives because the pane produced one.
-   */
   it.runIf(tmuxAvailable)(
     'I7: delivers live output to a connected viewer within 250 ms p95, with no polling',
     async () => {
@@ -419,8 +395,6 @@ describe('terminal WebSocket', () => {
     20_000,
   );
 
-  // The addition §15 requires: a returning client reports how far it got and is
-  // answered with a replay rather than being refused.
   it.runIf(tmuxAvailable)(
     'accepts a reported offset on reconnect and answers with a replay',
     async () => {
@@ -448,7 +422,6 @@ describe('terminal WebSocket', () => {
     20_000,
   );
 
-  // §35: reconnecting a terminal, measured at 28 ms + replay upstream.
   it.runIf(tmuxAvailable)(
     'reconnects within the 100 ms budget',
     async () => {

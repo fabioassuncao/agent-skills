@@ -2,19 +2,7 @@
   import AgentStatusIcon, { executionStatusToAgentStatus } from './AgentStatusIcon.svelte';
   import type { SessionSummary } from './types';
 
-  /**
-   * The executions group in the sidebar.
-   *
-   * §50.3 merges the two lists the two products had — the WebMux worktree list
-   * and the panel's execution cards — into **one** sidebar with two groups. This
-   * is the first group; `WorktreeList` is the second. Selecting a row here
-   * clears the worktree selection and vice versa: the main panel shows what is
-   * selected, and exactly one thing is.
-   *
-   * The vocabulary is the glossary's and the collision is the one §50.4
-   * resolved: an *execução* is a run of the workflow over a Task, a *sessão* is
-   * a live agent in a worktree, and neither word is a synonym of the other.
-   */
+
 
   let {
     sessions,

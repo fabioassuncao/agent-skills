@@ -6,33 +6,6 @@ import { attachTerminal, type TerminalAttachment } from '../runtime/terminal/att
 import type { TmuxGateway } from '../runtime/tmux/gateway.js';
 import { buildPaneTarget } from '../runtime/tmux/names.js';
 
-/**
- * The terminal transport: a worktree's tmux window, pushed to a browser.
- *
- * Ported from the WebSocket half of WebMux `backend/src/server.ts` @ d8c9d5f
- * (the `sendWs` path and the terminal socket handlers), over `ws` because
- * `node:http` has no WebSocket server of its own.
- *
- * The upstream's protocol is kept exactly — four client messages, four server
- * messages, a one-character prefix on the hot path so no chunk of terminal
- * output costs a `JSON.stringify`. §15 adds two things it does not have, and
- * both are here:
- *
- * 1. **Backpressure.** The upstream never reads `bufferedAmount`. An agent that
- *    prints megabytes then fills the send buffer until the event loop stalls,
- *    and the viewer that caused it is the one that stops responding. Above the
- *    limit, intermediate output is dropped and the client is told how much.
- * 2. **Incremental replay.** The upstream replays its whole 1 MB scrollback on
- *    every reconnect, and a browser reconnects on `visibilitychange`, `focus`
- *    and `online` — switching tabs twice costs two megabytes and two full
- *    repaints. Numbering the bytes lets a returning client ask for the
- *    difference.
- *
- * And one thing the upstream has that is **rejected outright** (ADR-10): no
- * authentication. This is a remote shell. It is served on loopback only, it
- * requires a token in the handshake, and it validates `Origin`.
- */
-
 /** Path the terminal socket lives on. */
 export const TERMINAL_WS_PATH = '/ws/terminal';
 
@@ -116,14 +89,7 @@ export interface TerminalWebSocketOptions {
   socketName?: string;
   /** Credential required in the handshake. Default: a fresh one per server. */
   token?: string;
-  /**
-   * Called the first time a person types into a run's terminal.
-   *
-   * This is the whole of the human-takeover mechanism (§32): there is no
-   * confirmation, no mode switch and no state machine — somebody touching the
-   * keyboard *is* the signal. Absent leaves the behaviour of a monitor that
-   * does not know about runs.
-   */
+
   onHumanInput?: (input: {
     projectPrefix: string | null;
     sessionId: string | null;

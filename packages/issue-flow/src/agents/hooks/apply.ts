@@ -4,26 +4,6 @@ import { getPlanRepository, recordAgentEvent } from '../../storage/db/repository
 import { getTelemetryContext } from '../../telemetry/recorder.js';
 import type { AgentRuntimeEvent } from './contract.js';
 
-/**
- * Turn a lifecycle event reported by an agent hook into the session events the
- * rest of Issue Flow already speaks, and persist it.
- *
- * §18 of the absorption plan is explicit that no new taxonomy is invented here:
- * the four upstream event types map onto the existing session events, and the
- * two that had no equivalent (`agent:busy`, `agent:awaiting-input`) are
- * additive.
- *
- * Two deliberate differences from the upstream, both from §18:
- *
- * - **It persists.** WebMux mutates an in-memory projection and turns the event
- *   into a notification. An `awaiting_input` that happens with nothing watching
- *   would then be gone, which is the case worth recording.
- * - **It is correlated by `runId`.** An event whose `runId` is not the session
- *   in flight is dropped, never applied: hooks outlive an invocation, and
- *   applying a stale one would move a live run's state on evidence from a dead
- *   one.
- */
-
 export interface ApplyAgentEventOptions {
   /** Diagnostics sink. Never surfaced to the user by default. */
   onWarn?: (message: string) => void;
@@ -47,10 +27,6 @@ export async function applyAgentRuntimeEvent(
 
   switch (event.type) {
     case 'agent_status_changed':
-      // `starting` and `running` are both "the agent is working". They are
-      // separate upstream because its UI distinguishes a pane that is booting
-      // from one that is producing; here the only decision that depends on it
-      // is whether a human is being waited on.
       if (event.lifecycle === 'running' || event.lifecycle === 'starting') {
         publisher.publish({ type: 'agent:busy', at, phase: event.phase });
       } else if (event.lifecycle === 'idle') {

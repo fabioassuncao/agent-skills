@@ -57,7 +57,7 @@ describe('parseTemplateMetadata', () => {
     expect(parseTemplateMetadata(source).labels).toEqual([]);
   });
 
-  it('falls back from `description` to `about` for legacy templates', () => {
+  it('falls back from `description` to `about` for Markdown templates', () => {
     expect(parseTemplateMetadata('about: Report a bug').about).toBe('Report a bug');
   });
 

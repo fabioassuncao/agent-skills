@@ -10,21 +10,7 @@
   import type { PrComment, PrEntry } from './types';
   import { errorMessage, prLabel } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/CommentReviewDialog.svelte` @ d8c9d5f (166 lines).
-   *
-   * Review comments from the pull request, selected and handed to the agent as
-   * a prompt. §50.2 pairs this with the independent reviewer's own findings in
-   * one screen; this is the pull-request half of it, and phase 8C brings the
-   * other.
-   *
-   * The comments are sorted newest-first for display but `originalIndex` is
-   * what the selection set holds — sorting the selection with the display would
-   * send the wrong comments the moment a refresh reorders them.
-   *
-   * `untrack` around the initial select-all is required: without it the effect
-   * reads the set it just wrote and re-runs forever.
-   */
+
 
   let {
     pr,

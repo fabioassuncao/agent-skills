@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agentIconVisible, agentStatusLabel } from './AgentStatusIcon.svelte';
 
-/**
- * PORT of `frontend/src/lib/AgentStatusIcon.test.ts` @ d8c9d5f — 3 cases, plus
- * 1 for the closed vocabulary §50.3 merges into this component.
- */
-
 describe('agentIconVisible', () => {
   it('is visible for working, waiting and error regardless of unread', () => {
     expect(agentIconVisible('working', false)).toBe(true);

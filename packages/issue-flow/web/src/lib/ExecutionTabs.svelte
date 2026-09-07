@@ -22,18 +22,7 @@
 </script>
 
 <script lang="ts">
-  /**
-   * The ARIA tablist (U5).
-   *
-   * PORT of `setActiveTab`/`onTabListKeydown`. The pattern is the whole point:
-   * ←/→ move between tabs, Home/End go to the ends, and **only the active tab is
-   * in the Tab order** (roving `tabindex`) — a tablist where every tab is
-   * tabbable makes the keyboard user walk through all of them to leave.
-   *
-   * Switching a tab changes visibility and ARIA state and **nothing else**. The
-   * panels are all rendered on every update, so an inactive tab is never stale
-   * — which is also why the drawer stays current while the Kanban is hidden.
-   */
+
 
   let {
     tabs,

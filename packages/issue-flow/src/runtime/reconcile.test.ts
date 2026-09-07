@@ -29,16 +29,6 @@ import type { WorktreeStatus } from './worktree/git.js';
 import type { ManagedWorktree } from './worktree/lifecycle.js';
 import { ensureWorktreeStorageDirs } from './worktree/paths.js';
 
-/**
- * The recovery matrix of §30, row by row.
- *
- * Every scenario in that table is a claim about *who wins* when the database
- * and the outside world disagree, so each case here sets up a disagreement and
- * asserts the direction it resolves in. Reconciliation against a real tmux
- * server — and the O(1) measurement ADR-13 demands — lives in
- * `reconcile.integration.test.ts`.
- */
-
 const PROJECT_ID = 'proj-a1b2c3';
 const SESSION_NAME = buildProjectSessionName(PROJECT_ID);
 
@@ -60,6 +50,9 @@ function binding(overrides: Partial<StoredWorktree> = {}): StoredWorktree {
     allocatedPorts: { FRONTEND_PORT: 3010 },
     source: 'cli',
     conversationId: null,
+    archived: false,
+    activeAgentSessionId: null,
+    tabSequenceCounter: 0,
     createdAt: '2026-09-06T10:00:00.000Z',
     updatedAt: '2026-09-06T10:00:00.000Z',
     ...overrides,
@@ -160,8 +153,6 @@ describe('runtime reconciliation', () => {
     };
     return createReconciler(deps, { now: () => 0, ...options });
   }
-
-  /* ── authority by kind of data (§30, first table) ─────────────────────── */
 
   describe('authority by kind of data', () => {
     it('takes the set of worktrees from git, including the ones nothing bound', async () => {
@@ -301,8 +292,6 @@ describe('runtime reconciliation', () => {
     });
   });
 
-  /* ── the recovery scenarios (§30, second table) ───────────────────────── */
-
   describe('recovery scenarios', () => {
     it('reattaches when the process restarted and tmux is still alive', async () => {
       await storeSession({ conversationId: 'conv-1' });
@@ -439,8 +428,6 @@ describe('runtime reconciliation', () => {
     });
 
     it('never probes git against a path git no longer lists', async () => {
-      // The upstream's ENOENT crash: a stale registration points at a directory
-      // that is gone, and probing it aborts the pass over one dead entry.
       const git = fakeGit();
       await reconciler({
         git,

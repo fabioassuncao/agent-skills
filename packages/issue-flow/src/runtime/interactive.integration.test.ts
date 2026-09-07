@@ -229,13 +229,6 @@ describe('the interactive runtime against real git and tmux', () => {
     expect(windows.stdout).not.toContain(buildWorktreeWindowName('feat/keep-branch'));
   });
 
-  /**
-   * §35: T0→T4 — worktree ready and agent started — has a budget of 600 ms.
-   *
-   * `open.integration.test.ts` measures the same path from the session side;
-   * this measures it as the pipeline reaches it, through `prepare` + `launch`,
-   * which is the pair that adds the port allocation and the hook session on top.
-   */
   it.runIf(ready)(
     'prepares and launches inside the 600 ms T0→T4 budget',
     async () => {

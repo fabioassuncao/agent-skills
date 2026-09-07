@@ -2,15 +2,9 @@
 @import './tokens.css';
 
 /*
-  ADAPT of `frontend/src/app.css` from windmill-labs/webmux @ d8c9d5f.
-
-  The upstream declares thirteen literal hex values inside `@theme`. ADR-19
-  reverses the direction: the Issue Flow role tokens are the source of truth,
-  Tailwind is the mechanism that consumes them, and no utility class ever
-  carries a literal colour. `tokens.css` holds that palette, and it is now the
-  only copy of it: §50.8 removed the previous panel it used to be checked
-  against. `lib/contrast.test.ts` recalculates the nineteen measured pairs from
-  these files rather than from the table, which is what keeps the table true.
+  Issue Flow role tokens are the source of truth. Tailwind consumes them and
+  utility classes do not carry literal colors. Contrast tests validate the
+  foreground/background pairs from these files.
 
   Because the tokens are CSS custom properties that change value under
   `prefers-color-scheme` and `[data-theme]`, the `@theme` entries below are
@@ -24,9 +18,7 @@
 */
 
 @theme inline {
-  /* Surfaces. The upstream's four (`surface`/`sidebar`/`topbar`/`hover`) map
-     onto the three Issue Flow roles plus the page ground: a card, the ground
-     the sidebar and top bar sit on, and the neutral recess used for hover. */
+  /* Surfaces. */
   --color-bg: var(--surface-page);
   --color-surface: var(--surface);
   --color-sidebar: var(--surface-page);
@@ -36,22 +28,16 @@
   --color-edge: var(--border);
   --color-edge-strong: var(--border-strong);
 
-  /* Text. `primary`/`muted` are the upstream's names; `subtle` is the third
-     hierarchy the Issue Flow palette already measured. */
+
   --color-primary: var(--text);
   --color-muted: var(--text-muted);
   --color-subtle: var(--text-subtle);
 
-  /* Accent, and the text that goes on top of a solid accent or state fill.
-     `--color-accent-text` is what replaces every `text-white` in the upstream:
-     white on a light-theme accent is fine, but white on the dark theme's light
-     fills is 2.98:1. */
+
   --color-accent: var(--accent);
   --color-accent-text: var(--accent-text);
 
-  /* State. The upstream's `danger`/`success`/`warning` are the Issue Flow
-     `error`/`ok`/`warn` roles under their own names; `run` had no upstream
-     equivalent and `merged` had no Issue Flow equivalent (see below). */
+
   --color-danger: var(--state-error);
   --color-danger-surface: var(--state-error-surface);
   --color-success: var(--state-ok);
@@ -130,21 +116,7 @@ dialog textarea:focus {
   }
 }
 
-/*
-  The execution surface (Fase 8C).
 
-  These are the panel's own component classes, ported from the previous panel's
-  `web/public/app.css` (removed in phase 8D, §50.8) so the blocks, the badges
-  and the definition grids keep the density and the rhythm it had measured. They are declared
-  here rather than repeated as utility strings in twelve components for the
-  reason ADR-19 gives: every value below is a **token**, and a scoped `<style>`
-  in a component cannot reach `--color-*` (with `@theme inline` Tailwind does not
-  register those as custom properties), while the role tokens themselves are
-  always reachable.
-
-  The three closed scales are the only source of size, spacing and radius here.
-  A component that needs a step picks one that exists.
-*/
 
 .if-surface {
   /* `main` in the current panel: the width the four blocks were laid out for. */

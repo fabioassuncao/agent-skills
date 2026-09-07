@@ -1,12 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/**
- * PORT of `frontend/src/lib/DiffDialog.test.ts` @ d8c9d5f — 2 cases, plus 1 for
- * the colour scheme, which this port resolves from the theme instead of
- * hard-coding to dark.
- */
-
 vi.mock('./api', () => ({
   api: {
     fetchWorktreeDiff: vi.fn(),

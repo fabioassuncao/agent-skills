@@ -4,24 +4,7 @@
   import { formatClock, itemSideText, repoUrlFromIssueUrl } from './format';
   import type { ExecutionSnapshot } from './snapshot';
 
-  /**
-   * "Saída" — the fourth of the four blocks (U14).
-   *
-   * PORT of `renderGit` and `renderLogs`. The verification verdict used to sit
-   * here; §50.5 gives it a tab of its own, so `VerificationVerdictCard` moved
-   * there rather than being rendered twice. U21 is about *what* the verdict
-   * says, not about which tab shows it, and the card is unchanged.
-   *
-   * Two §50.3 merges land in this block:
-   *
-   * - **Commits open the `DiffDialog`** rather than growing a second diff
-     *   renderer. The dialog needs the worktree diff route, so the row is a
-   *   button only where that capability exists; otherwise it stays the link to
-   *   the commit it already was.
-   * - **The PR list carries the WebMux badge.** One PR badge in the product —
-   *   with `state: null`, because this list records that a pull request was
-   *   opened and nothing about what happened to it since.
-   */
+
 
   let {
     snapshot,

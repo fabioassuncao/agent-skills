@@ -3,13 +3,7 @@
   import { formatClock } from './format';
   import { historyMessage } from './vocabulary';
 
-  /**
-   * The journal (U11).
-   *
-   * PORT of `renderHistory`. The filter splits the two families the panel
-   * distinguishes — resilience (retry, attempt, activity, result, failover) and
-   * everything else, which is the pipeline. Most recent first, like the logs.
-   */
+
 
   let {
     entries,

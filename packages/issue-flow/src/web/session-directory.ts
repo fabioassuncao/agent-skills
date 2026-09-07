@@ -1,7 +1,5 @@
 import { type FSWatcher, watch } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { type JournalEntry, parseJournal } from '../core/journal.js';
+import type { JournalEntry } from '../core/journal.js';
 import { sessionSnapshotSchema, type ValidatedSessionSnapshot } from '../schemas.js';
 import { DATABASE_FILENAME } from '../storage/db/index.js';
 import {
@@ -11,26 +9,16 @@ import {
   type StoredAgentEvent,
   type StoredSession,
 } from '../storage/db/repository.js';
-import {
-  EVENTS_FILENAME,
-  type GetGlobalRootOptions,
-  getGlobalRoot,
-  ISSUES_DIR_NAME,
-  PROJECTS_DIR_NAME,
-  ROTATED_EVENTS_FILENAME,
-  SESSION_FILENAME,
-} from '../storage/paths.js';
-import { createProjectRegistry, type ProjectRegistry } from '../storage/projects/registry.js';
-import { readSessionFile } from '../storage/session-file.js';
+import { type GetGlobalRootOptions, getGlobalRoot } from '../storage/paths.js';
+import type { ProjectRegistry } from '../storage/projects/registry.js';
 
 /**
  * How often the monitor re-reads indexed session state **when nothing pushed**.
  *
  * Since the push transport landed this is a safety net, not the delivery path:
  * a write to the SQLite tree wakes the watcher below in milliseconds, and this
- * interval only covers the cases a filesystem watch cannot see (the `json`
- * compatibility driver, a platform where `fs.watch` silently stops firing, a
- * database that did not exist yet when the monitor started).
+ * interval only covers the cases a filesystem watch cannot see (a platform
+ * where `fs.watch` silently stops firing or a database created after startup).
  */
 export const DEFAULT_POLL_INTERVAL_MS = 3000;
 
@@ -83,16 +71,7 @@ export interface SessionDirectoryOptions extends GetGlobalRootOptions {
   watch?: boolean;
   staleAfterMs?: number;
   onWarn?: (message: string) => void;
-  storageDriver?: 'sqlite' | 'json';
-  /**
-   * The registry that says which projects exist (§47.5).
-   *
-   * Discovering projects by walking the storage tree could only ever find the
-   * ones that had already executed; the registry knows the curated ones too.
-   * The walk survives as the reconciliation fallback — a project whose row is
-   * missing, or a database that cannot be opened, must not make its sessions
-   * invisible. Injected so tests can drive it without a database.
-   */
+
   registry?: ProjectRegistry;
 }
 
@@ -101,8 +80,7 @@ export interface SessionDirectoryHandle {
   getSession(sessionId: string): ActiveSession | undefined;
   events(sessionId: string): Promise<JournalEntry[] | undefined>;
   /**
-   * Lifecycle history reported by the agent's own hooks, oldest first. Empty
-   * for the `json` compatibility driver, which has no such table.
+   * Lifecycle history reported by the agent's own hooks, oldest first.
    */
   agentEvents(sessionId: string): Promise<StoredAgentEvent[] | undefined>;
   refresh(): Promise<void>;
@@ -121,10 +99,8 @@ export interface SessionDirectoryHandle {
 /**
  * Poll the canonical SQLite session history for every project on this machine.
  *
- * `session.json` and JSONL journals remain compatibility projections for
- * agents and older tooling, but the detached monitor must not traverse them:
- * it is often a different process and SQLite gives it one indexed, atomic view
- * of sessions, heartbeats and event ordering.
+ * The detached monitor uses SQLite for one indexed, atomic view of sessions,
+ * heartbeats and event ordering.
  */
 export function watchSessionDirectory(
   options: SessionDirectoryOptions = {},
@@ -132,14 +108,8 @@ export function watchSessionDirectory(
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
   const warn = options.onWarn;
-  const storageDriver = options.storageDriver ?? 'sqlite';
   const root = getGlobalRoot(options);
   const watchDebounceMs = options.watchDebounceMs ?? WATCH_DEBOUNCE_MS;
-  const registry =
-    options.registry ??
-    createProjectRegistry({
-      databaseOptions: options.env === undefined ? {} : { env: options.env },
-    });
   let sessions = new Map<string, ActiveSession>();
   let warned = false;
   let closed = false;
@@ -176,24 +146,8 @@ export function watchSessionDirectory(
     }
   }
 
-  /**
-   * Which projects the registry knows, or `null` when it knows none.
-   *
-   * `null` rather than `[]` on purpose: an empty registry is indistinguishable
-   * from an unreadable one, and treating either as "no projects" would hide
-   * every running session. The caller falls back to walking the tree.
-   */
-  async function knownProjectIds(): Promise<string[] | null> {
-    const known = await registry.list();
-    return known.length === 0 ? null : known.map((project) => project.id);
-  }
-
   async function scan(): Promise<void> {
     try {
-      if (storageDriver === 'json') {
-        emit(await scanJsonSessions(root, staleAfterMs, await knownProjectIds()));
-        return;
-      }
       const since = new Date(Date.now() - staleAfterMs).toISOString();
       const stored = await listStoredSessions({
         activeSince: since,
@@ -240,7 +194,6 @@ export function watchSessionDirectory(
 
   function ensureWatcher(): void {
     if (closed || watcher !== null || options.watch === false) return;
-    if (storageDriver !== 'sqlite') return;
     try {
       watcher = watch(root, { persistent: false }, (_event, filename) => {
         onStorageWrite(typeof filename === 'string' ? filename : null);
@@ -272,20 +225,6 @@ export function watchSessionDirectory(
     events: async (sessionId) => {
       const session = sessions.get(sessionId);
       if (session === undefined) return undefined;
-      if (storageDriver === 'json') {
-        const issueDir = join(
-          root,
-          PROJECTS_DIR_NAME,
-          session.projectId,
-          ISSUES_DIR_NAME,
-          session.issueId,
-        );
-        const [rotated, current] = await Promise.all([
-          readFile(join(issueDir, ROTATED_EVENTS_FILENAME), 'utf-8').catch(() => ''),
-          readFile(join(issueDir, EVENTS_FILENAME), 'utf-8').catch(() => ''),
-        ]);
-        return parseJournal(`${rotated}${current}`);
-      }
       return listStoredSessionEvents({
         projectId: session.projectId,
         sessionId,
@@ -295,7 +234,6 @@ export function watchSessionDirectory(
     agentEvents: async (sessionId) => {
       const session = sessions.get(sessionId);
       if (session === undefined) return undefined;
-      if (storageDriver === 'json') return [];
       return listAgentEvents({
         projectId: session.projectId,
         runId: sessionId,
@@ -318,51 +256,6 @@ export function watchSessionDirectory(
       listeners.clear();
     },
   };
-}
-
-async function directories(path: string): Promise<string[]> {
-  try {
-    return (await readdir(path, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Read `session.json` for the `json` compatibility driver.
- *
- * `projectIds` comes from the registry — that is the §47.5 change: the project
- * list is curated, not derived from whichever directories happen to exist.
- * When the registry has nothing to say (empty, or unreadable) the directory
- * walk takes over, so a session can never become invisible because a row is
- * missing. Directories the registry names but that do not exist read as empty
- * and are skipped, which is the same tolerance `directories()` already had.
- */
-async function scanJsonSessions(
-  root: string,
-  staleAfterMs: number,
-  projectIds: string[] | null,
-): Promise<Map<string, ActiveSession>> {
-  const found = new Map<string, ActiveSession>();
-  const projects = projectIds ?? (await directories(join(root, PROJECTS_DIR_NAME)));
-  for (const projectId of projects) {
-    const issuesDir = join(root, PROJECTS_DIR_NAME, projectId, ISSUES_DIR_NAME);
-    for (const issueId of await directories(issuesDir)) {
-      const result = await readSessionFile(join(issuesDir, issueId, SESSION_FILENAME));
-      if (result === null || Date.now() - result.updatedAtMs > staleAfterMs) continue;
-      const sessionId = result.snapshot.sessionId;
-      if (sessionId === null) continue;
-      found.set(sessionId, {
-        projectId,
-        issueId,
-        snapshot: result.snapshot,
-        updatedAtMs: result.updatedAtMs,
-      });
-    }
-  }
-  return found;
 }
 
 function toSessionMap(stored: StoredSession[]): Map<string, ActiveSession> {

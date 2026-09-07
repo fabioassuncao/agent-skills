@@ -4,11 +4,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadRunConfig, PROJECT_CONFIG_FILENAME } from '../config.js';
 
-/**
- * The project-level half of §17's auto-close: a repository can opt in once
- * instead of typing `--auto-close` on every run. It defaults to off, because
- * `run` has always left its sessions in place.
- */
 describe('loadRunConfig', () => {
   let projectRoot: string;
   const warn = vi.fn();

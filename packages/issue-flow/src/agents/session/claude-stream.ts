@@ -1,46 +1,3 @@
-/**
- * The grammar of one `claude … --output-format stream-json` line.
- *
- * ## Why this module exists at all (invariant 13)
- *
- * This project already read that stream, in `core/stream.ts`, before the
- * absorption. §22 marks the upstream adapter **ADAPT** rather than PORT for
- * exactly that reason: a second, parallel parser for the same bytes is the
- * duplication §25 forbids, and the two would drift the first time Anthropic
- * added an event type.
- *
- * So the grammar is **one module — this one — with two readers**:
- *
- * - `core/stream.ts` asks it for the headless outcome: the `result` text, the
- *   error flag and nothing else. It still owns `usage` (that is
- *   `core/metrics.ts`, not part of the stream grammar), the raw transcript and
- *   the watchdog heartbeat, because those are properties of *running an
- *   invocation*, not of reading a line.
- * - `session/claude.ts` asks it for the structured channel: message and block
- *   boundaries, partial text deltas, finalised content blocks and tool results.
- *
- * Neither reader parses JSON twice: `parseClaudeStreamRecord` works on an
- * already-decoded record, and `parseClaudeStreamLine` is the convenience
- * wrapper for callers that hold a raw line.
- *
- * ## What must not be lost
- *
- * `messageStart` and `blockStart` look like noise until you know what they are
- * for. `content_block_delta.index` is scoped to the **current API message** and
- * resets to 0 at every `message_start`, and one user turn routinely contains
- * several API messages (one before a tool call, one after the result). Index
- * alone therefore collides, and two different assistant paragraphs collapse
- * into one bubble. The pair `${messageId}:${blockIndex}` is what makes a block
- * identity collision-free — and the same identity is reproduced when reading
- * the persisted transcript, which is what stops a block that arrives by both
- * routes from being rendered twice (§45.2-A). Losing it produces a bug whose
- * symptom is nowhere near its cause.
- *
- * A malformed line yields `null`, never an exception: the CLI interleaves its
- * own diagnostics with the stream and a run must not die because one line was
- * not JSON.
- */
-
 import type { ConversationMessageKind } from './conversation.js';
 
 /** A parsed content block, before a reader stamps it with its stable id. */
@@ -68,14 +25,7 @@ export interface ParsedClaudeStreamLine {
   blocks: ClaudeStreamBlock[];
   /** Set on a successful `result` line — the turn is over and this is its id. */
   completeSessionId: string | null;
-  /**
-   * The `result` line's payload, for the headless reader.
-   *
-   * Additive over the upstream shape: `core/stream.ts` needs the result text
-   * even when `is_error` is true, while the structured channel only needs to
-   * know that the turn ended. Both come from the same line, so both are read
-   * here rather than by a second parser.
-   */
+
   result: { text: string; isError: boolean } | null;
   /** A human-readable error from a `result` with `is_error`, or an `error` line. */
   error: string | null;

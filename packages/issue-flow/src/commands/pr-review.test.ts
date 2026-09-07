@@ -27,7 +27,7 @@ vi.mock('execa', () => ({
         stdout: JSON.stringify({
           title: 'Add the pr-review phase',
           url: 'https://github.com/acme/repo/pull/128',
-          headRefName: 'issue/25-pr-review-phase',
+          headRefName: 'feat/25-pr-review-phase',
           headRefOid: mockRevision.head,
           baseRefOid: mockRevision.base,
         }),
@@ -85,7 +85,8 @@ function makePlan(): TaskPlan {
     project: 'test',
     issueNumber: 42,
     issueUrl: 'https://github.com/acme/repo/issues/42',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
+    noBranch: false,
     description: 'Test plan',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -93,6 +94,7 @@ function makePlan(): TaskPlan {
     lastError: null,
     correctionCycle: 0,
     maxCorrectionCycles: 3,
+    lastReviewFindings: null,
     pipeline: {
       prdCompleted: true,
       jsonCompleted: true,
@@ -479,7 +481,7 @@ describe('runPrReview', () => {
     plan.pullRequest = {
       number: 77,
       url: 'https://github.com/acme/repo/pull/77',
-      headBranch: 'issue/42-sample',
+      headBranch: 'feat/42-sample',
       createdAt: '2026-01-01T00:00:00Z',
     };
     await writeFile(tasksPath, JSON.stringify(plan, null, 2), 'utf-8');

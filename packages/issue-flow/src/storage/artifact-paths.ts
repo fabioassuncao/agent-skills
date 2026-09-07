@@ -1,9 +1,6 @@
 import { join } from 'node:path';
 
 export const ISSUES_DIR_NAME = 'issues';
-export const SESSION_FILENAME = 'session.json';
-export const EVENTS_FILENAME = 'events.jsonl';
-export const ROTATED_EVENTS_FILENAME = 'events.1.jsonl';
 export const PRD_FILENAME = 'prd.md';
 export const TASKS_FILENAME = 'tasks.json';
 export const VERIFY_FILENAME = 'verify.json';
@@ -18,9 +15,6 @@ export interface IssuePaths {
   tasksFile: string;
   progressFile: string;
   analysisFile: string;
-  sessionFile: string;
-  eventsFile: string;
-  rotatedEventsFile: string;
   runLogFile: string;
   rotatedRunLogFile: string;
   decompositionFile: string;
@@ -54,9 +48,6 @@ export function resolveIssueArtifactPaths(
     tasksFile: join(issueDir, TASKS_FILENAME),
     progressFile: join(issueDir, 'progress.txt'),
     analysisFile: join(issueDir, 'analysis.md'),
-    sessionFile: join(issueDir, SESSION_FILENAME),
-    eventsFile: join(issueDir, EVENTS_FILENAME),
-    rotatedEventsFile: join(issueDir, ROTATED_EVENTS_FILENAME),
     runLogFile: join(issueDir, RUN_LOG_FILENAME),
     rotatedRunLogFile: join(issueDir, ROTATED_RUN_LOG_FILENAME),
     decompositionFile: join(issueDir, 'decomposition.md'),

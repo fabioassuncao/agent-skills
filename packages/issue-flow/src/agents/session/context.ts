@@ -13,20 +13,6 @@ import { getBaseBranch, getProjectRootOf, localBranchExists } from '../../utils/
 import { CodexAppServerClient } from './codex.js';
 import type { AgentSessionDeps } from './open.js';
 
-/**
- * Everything `openAgentSession` needs, assembled from a repository on disk.
- *
- * It exists so the CLI and the HTTP surface open sessions through the **same**
- * wiring. Two entry points assembling their own worktree manager, tmux gateway
- * and profile lookup is how the two start disagreeing about which profile a
- * session used or which socket its window lives on — and §25 asks for one
- * implementation per responsibility, not one per caller.
- *
- * The storage context is the issue-agnostic shape `resolveProjectPaths` already
- * registers (`tasksPath: ''`, `issueId: ''`): a free session has no issue, and
- * inventing one to satisfy the type would put a phantom row in `issues`.
- */
-
 export interface ResolveAgentSessionDepsOptions {
   /** Repository to open sessions in. Defaults to the current one. */
   projectRoot?: string;
@@ -51,13 +37,7 @@ export interface ResolvedAgentSessionContext {
   profileNames: readonly string[];
   profileConfigs: readonly { name: string; systemPrompt?: string }[];
   startupEnv: Readonly<Record<string, string>>;
-  /**
-   * Services declared by the project (§19).
-   *
-   * Returned here rather than re-read by every caller: the monitor needs them
-   * to probe health per worktree, and a second `loadRuntimeConfig` for that
-   * would be a second answer to "which services does this project have".
-   */
+
   services: readonly ServiceSpec[];
 }
 

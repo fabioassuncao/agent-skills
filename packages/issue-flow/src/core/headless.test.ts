@@ -1,6 +1,3 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isTransientFailure } from '../utils/retry.js';
@@ -62,25 +59,6 @@ describe('runHeadless', () => {
       ['-p', 'test prompt', '--output-format', 'stream-json', '--verbose', '--max-turns', '10'],
       expect.objectContaining({ reject: false }),
     );
-  });
-
-  it('still extracts metrics from the legacy JSON payload', async () => {
-    mockExeca.mockResolvedValue({
-      stdout: JSON.stringify({
-        result: 'Analysis complete',
-        cost_usd: 0.05,
-        num_input_tokens: 1000,
-        num_output_tokens: 500,
-      }),
-      stderr: '',
-      exitCode: 0,
-    } as unknown as ExecaResult);
-
-    const result = await runHeadless({ prompt: 'test prompt' });
-
-    expect(result.success).toBe(true);
-    expect(result.result).toBe('Analysis complete');
-    expect(result.cost).toEqual({ inputTokens: 1000, outputTokens: 500, costUsd: 0.05 });
   });
 
   it('returns a null cost when the payload carries no metrics', async () => {
@@ -211,71 +189,6 @@ describe('runHeadless', () => {
       expect.anything(),
       expect.objectContaining({ timeout: DEFAULT_HEADLESS_TIMEOUT_MS }),
     );
-  });
-
-  it.each([
-    { name: 'one timeout', count: 1, phase: 'prd', configured: 1_000, expected: 1_000 },
-    { name: 'second timeout', count: 2, phase: 'prd', configured: 1_000, expected: 2_000 },
-    { name: 'many timeouts', count: 7, phase: 'prd', configured: 1_000, expected: 2_000 },
-    { name: 'different phase', count: 2, phase: 'plan', configured: 1_000, expected: 1_000 },
-    { name: 'disabled limit', count: 2, phase: 'prd', configured: 0, expected: 0 },
-  ])('applies the journal-backed timeout escalation once: $name', async (testCase) => {
-    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-headless-timeout-'));
-    try {
-      const rotated = join(dir, 'events.1.jsonl');
-      const current = join(dir, 'events.jsonl');
-      const retries = Array.from({ length: testCase.count }, (_, index) => ({
-        seq: index + 2,
-        event: {
-          type: 'retry',
-          at: `t${index}`,
-          attempt: index + 1,
-          kind: 'timeout',
-          reason: 'Headless invocation timed out',
-        },
-      }));
-      const entries = [
-        { seq: 1, event: { type: 'phase:start', at: 't0', phase: 'prd' } },
-        ...retries,
-      ];
-      const splitAt = Math.min(2, entries.length);
-      await writeFile(
-        rotated,
-        `${entries
-          .slice(0, splitAt)
-          .map((entry) => JSON.stringify(entry))
-          .join('\n')}\n`,
-      );
-      await writeFile(
-        current,
-        `${entries
-          .slice(splitAt)
-          .map((entry) => JSON.stringify(entry))
-          .join('\n')}\n`,
-      );
-      mockExeca.mockResolvedValue({
-        stdout: JSON.stringify({ result: 'ok' }),
-        stderr: '',
-        exitCode: 0,
-      } as unknown as ExecaResult);
-
-      await runHeadless({
-        prompt: 'test',
-        timeout: testCase.configured,
-        timeoutHistory: {
-          phase: testCase.phase,
-          journalFiles: [rotated, current],
-        },
-      });
-
-      expect(mockExeca).toHaveBeenCalledWith(
-        'claude',
-        expect.anything(),
-        expect.objectContaining({ timeout: testCase.expected }),
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
   });
 
   it('passes allowedTools when specified', async () => {

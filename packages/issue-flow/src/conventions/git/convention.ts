@@ -91,15 +91,6 @@ function titleFormat(input: GitConventionInput): PrTitleFormat {
   return input.declared === true ? 'free' : DEFAULT_GIT_CONVENTION.pullRequest.titleFormat;
 }
 
-/**
- * Collapse a repository's declarations into the single convention every
- * surface — CLI, prompts, Skills — reads.
- *
- * `closesWhenVerified` stays true whatever the repository says: whether the
- * Pull Request closes the issue is a function of the verification state, not a
- * naming preference, and it is one of the four rules §24 keeps precisely
- * because it is a guarantee rather than an aesthetic.
- */
 export function resolveGitConvention(input: GitConventionInput = {}): GitConvention {
   const branchPattern = input.branchConvention?.trim();
 

@@ -55,8 +55,6 @@ beforeEach(() => {
   mockRun.mockReset();
 });
 
-/* ── migrated from backend/src/__tests__/pr.test.ts ─────────────────────── */
-
 describe('parsePullRequestList — draft state', () => {
   it('marks a draft PR as draft', () => {
     const prs = parsePullRequestList(JSON.stringify([ghPr({ isDraft: true })]));
@@ -270,7 +268,7 @@ describe('listPullRequestsForBranch', () => {
       }),
     );
 
-    await expect(listPullRequestsForBranch('issue/42-x')).resolves.toEqual([
+    await expect(listPullRequestsForBranch('feat/42-x')).resolves.toEqual([
       { number: 7, url: 'https://x/pull/7', title: 'T' },
     ]);
     expect(mockRun).toHaveBeenCalledWith(
@@ -279,7 +277,7 @@ describe('listPullRequestsForBranch', () => {
         'pr',
         'list',
         '--head',
-        'issue/42-x',
+        'feat/42-x',
         '--state',
         'all',
         '--json',

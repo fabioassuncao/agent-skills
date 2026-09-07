@@ -28,9 +28,7 @@ import { startWebServer, type WebServerHandle, type WebServerOptions } from './s
  * - `ensureWebMonitor` (US-002) is what `run`/`execute` call: it reuses an
  *   active instance exactly like `ensureSingleWebServer`, but when none
  *   exists it spawns `web serve` as a **detached** child instead of binding
- *   locally, so the server outlives the pipeline process. Falls back to the
- *   legacy in-process `startWebServer` (US-006) when the global storage tree
- *   itself is unreachable.
+ *   locally, so the server outlives the pipeline process.
  */
 
 /** Lock file name, sibling of `config.json` at the global storage root. */
@@ -43,7 +41,7 @@ const HEALTH_PROBE_TIMEOUT_MS = 1000;
 interface WebHealth {
   ok: true;
   pid?: number;
-  instanceId?: string;
+  instanceId: string;
   startedAt?: string;
   uptime?: number;
   version?: string;
@@ -94,13 +92,12 @@ async function probeHealth(host: string, port: number): Promise<WebHealth | null
     if (!res.ok) return null;
     const body = (await res.json()) as Record<string, unknown>;
     if (body.ok !== true) return null;
+    if (typeof body.instanceId !== 'string' || body.instanceId === '') return null;
     return {
       ok: true,
+      instanceId: body.instanceId,
       ...(typeof body.pid === 'number' && Number.isInteger(body.pid) && body.pid > 0
         ? { pid: body.pid }
-        : {}),
-      ...(typeof body.instanceId === 'string' && body.instanceId !== ''
-        ? { instanceId: body.instanceId }
         : {}),
       ...(typeof body.startedAt === 'string' && body.startedAt !== ''
         ? { startedAt: body.startedAt }
@@ -200,7 +197,7 @@ function isIssueFlowWebServe(owner: PortOwner, port: number): boolean {
   );
 }
 
-/** Malformed content (partial write, older/newer incompatible shape) reads as
+/** Malformed content (including an incompatible shape) reads as
  * "no lock" — the same degrade-to-absent behavior as `loadGlobalConfig()`. */
 export async function readWebLock(lockFile: string): Promise<WebLock | null> {
   let raw: string;
@@ -238,7 +235,7 @@ export async function detectActiveInstance(lockFile: string): Promise<WebLock | 
   if (lock === null) return null;
 
   const health = isProcessAlive(lock.pid) ? await probeHealth(lock.host, lock.port) : null;
-  if (health !== null && (lock.instanceId === undefined || health.instanceId === lock.instanceId)) {
+  if (health !== null && health.instanceId === lock.instanceId) {
     return lock;
   }
 
@@ -353,7 +350,7 @@ function reusedHandle(lock: WebLock): WebServerHandle {
     host: lock.host,
     port: lock.port,
     url: `http://${displayHost}:${lock.port}`,
-    instanceId: lock.instanceId ?? `legacy-${lock.pid}-${lock.startedAt}`,
+    instanceId: lock.instanceId,
     close: async () => {},
   };
 }
@@ -467,6 +464,11 @@ export interface EnsureWebMonitorOptions extends GetGlobalRootOptions {
   restartLockTimeoutMs?: number;
 }
 
+type WebMonitorConnectionOptions = Pick<
+  WebServerOptions,
+  'port' | 'host' | 'refreshSeconds' | 'info' | 'warn'
+>;
+
 interface DiscoveryResult {
   instance: ManagedWebInstance | null;
   /** A monitor-like health endpoint answered, but ownership could not be proven. */
@@ -483,7 +485,7 @@ function inferredStartedAt(health: WebHealth): string {
 
 async function discoverManagedInstance(
   lockFile: string,
-  options: WebServerOptions,
+  options: WebMonitorConnectionOptions,
   monitorOptions: EnsureWebMonitorOptions,
 ): Promise<DiscoveryResult> {
   const existingLock = await readWebLock(lockFile);
@@ -491,10 +493,7 @@ async function discoverManagedInstance(
     const health = isProcessAlive(existingLock.pid)
       ? await probeHealth(existingLock.host, existingLock.port)
       : null;
-    if (
-      health !== null &&
-      (existingLock.instanceId === undefined || health.instanceId === existingLock.instanceId)
-    ) {
+    if (health !== null && health.instanceId === existingLock.instanceId) {
       return { instance: { lock: existingLock, health, source: 'lock' }, unownedMonitor: false };
     }
     await removeWebLockIfOwned(lockFile, existingLock);
@@ -523,7 +522,7 @@ async function discoverManagedInstance(
     port: options.port,
     host: options.host,
     startedAt: inferredStartedAt(health),
-    ...(health.instanceId === undefined ? {} : { instanceId: health.instanceId }),
+    instanceId: health.instanceId,
   };
   const claimed = await claimWebLock(lockFile, recovered).catch(() => false);
   if (!claimed) {
@@ -544,7 +543,7 @@ async function discoverManagedInstance(
 async function stopManagedInstance(
   instance: ManagedWebInstance,
   lockFile: string,
-  options: WebServerOptions,
+  options: WebMonitorConnectionOptions,
   monitorOptions: EnsureWebMonitorOptions,
 ): Promise<boolean> {
   const info = options.info ?? printInfo;
@@ -657,14 +656,11 @@ export async function stopWebMonitor(
  *    return a *reused* handle for it — this process never owns that `Server`,
  *    the same shape `ensureSingleWebServer`'s reuse path already returns.
  *
- * Two failure modes degrade gracefully rather than affecting the pipeline:
- * the global storage tree being unreachable (no resolvable home directory)
- * falls back to `startWebServer` bound right here, exactly the pre-US-001
- * behavior (US-006); a spawn or claim failure with the storage tree otherwise
- * healthy just returns null, same contract `startWebServer` itself has.
+ * Coordination, spawn or claim failures return null so monitoring cannot
+ * change the pipeline result.
  */
 export async function ensureWebMonitor(
-  options: WebServerOptions,
+  options: WebMonitorConnectionOptions,
   monitorOptions: EnsureWebMonitorOptions = {},
 ): Promise<WebServerHandle | null> {
   const warn = options.warn ?? printWarning;
@@ -678,9 +674,9 @@ export async function ensureWebMonitor(
     restartLockFile = getWebRestartLockFile(monitorOptions);
   } catch (err) {
     warn(
-      `Web monitor: global storage unavailable (${err instanceof Error ? err.message : String(err)}). Falling back to legacy in-process mode.`,
+      `Web monitor: global storage unavailable (${err instanceof Error ? err.message : String(err)}).`,
     );
-    return startWebServer(options);
+    return null;
   }
 
   const coordinationTimeout = monitorOptions.restartLockTimeoutMs ?? 5000;

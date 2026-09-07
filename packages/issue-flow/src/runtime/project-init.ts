@@ -1,18 +1,3 @@
-/**
- * Setting a repository up the first time it is added, as an observable
- * sequence of phases rather than one opaque wait.
- *
- * MERGE of `backend/src/services/project-init-service.ts` @ d8c9d5f with the
- * plan-then-apply scaffold this project already has (`src/scaffold/`, §47.5).
- * What comes from the upstream is the part that was missing here: a phase
- * tracker with a TTL, and an asynchronous flow a client can watch while it
- * runs. What stays is the scaffold itself — it is non-destructive and
- * idempotent, which the upstream's "write the starter YAML" is not.
- *
- * The phase names are the upstream's, because they are what the CLI and the
- * dashboard render: `creating_config` → `analyzing` → `ready` | `failed`.
- */
-
 export type ProjectInitPhase = 'creating_config' | 'analyzing' | 'ready' | 'failed';
 
 export interface ProjectInitState {
@@ -89,14 +74,6 @@ export class ProjectInitTracker {
 
 /** The I/O the orchestration needs, injected so it stays unit-testable. */
 export interface ProjectInitDeps {
-  /**
-   * Whether the analysis step can run at all.
-   *
-   * Upstream this asked whether the agent CLI used to flesh out the generated
-   * YAML was on PATH. Here the analysis is a local discovery pass, so the
-   * default is always `true`; the seam is kept because it is where an
-   * agent-driven enrichment attaches without changing this flow.
-   */
   analyzerAvailable: () => boolean;
   /** Create the convention files the repository is missing. */
   scaffold: (root: string) => Promise<void>;

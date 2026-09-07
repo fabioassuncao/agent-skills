@@ -3,17 +3,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-/**
- * The two sandbox images (phase 13, §14 stage 2).
- *
- * The last row of the §14 threat model asks for "a minimal image as the default,
- * the current one as `full`". Building either takes minutes and gigabytes, so
- * what is checked here is the split itself: that the default no longer carries
- * the toolchains the threat model calls surface, and that everything an agent
- * needs to take an issue to a Pull Request is still in it. A hardening that left
- * the default image unable to run `git` or `gh` would not be one.
- */
-
 const SANDBOX_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../sandbox');
 
 /**

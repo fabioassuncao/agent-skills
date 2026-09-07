@@ -4,15 +4,6 @@ import { createExecutionSnapshot } from './execution-fixtures';
 import ReviewBlock, { reviewExecutions } from './ReviewBlock.svelte';
 import type { PrEntry } from './types';
 
-/**
- * "Review" — I6.
- *
- * The criterion is one screen holding both halves: what the independent
- * reviewer concluded and what people wrote on the pull request. Two panels
- * would have been the two interfaces again (§50.2 marks the row `M`), so every
- * case below asserts against the **same** section.
- */
-
 afterEach(cleanup);
 
 function pr(overrides: Partial<PrEntry> = {}): PrEntry {

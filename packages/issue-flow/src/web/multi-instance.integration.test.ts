@@ -106,6 +106,7 @@ describe('web — single instance + multi-session, end to end (US-007)', () => {
         port: 59999,
         host: '127.0.0.1',
         startedAt: '2020-01-01T00:00:00Z',
+        instanceId: 'stale-dead',
       }),
       'utf-8',
     );

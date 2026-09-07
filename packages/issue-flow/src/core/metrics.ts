@@ -46,9 +46,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Parse a `claude` CLI result payload into a {@link ClaudeUsage}.
  *
- * Reads the current format (`total_cost_usd` plus a nested `usage` object) and
- * falls back to the legacy flat keys (`cost_usd`, `num_input_tokens`,
- * `num_output_tokens`) when the newer ones are absent.
+ * Reads the current format (`total_cost_usd` plus a nested `usage` object).
  *
  * Returns null when the payload carries no recognizable field at all, and a
  * partial object when only some fields are present. Never throws.
@@ -93,20 +91,11 @@ export function parseUsage(payload: unknown): ClaudeUsage | null {
   const cacheCreationTokens = usageRaw ? num(usageRaw.cache_creation_input_tokens) : undefined;
   const costUsd = num(payload.total_cost_usd);
 
-  // Legacy fallbacks — only consulted when the modern key is missing.
-  const legacyInput = num(payload.num_input_tokens);
-  const legacyOutput = num(payload.num_output_tokens);
-  const legacyCost = num(payload.cost_usd);
-
-  const resolvedInput = inputTokens ?? legacyInput;
-  const resolvedOutput = outputTokens ?? legacyOutput;
-  const resolvedCost = costUsd ?? legacyCost;
-
-  if (resolvedInput !== undefined) usage.inputTokens = resolvedInput;
-  if (resolvedOutput !== undefined) usage.outputTokens = resolvedOutput;
+  if (inputTokens !== undefined) usage.inputTokens = inputTokens;
+  if (outputTokens !== undefined) usage.outputTokens = outputTokens;
   if (cacheReadTokens !== undefined) usage.cacheReadTokens = cacheReadTokens;
   if (cacheCreationTokens !== undefined) usage.cacheCreationTokens = cacheCreationTokens;
-  if (resolvedCost !== undefined) usage.costUsd = resolvedCost;
+  if (costUsd !== undefined) usage.costUsd = costUsd;
 
   const cliDurationMs = num(payload.duration_ms);
   const apiDurationMs = num(payload.duration_api_ms);

@@ -236,11 +236,11 @@ describe('persistence', () => {
 
   it('keeps the branch and the pull request across a round trip', async () => {
     let plan = await planOf({ '50': {} });
-    plan = setQueueBranch(plan, 'issue/50-multi');
+    plan = setQueueBranch(plan, 'feat/50-multi');
     plan = setQueuePullRequest(plan, {
       number: 7,
       url: 'https://github.com/acme/widgets/pull/7',
-      headBranch: 'issue/50-multi',
+      headBranch: 'feat/50-multi',
       createdAt: 'T',
     });
 
@@ -248,7 +248,7 @@ describe('persistence', () => {
     await saveExecutionPlan(file, plan);
     const loaded = await loadExecutionPlan(file);
 
-    expect(loaded.branchName).toBe('issue/50-multi');
+    expect(loaded.branchName).toBe('feat/50-multi');
     expect(loaded.pullRequest?.number).toBe(7);
   });
 
@@ -269,25 +269,24 @@ describe('persistence', () => {
   });
 });
 
-describe('additive fields of the execution plan (US-016)', () => {
+describe('execution plan lifecycle fields', () => {
   let dir: string;
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'issue-flow-plan-compat-'));
+    dir = await mkdtemp(join(tmpdir(), 'issue-flow-plan-'));
   });
 
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  /** An execution-plan.json exactly as an earlier release wrote it. */
-  function legacyPlanJson(): string {
+  function planJson(): string {
     return JSON.stringify({
       schemaVersion: 1,
       id: '101',
       project: 'widgets-abc',
       requested: ['101'],
-      branchName: 'issue/101-thing',
+      branchName: 'feat/101-thing',
       noBranch: false,
       prReview: false,
       status: 'in_progress',
@@ -304,12 +303,16 @@ describe('additive fields of the execution plan (US-016)', () => {
           position: 1,
           status: 'failed',
           origin: 'requested',
+          role: 'executable',
+          externalDependencies: [],
           dependsOn: [],
           parent: null,
           priority: null,
           heuristic: false,
           failedPhase: 'prd',
           lastError: null,
+          attempts: 0,
+          blockedReason: null,
           startedAt: '2026-08-01T00:00:00.000Z',
           completedAt: null,
         },
@@ -318,15 +321,14 @@ describe('additive fields of the execution plan (US-016)', () => {
     });
   }
 
-  it('reads a plan written before attempts and blockedReason existed', async () => {
+  it('reads the current lifecycle fields', async () => {
     const file = join(dir, 'execution-plan.json');
-    await writeFile(file, legacyPlanJson(), 'utf-8');
+    await writeFile(file, planJson(), 'utf-8');
 
     const plan = await loadExecutionPlan(file);
 
     expect(plan).not.toBeNull();
     const entry = plan?.issues[0];
-    // Never attempted, not blocked — which is exactly what the old file meant.
     expect(entry?.attempts).toBe(0);
     expect(entry?.blockedReason).toBeNull();
     expect(plan?.schemaVersion).toBe(1);
@@ -334,7 +336,7 @@ describe('additive fields of the execution plan (US-016)', () => {
 
   it('accepts the two new queue statuses', async () => {
     for (const status of ['blocked', 'skipped']) {
-      const raw = JSON.parse(legacyPlanJson());
+      const raw = JSON.parse(planJson());
       raw.issues[0].status = status;
       const file = join(dir, `plan-${status}.json`);
       await writeFile(file, JSON.stringify(raw), 'utf-8');
@@ -345,7 +347,7 @@ describe('additive fields of the execution plan (US-016)', () => {
   });
 
   it('never hands a blocked issue back to the pipeline', async () => {
-    const raw = JSON.parse(legacyPlanJson());
+    const raw = JSON.parse(planJson());
     raw.issues[0].status = 'blocked';
     raw.issues[0].blockedReason = 'gh auth login required';
     const file = join(dir, 'plan-blocked.json');
@@ -412,41 +414,5 @@ describe('containers in the queue', () => {
       externalDependencies: ['62'],
       dependsOn: [],
     });
-  });
-
-  it('loads an older execution-plan.json without role as executable', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-queue-role-'));
-    const file = join(dir, 'execution-plan.json');
-    const raw = {
-      schemaVersion: 1,
-      id: '50',
-      project: 'p',
-      requested: ['50'],
-      branchName: null,
-      noBranch: false,
-      prReview: false,
-      status: 'pending',
-      createdAt: 'T',
-      updatedAt: 'T',
-      truncated: false,
-      issues: [
-        {
-          id: '50',
-          number: 50,
-          title: 'Old',
-          url: null,
-          source: 'github',
-          position: 1,
-          status: 'pending',
-          origin: 'requested',
-        },
-      ],
-      excluded: [],
-    };
-    await writeFile(file, JSON.stringify(raw), 'utf-8');
-    const loaded = await loadExecutionPlan(file);
-    expect(loaded.issues[0]?.role).toBe('executable');
-    expect(loaded.issues[0]?.externalDependencies).toEqual([]);
-    await rm(dir, { recursive: true, force: true });
   });
 });

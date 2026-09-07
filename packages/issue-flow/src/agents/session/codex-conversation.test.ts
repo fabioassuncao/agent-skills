@@ -12,18 +12,6 @@ import {
   toCodexConversationState,
 } from './codex-conversation.js';
 
-/**
- * The Codex half of the structured channel, as messages.
- *
- * The upstream had no test file for these builders — they live inside
- * `services/worktree-conversation-service.ts`, whose suite exercises the
- * stateful service around them. These cases are new and cover the translation
- * itself, which is what the panel actually renders.
- *
- * Items are built through the schema rather than typed by hand, so a case that
- * would not survive `parseCodexAppServerThreadItem` cannot pass here either.
- */
-
 function item(raw: Record<string, unknown>): CodexAppServerThreadItem {
   const parsed = parseCodexAppServerThreadItem(raw);
   if (!parsed) throw new Error(`fixture is not a valid thread item: ${JSON.stringify(raw)}`);
@@ -236,12 +224,12 @@ describe('buildCodexItemConversationMessages', () => {
         arguments: { id: 1 },
         pluginId: null,
         result: null,
-        error: { message: 'upstream 500' },
+        error: { message: 'remote 500' },
         durationMs: 3,
       }),
     });
     expect(messages[0]).toMatchObject({ toolName: 'docs.get_page', status: 'failed' });
-    expect(messages[1]?.text).toBe('upstream 500');
+    expect(messages[1]?.text).toBe('remote 500');
   });
 
   it('reads mcp text content and appends structured content', () => {

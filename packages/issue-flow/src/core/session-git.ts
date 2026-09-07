@@ -150,7 +150,7 @@ export async function publishGitState(
       // Never publish the raw remote: an HTTPS remote configured for
       // automation commonly embeds a token (user:token@host), and this event
       // is served unauthenticated by the web monitor and persisted to
-      // session.json.
+      // session snapshot.
       remoteUrl: stripRemoteUrlCredentials(remoteUrl),
       headCommit,
       repositoryRoot,

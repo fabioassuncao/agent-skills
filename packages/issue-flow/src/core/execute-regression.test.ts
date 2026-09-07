@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getPlanRepository, listStoredExecutions } from '../storage/db/repository.js';
 import type { EngineConfig, ResolvedPaths, TaskPlan, UserStory } from '../types.js';
 
 /**
@@ -114,7 +115,8 @@ function pendingPlan(...stories: UserStory[]): TaskPlan {
     project: 'test',
     issueNumber: 42,
     issueUrl: 'https://github.com/acme/repo/issues/42',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
+    noBranch: false,
     description: 'Test plan',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -146,6 +148,16 @@ const baseConfig: EngineConfig = {
 describe('execute loop — non-regression of the JSON output format', () => {
   let tmpDir: string;
   let paths: ResolvedPaths;
+
+  async function executionRecords() {
+    const repository = getPlanRepository(paths.prdFile);
+    expect(repository).toBeDefined();
+    return listStoredExecutions({
+      projectId: repository!.projectId,
+      issueId: repository!.issueId,
+      databaseOptions: repository!.databaseOptions,
+    });
+  }
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), 'issue-flow-regression-'));
@@ -364,7 +376,7 @@ describe('execute loop — non-regression of the JSON output format', () => {
     resetTelemetryState();
 
     expect(code).toBe(0);
-    const recorded = (await readPlan()).executions ?? [];
+    const recorded = await executionRecords();
     expect(recorded).toHaveLength(1);
     expect(recorded[0]?.purpose).toBe('execute');
     expect(recorded[0]?.trigger).toBe('initial');
@@ -384,7 +396,7 @@ describe('execute loop — non-regression of the JSON output format', () => {
     await runEngine({ ...baseConfig, retryLimit: 1 }, paths);
     resetTelemetryState();
 
-    const recorded = (await readPlan()).executions ?? [];
+    const recorded = await executionRecords();
     expect(recorded.length).toBeGreaterThanOrEqual(2);
     expect(recorded[0]?.trigger).toBe('initial');
     expect(recorded[1]?.trigger).toBe('retry');

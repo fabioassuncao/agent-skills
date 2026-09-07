@@ -47,10 +47,6 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
-/**
- * The `inline` origin — the entry half of §17's convergence: a free prompt is
- * accepted **as an Issue**, so nothing downstream needs a second code path.
- */
 describe('inline issue origin', () => {
   it('derives a stable identifier from the prompt itself', () => {
     expect(inlineIssueId('Fix the flaky cache test')).toBe(

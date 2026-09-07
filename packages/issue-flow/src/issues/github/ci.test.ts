@@ -20,10 +20,6 @@ function result(overrides?: Partial<ExecResult>): ExecResult {
   return { stdout: '', stderr: '', exitCode: 0, ...overrides };
 }
 
-/**
- * Mirrors the `GhCheckEntry` shape closely enough for the summarizers, which
- * only read the fields referenced below — the upstream test helper.
- */
 function checkRun(over: Partial<GhCheckRunEntry> = {}): GhCheckEntry {
   return {
     __typename: 'CheckRun',
@@ -40,8 +36,6 @@ function checkRun(over: Partial<GhCheckRunEntry> = {}): GhCheckEntry {
 beforeEach(() => {
   mockRun.mockReset();
 });
-
-/* ── migrated from backend/src/__tests__/pr.test.ts ─────────────────────── */
 
 describe('summarizeChecks — cancelled/superseded runs', () => {
   it('does not report failed when a run was cancelled by a re-trigger', () => {

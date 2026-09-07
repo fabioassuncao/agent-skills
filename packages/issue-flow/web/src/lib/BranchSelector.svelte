@@ -3,22 +3,7 @@
   import type { AvailableBranch } from './types';
   import { searchMatch } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/BranchSelector.svelte` @ d8c9d5f (227 lines).
-   *
-   * Two details that look like noise and are not:
-   *
-   * - **`onmousedown={(e) => e.preventDefault()}` on every option.** Selecting
-   *   an option moves focus out of the search input, `focusout` closes the
-   *   dropdown, and the click never lands on the option it was aimed at.
-   *   Preventing the default keeps focus where it is until `onclick` runs.
-   * - **`preserveMouseFocus` on the inline toggle row**, for the same reason,
-   *   as an action so the behaviour is attached rather than repeated.
-   *
-   * The dropdown reports "updating" and "update failed" separately from
-   * "loading" and "load failed": a refresh that fails while a stale list is on
-   * screen is a different situation from having no list at all.
-   */
+
 
   let {
     label,

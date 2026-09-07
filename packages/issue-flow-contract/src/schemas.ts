@@ -1,25 +1,6 @@
 import { z } from 'zod';
 
-/**
- * The shapes the Issue Flow monitor server and its dashboard agree on.
- *
- * PORT of `packages/api-contract/src/schemas.ts` from windmill-labs/webmux
- * @ d8c9d5f (776 lines), with three deliberate differences:
- *
- * - **Linear is optional and environment-authenticated.** Its UI shapes are
- *   retained, but no schema can carry a credential or persist one in project
- *   configuration.
- * - **The migration sensor is gone.** `InstanceSummary` / `MigrateProjects*`
- *   existed to feed `MigrationBanner.svelte`, which is a WebMux-internal
- *   migration (§48.1). Nothing here replaces them.
- * - **The Issue Flow half is added**: sessions, snapshots, journal events, agent
- *   lifecycle events, diagnostics, effective configuration and health — the
- *   surface `src/web/server.ts` already serves. These are the routes that back
- *   the dashboard today.
- *
- * Everything else keeps the upstream's names, so the two files read side by
- * side.
- */
+/** The shapes shared by the monitor server and dashboard. */
 
 const BooleanLikeSchema = z.union([
   z.boolean(),
@@ -40,13 +21,7 @@ export const EnabledResponseSchema = z.object({
   enabled: z.boolean(),
 });
 
-/**
- * The five providers Issue Flow ships with, against the upstream's two.
- *
- * `AgentIdSchema` stays a free string because custom agents are registered by
- * id (§45.2-L absorbs the custom-agent concept and nothing else from the
- * upstream's agent layer).
- */
+/** Built-in providers and the identifier contract shared with custom agents. */
 export const BuiltInAgentIdSchema = z.enum([
   'claude',
   'codex',
@@ -134,27 +109,9 @@ export const BranchListResponseSchema = z.object({
   branches: z.array(AvailableBranchSchema),
 });
 
-export const WorktreeSourceSchema = z.enum(['ui', 'oneshot']);
+export const WorktreeSourceSchema = z.literal('ui');
 
-/**
- * Oneshot watch config carried on create/open requests. When present, the
- * server-side oneshot watcher closes the session once the agent finishes. Any
- * browser-originated interaction with the session disarms the watcher.
- *
- * The upstream's implicit `postToLinearOnDone` remains out. Linear posting is
- * restored as an explicit UI/API action, separate from oneshot completion.
- */
-export const OneshotConfigSchema = z.object({
-  autoCloseOnDone: z.boolean().optional(),
-});
 
-/**
- * Creating a worktree.
- *
- * `issueRef` is the Issue Flow addition of §48.3: a free session can be opened
- * with no issue at all (ADR-16), and the same dialog links one when the user
- * wants the workflow.
- */
 export const CreateWorktreeRequestSchema = z.object({
   mode: WorktreeCreateModeSchema.optional(),
   branch: z.string().optional(),
@@ -166,12 +123,10 @@ export const CreateWorktreeRequestSchema = z.object({
   envOverrides: z.record(z.string()).optional(),
   issueRef: z.string().trim().min(1).optional(),
   source: WorktreeSourceSchema.optional(),
-  oneshot: OneshotConfigSchema.optional(),
 });
 
 export const OpenWorktreeRequestSchema = z.object({
   prompt: z.string().optional(),
-  oneshot: OneshotConfigSchema.optional(),
 });
 
 export const CreateWorktreeResponseSchema = z.object({
@@ -334,15 +289,6 @@ export const WorktreeCreationStateSchema = z.object({
   phase: WorktreeCreationPhaseSchema,
 });
 
-export const AppNotificationSchema = z.object({
-  id: z.number(),
-  branch: z.string(),
-  type: z.enum(['agent_stopped', 'pr_opened', 'runtime_error', 'worktree_auto_removed']),
-  message: z.string(),
-  url: z.string().optional(),
-  timestamp: z.number(),
-});
-
 export const WorktreeTabSchema = z.object({
   tabId: z.string(),
   kind: z.enum(['root', 'fork']),
@@ -353,13 +299,7 @@ export const WorktreeTabSchema = z.object({
   createdAt: z.string(),
 });
 
-/**
- * One worktree as the sidebar sees it.
- *
- * `executionId` and `issueRef` are the Issue Flow additions of §48.3: a
- * worktree may be the workspace of a workflow execution, and the sidebar has to
- * be able to say so without a second list.
- */
+
 export const ProjectWorktreeSnapshotSchema = z.object({
   branch: z.string(),
   label: z.string().nullable(),
@@ -381,25 +321,14 @@ export const ProjectWorktreeSnapshotSchema = z.object({
   prs: z.array(PrEntrySchema),
   creation: WorktreeCreationStateSchema.nullable(),
   source: WorktreeSourceSchema,
-  oneshot: OneshotConfigSchema.nullable(),
-  /** Agent-pane tabs (`tabs[0]` is the root). Default keeps older servers valid. */
-  tabs: z.array(WorktreeTabSchema).default([]),
-  activeTabId: z.string().nullable().default(null),
+  tabs: z.array(WorktreeTabSchema),
+  activeTabId: z.string().nullable(),
   /** Runtime/provider capability for this row; sandbox currently cannot fork safely. */
-  supportsTabs: z.boolean().default(false),
+  supportsTabs: z.boolean(),
   /** Set when this worktree is the workspace of a workflow execution. */
-  executionId: z.string().nullable().default(null),
+  executionId: z.string().nullable(),
   /** Set when the worktree is linked to an issue, with or without an execution. */
-  issueRef: z.string().nullable().default(null),
-});
-
-export const ProjectSnapshotSchema = z.object({
-  project: z.object({
-    name: z.string(),
-    mainBranch: z.string(),
-  }),
-  worktrees: z.array(ProjectWorktreeSnapshotSchema),
-  notifications: z.array(AppNotificationSchema),
+  issueRef: z.string().nullable(),
 });
 
 export const WorktreeConversationProviderSchema = z.enum(['codexAppServer', 'claudeCode']);
@@ -494,52 +423,13 @@ export const AgentsUiSendMessageResponseSchema = z.object({
   conversationId: z.string(),
   turnId: z.string(),
   running: z.literal(true),
-  streaming: z.boolean(),
 });
 
 export const AgentsUiInterruptResponseSchema = z.object({
   conversationId: z.string(),
   turnId: z.string(),
   interrupted: z.literal(true),
-  streaming: z.boolean(),
 });
-
-export const AgentsUiConversationMessageDeltaEventSchema = z.object({
-  type: z.literal('messageDelta'),
-  revision: z.number().int().nonnegative(),
-  conversationId: z.string(),
-  turnId: z.string(),
-  itemId: z.string(),
-  order: z.number().int().nonnegative(),
-  delta: z.string(),
-});
-
-export const AgentsUiConversationMessageUpsertEventSchema = z.object({
-  type: z.literal('messageUpsert'),
-  revision: z.number().int().nonnegative(),
-  conversationId: z.string(),
-  message: AgentsUiConversationMessageSchema,
-});
-
-export const AgentsUiConversationStatusEventSchema = z.object({
-  type: z.literal('conversationStatus'),
-  revision: z.number().int().nonnegative(),
-  conversationId: z.string(),
-  running: z.boolean(),
-  activeTurnId: z.string().nullable(),
-});
-
-export const AgentsUiConversationErrorEventSchema = z.object({
-  type: z.literal('error'),
-  message: z.string(),
-});
-
-export const AgentsUiConversationEventSchema = z.discriminatedUnion('type', [
-  AgentsUiConversationMessageDeltaEventSchema,
-  AgentsUiConversationMessageUpsertEventSchema,
-  AgentsUiConversationStatusEventSchema,
-  AgentsUiConversationErrorEventSchema,
-]);
 
 export const WorktreeListResponseSchema = z.object({
   worktrees: z.array(ProjectWorktreeSnapshotSchema),
@@ -606,10 +496,6 @@ export const CreateTabResponseSchema = z.object({
   tab: WorktreeTabSchema,
 });
 
-export const NotificationIdParamsSchema = z.object({
-  id: NumberLikePathParamSchema,
-});
-
 export const AgentIdParamsSchema = z.object({
   id: AgentIdSchema,
 });
@@ -618,20 +504,9 @@ export const RunIdParamsSchema = z.object({
   runId: NumberLikePathParamSchema,
 });
 
-/* ------------------------------------------------------------------------- *
- * Projects — the Issue Flow registry (§47), served by `src/web/projects-api.ts`
- * ------------------------------------------------------------------------- */
 
-/**
- * One project as `GET /api/projects` returns it.
- *
- * Two fields the upstream's `ProjectSummary` has no equivalent for, and both
- * matter: `id` is the Issue Flow `projectId` (derived from the remote, never
- * from the path — §47.2), and `served` distinguishes "the registry knows this
- * project" from "this process is serving it right now". A registered project
- * with no active work is exactly the case that did not exist before §47, so
- * `prefix` is nullable.
- */
+
+
 export const ProjectSummarySchema = z.object({
   id: z.string(),
   prefix: z.string().nullable(),
@@ -698,12 +573,8 @@ export const RemoveProjectResponseSchema = z.object({
  * ------------------------------------------------------------------------- */
 
 /**
- * Every snapshot field can arrive as `undefined` (the version that wrote the
- * `session.json` did not have it) as well as `null` (present, not reported).
- * Both mean "not reported" and neither may reach the screen as `0` or `NaN`
- * — the dashboard's `metric()` helper is what enforces that, and this schema
- * is deliberately permissive so an old file still parses instead of being
- * rejected wholesale.
+ * A live run may not have reported every metric yet. Missing and null values
+ * both mean "not reported" and must never reach the screen as `0` or `NaN`.
  */
 export const SessionSummarySchema = z.object({
   sessionId: z.string().nullable().default(null),
@@ -727,19 +598,9 @@ export const SessionSummarySchema = z.object({
   lastActivityAt: z.string().nullable().default(null),
   agentLifecycle: z.string().nullable().default(null),
   awaitingInputCount: z.number().nullable().default(null),
-  /**
-   * §32's escalation, decided by the pipeline and only displayed here.
-   *
-   * A card needs to tell "the agent just asked something" from "the agent asked
-   * and nobody came" — the second is the one that has stopped making progress.
-   * It is never computed in the browser: a headless run with no dashboard open
-   * has to escalate too (ADR-03).
-   */
+
   awaitingInputEscalatedAt: z.string().nullable().default(null),
-  /**
-   * A person is driving this run (§32). While it is set the watchdog is paused
-   * and no phase advances, so the run looks idle and is not.
-   */
+
   humanHold: z
     .object({ since: z.string(), reason: z.string() })
     .nullable()
@@ -777,7 +638,6 @@ export const HarnessCatalogEntrySchema = z.object({
   harness: z.string(),
   provider: z.string(),
   installed: z.boolean(),
-  authenticated: z.boolean(),
   authentication: z.string(),
   state: z.string(),
   source: z.string(),
@@ -846,7 +706,6 @@ export type UpsertCustomAgentRequest = z.infer<typeof UpsertCustomAgentRequestSc
 export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 export type ValidateCustomAgentResponse = z.infer<typeof ValidateCustomAgentResponseSchema>;
 export type WorktreeCreateMode = z.infer<typeof WorktreeCreateModeSchema>;
-export type OneshotConfig = z.infer<typeof OneshotConfigSchema>;
 export type WorktreeCreationPhase = z.infer<typeof WorktreeCreationPhaseSchema>;
 export type AvailableBranch = z.infer<typeof AvailableBranchSchema>;
 // Kept manual so callers pass booleans instead of raw `"true"`/`"false"` literals.
@@ -879,12 +738,10 @@ export type LinearTarget = z.infer<typeof LinearTargetSchema>;
 export type PostWorktreeToLinearRequest = z.infer<typeof PostWorktreeToLinearRequestSchema>;
 export type PostWorktreeToLinearResponse = z.infer<typeof PostWorktreeToLinearResponseSchema>;
 export type WorktreeCreationState = z.infer<typeof WorktreeCreationStateSchema>;
-export type AppNotification = z.infer<typeof AppNotificationSchema>;
 export type ProjectWorktreeSnapshot = z.infer<typeof ProjectWorktreeSnapshotSchema>;
 export type WorktreeTab = z.infer<typeof WorktreeTabSchema>;
 export type WorktreeTabParams = z.infer<typeof WorktreeTabParamsSchema>;
 export type CreateTabResponse = z.infer<typeof CreateTabResponseSchema>;
-export type ProjectSnapshot = z.infer<typeof ProjectSnapshotSchema>;
 export type WorktreeConversationProvider = z.infer<typeof WorktreeConversationProviderSchema>;
 export type CodexWorktreeConversationRef = z.infer<typeof CodexWorktreeConversationRefSchema>;
 export type ClaudeWorktreeConversationRef = z.infer<typeof ClaudeWorktreeConversationRefSchema>;
@@ -902,15 +759,6 @@ export type AgentsUiWorktreeConversationResponse = z.infer<
 >;
 export type AgentsUiSendMessageResponse = z.infer<typeof AgentsUiSendMessageResponseSchema>;
 export type AgentsUiInterruptResponse = z.infer<typeof AgentsUiInterruptResponseSchema>;
-export type AgentsUiConversationMessageDeltaEvent = z.infer<
-  typeof AgentsUiConversationMessageDeltaEventSchema
->;
-export type AgentsUiConversationMessageUpsertEvent = z.infer<
-  typeof AgentsUiConversationMessageUpsertEventSchema
->;
-export type AgentsUiConversationStatusEvent = z.infer<typeof AgentsUiConversationStatusEventSchema>;
-export type AgentsUiConversationErrorEvent = z.infer<typeof AgentsUiConversationErrorEventSchema>;
-export type AgentsUiConversationEvent = z.infer<typeof AgentsUiConversationEventSchema>;
 export type WorktreeListResponse = z.infer<typeof WorktreeListResponseSchema>;
 export type UnpushedCommit = z.infer<typeof UnpushedCommitSchema>;
 export type WorktreeDiffResponse = z.infer<typeof WorktreeDiffResponseSchema>;

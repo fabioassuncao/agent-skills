@@ -421,7 +421,7 @@ describe('worktree lifecycle', () => {
     });
   });
 
-  it('exposes WorktreeError with the upstream status codes', () => {
+  it('exposes WorktreeError with the public status codes', () => {
     const error = new WorktreeError('nope', 409);
     expect(error).toBeInstanceOf(Error);
     expect(error.status).toBe(409);

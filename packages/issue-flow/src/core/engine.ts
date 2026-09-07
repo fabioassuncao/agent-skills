@@ -45,7 +45,6 @@ import {
   applyStoryMetrics,
   clearLastError,
   hasPendingCorrection,
-  initializeState,
   isoNow,
   loadTaskPlan,
   markIssueCompleted,
@@ -349,9 +348,6 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
     printError(inputError);
     return 1;
   }
-  plan = initializeState(plan);
-  await saveTaskPlan(paths.prdFile, plan);
-
   // Check if already completed. A pending correction (a failed review whose
   // findings haven't been addressed yet) always overrides this, even though
   // every userStories[].passes is already true — otherwise a correction
@@ -536,7 +532,7 @@ export async function runEngine(config: EngineConfig, paths: ResolvedPaths): Pro
         } finally {
           setAgentProjectionWindow(paths.prdFile, false);
         }
-        // The agent receives a materialized compatibility file. Reingest its
+        // The agent receives a materialized task artifact. Reingest its
         // intentionally narrow mutation before any pipeline/telemetry reader
         // observes the next state, so a concurrent execution row cannot erase
         // `passes` or `notes`.

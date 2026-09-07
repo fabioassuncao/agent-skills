@@ -1,13 +1,12 @@
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { importProjectArtifacts } from '../storage/db/import.js';
 import { getDatabasePath, openIssueFlowDatabase } from '../storage/db/index.js';
 import { exportStoredState } from '../storage/db/repository.js';
 import { verifyProjectProjections } from '../storage/db/verify.js';
 import { resolveProjectPaths } from '../storage/resolve.js';
 import { printError, printInfo } from '../ui/logger.js';
-import { getProjectRoot, getRemoteUrl } from '../utils/git.js';
+import { getProjectRoot } from '../utils/git.js';
 
 function failure(action: string, error: unknown): number {
   const message = error instanceof Error ? error.message : String(error);
@@ -23,7 +22,7 @@ export async function runDbCheck(): Promise<number> {
       const result = database.integrityCheck();
       if (result !== 'ok') {
         printError(
-          `Database integrity check failed: ${result}. Restore a backup or re-import the preserved JSON state.`,
+          `Database integrity check failed: ${result}. Restore a known-good database backup.`,
         );
         return 1;
       }
@@ -100,10 +99,6 @@ export async function runDbExport(destination?: string): Promise<number> {
 export async function runDbVerify(): Promise<number> {
   try {
     const project = await resolveProjectPaths();
-    if (project.storageDriver !== 'sqlite') {
-      printError('Database verification requires storage.driver=sqlite.');
-      return 1;
-    }
     const projectRoot = await getProjectRoot();
     const result = await verifyProjectProjections({
       projectId: project.projectId,
@@ -120,29 +115,6 @@ export async function runDbVerify(): Promise<number> {
     return 0;
   } catch (error) {
     return failure('verification', error);
-  }
-}
-
-export async function runDbImport(options: { withEvents?: boolean } = {}): Promise<number> {
-  try {
-    const project = await resolveProjectPaths();
-    const projectRoot = await getProjectRoot();
-    const result = await importProjectArtifacts({
-      projectId: project.projectId,
-      projectDir: project.projectDir,
-      projectRoot,
-      remoteUrl: await getRemoteUrl(projectRoot),
-      ...project.databaseOptions,
-      withEvents: options.withEvents === true,
-      onWarning: printInfo,
-    });
-    if (result.failed) return 1;
-    printInfo(
-      `Database import completed: ${result.imported} artifact(s) imported, ${result.skipped} unchanged.`,
-    );
-    return 0;
-  } catch (error) {
-    return failure('import', error);
   }
 }
 

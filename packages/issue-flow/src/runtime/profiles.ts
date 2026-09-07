@@ -4,14 +4,11 @@ import type { PaneKind, PaneTemplate } from './tmux/layout.js';
 /**
  * Profiles — the named descriptions of *how* a worktree is opened.
  *
- * Adapted from WebMux `backend/src/adapters/config.ts` and
- * `backend/src/domain/config.ts` @ d8c9d5f (§16 of the absorption plan). A
- * profile answers three questions and nothing else: which runtime the worktree
+ * A profile answers three questions: which runtime the worktree
  * gets (`host` or `docker`), what the window looks like (`panes`), and what the
  * agent inside it is allowed to do.
  *
- * Three things carry over exactly and are the reason this file is a port rather
- * than a rewrite:
+ * Three invariants define the parser:
  *
  * - **Nothing here throws.** Every parser is tolerant: an unusable pane is
  *   dropped, an unusable profile falls back to the defaults, and a section that
@@ -19,19 +16,15 @@ import type { PaneKind, PaneTemplate } from './tmux/layout.js';
  *   warning, never the run — which is also the rule `src/config/` already
  *   follows for every other section.
  * - **Every read returns a fresh copy.** `cloneProfile` exists because callers
- *   mutate what they are handed (the upstream has a test for exactly that:
- *   pushing onto `envPassthrough` of one load must not be visible in the next).
+ *   mutate what they are handed; pushing onto `envPassthrough` of one load
+ *   must not be visible in the next.
  *   Handing out the shared default object turns one caller's mutation into
  *   everybody's configuration.
  * - **A profile named `sandbox` defaults to `runtime: docker`.** It is the
- *   whole reason the name is special-cased upstream, and dropping it would make
- *   the most common sandbox declaration silently run on the host.
+ *   whole reason the name is special-cased; dropping it would make
+ *   a sandbox declaration silently run on the host.
  *
- * The one deliberate divergence is permission. The upstream has `yolo: boolean`;
- * Issue Flow has three semantic levels, and §45.3 lists a boolean as the
- * degraded form this port must not reintroduce. So `yolo` is **translated on
- * read** into `permission: 'autonomous'` and never stored as a second axis
- * (§16). A profile that declares neither leaves the phase's own permission
+ * A profile that omits `permission` leaves the phase's own permission
  * intact — a profile describes a window, it does not get to widen what an agent
  * may do behind the phase's back.
  *
@@ -52,21 +45,6 @@ export interface MountSpec {
   writable?: boolean;
 }
 
-/**
- * The sandbox hardening a docker profile may soften.
- *
- * Every field is optional and every default is the hardened one, so a profile
- * that declares nothing gets the whole §14 posture. This exists to be the
- * *escape hatch*: a repository whose build genuinely needs a capability, a
- * network mode or the SSH agent says so here, once, in the open.
- *
- * The shape is declared here rather than imported from `runtime/sandbox/`
- * for the same reason `PaneTemplate` arrives as a type-only import: the config
- * loader pulls this module in on every CLI boot, and a value import would drag
- * the docker gateway and `execa` along with it. `SandboxSecurityConfig` in
- * `runtime/sandbox/docker.ts` is the structural counterpart, and the two are
- * kept assignable by `profiles.security.test.ts`.
- */
 export interface ProfileSecurity {
   /** `--network`. `none` also drops published ports. */
   network?: 'none' | 'bridge';
@@ -80,18 +58,13 @@ export interface ProfileSecurity {
   noNewPrivileges?: boolean;
   /** Forward the host's `SSH_AUTH_SOCK`. Off unless a profile asks. */
   sshAgent?: boolean;
-  /** The implicit agent-config and credential mounts. */
-  implicitMounts?: boolean;
 }
 
 export interface RuntimeProfile {
   runtime: ProfileRuntimeKind;
   /** Required by `runtime: 'docker'`; a docker profile without one is not usable. */
   image?: string;
-  /**
-   * Translated from `permission` or from the upstream's `yolo: true`. Absent
-   * means "whatever the phase already decided" — the profile does not override.
-   */
+  /** Absent means the profile does not override the phase's permission. */
   permission?: AgentPermission;
   /** Host variables forwarded into the runtime. */
   envPassthrough: string[];
@@ -181,14 +154,6 @@ function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
 }
 
-/**
- * One pane declaration.
- *
- * Returns `null` — dropped, never fatal — for anything unusable. A `command`
- * pane with no command is the case that matters: the upstream drops it because
- * a pane that would open a shell where a service was expected is worse than a
- * missing pane, which is at least visible.
- */
 export function parsePaneTemplate(raw: unknown, index: number): PaneTemplate | null {
   if (!isRecord(raw)) return null;
   if (raw.kind !== 'agent' && raw.kind !== 'shell' && raw.kind !== 'command') return null;
@@ -267,20 +232,10 @@ export function parseProfileSecurity(raw: unknown): ProfileSecurity | undefined 
   if (isStringArray(raw.capAdd) && raw.capAdd.length > 0) security.capAdd = [...raw.capAdd];
   if (typeof raw.noNewPrivileges === 'boolean') security.noNewPrivileges = raw.noNewPrivileges;
   if (typeof raw.sshAgent === 'boolean') security.sshAgent = raw.sshAgent;
-  if (typeof raw.implicitMounts === 'boolean') security.implicitMounts = raw.implicitMounts;
-
   return Object.keys(security).length > 0 ? security : undefined;
 }
 
-/**
- * Resolve the profile's permission from the two accepted spellings.
- *
- * `permission` is Issue Flow's own and wins. `yolo: true` is the upstream's and
- * maps to `autonomous`; `yolo: false` maps to **nothing**, matching the upstream
- * (its own test asserts that a profile with `yolo: false` carries no `yolo` at
- * all) and keeping the phase's decision rather than overriding it with a
- * narrower one the profile never intended.
- */
+/** Resolve the semantic permission declared by a runtime profile. */
 export function parseProfilePermission(raw: Record<string, unknown>): AgentPermission | undefined {
   if (
     raw.permission === 'read-only' ||
@@ -289,7 +244,7 @@ export function parseProfilePermission(raw: Record<string, unknown>): AgentPermi
   ) {
     return raw.permission;
   }
-  return raw.yolo === true ? 'autonomous' : undefined;
+  return undefined;
 }
 
 export function parseRuntimeProfile(
@@ -348,14 +303,6 @@ export function parseRuntimeProfiles(
   return profiles;
 }
 
-/**
- * Merge profile layers by name.
- *
- * A profile is replaced whole, never merged field by field: the upstream's
- * local overlay works the same way, and it is the behaviour a person expects
- * when they redefine `sandbox` — they are describing that profile, not patching
- * three of its keys onto a definition they cannot see.
- */
 export function mergeProfileLayers(
   ...layers: ReadonlyArray<Readonly<Record<string, RuntimeProfile>>>
 ): Record<string, RuntimeProfile> {
@@ -416,19 +363,10 @@ export function isDockerProfile(
   );
 }
 
-/**
- * Expand `${VAR}` placeholders against an environment map.
- *
- * Ported verbatim from `adapters/config.ts`. An unknown key becomes the empty
- * string rather than staying literal: a `${PORT}` that survived into a URL would
- * be handed to a browser as a broken address, while an empty one fails at the
- * place that built it.
- */
 export function expandTemplate(template: string, env: Readonly<Record<string, string>>): string {
   return template.replace(/\$\{(\w+)\}/g, (_match, key: string) => env[key] ?? '');
 }
 
-/** The profile's system prompt with its placeholders resolved (§16). */
 export function resolveProfileSystemPrompt(
   profile: RuntimeProfile,
   env: Readonly<Record<string, string>>,

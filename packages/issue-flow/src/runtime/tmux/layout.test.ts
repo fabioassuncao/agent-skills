@@ -8,12 +8,6 @@ import {
   type SessionLayoutContext,
 } from './layout.js';
 
-/**
- * Ported from WebMux `backend/src/__tests__/session-service.test.ts` @ d8c9d5f,
- * plus the cases for the one improvement §27 asks for: reopening a worktree must
- * not kill the agent working in it.
- */
-
 const context: SessionLayoutContext = {
   repoRoot: '/repo',
   worktreePath: '/wt/feature',
@@ -170,8 +164,6 @@ describe('ensureSessionLayout', () => {
     ]);
   });
 
-  // The improvement over the upstream (§27): reopening a worktree whose window
-  // is intact must not kill the agent that is working in it.
   it('reattaches to an intact window without killing anything', async () => {
     const tmux = fakeTmux({ windowExists: true, paneCount: 2 });
     const result = await ensureSessionLayout(tmux, plan(twoPanes));

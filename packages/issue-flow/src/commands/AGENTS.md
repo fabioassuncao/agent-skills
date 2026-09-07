@@ -1,18 +1,15 @@
 # src/commands
 
-`usage` is a reader, like `status` / `runs` / `logs`: it only aggregates
-`tasks.json.executions`. It never writes an `executionSummary`.
+`usage` is a reader, like `status` / `runs` / `logs`: it aggregates canonical
+SQLite execution records and never writes a summary projection.
 
 `bench` measures the #79 corpus. `synthetic` is free and what CI runs.
 `real` spends money, requires confirmation or `--yes`, isolates
 `ISSUE_FLOW_HOME`, and is refused under `npm test`. Rules live in
 `src/benchmark/AGENTS.md`.
 
-`run` always installs a `MemoryPublisher`. Disk surfaces (`FilePublisher`,
-`JournalPublisher`) stay opt-in. `activity` events are published in every
-mode so the clean terminal and the dashboard share `currentActivity`;
-`FilePublisher` already throttles the write that would otherwise bust the
-`/api/status` ETag on every tool call.
+`run` publishes session events to SQLite. `activity` events are published in
+every mode so the clean terminal and the dashboard share `currentActivity`.
 
 ## `project` and `serve`
 
@@ -122,8 +119,7 @@ call.
 ## What one failing issue does to a queue
 
 `--on-issue-failure` picks between three answers, and `stop` — ending the run
-where it failed — stays the default and the behaviour of every release before
-the flag existed.
+where it failed — stays the default.
 
 - **`skip` sets the issue aside and comes back to it.** `nextQueueIssue()` hands
   out `skipped` entries **last**, which is what "go on with the independent work
@@ -199,9 +195,9 @@ common case and the one every older test covers:
   `runExecute` receives a `commitScope`, and neither the issue close nor the
   final summary happens per issue — the queue owns both.
 
-Each issue of a queue gets its **own** publisher over its **own**
-`session.json`, so the publication order documented below is per issue and
-unchanged; nothing publishes into two sessions at once. The queue's closing
+Each issue of a queue gets its **own** SQLite-backed publisher, so the
+publication order documented below is per issue; nothing publishes into two
+sessions at once. The queue's closing
 pass (the consolidated Pull Request) publishes into the primary issue's
 session with a phase list of `init` + `pr` (+ `pr-review`), which is why
 `startIdx` is clamped: a resume phase that is not in that list starts the
@@ -213,14 +209,11 @@ gain a second disk read per enrichment. The seed publishes nothing on an empty
 plan — an event with no content still bumps the publisher's version and forces a
 write plus a cache miss on every poller.
 
-## The convergence of the oneshot (§17)
+## Inline demands
 
-`issue-flow run` is the **only** execution path. §17 of the absorption plan
-folded `webmux oneshot` into it, and the rule that came with it is that nothing
-here may grow a second one: there is no `oneshot` command, and `--prompt` is not
-a lighter mode.
+`issue-flow run` is the only execution path. `--prompt` is not a lighter mode.
 
-Three things arrived, and each stays in its own place:
+The behavior stays split across these responsibilities:
 
 - **A free prompt is an Issue.** `--prompt` is resolved by `demand.ts` and
   minted by `issues/providers/inline.ts` into an Issue of the `inline` origin,
@@ -233,7 +226,7 @@ Three things arrived, and each stays in its own place:
   `agent_stopped` and `pr_opened` (already persisted by `agents/hooks/`) are
   read by `auto-close.ts` and weigh only on the close. The pipeline's verdict
   is what ends a run: a run that stopped its phases early on the agent's say-so
-  would be a run nobody verified (§45.3).
+  would be a run nobody verified.
 - **Auto-close is opt-in and a person disarms it.** `--auto-close` marks the
   run's live `AgentSession` rows `stopped`; it deletes nothing and never touches
   a branch or a worktree. A run under `human_hold` is skipped, and the hold is
@@ -241,7 +234,6 @@ Three things arrived, and each stays in its own place:
   finalization still aborts it. There is no second armed/disarmed flag — armed
   *is* "no human hold", and `core/human-hold.ts` owns that question alone.
 
-`core/run-completion.ts` is the ported decision (grace window, cold-start guard,
+`core/run-completion.ts` owns the decision (grace window, cold-start guard,
 in-flight guard, disarm-even-when-the-close-failed) and knows nothing about
-Issue Flow; `run/auto-close.ts` is the half that does. Keep them apart: the
-first is what the upstream suite is ported against.
+Issue Flow; `run/auto-close.ts` is the half that does. Keep them apart.

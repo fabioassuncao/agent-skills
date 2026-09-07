@@ -1,28 +1,5 @@
 import type { AgentPermission, AgentPhase } from '../types.js';
 
-/**
- * The durable half of an agent session.
- *
- * §27 of the absorption plan separates seven concepts that are easy to conflate.
- * This is one of them, and the definition is narrow on purpose:
- *
- * - the **`AgentConversation`** — the model's history — is owned by the
- *   provider, on disk under `~/.claude` or `~/.codex`. This project never
- *   copies it and never parses it to reconstruct state.
- * - the **`RuntimeSession`** — worktree, ports, services, container — is owned
- *   by `src/runtime/`.
- * - the **`tmux` session** is owned by the multiplexer and is ephemeral.
- * - an **`AgentSession`**, this, is the *link* between a conversation and what
- *   it is being used for, plus whether it is alive. It is the only one of the
- *   four this project persists, and it exists so that reopening a worktree can
- *   resume the same conversation instead of starting a new one.
- *
- * `runId`, `phase` and `storyId` are **nullable** (ADR-16). A session opened
- * without an issue, a plan or a workflow is the same entity with those fields
- * empty — which is what makes a free session possible without inventing a
- * second execution model.
- */
-
 export type AgentSessionStatus = 'starting' | 'running' | 'idle' | 'stopped' | 'orphaned';
 
 export interface AgentSession {

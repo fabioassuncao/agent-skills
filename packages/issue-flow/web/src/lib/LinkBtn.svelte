@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte';
   import type { HTMLButtonAttributes } from 'svelte/elements';
 
-  /** PORT of `frontend/src/lib/LinkBtn.svelte` @ d8c9d5f (19 lines). */
+
 
   let {
     children,

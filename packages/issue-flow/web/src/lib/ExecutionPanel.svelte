@@ -18,35 +18,7 @@
   import type { ExecutionSnapshot } from './snapshot';
   import type { EffectiveConfigResponse, PrEntry, WorktreeInfo } from './types';
 
-  /**
-   * The main panel — **one** panel, for both of §49's modes.
-   *
-   * PORT of `#view-detail` (the header, the alert card, the tabs and the four
-   * blocks), consolidated in phase 8D into §50.5's navigation. The rule that
-   * keeps this from becoming two interfaces is stated once, here, and every
-   * decision below follows from it:
-   *
-   * > A Task **contains** its sessions, worktrees, terminal, services and
-   * > PR/CI. It does not point at another area. A free session is the same
-   * > screen without the workflow tabs. The components are the same in both.
-   *
-   * So the panel does **not** branch on "which list did the selection come
-   * from". It branches on one thing — whether the selection has an execution
-   * snapshot behind it — and that single question is what makes the promotion
-   * of §49.2 free: a free session linked to an issue starts having a snapshot,
-   * so the workflow tabs appear, in place, with no new component and no event
-   * (I4).
-   *
-   * **The panels are all rendered**, not switched, so an inactive tab is never
-   * stale and the drawer stays current while the Kanban is hidden. The terminal
-   * is the one exception and it is deliberate: `display: none` gives xterm a
-   * zero-size container, and a terminal that measured itself at zero columns is
-   * worse than one that reattaches — and reattaching is the path the port
-   * already hardened (`lastOffset` on the attach frame).
-   *
-   * `[hidden]` needs `display: none` stated explicitly — the panel's own
-   * `display: grid` would otherwise win over the attribute.
-   */
+
 
   let {
     snapshot = null,
@@ -110,15 +82,7 @@
     onback?: (() => void) | null;
   } = $props();
 
-  /**
-   * The tab set of §50.5.
-   *
-   * Two lists, one component set. The workflow half exists only when there is a
-   * workflow to show; `terminal` and `sessions` are in **both**, with the same
-   * ids and the same panels, because they are the same thing seen from either
-   * mode. The free-session labels differ because one row and N rows are not the
-   * same sentence, not because the component is different.
-   */
+
   let tabs = $derived.by(() => {
     const list: TabDefinition[] = [];
     const terminalTabs: TabDefinition[] = [];
@@ -126,9 +90,6 @@
     if (chat !== null) terminalTabs.push({ id: 'chat', label: 'Chat' });
 
     if (snapshot === null) {
-      // A free session, in §50.5's order: the terminal first, because that is
-      // what opening a session was for. The first tab is also the fallback, so
-      // the order is the default landing too.
       return [
         ...terminalTabs,
         { id: 'sessions', label: 'Worktree e serviços' },
@@ -216,11 +177,7 @@
       />
     </div>
 
-    <!--
-      Stories: the list and the board, together. They were two tabs because the
-      old panel had three; §50.5 makes them one subject, and a story opens the
-      same drawer from either.
-    -->
+
     <div
       class="if-panel"
       id="panel-stories"

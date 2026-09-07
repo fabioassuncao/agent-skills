@@ -1,10 +1,9 @@
-import { existsSync } from 'node:fs';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { classify } from '../resilience/errors.js';
-import { registerStorageProjections, resetPlanRepositories } from '../storage/db/repository.js';
+import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import {
   acquireHalfOpenProbe,
   readProvidersHealth,
@@ -12,10 +11,20 @@ import {
   recordProviderSuccess,
 } from './health.js';
 
+function healthContext(dir: string): PlanRepositoryContext {
+  return {
+    tasksPath: join(dir, 'tasks.json'),
+    projectId: `health-${dir.split('/').at(-1)}`,
+    issueId: 'provider-health',
+    projectRoot: dir,
+    databaseOptions: { env: { ISSUE_FLOW_HOME: dir } },
+  };
+}
+
 describe('provider health persistence', () => {
   it('trips, doubles cooldown after a failed half-open probe, and resets on success', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'issue-flow-health-'));
-    const file = join(dir, 'providers.json');
+    const context = healthContext(dir);
     let now = Date.parse('2026-08-30T10:00:00.000Z');
     const failure = classify({ source: 'agent', stdout: 'service unavailable' });
     const options = {
@@ -23,79 +32,64 @@ describe('provider health persistence', () => {
       config: { cooldownMs: 100, maxCooldownMs: 1_000, failuresToTrip: 3 },
     };
 
-    await recordProviderFailure(file, 'claude', failure, options);
-    await recordProviderFailure(file, 'claude', failure, options);
-    let record = await recordProviderFailure(file, 'claude', failure, options);
+    await recordProviderFailure(context, 'claude', failure, options);
+    await recordProviderFailure(context, 'claude', failure, options);
+    let record = await recordProviderFailure(context, 'claude', failure, options);
     expect(record.status).toBe('unavailable');
     expect(Date.parse(record.cooldownUntil ?? '') - now).toBe(100);
 
     now += 100;
-    const firstProbe = await acquireHalfOpenProbe(file, 'claude', options);
-    const secondProbe = await acquireHalfOpenProbe(file, 'claude', options);
+    const firstProbe = await acquireHalfOpenProbe(context, 'claude', options);
+    const secondProbe = await acquireHalfOpenProbe(context, 'claude', options);
     expect(firstProbe.acquired).toBe(true);
     expect(secondProbe.acquired).toBe(false);
 
-    record = await recordProviderFailure(file, 'claude', failure, options);
+    record = await recordProviderFailure(context, 'claude', failure, options);
     expect(record.status).toBe('unavailable');
     expect(Date.parse(record.cooldownUntil ?? '') - now).toBe(200);
 
     now += 200;
-    expect((await acquireHalfOpenProbe(file, 'claude', options)).acquired).toBe(true);
-    record = await recordProviderSuccess(file, 'claude', { now: () => now });
+    expect((await acquireHalfOpenProbe(context, 'claude', options)).acquired).toBe(true);
+    record = await recordProviderSuccess(context, 'claude', { now: () => now });
     expect(record).toMatchObject({ status: 'healthy', cooldownLevel: 0, cooldownUntil: null });
 
-    expect(JSON.parse(await readFile(file, 'utf-8')).providers.claude.status).toBe('healthy');
+    expect((await readProvidersHealth(context)).providers.claude.status).toBe('healthy');
   });
 
   it('uses Retry-After verbatim for rate limits and survives a fresh read', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'issue-flow-health-'));
-    const file = join(dir, 'providers.json');
+    const context = healthContext(dir);
     const now = Date.parse('2026-08-30T10:00:00.000Z');
     const failure = classify({ source: 'agent', stdout: 'rate limit; Retry-After: 7' });
 
-    const record = await recordProviderFailure(file, 'codex', failure, { now: () => now });
+    const record = await recordProviderFailure(context, 'codex', failure, { now: () => now });
     expect(record.status).toBe('rate_limited');
     expect(Date.parse(record.cooldownUntil ?? '') - now).toBe(7_000);
-    expect((await readProvidersHealth(file)).providers.codex).toEqual(record);
+    expect((await readProvidersHealth(context)).providers.codex).toEqual(record);
   });
 
-  it('uses the registered SQLite repository instead of rewriting providers.json', async () => {
+  it('stores provider health in SQLite', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'issue-flow-health-sqlite-'));
-    const file = join(dir, 'providers.json');
-    registerStorageProjections({
-      context: {
-        tasksPath: join(dir, 'tasks.json'),
-        projectId: `health-sqlite-${Date.now()}`,
-        issueId: '42',
-        projectRoot: dir,
-      },
-      providersHealthFile: file,
-    });
-
-    try {
-      const record = await recordProviderFailure(
-        file,
-        'codex',
-        classify({ source: 'agent', stdout: 'rate limit; Retry-After: 7' }),
-      );
-      expect(record.status).toBe('rate_limited');
-      expect((await readProvidersHealth(file)).providers.codex).toEqual(record);
-      expect(existsSync(file)).toBe(false);
-    } finally {
-      resetPlanRepositories();
-    }
+    const context = healthContext(dir);
+    const record = await recordProviderFailure(
+      context,
+      'codex',
+      classify({ source: 'agent', stdout: 'rate limit; Retry-After: 7' }),
+    );
+    expect(record.status).toBe('rate_limited');
+    expect((await readProvidersHealth(context)).providers.codex).toEqual(record);
   });
 
   it('does not let network or task failures contaminate breaker counters', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'issue-flow-health-'));
-    const file = join(dir, 'providers.json');
+    const context = healthContext(dir);
     const providerFailure = classify({ source: 'agent', stdout: 'service unavailable' });
     const networkFailure = classify({ source: 'git', stdout: 'could not resolve host' });
     const taskFailure = classify({ source: 'agent', stdout: 'Tests 3 failed' });
 
-    await recordProviderFailure(file, 'claude', providerFailure);
-    await recordProviderFailure(file, 'claude', networkFailure);
-    const record = await recordProviderFailure(file, 'claude', taskFailure);
+    await recordProviderFailure(context, 'claude', providerFailure);
+    await recordProviderFailure(context, 'claude', networkFailure);
+    const record = await recordProviderFailure(context, 'claude', taskFailure);
 
     expect(record.status).toBe('degraded');
     expect(record.consecutiveFailures).toBe(1);
@@ -105,7 +99,7 @@ describe('provider health persistence', () => {
 
   it('uses a sliding failure window and caps exponential cooldown', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'issue-flow-health-'));
-    const file = join(dir, 'providers.json');
+    const context = healthContext(dir);
     let now = Date.parse('2026-08-30T10:00:00.000Z');
     const failure = classify({ source: 'agent', stdout: 'service unavailable' });
     const options = {
@@ -118,21 +112,21 @@ describe('provider health persistence', () => {
       },
     };
 
-    await recordProviderFailure(file, 'claude', failure, options);
+    await recordProviderFailure(context, 'claude', failure, options);
     now += 1_001;
-    let record = await recordProviderFailure(file, 'claude', failure, options);
+    let record = await recordProviderFailure(context, 'claude', failure, options);
     expect(record.status).toBe('degraded');
     expect(record.failures).toHaveLength(1);
 
-    record = await recordProviderFailure(file, 'claude', failure, options);
+    record = await recordProviderFailure(context, 'claude', failure, options);
     expect(Date.parse(record.cooldownUntil ?? '') - now).toBe(100);
     now += 100;
-    expect((await acquireHalfOpenProbe(file, 'claude', options)).acquired).toBe(true);
-    record = await recordProviderFailure(file, 'claude', failure, options);
+    expect((await acquireHalfOpenProbe(context, 'claude', options)).acquired).toBe(true);
+    record = await recordProviderFailure(context, 'claude', failure, options);
     expect(Date.parse(record.cooldownUntil ?? '') - now).toBe(200);
     now += 200;
-    expect((await acquireHalfOpenProbe(file, 'claude', options)).acquired).toBe(true);
-    record = await recordProviderFailure(file, 'claude', failure, options);
+    expect((await acquireHalfOpenProbe(context, 'claude', options)).acquired).toBe(true);
+    record = await recordProviderFailure(context, 'claude', failure, options);
     expect(Date.parse(record.cooldownUntil ?? '') - now).toBe(250);
   });
 });

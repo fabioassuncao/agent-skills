@@ -19,12 +19,14 @@ const story = (id: string, priority = 1, dependencies?: string[]) => ({
 const plan = (userStories = [story('A')]) => ({
   project: 'test',
   issueNumber: 42,
+  issueUrl: 'https://github.com/acme/repo/issues/42',
   issueStatus: 'pending',
   completedAt: null,
   lastAttemptAt: null,
   lastError: null,
   correctionCycle: 0,
   maxCorrectionCycles: 3,
+  lastReviewFindings: null,
   pipeline: {
     prdCompleted: false,
     jsonCompleted: false,
@@ -33,6 +35,7 @@ const plan = (userStories = [story('A')]) => ({
     prCreated: false,
   },
   branchName: 'fix/example',
+  noBranch: false,
   description: 'Example',
   userStories,
 });
@@ -61,7 +64,7 @@ describe('shared task plan contract', () => {
       lastReviewFindings: 'GENERAL: verify browser',
     });
   });
-  it('accepts legacy optional fields, never changes the input, and selects by dependencies before priority', () => {
+  it('preserves extension fields, never changes the input, and selects by dependencies before priority', () => {
     const input = {
       ...plan([story('B', 1, ['A']), story('A', 2), story('C', 2)]),
       extension: { preserve: true },

@@ -8,7 +8,6 @@ import {
   applyStoryMetrics,
   clearLastError,
   hasPendingCorrection,
-  initializeState,
   loadTaskPlan,
   markIssueCompleted,
   markIssueInProgress,
@@ -23,7 +22,8 @@ function createMinimalPlan(overrides?: Partial<TaskPlan>): TaskPlan {
     project: 'test',
     issueNumber: 1,
     issueUrl: 'https://github.com/test/test/issues/1',
-    branchName: 'issue/1-test',
+    branchName: 'feat/1-test',
+    noBranch: false,
     description: 'Test plan',
     issueStatus: 'pending',
     completedAt: null,
@@ -97,128 +97,6 @@ describe('state-manager', () => {
       await expect(loadTaskPlan(join(tmpDir, 'missing.json'))).rejects.toThrow();
     });
 
-    // Regression guard: plans written by 0.4.4/0.5.2 must keep loading verbatim.
-    it('should load a tasks.json written by an older version', async () => {
-      const legacyPlan = {
-        project: 'issue-flow',
-        issueNumber: 22,
-        issueUrl: 'https://github.com/fabioassuncao/issue-flow/issues/22',
-        branchName: 'issue/22-web-monitor',
-        noBranch: false,
-        description: 'Legacy plan',
-        issueStatus: 'in_progress',
-        completedAt: null,
-        lastAttemptAt: '2026-07-01T12:00:00Z',
-        lastError: null,
-        correctionCycle: 0,
-        maxCorrectionCycles: 3,
-        pipeline: {
-          analyzeCompleted: true,
-          prdCompleted: true,
-          jsonCompleted: true,
-          executionCompleted: false,
-          reviewCompleted: false,
-          prCreated: false,
-        },
-        userStories: [
-          {
-            id: 'US-001',
-            title: 'Legacy story',
-            description: 'As a user...',
-            acceptanceCriteria: ['Criterion 1'],
-            priority: 1,
-            passes: true,
-            notes: '',
-          },
-        ],
-      };
-      const filePath = join(tmpDir, 'tasks.json');
-      await writeFile(filePath, JSON.stringify(legacyPlan, null, 2), 'utf-8');
-
-      const loaded = await loadTaskPlan(filePath);
-      expect(loaded.issueNumber).toBe(22);
-      expect(loaded.issueUrl).toBe('https://github.com/fabioassuncao/issue-flow/issues/22');
-    });
-
-    // Backwards compatibility guard for the story metrics: every field is
-    // additive and optional, so a plan from a run that predates them loads
-    // untouched and gains no artificial zeros on a round-trip.
-    it('should load a tasks.json written before the story metrics existed', async () => {
-      const legacyPlan = {
-        project: 'issue-flow',
-        issueNumber: 30,
-        issueUrl: 'https://github.com/fabioassuncao/issue-flow/issues/30',
-        branchName: 'issue/30-pr-review',
-        noBranch: false,
-        description: 'Plan from a run before token metrics existed',
-        issueStatus: 'completed',
-        completedAt: '2026-07-20T18:31:04Z',
-        lastAttemptAt: '2026-07-20T18:31:04Z',
-        lastError: null,
-        correctionCycle: 0,
-        maxCorrectionCycles: 3,
-        lastReviewFindings: null,
-        pipeline: {
-          analyzeCompleted: true,
-          prdCompleted: true,
-          jsonCompleted: true,
-          executionCompleted: true,
-          reviewCompleted: true,
-          prCreated: true,
-        },
-        userStories: [
-          {
-            id: 'US-001',
-            title: 'Story without metrics',
-            description: 'As a user...',
-            acceptanceCriteria: ['Criterion 1', 'Typecheck passes'],
-            priority: 1,
-            passes: true,
-            notes: '',
-          },
-          {
-            id: 'US-002',
-            title: 'Another story without metrics',
-            description: 'As a maintainer...',
-            acceptanceCriteria: ['Criterion 1'],
-            priority: 2,
-            passes: true,
-            notes: 'Implemented alongside US-001.',
-          },
-        ],
-      };
-      const filePath = join(tmpDir, 'tasks.json');
-      await writeFile(filePath, JSON.stringify(legacyPlan, null, 2), 'utf-8');
-
-      const loaded = await loadTaskPlan(filePath);
-      expect(loaded.userStories).toHaveLength(2);
-      for (const story of loaded.userStories) {
-        expect(story.inputTokens).toBeUndefined();
-        expect(story.outputTokens).toBeUndefined();
-        expect(story.cacheReadTokens).toBeUndefined();
-        expect(story.cacheCreationTokens).toBeUndefined();
-        expect(story.costUsd).toBeUndefined();
-        expect(story.durationSeconds).toBeUndefined();
-      }
-
-      await saveTaskPlan(filePath, loaded);
-      const rewritten = JSON.parse(await readFile(filePath, 'utf-8'));
-      expect(rewritten.userStories[0]).not.toHaveProperty('inputTokens');
-      expect(rewritten.userStories[0]).not.toHaveProperty('durationSeconds');
-    });
-
-    it('should load a tasks.json without issueUrl', async () => {
-      const { issueUrl: _omitted, ...plan } = createMinimalPlan();
-      const filePath = join(tmpDir, 'tasks.json');
-      await writeFile(filePath, JSON.stringify(plan), 'utf-8');
-
-      const loaded = await loadTaskPlan(filePath);
-      expect(loaded.issueUrl).toBe('');
-    });
-
-    // Backwards compatibility guard for the pr-review phase: the three new
-    // fields are opt-in, so a plan without them must load untouched and a
-    // load -> save round-trip must not sprout any of them.
     it('should load a tasks.json without the pr-review fields and not add them on save', async () => {
       const plan = createMinimalPlan();
       const filePath = join(tmpDir, 'tasks.json');
@@ -249,7 +127,7 @@ describe('state-manager', () => {
         pullRequest: {
           number: 42,
           url: 'https://github.com/test/test/pull/42',
-          headBranch: 'issue/1-test',
+          headBranch: 'feat/1-test',
           createdAt: '2026-08-03T12:00:00Z',
         },
         prReview: {
@@ -289,15 +167,6 @@ describe('state-manager', () => {
       await expect(loadTaskPlan(filePath)).rejects.toThrow('Invalid tasks.json');
     });
 
-    it('should default lastReviewFindings to null for a plan written before the field existed', async () => {
-      const { lastReviewFindings: _omitted, ...plan } = createMinimalPlan();
-      const filePath = join(tmpDir, 'tasks.json');
-      await writeFile(filePath, JSON.stringify(plan), 'utf-8');
-
-      const loaded = await loadTaskPlan(filePath);
-      expect(loaded.lastReviewFindings).toBeNull();
-    });
-
     it('should round-trip story status and dependencies', async () => {
       const plan = createMinimalPlan();
       plan.userStories[0].status = 'in_review';
@@ -316,9 +185,7 @@ describe('state-manager', () => {
       expect(reloaded.userStories).toEqual(loaded.userStories);
     });
 
-    // The fields are optional, never defaulted: a legacy plan must come back
-    // from a load/save round trip byte-identical in its stories.
-    it('should not add status or dependencies to a legacy plan', async () => {
+    it('should not materialize optional story observations', async () => {
       const plan = createMinimalPlan();
       const filePath = join(tmpDir, 'tasks.json');
       await writeFile(filePath, JSON.stringify(plan, null, 2), 'utf-8');
@@ -354,68 +221,6 @@ describe('state-manager', () => {
       const loaded = JSON.parse(content);
       expect(loaded.project).toBe('test');
       expect(loaded.userStories).toHaveLength(2);
-    });
-  });
-
-  describe('initializeState', () => {
-    it('should fill defaults for missing fields', () => {
-      const plan = {
-        userStories: [
-          {
-            id: 'US-001',
-            title: 'Test',
-            description: '',
-            acceptanceCriteria: [],
-            priority: 1,
-            passes: false,
-            notes: '',
-          },
-        ],
-      } as unknown as TaskPlan;
-
-      const initialized = initializeState(plan);
-      expect(initialized.issueStatus).toBe('pending');
-      expect(initialized.completedAt).toBeNull();
-      expect(initialized.lastError).toBeNull();
-      expect(initialized.correctionCycle).toBe(0);
-      expect(initialized.maxCorrectionCycles).toBe(3);
-      expect(initialized.lastReviewFindings).toBeNull();
-      expect(initialized.pipeline.prdCompleted).toBe(false);
-    });
-
-    it('should preserve existing values', () => {
-      const plan = createMinimalPlan({ issueStatus: 'in_progress' });
-      const initialized = initializeState(plan);
-      expect(initialized.issueStatus).toBe('in_progress');
-    });
-
-    it('should preserve a pending lastReviewFindings value', () => {
-      const plan = createMinimalPlan({ lastReviewFindings: 'getRemoteUrl ignores cwd' });
-      const initialized = initializeState(plan);
-      expect(initialized.lastReviewFindings).toBe('getRemoteUrl ignores cwd');
-    });
-
-    it('should not introduce the pr-review fields when they are absent', () => {
-      const initialized = initializeState(createMinimalPlan());
-      expect(initialized).not.toHaveProperty('pullRequest');
-      expect(initialized).not.toHaveProperty('prReview');
-      expect(initialized.pipeline).not.toHaveProperty('prReviewCompleted');
-    });
-
-    it('should preserve the pr-review fields when they are present', () => {
-      const plan = createMinimalPlan({
-        pullRequest: {
-          number: 7,
-          url: 'https://github.com/test/test/pull/7',
-          headBranch: 'issue/1-test',
-          createdAt: '2026-08-03T12:00:00Z',
-        },
-        prReview: { enabled: true, rounds: 1, lastRecommendation: 'APPROVE' },
-      });
-
-      const initialized = initializeState(plan);
-      expect(initialized.pullRequest?.number).toBe(7);
-      expect(initialized.prReview?.lastRecommendation).toBe('APPROVE');
     });
   });
 

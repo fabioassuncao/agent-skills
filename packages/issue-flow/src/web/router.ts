@@ -1,22 +1,5 @@
 import { RESERVED_PROJECT_PREFIXES } from '../storage/projects/prefix.js';
 
-/**
- * Which project a request belongs to, decided per request.
- *
- * ADAPT of the upstream's prefixed route map (`backend/src/server.ts` @
- * d8c9d5f), which republished every project route through `Bun.serve().reload()`
- * whenever the project set changed. `node:http` has no `reload()`, and the
- * translation is not a workaround but a simplification: resolving
- * `/(?<prefix>[^/]+)/api/…` at request time removes a whole class of bugs
- * (routes published against a stale project map, a reload racing an in-flight
- * request) and is the same dispatch a WebSocket would do from `ws.data.prefix`.
- *
- * Unprefixed paths keep working untouched. That is deliberate: the hub view,
- * every existing `/api/*` route and the dashboard assets are the behaviour a
- * single-project user already has, and it must not start depending on knowing
- * a prefix.
- */
-
 export interface ResolvedRoute {
   /** The project this request addresses, or `null` for a hub route. */
   prefix: string | null;

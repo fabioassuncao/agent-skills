@@ -1,23 +1,6 @@
 import type { WorktreeInfo, WorktreeListRow } from './types';
 import { searchMatch } from './utils';
 
-/**
- * PORT of `frontend/src/lib/worktree-list.ts` @ d8c9d5f (130 lines).
- *
- * The sidebar's ordering and its overflow bars, kept as pure functions so they
- * are testable without a DOM — which is why the upstream's twelve cases port
- * unchanged.
- *
- * §48.1 calls this ordering `compareWorktreeOrder`; the function does not exist
- * upstream under that name. What actually orders the list is
- * `buildWorktreeListRows`, a parent-first walk that indents a worktree under
- * the worktree it was branched from. Recorded as a specification divergence,
- * not silently renamed.
- *
- * Both provider-neutral `issueRef` and the optional Linear identifier enter
- * the search haystack, so a linked workspace remains findable by either id.
- */
-
 export interface FilterWorktreesOptions {
   query: string;
   showArchived: boolean;

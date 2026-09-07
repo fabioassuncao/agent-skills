@@ -8,14 +8,7 @@
   import type { PrEntry } from './types';
   import { errorMessage, prLabel } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/CiDetailsDialog.svelte` @ d8c9d5f (203 lines).
-   *
-   * CI checks plus the failing logs, and a one-click "ask the agent to fix
-   * this". `logsForCheck` filters the run's whole log by the `"<check>\t"`
-   * prefix: one run holds every job's output, and handing the agent all of it
-   * would bury the failure it is being asked about.
-   */
+
 
   let {
     pr,

@@ -1,23 +1,14 @@
 <script lang="ts">
   import type { ToastItem, ToastTone } from './types';
 
-  /**
-   * PORT of `frontend/src/lib/ToastStack.svelte` @ d8c9d5f (86 lines).
-   *
-   * Toasts and the panel's `#alerts` region coexist with distinct jobs
-   * (§50.3): a toast is feedback about an action the user just took and it
-   * disappears; `#alerts` is persistent state of the execution and it does not.
-   * Neither replaces the other.
-   */
+
 
   let {
     toasts,
     ondismiss,
-    onselect,
   }: {
     toasts: ToastItem[];
     ondismiss: (id: string) => void;
-    onselect?: (id: string) => void;
   } = $props();
 
   function iconForTone(tone: ToastTone): string {
@@ -46,19 +37,9 @@
         </span>
       {/snippet}
       <div class="toast w-fit max-w-[min(48ch,calc(100vw-2rem))]" role="alert">
-        {#if onselect && toast.source === 'notification'}
-          <button
-            type="button"
-            class="min-w-0 flex items-start gap-2 text-left bg-transparent border-none text-inherit cursor-pointer p-0"
-            onclick={() => onselect(toast.id)}
-          >
-            {@render body(toast)}
-          </button>
-        {:else}
-          <div class="min-w-0 flex items-start gap-2 text-inherit">
-            {@render body(toast)}
-          </div>
-        {/if}
+        <div class="min-w-0 flex items-start gap-2 text-inherit">
+          {@render body(toast)}
+        </div>
         <button
           type="button"
           aria-label="Dispensar aviso"

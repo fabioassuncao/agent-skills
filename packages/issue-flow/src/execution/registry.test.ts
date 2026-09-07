@@ -1,9 +1,7 @@
-import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createInitialSnapshot } from '../core/session-state.js';
 import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
@@ -16,9 +14,11 @@ function lock(overrides: Record<string, unknown> = {}) {
   return {
     pid: process.pid,
     host: HOST,
+    ownerId: 'registry-owner',
     target: '63',
     startedAt: '2026-08-30T03:00:00.000Z',
     lastHeartbeatAt: new Date().toISOString(),
+    detached: false,
     ...overrides,
   };
 }
@@ -80,9 +80,6 @@ describe('listLiveRuns', () => {
     expect(runs.every((run) => run.status === 'running')).toBe(true);
   });
 
-  // §31.3: above the default ceiling a run holds a lock under `locks/`, not the
-  // project one. `ps` reading only `run.lock` would go blind exactly when there
-  // is more than one run to see.
   it('lists the per-unit locks a parallel project holds', async () => {
     await mkdir(join(tmp, 'projects', 'alpha', 'locks'), { recursive: true });
     await writeFile(
@@ -149,7 +146,7 @@ describe('listLiveRuns', () => {
     expect(runs[0]?.pid).toBe(2_147_483_647);
   });
 
-  it('enriches a lock from SQLite snapshots without a session.json projection', async () => {
+  it('enriches a lock from SQLite snapshots', async () => {
     const projectId = 'sqlite-project';
     const issueId = '55';
     const context: PlanRepositoryContext = {
@@ -187,31 +184,6 @@ describe('listLiveRuns', () => {
         storiesTotal: 0,
       }),
     ]);
-  });
-
-  it('uses compatibility snapshots without opening SQLite in JSON mode', async () => {
-    const issueDir = join(tmp, 'projects', 'json-project', 'issues', '63');
-    await mkdir(issueDir, { recursive: true });
-    await writeFile(
-      join(tmp, 'projects', 'json-project', 'run.lock'),
-      JSON.stringify(lock({ target: '63' })),
-    );
-    await writeFile(
-      join(issueDir, 'session.json'),
-      JSON.stringify({
-        ...createInitialSnapshot(),
-        sessionId: 'json-session',
-        status: 'running',
-        currentPhase: 'execute',
-        updatedAt: new Date().toISOString(),
-        issue: { ...createInitialSnapshot().issue, number: 63 },
-      }),
-    );
-
-    await expect(listLiveRuns({ env: env(), storageDriver: 'json' })).resolves.toEqual([
-      expect.objectContaining({ projectId: 'json-project', issue: 63, phase: 'execute' }),
-    ]);
-    expect(existsSync(join(tmp, 'issue-flow.db'))).toBe(false);
   });
 
   // P10 — two projects executing at the same time.

@@ -11,23 +11,6 @@ import {
   toClaudeConversationState,
 } from './claude.js';
 
-/**
- * Parity suite for the Claude conversation reader.
- *
- * Transcript cases ported from
- * `.references/webmux-main/backend/src/__tests__/claude-cli.test.ts`; the block
- * identity cases from `claude-stream-block-identity.test.ts`, which exists
- * upstream for one reason — to prove that two assistant text blocks sharing a
- * content index across two API messages do not collapse into one bubble.
- *
- * The upstream identity cases drove the whole streaming service stack
- * (`ClaudeConversationStreamService` + `AgentsConversationStreamSession`), none
- * of which §22 assigns to this phase. They are re-expressed against
- * `createClaudeStreamReader` plus the six-line reducer below, which is the same
- * fold the panel performs: a delta appends to its item id, a finalised message
- * replaces its item's text. The property under test is unchanged.
- */
-
 function collectAssistantTextsByItem(events: ClaudeStreamEvent[]): Map<string, string> {
   const byId = new Map<string, string>();
   for (const event of events) {
@@ -51,10 +34,6 @@ function replay(lines: string[]): ClaudeStreamEvent[] {
   return lines.flatMap((line) => reader.read(line));
 }
 
-// A turn with two assistant API messages, each emitting a TEXT block at content
-// index 0. `content_block.index` is scoped to the current API message and
-// resets, so index alone collides; `message.id` is what tells them apart.
-// Abridged from the upstream fixture captured against claude 2.1.170.
 const TWO_MESSAGE_TURN: string[] = [
   JSON.stringify({
     type: 'stream_event',
@@ -153,15 +132,12 @@ const TWO_MESSAGE_TURN: string[] = [
 ];
 
 describe('encodeClaudeProjectDir', () => {
-  // upstream: "encodes Claude project directories from cwd"
   it('replaces every non-alphanumeric character with a dash', () => {
     expect(encodeClaudeProjectDir('/tmp/worktrees/feature.one')).toBe('-tmp-worktrees-feature-one');
   });
 });
 
 describe('block identity across the stream', () => {
-  // upstream: "the parser surfaces message.id so two same-index text blocks can
-  // be told apart" — the information loss the whole rule exists to fix.
   it('reports the same block index for two different messages', () => {
     const indexes = replay(TWO_MESSAGE_TURN).flatMap((event) =>
       event.type === 'delta' ? [event.itemId] : [],
@@ -169,7 +145,6 @@ describe('block identity across the stream', () => {
     expect(indexes).toEqual(['msg_AAA:0', 'msg_BBB:0']);
   });
 
-  // upstream: "keeps the two assistant text blocks in two separate containers"
   it('keeps two assistant text blocks in separate containers (full stream)', () => {
     const texts = [...collectAssistantTextsByItem(replay(TWO_MESSAGE_TURN)).values()];
     expect(texts).toContain('Let me read that file.');
@@ -181,10 +156,6 @@ describe('block identity across the stream', () => {
     }
   });
 
-  // upstream: "keeps the two text blocks separate from the delta stream alone".
-  // The live path must be self-sufficient: identity comes from the delta stream
-  // itself, not from full `assistant` records happening to arrive in time to
-  // rename the live item before the next same-index block reuses its slot.
   it('keeps them separate from the delta stream alone', () => {
     const deltaOnly = TWO_MESSAGE_TURN.filter(
       (line) => (JSON.parse(line) as { type?: string }).type === 'stream_event',
@@ -264,7 +235,6 @@ describe('createClaudeStreamReader', () => {
 });
 
 describe('buildClaudeSessionFromText', () => {
-  // upstream: "builds a transcript from Claude session jsonl text"
   it('builds a transcript with cwd, branch and timestamps', () => {
     const session = buildClaudeSessionFromText({
       path: '/tmp/session.jsonl',
@@ -339,9 +309,6 @@ describe('buildClaudeSessionFromText', () => {
     });
   });
 
-  // upstream: "surfaces tool_use and tool_result blocks as intermediate messages"
-  // The case that pins the numbering: one API message split across two records
-  // must index its blocks 0 and 1, not 0 and 0.
   it('numbers blocks per API message across records', () => {
     const session = buildClaudeSessionFromText({
       path: '/tmp/session.jsonl',
@@ -607,7 +574,6 @@ describe('createClaudeConversationGateway', () => {
     return path;
   }
 
-  // New: no upstream test touched the filesystem at all.
   it('lists the conversations recorded under the encoded directory', async () => {
     const cwd = '/tmp/wt/alpha';
     await writeTranscript(encodeClaudeProjectDir(cwd), 'sess-1', cwd);

@@ -174,7 +174,8 @@ const VALID_TASK_PLAN: TaskPlan = {
   project: 'issue-flow',
   issueNumber: 42,
   issueUrl: '',
-  branchName: 'issue/42-memory',
+  branchName: 'feat/42-memory',
+  noBranch: false,
   description: 'Plan produced while running on the memory origin',
   issueStatus: 'in_progress',
   completedAt: null,
@@ -182,6 +183,7 @@ const VALID_TASK_PLAN: TaskPlan = {
   lastError: null,
   correctionCycle: 0,
   maxCorrectionCycles: 3,
+  lastReviewFindings: null,
   pipeline: {
     prdCompleted: true,
     jsonCompleted: true,
@@ -219,7 +221,7 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
     tmp = await mkdtemp(join(tmpdir(), 'issue-flow-ext-'));
     process.chdir(tmp);
 
-    // The migrated phases resolve their artifacts under the global storage, so
+    // The phases resolve their artifacts under the global storage, so
     // the whole tree is pointed at a temporary home — otherwise this suite
     // would write into the developer's real ~/.issue-flow.
     globalHome = await mkdtemp(join(tmpdir(), 'issue-flow-ext-home-'));
@@ -273,7 +275,7 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
         return { stdout: '', stderr: '', exitCode: 1 };
       }
       if (file === 'git' && args[0] === 'symbolic-ref') {
-        return { stdout: 'refs/heads/issue/42-memory\n', stderr: '', exitCode: 0 };
+        return { stdout: 'refs/heads/feat/42-memory\n', stderr: '', exitCode: 0 };
       }
       if (file === 'git' && args[0] === 'diff') {
         return { stdout: '', stderr: '', exitCode: 0 };
@@ -287,7 +289,7 @@ describe('extensibilidade: um provider novo roda o pipeline sem tocar em command
         return { stdout: '', stderr: '', exitCode: 1 };
       }
       if (file === 'git' && args[0] === 'branch') {
-        return { stdout: 'issue/42-memory', stderr: '', exitCode: 0 };
+        return { stdout: 'feat/42-memory', stderr: '', exitCode: 0 };
       }
       return { stdout: '2.44.0', stderr: '', exitCode: 0 };
     }) as unknown as typeof execa);

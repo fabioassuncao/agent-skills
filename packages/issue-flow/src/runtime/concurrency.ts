@@ -11,36 +11,6 @@ import {
 import { getUnitRunLockPath, UNIT_LOCKS_DIR_NAME } from '../storage/paths.js';
 import type { RunLock } from '../storage/schemas.js';
 
-/**
- * Running more than one execution unit in a project at a time.
- *
- * §31.3 is explicit that this is **not a feature of its own**: parallelism is a
- * consequence of worktree isolation, and the upstream has no global lock
- * precisely because none of its state is shared — every worktree has its own
- * directory, its own environment, its own ports and its own tmux window.
- *
- * So the mechanism here is small, and its default is "unchanged":
- *
- * - `maxConcurrent: 1` keeps the project-wide `run.lock` and the serial queue
- *   this project has always had. Nothing becomes parallel by upgrading.
- * - Above 1 the lock moves to the execution **unit** — an issue, or a story —
- *   and a ceiling replaces the exclusion.
- *
- * ## What is exact and what is a throttle
- *
- * The per-unit lock is **exact**: it is claimed with an exclusive create, so two
- * runs of the same unit can never both hold it. That is the guarantee that
- * matters, and it is the one the previous project-wide lock was really
- * providing.
- *
- * The ceiling is a **throttle**. Counting live locks and then claiming one is
- * not atomic, so two processes starting in the same instant can both see room
- * and both start, transiently exceeding the ceiling by one. Making that exact
- * would need a lock over the counting, which would serialise exactly the thing
- * this exists to parallelise — and the cost of being one over for a few seconds
- * is a machine that is slightly busier, not a corrupted run.
- */
-
 export interface AcquireExecutionSlotInput {
   /** `<projectDir>` — where `run.lock` and `locks/` live. */
   projectDir: string;

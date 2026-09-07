@@ -34,7 +34,7 @@ const ROOT_HELP_GROUPS: readonly RootHelpGroup[] = [
       { name: 'ps', description: 'List every active run on this machine' },
       { name: 'runs', description: "List this project's run history" },
       { name: 'history', description: 'Show relational history for one issue' },
-      { name: 'logs', description: 'Read the filtered execution journal' },
+      { name: 'logs', description: 'Read persisted execution events' },
       { name: 'pause', description: 'Request a safe checkpoint and pause' },
       { name: 'cancel', description: 'Stop and mark a run as cancelled' },
       { name: 'usage', description: 'Summarize tokens, cost and duration' },
@@ -148,11 +148,7 @@ const ENVIRONMENT_GROUPS = [
   {
     title: 'Telemetry',
     description: 'collection, retention and pricing estimates',
-    names: [
-      'ISSUE_FLOW_TELEMETRY',
-      'ISSUE_FLOW_TELEMETRY_MAX_EXECUTIONS',
-      'ISSUE_FLOW_TELEMETRY_ESTIMATE',
-    ],
+    names: ['ISSUE_FLOW_TELEMETRY', 'ISSUE_FLOW_TELEMETRY_ESTIMATE'],
   },
   {
     title: 'Benchmark',
@@ -174,8 +170,6 @@ const ENVIRONMENT_GROUPS = [
       'ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE',
       'ISSUE_FLOW_RESILIENCE_MAX_ISSUE_ATTEMPTS',
       'ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS',
-      'ISSUE_FLOW_RESILIENCE_JOURNAL',
-      'ISSUE_FLOW_RESILIENCE_JOURNAL_MAX_BYTES',
       'ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE',
       'ISSUE_FLOW_RESILIENCE_RETRY',
     ],

@@ -50,41 +50,6 @@ import type {
 import { withWorktreeBranchLock } from './worktree/lock.js';
 import type { WorktreeRuntimeKind } from './worktree/meta.js';
 
-/**
- * The `interactive` mode: a git worktree, a tmux window, an agent in a pane.
- *
- * It is an **adapter**, not a layer. Everything it does already exists
- * somewhere else and is called from here rather than rebuilt (§25, invariant
- * 13): the checkout is `runtime/worktree/lifecycle.ts`, the window is
- * `runtime/tmux/layout.ts`, the argv is `agents/tty.ts`, the whole
- * worktree+window+agent act is `agents/session/open.ts`, the ports are
- * `runtime/services.ts`, and the prompt delivery is
- * `runtime/terminal/input.ts`. What this file adds is the shape of
- * `Runtime` — and one thing that genuinely did not exist yet: how an
- * invocation that runs in a pane *ends*.
- *
- * ### How `result()` and `observe()` know what happened
- *
- * A TUI in a pane emits no stream-json, and ADR-05/ADR-06 forbid reading the
- * screen to find out anything: a parser over a TUI produces output that is
- * plausible and wrong, and it breaks on every harness release. So the outcome
- * comes from where the agent itself reports it — its lifecycle hooks
- * (`agents/hooks/`), persisted into `agent_events` and correlated by
- * `runId` + `phase`, which is the correlation §18 fixed for this project.
- * `launch()` starts the hook session for exactly that reason; without it the
- * table stays empty and there is nothing to wait for.
- *
- * `AgentRunResult` keeps its shape (ADR-02) and the fields a pane genuinely
- * cannot know are left empty rather than invented — see `paneRunResult`.
- *
- * ### What it will not do
- *
- * It never falls back to `headless`. A "session" that quietly ran headless
- * would report an isolation it never provided, and isolation is the only reason
- * to ask for another mode. `prepare()` therefore refuses with a message naming
- * what is missing and how to get it.
- */
-
 /** Both worktree modes answer the same capability set. */
 export const PANE_RUNTIME_CAPABILITIES: RuntimeCapabilities = {
   // The pane is a live TTY and `sendPrompt` reaches it, which is the whole
@@ -92,8 +57,6 @@ export const PANE_RUNTIME_CAPABILITIES: RuntimeCapabilities = {
   interactivePrompt: true,
   // Ctrl-C into the pane, exactly as a person sitting in front of it.
   interrupt: true,
-  // The window survives `result()`: the agent keeps working with nobody
-  // watching, and reopening reattaches instead of restarting (§27).
   livesBeyondInvocation: true,
   isolation: 'worktree',
 };
@@ -427,13 +390,6 @@ function paneHandle(handle: AgentHandle): PaneAgentHandle {
   return handle as PaneAgentHandle;
 }
 
-/**
- * The shared implementation of both worktree modes.
- *
- * `interactive` and `sandbox` differ by a container and nothing else, so they
- * are one implementation with two adapters rather than two files that drift.
- * §36 asks for both files; this is what each of them is a few lines of.
- */
 export function createPaneRuntime(
   adapter: PaneRuntimeAdapter,
   provided?: PaneRuntimeDeps,
@@ -710,14 +666,6 @@ async function requireSession(deps: PaneRuntimeDeps, sessionId: string): Promise
   return session;
 }
 
-/**
- * The default wiring, resolved from a repository on disk.
- *
- * It reuses `resolveAgentSessionDeps` rather than assembling a second worktree
- * manager, tmux gateway and profile lookup: two entry points with their own
- * wiring is how they start disagreeing about which profile a session used
- * (§25).
- */
 export async function resolvePaneRuntimeDeps(
   projectRoot: string,
   options: { profile?: string } = {},

@@ -273,7 +273,7 @@ describe('preflightRepository (US-019)', () => {
       if (preset !== undefined) return result(preset);
 
       if (args[0] === 'rev-parse') return result({ exitCode: 1 });
-      if (args[0] === 'symbolic-ref') return result({ stdout: 'refs/heads/issue/63-x\n' });
+      if (args[0] === 'symbolic-ref') return result({ stdout: 'refs/heads/feat/63-x\n' });
       return result({ stdout: '' });
     });
   }
@@ -290,11 +290,11 @@ describe('preflightRepository (US-019)', () => {
   it('reports a clean repository as safe', async () => {
     repository();
 
-    const preflight = await preflightRepository({ expectedBranch: 'issue/63-x' });
+    const preflight = await preflightRepository({ expectedBranch: 'feat/63-x' });
 
     expect(preflight.ok).toBe(true);
     expect(preflight.blocks).toEqual([]);
-    expect(preflight.branch).toBe('issue/63-x');
+    expect(preflight.branch).toBe('feat/63-x');
     expect(preflight.dirty).toBe(false);
   });
 
@@ -317,7 +317,7 @@ describe('preflightRepository (US-019)', () => {
   it('runs nothing destructive while blocking on a merge', async () => {
     repository({ 'rev-parse --verify --quiet MERGE_HEAD': { exitCode: 0, stdout: 'abc123' } });
 
-    await preflightRepository({ expectedBranch: 'issue/63-x' });
+    await preflightRepository({ expectedBranch: 'feat/63-x' });
 
     // The whole contract in one assertion: every git call is a read.
     const forbidden = [
@@ -352,7 +352,7 @@ describe('preflightRepository (US-019)', () => {
   it('blocks on a detached HEAD', async () => {
     repository({ 'symbolic-ref -q HEAD': { exitCode: 1, stdout: '' } });
 
-    const preflight = await preflightRepository({ expectedBranch: 'issue/63-x' });
+    const preflight = await preflightRepository({ expectedBranch: 'feat/63-x' });
 
     expect(preflight.branch).toBeNull();
     expect(preflight.blocks.some((entry) => entry.kind === 'detached_head')).toBe(true);
@@ -361,11 +361,11 @@ describe('preflightRepository (US-019)', () => {
   it('blocks when the repository is on a branch the plan does not know', async () => {
     repository({ 'symbolic-ref -q HEAD': { stdout: 'refs/heads/main\n' } });
 
-    const preflight = await preflightRepository({ expectedBranch: 'issue/63-x' });
+    const preflight = await preflightRepository({ expectedBranch: 'feat/63-x' });
 
     const block = preflight.blocks.find((entry) => entry.kind === 'branch_mismatch');
     // Both names, because either one alone leaves the user guessing.
-    expect(block?.message).toContain('issue/63-x');
+    expect(block?.message).toContain('feat/63-x');
     expect(block?.message).toContain('main');
   });
 
@@ -381,7 +381,7 @@ describe('preflightRepository (US-019)', () => {
     repository({ 'status --porcelain': { stdout: ' M src/a.ts\n' } });
 
     const preflight = await preflightRepository({
-      expectedBranch: 'issue/63-x',
+      expectedBranch: 'feat/63-x',
       intent: 'resume-same-phase',
     });
 
@@ -393,7 +393,7 @@ describe('preflightRepository (US-019)', () => {
     repository({ 'status --porcelain': { stdout: ' M src/a.ts\n' } });
 
     const preflight = await preflightRepository({
-      expectedBranch: 'issue/63-x',
+      expectedBranch: 'feat/63-x',
       intent: 'new-phase',
     });
 
@@ -409,7 +409,7 @@ describe('preflightRepository (US-019)', () => {
       'status --porcelain': { stdout: ' M src/a.ts\n' },
     });
 
-    const preflight = await preflightRepository({ expectedBranch: 'issue/63-x' });
+    const preflight = await preflightRepository({ expectedBranch: 'feat/63-x' });
 
     expect(preflight.blocks.map((block) => block.kind).sort()).toEqual([
       'branch_mismatch',

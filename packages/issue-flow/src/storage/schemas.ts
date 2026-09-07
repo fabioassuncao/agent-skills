@@ -21,9 +21,6 @@ import { pullRequestRefSchema, routingConfigInputSchema, webConfigSchema } from 
  * storage layer keeps owning its own formats.
  */
 
-/** Version stamped on files written by this release of the storage layer. */
-export const STORAGE_SCHEMA_VERSION = 1;
-
 /**
  * Where a `plan` run's `US-NNN` numbering came from (issue #36):
  *
@@ -49,35 +46,6 @@ export const userStoryNumberingDecisionSchema = z.object({
   decidedAt: z.string().min(1),
   /** Human-readable origin, e.g. the previous story id and issue it came from. */
   detail: z.string().optional(),
-});
-
-/**
- * `~/.issue-flow/projects/<project-id>/metadata.json`.
- *
- * Deliberately **not** `.strict()`: a newer release may add fields (dashboard
- * history, counters) and an older one must still be able to read the file
- * instead of rejecting it. Unknown keys are dropped on parse, never fatal.
- *
- * `root` is the last known local checkout — informative only. Identity lives in
- * `projectId` (see `getProjectId()` in `paths.ts`), so moving the folder of a
- * project that has a remote updates `root` without changing the id.
- */
-export const projectMetadataSchema = z.object({
-  schemaVersion: z.number().int().positive(),
-  projectId: z.string().min(1),
-  root: z.string().min(1),
-  /** Normalized remote (`host/org/repo`), or null when the project has none. */
-  remoteUrl: z.string().nullable(),
-  createdAt: z.string().min(1),
-  updatedAt: z.string().min(1),
-  /** Null until the project is used by a pipeline run. */
-  lastAttemptAt: z.string().nullable(),
-  /**
-   * Most recent User Story numbering decision made by `plan` (issue #36).
-   * Absent on a project whose `plan` never ran through the numbering
-   * resolver, or on a `metadata.json` written before the feature existed.
-   */
-  userStoryNumbering: userStoryNumberingDecisionSchema.optional(),
 });
 
 /**
@@ -269,14 +237,6 @@ export const resilienceWatchdogConfigSchema = z
   })
   .partial();
 
-/** `resilience.journal` — the append-only `events.jsonl` (US-015). */
-export const resilienceJournalConfigSchema = z
-  .object({
-    enabled: z.boolean(),
-    maxFileBytes: z.number().int().positive(),
-  })
-  .partial();
-
 /** `resilience.decompose` — the "this issue is too large" report (US-030). */
 export const resilienceDecomposeConfigSchema = z
   .object({
@@ -293,7 +253,6 @@ export const resilienceConfigSchema = z
     providers: resilienceProvidersConfigSchema,
     queue: resilienceQueueConfigSchema,
     watchdog: resilienceWatchdogConfigSchema,
-    journal: resilienceJournalConfigSchema,
     decompose: resilienceDecomposeConfigSchema,
   })
   .partial();
@@ -314,7 +273,6 @@ export const telemetryPricingOverrideSchema = z
 export const telemetryConfigInputSchema = z
   .object({
     enabled: z.boolean(),
-    maxExecutions: z.number().int().positive(),
     pricing: z
       .object({
         estimate: z.boolean(),
@@ -332,17 +290,9 @@ export const globalCommitConfigSchema = z
   })
   .partial();
 
-/**
- * SQLite adoption controls. They deliberately live in a separate `storage`
- * object so choosing the compatibility driver cannot be confused with the
- * location of the global storage tree (`storageDir`).
- */
+/** SQLite retention controls. */
 export const storageConfigInputSchema = z
   .object({
-    /** Keep legacy JSON as the active driver, for recovery or a staged rollout. */
-    driver: z.enum(['sqlite', 'json']),
-    /** Number of pre-migration database snapshots to retain. */
-    backupRetention: z.number().int().nonnegative(),
     /** Explicit row-retention policy. Omitted values mean retain history. */
     retention: z
       .object({
@@ -391,16 +341,14 @@ export const globalConfigSchema = z
  *
  * Marks the single web monitoring server active on this machine: `pid` and
  * `port` let a new invocation tell a live instance from a stale one before
- * attempting to bind its own (see `web/lock.ts`). Not `.strict()` for the same
- * reason as the schemas above — a newer release may add fields.
+ * attempting to bind its own (see `web/lock.ts`).
  */
 export const webLockSchema = z.object({
   pid: z.number().int().positive(),
   port: z.number().int().positive(),
   host: z.string().min(1),
   startedAt: z.string().min(1),
-  /** Added in a backward-compatible way: locks from older releases remain valid. */
-  instanceId: z.string().min(1).optional(),
+  instanceId: z.string().min(1),
 });
 
 /**
@@ -416,16 +364,15 @@ export const webLockSchema = z.object({
  */
 export const runLockSchema = z.object({
   pid: z.number().int().positive(),
-  /** Unique possession identity; absent only on locks written by older releases. */
-  ownerId: z.string().min(1).optional(),
+  /** Unique possession identity. */
+  ownerId: z.string().min(1),
   /** `os.hostname()`. A pid only means something on the host that wrote it. */
   host: z.string().min(1),
   /** The issue (or queue) identifier the owner is running. */
   target: z.string().min(1),
   startedAt: z.string().min(1),
   lastHeartbeatAt: z.string().min(1),
-  /** Absent on a foreground run written before this field existed. */
-  detached: z.boolean().optional(),
+  detached: z.boolean(),
 });
 
 /**
@@ -449,27 +396,20 @@ export const executionPlanIssueSchema = z.object({
   url: z.string().nullable(),
   source: z.string().min(1),
   position: z.number().int().positive(),
-  // `blocked` and `skipped` are additive: no plan written before them can
-  // carry one, and a reader that does not know them was never given one.
   status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'blocked', 'skipped']),
   origin: z.enum(['requested', 'discovered']),
-  role: z.enum(['executable', 'container']).default('executable'),
-  externalDependencies: z.array(z.string()).default([]),
-  dependsOn: z.array(z.string()).default([]),
-  parent: z.string().nullable().default(null),
-  priority: z.enum(['high', 'medium', 'low']).nullable().default(null),
-  heuristic: z.boolean().default(false),
-  failedPhase: z.string().nullable().default(null),
-  lastError: z
-    .object({ category: z.string(), message: z.string(), at: z.string() })
-    .nullable()
-    .default(null),
-  startedAt: z.string().nullable().default(null),
-  completedAt: z.string().nullable().default(null),
-  // Both default, so an execution-plan.json written by an earlier release
-  // parses unchanged and reads as "never attempted, not blocked".
-  attempts: z.number().int().min(0).default(0),
-  blockedReason: z.string().nullable().default(null),
+  role: z.enum(['executable', 'container']),
+  externalDependencies: z.array(z.string()),
+  dependsOn: z.array(z.string()),
+  parent: z.string().nullable(),
+  priority: z.enum(['high', 'medium', 'low']).nullable(),
+  heuristic: z.boolean(),
+  failedPhase: z.string().nullable(),
+  lastError: z.object({ category: z.string(), message: z.string(), at: z.string() }).nullable(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  attempts: z.number().int().min(0),
+  blockedReason: z.string().nullable(),
 });
 
 export const executionPlanSchema = z.object({
@@ -480,31 +420,28 @@ export const executionPlanSchema = z.object({
   id: z.string().min(1),
   project: z.string().min(1),
   requested: z.array(z.string().min(1)),
-  branchName: z.string().nullable().default(null),
-  noBranch: z.boolean().default(false),
-  prReview: z.boolean().default(false),
+  branchName: z.string().nullable(),
+  noBranch: z.boolean(),
+  prReview: z.boolean(),
   status: z.enum(['pending', 'in_progress', 'completed', 'failed']),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
-  truncated: z.boolean().default(false),
+  truncated: z.boolean(),
   issues: z.array(executionPlanIssueSchema),
-  excluded: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        number: z.number().int().positive().nullable(),
-        title: z.string(),
-        url: z.string().nullable(),
-        reason: z.string(),
-      }),
-    )
-    .default([]),
+  excluded: z.array(
+    z.object({
+      id: z.string().min(1),
+      number: z.number().int().positive().nullable(),
+      title: z.string(),
+      url: z.string().nullable(),
+      reason: z.string(),
+    }),
+  ),
   pullRequest: pullRequestRefSchema.optional(),
 }) satisfies z.ZodType<ExecutionPlan>;
 
 export type UserStoryNumberingSource = z.infer<typeof userStoryNumberingSourceSchema>;
 export type UserStoryNumberingDecision = z.infer<typeof userStoryNumberingDecisionSchema>;
-export type ProjectMetadata = z.infer<typeof projectMetadataSchema>;
 export type ValidatedExecutionPlan = z.infer<typeof executionPlanSchema>;
 export type GlobalWebConfig = z.infer<typeof globalWebConfigSchema>;
 export type GlobalRetryConfig = z.infer<typeof globalRetryConfigSchema>;
@@ -517,7 +454,6 @@ export type ProviderHealthRecord = z.infer<typeof providerHealthRecordSchema>;
 export type ProvidersHealth = z.infer<typeof providersHealthSchema>;
 export type ResilienceQueueConfig = z.infer<typeof resilienceQueueConfigSchema>;
 export type ResilienceWatchdogConfig = z.infer<typeof resilienceWatchdogConfigSchema>;
-export type ResilienceJournalConfig = z.infer<typeof resilienceJournalConfigSchema>;
 export type ResilienceDecomposeConfig = z.infer<typeof resilienceDecomposeConfigSchema>;
 export type ResilienceConfig = z.infer<typeof resilienceConfigSchema>;
 export type GlobalConfig = z.infer<typeof globalConfigSchema>;
@@ -525,7 +461,7 @@ export type TelemetryConfigInput = z.infer<typeof telemetryConfigInputSchema>;
 
 /**
  * The file format is a *superset* of what `resolvePolicy()` reads: it also
- * carries `providers`, `queue`, `watchdog`, `journal` and `decompose`, which
+ * carries `providers`, `queue`, `watchdog` and `decompose`, which
  * belong to later layers. This alias is the compile-time proof of the "superset"
  * half — a drift between the two shapes fails to build here rather than at the
  * first call site that passes one to the other.

@@ -44,7 +44,7 @@ may remove, and what a pane's `AgentRunResult` does and does not carry — is
 shape of `Runtime` and nothing else: the checkout is `worktree/`, the window is
 `tmux/`, the argv is `agents/tty.ts`, the whole worktree+window+agent act is
 `agents/session/open.ts`, the container is `sandbox/docker.ts`, the ports are
-`services.ts`. Rewriting any of those here is the duplication §25 forbids.
+`services.ts`. Do not duplicate those responsibilities here.
 
 - **They are one implementation with two adapters.** `createPaneRuntime` is
   shared; `sandbox` differs by a container and by the worktree binding saying

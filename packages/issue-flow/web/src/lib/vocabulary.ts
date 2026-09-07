@@ -1,15 +1,3 @@
-/**
- * The closed vocabulary of `web/AGENTS.md`, in one place.
- *
- * PORT of the label tables of `web/public/app.js`. One term per concept, and
- * an unknown value from the backend falls back **inside** the vocabulary rather
- * than leaking a raw identifier into a badge (ADR-20).
- *
- * `execução` and `sessão` are different things and neither is a synonym of the
- * other — that is the collision §50.4 resolved, and every label below belongs
- * to the execution side of it.
- */
-
 export type ExecutionStatusKey = 'idle' | 'running' | 'completed' | 'failed';
 
 export const EXECUTION_STATUS_KEYS: readonly ExecutionStatusKey[] = [

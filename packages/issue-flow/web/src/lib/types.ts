@@ -1,6 +1,5 @@
 import type {
   AgentId,
-  OneshotConfig,
   PrEntry,
   ServiceStatus,
   WorktreeCreationPhase,
@@ -8,13 +7,7 @@ import type {
   WorktreeTab,
 } from '@issue-flow/contract';
 
-/**
- * PORT of `frontend/src/lib/types.ts` @ d8c9d5f (160 lines).
- *
- * Types and interfaces only — no runtime logic, as upstream. The re-export list
- * omits the migration sensor (`InstanceSummary`, §48.1) and includes the
- * environment-authenticated Linear surface, plus the Issue Flow contract.
- */
+/** Types shared by dashboard components. */
 
 export type {
   AgentCapabilities,
@@ -26,17 +19,12 @@ export type {
   AgentResponse,
   AgentSummary,
   AgentsSendMessageRequest as AgentsUiSendMessageRequest,
-  AgentsUiConversationEvent,
   AgentsUiConversationMessage,
-  AgentsUiConversationMessageDeltaEvent,
-  AgentsUiConversationMessageUpsertEvent,
   AgentsUiConversationState,
-  AgentsUiConversationStatusEvent,
   AgentsUiInterruptResponse,
   AgentsUiSendMessageResponse,
   AgentsUiWorktreeConversationResponse,
   AppConfig,
-  AppNotification,
   AvailableBranch,
   AvailableBranchesQuery,
   BranchListResponse,
@@ -56,7 +44,6 @@ export type {
   LinearIssueAvailability,
   LinearIssuesResponse,
   LinkedRepoInfo,
-  OneshotConfig,
   PostWorktreeToLinearRequest,
   PostWorktreeToLinearResponse,
   PrComment,
@@ -64,7 +51,6 @@ export type {
   ProfileConfig,
   ProjectInitPhase,
   ProjectInitState,
-  ProjectSnapshot,
   ProjectSummary,
   ProjectWorktreeSnapshot,
   PullMainResult,
@@ -115,13 +101,6 @@ export interface DiffDialogProps {
   onclose: () => void;
 }
 
-/**
- * One row of the sidebar.
- *
- * `executionId` and `issueRef` are the Issue Flow additions (§48.3): the same
- * row can be a free session (both null — ADR-16) or the workspace of a workflow
- * execution, and the sidebar says which without a second list.
- */
 export interface WorktreeInfo {
   branch: string;
   label: string | null;
@@ -145,7 +124,6 @@ export interface WorktreeInfo {
   creating: boolean;
   creationPhase: WorktreeCreationPhase | null;
   source: WorktreeSource;
-  oneshot: OneshotConfig | null;
   tabs: WorktreeTab[];
   activeTabId: string | null;
   supportsTabs: boolean;
@@ -160,13 +138,6 @@ export interface WorktreeListRow {
   depth: number;
 }
 
-/**
- * One agent session as the consolidated "Trabalho ativo" view sees it (§49.4).
- *
- * A *sessão* — a live agent in a worktree — never an *execução* (ADR-20).
- * `runId` is what tells the two modes of §49 apart, and `free` says it in one
- * field so no client has to re-derive it from three nulls.
- */
 export interface AgentSessionRow {
   id: string;
   projectId: string | null;
@@ -191,11 +162,4 @@ export interface UiToastItem extends ToastInput {
   source: 'ui';
 }
 
-export interface NotificationToastItem extends ToastInput {
-  id: string;
-  source: 'notification';
-  notificationId: number;
-  branch: string;
-}
-
-export type ToastItem = UiToastItem | NotificationToastItem;
+export type ToastItem = UiToastItem;

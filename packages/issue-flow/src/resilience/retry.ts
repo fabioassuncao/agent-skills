@@ -3,10 +3,8 @@
  *
  * `errors.ts` says *what went wrong*, `policy.ts` says *what to do about it*,
  * and this module is the only place that actually does it: one loop, one
- * backoff, one veto. Before it existed the codebase had two independent retry
- * loops — `core/phase-runner.ts` for single-shot phases and the `execute` loop
- * of `core/engine.ts` — with their own counters, their own delays and no way
- * to keep them in step. Both now delegate here.
+ * backoff, one veto. Single-shot phases and the execute loop both delegate
+ * here.
  *
  * The loop performs no I/O and knows nothing about phases, sessions or
  * publishers: everything observable is handed back through `onAttempt`, so the
@@ -136,8 +134,8 @@ export async function withRetry<T>(
 }
 
 /**
- * A fixed policy in the shape the two legacy call sites express their settings
- * in: a number of attempts and a base/max delay in seconds.
+ * A fixed policy for call sites configured as an attempt count plus base/max
+ * delay in seconds.
  *
  * Deliberately un-jittered. Both call sites have always used a bare
  * `base * 2^(n-1)` and both publish that number in a `retry` event and print

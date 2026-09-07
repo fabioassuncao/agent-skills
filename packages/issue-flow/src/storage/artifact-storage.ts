@@ -10,7 +10,6 @@ export const WORKSPACE_IGNORE_BLOCK = [
   '/issue-flow.db',
   '/issue-flow.db-*',
   '/run.lock',
-  '/providers.json',
   '/metadata.json',
   '/backups/',
   '/.gitignore',

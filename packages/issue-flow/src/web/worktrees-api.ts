@@ -50,31 +50,6 @@ import { resolvedIntegrationSettings } from './integrations-api.js';
 import type { ApiResponse } from './projects-api.js';
 import type { SessionsApiDeps, SessionsApiProject } from './sessions-api.js';
 
-/**
- * `GET /api/worktrees` — the sidebar's second group, and the tab a Task uses to
- * list its own workspaces.
- *
- * **This is a projection of `agent_sessions`, not a second worktree registry.**
- * §25 asks for one implementation per responsibility: the worktree belongs to
- * `runtime/worktree/`, the intent to use it belongs to `agent_sessions`
- * (ADR-08/ADR-16), and this module only joins the two into the wire shape the
- * ported sidebar already knows how to render. Building a parallel list here is
- * precisely how the two would start disagreeing about which branch is open.
- *
- * `executionId` is the row's `runId`, and the run id **is** the dashboard's
- * `sessionId` (`web/session-directory.ts` passes one as the other). That single
- * equality is what makes §50.5's rule true without a second screen: a Task
- * lists its own sessions and worktrees by filtering this list on its own id,
- * and a free session that was later linked to an issue starts carrying an
- * `executionId` and therefore starts showing the workflow — no promotion event,
- * no second component, just the field becoming non-null (I1, I4).
- *
- * Read-only on purpose. Creating a worktree here is opening a session
- * (`POST /api/sessions`), which is the same act in the unified model: a session
- * *contains* its worktree, so a second creation route would be a worktree
- * nobody is working in.
- */
-
 export interface WorktreesApiDeps extends Pick<SessionsApiDeps, 'resolveProject'> {
   /** Mutations are process control and are enabled only by a loopback server. */
   writable?: boolean;
@@ -87,22 +62,9 @@ export interface WorktreesApiDeps extends Pick<SessionsApiDeps, 'resolveProject'
     projectId: string | null,
     profile?: string,
   ) => Promise<ResolvedAgentSessionContext | null>;
-  /**
-   * Pull Requests the display sync of §20 has seen for a branch.
-   *
-   * A dependency, not a query made here: `issues/github/monitor.ts` is the one
-   * implementation of that pass, its cost is a rate limit and its policy is the
-   * activity gate. What reaches the row is what was **observed** — a monitor
-   * with no sync behind it answers nothing rather than an invented state.
-   */
+
   pullRequestsFor?: (projectId: string, branch: string) => readonly PullRequestEntry[];
-  /**
-   * Force one synchronisation pass now, outside the activity gate.
-   *
-   * The manual "sync" of §20: the gate exists so an unwatched dashboard spends
-   * no rate limit, and a person clicking is the one case where the gate has
-   * nothing to decide.
-   */
+
   syncPullRequests?: (projectId: string) => Promise<void>;
   /** Read the failed steps of a CI run (`gh run view --log-failed`). */
   ciLog?: (projectId: string, runId: number) => Promise<string>;
@@ -290,11 +252,30 @@ async function buildRow({
       url: service.url,
     })),
     prs: deps.pullRequestsFor?.(project.projectId, session.branch) ?? [],
+    creating: false,
+    creationPhase: null,
     creation: null,
-    // `WorktreeSource` is a closed pair: a worktree either came from a oneshot
-    // or it came from the interface. There is no third value to invent.
-    source: binding?.source === 'oneshot' ? 'oneshot' : 'ui',
-    oneshot: null,
+    source: 'ui',
+    conversation:
+      displayedSession.conversationId === null || path === ''
+        ? null
+        : displayedSession.provider === 'codex'
+          ? {
+              provider: 'codexAppServer',
+              conversationId: displayedSession.conversationId,
+              threadId: displayedSession.conversationId,
+              cwd: path,
+              lastSeenAt: displayedSession.updatedAt,
+            }
+          : displayedSession.provider === 'claude'
+            ? {
+                provider: 'claudeCode',
+                conversationId: displayedSession.conversationId,
+                sessionId: displayedSession.conversationId,
+                cwd: path,
+                lastSeenAt: displayedSession.updatedAt,
+              }
+            : null,
     tabs: tabProjection.tabs,
     activeTabId: tabProjection.activeTabId,
     supportsTabs:
@@ -368,12 +349,6 @@ export async function listWorktreesRoute(
   return { status: 200, body: { worktrees } };
 }
 
-/**
- * `POST /api/worktrees/:name/sync-prs` — refresh this branch's Pull Requests.
- *
- * Answers the refreshed row, which is what the ported client expects: the
- * button that asks for a sync is the one that has to show its result.
- */
 export async function syncWorktreePullRequestsRoute(
   deps: WorktreesApiDeps | null,
   projectId: string | null,
@@ -479,12 +454,10 @@ const createWorktreeBodySchema = z.object({
   prompt: z.string().optional(),
   envOverrides: z.record(z.string(), z.string()).optional(),
   issueRef: z.string().trim().min(1).optional(),
-  source: z.enum(['ui', 'oneshot']).optional(),
-  oneshot: z.object({ autoCloseOnDone: z.boolean().optional() }).optional(),
+  source: z.literal('ui').optional(),
 });
 const openWorktreeBodySchema = z.object({
   prompt: z.string().optional(),
-  oneshot: z.object({ autoCloseOnDone: z.boolean().optional() }).optional(),
 });
 const archiveBodySchema = z.object({ archived: z.boolean() });
 const labelBodySchema = z.object({ label: z.string().trim().max(80).nullable() });
@@ -541,9 +514,6 @@ export async function createWorktreeRoute(
   const profile = optionalString(input.profile);
   const resolved = await runtime(deps, projectId, profile);
   if (isResponse(resolved)) return resolved;
-  if (input.oneshot !== undefined) {
-    return { status: 501, body: { error: 'Oneshot worktree sessions are not configured.' } };
-  }
   const [agentConfig, customConfig, autoNameConfig] = await Promise.all([
     loadAgentConfig({ projectRoot: resolved.projectRoot, env: deps?.env }),
     loadCustomAgentsConfig({ projectRoot: resolved.projectRoot }),
@@ -629,9 +599,6 @@ export async function openWorktreeRoute(
   if (blocked !== null) return blocked;
   const parsed = openWorktreeBodySchema.safeParse(body);
   if (!parsed.success) return invalidBody(parsed.error);
-  if (parsed.data.oneshot !== undefined) {
-    return { status: 501, body: { error: 'Oneshot worktree sessions are not configured.' } };
-  }
   const initial = await runtime(deps, projectId);
   if (isResponse(initial)) return initial;
   const binding = (await initial.worktrees.list()).find(

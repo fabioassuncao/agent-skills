@@ -5,17 +5,6 @@ import { resolveChangeType } from './change-type.js';
 import { commitMessage } from './commit.js';
 import { issueReferenceLines, pullRequestTitle } from './pull-request.js';
 
-/**
- * Characterization tests G1–G11 of the WebMux absorption (§34).
- *
- * They are the acceptance contract of the Git-convention phase: the pair
- * "input → expected output" was fixed before any production code changed, so a
- * regression is distinguishable from a deliberate reduction of policy.
- *
- * G4–G7 depend on repository discovery and live next to that code, in
- * `src/policy/characterization.test.ts`.
- */
-
 describe('G1 — issue with a known number and type', () => {
   it('produces {type}/{N}-{slug}', () => {
     const change = resolveChangeType({ labels: ['enhancement'] });

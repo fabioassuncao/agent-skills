@@ -20,27 +20,7 @@
   import type { AgentDetails, AgentSummary, UpsertCustomAgentRequest } from './types';
   import { SSH_STORAGE_KEY, applyTheme, errorMessage, readStored, writeStored } from './utils';
 
-  /**
-   * ADAPT of `frontend/src/lib/SettingsDialog.svelte` @ d8c9d5f (394 lines).
-   *
-   * Structure and behaviour are the upstream's; three things changed:
-   *
-   * - **Theme keeps the panel's three modes** (Sistema/Claro/Escuro) and adds
-   *   the upstream's five named palettes. Every option uses measured role
-   *   tokens rather than runtime colour copying — see `themes.ts`.
-   * - Linear automation appears only when its backend capability is announced;
-   *   the credential remains exclusively in the monitor environment.
-   * - **Every write is capability-gated.** The rule the current panel already
-   *   enforces: a control that mutates configuration appears only when
-   *   `/api/health.capabilities` announces it, never inferred from a version,
-   *   and the writes themselves are refused off loopback (ADR-10).
-   *
-   * §50.3 merges the panel's "Configuração efetiva" into this dialog: the two
-   * preference forms live here (`PreferenceForms`), so the product has one
-   * settings surface rather than two. What stays in the "Contexto" block is the
-   * *reading* of the effective configuration, which describes the execution on
-   * screen rather than a preference anybody can change.
-   */
+
 
   interface AgentEditorState {
     mode: 'create' | 'edit';

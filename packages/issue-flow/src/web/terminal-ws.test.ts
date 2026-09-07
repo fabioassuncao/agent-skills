@@ -15,7 +15,7 @@ import {
  * `terminal-ws.integration.test.ts`.
  */
 describe('parseTerminalClientMessage', () => {
-  it('accepts the four messages the upstream protocol defines', () => {
+  it('accepts the four terminal protocol messages', () => {
     expect(parseTerminalClientMessage('{"type":"input","data":"ls\\r"}')).toEqual({
       type: 'input',
       data: 'ls\r',
@@ -35,7 +35,6 @@ describe('parseTerminalClientMessage', () => {
     });
   });
 
-  // The addition §15 requires: a returning client says how far it got.
   it('carries the last offset and the initial pane on a resize', () => {
     expect(
       parseTerminalClientMessage(
@@ -115,7 +114,7 @@ describe('protocol constants', () => {
     expect(TERMINAL_WS_PATH).toBe('/ws/terminal');
   });
 
-  it('caps the send buffer, which the upstream never does', () => {
+  it('caps the send buffer', () => {
     expect(MAX_BUFFERED_BYTES).toBe(1024 * 1024);
   });
 

@@ -8,16 +8,6 @@ import { GLOBAL_ROOT_ENV } from '../../storage/paths.js';
 import { createGitWorktreeGateway } from './git.js';
 import { createWorktreeManager } from './lifecycle.js';
 
-/**
- * The worktree lifecycle against a real repository.
- *
- * Covers the characterization tests §34 asks phase 5 to make green — **C1**
- * (create a worktree: path, branch, runtime env, binding) and **C12** (remove
- * one: worktree, branch and hooks) — plus the §35 budget for
- * `git worktree add`: **≤ 150 ms**, against the upstream's measured 78 ms.
- *
- * Integration, not unit: every assertion here is about what git actually did.
- */
 describe('worktree lifecycle against a real repository', () => {
   const dirs: string[] = [];
   let repoRoot: string;
@@ -261,8 +251,6 @@ describe('worktree lifecycle against a real repository', () => {
     expect(dirty.currentCommit).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  // §35: `git worktree add` measured at 78 ms upstream, budget ≤ 150 ms here.
-  // Median of five, matching how the baseline was collected.
   it('creates a worktree within the 150 ms budget', async () => {
     const worktrees = manager();
     const samples: number[] = [];

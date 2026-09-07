@@ -3,35 +3,6 @@ import type { SessionPublisher } from './session/publishers.js';
 import type { SessionSnapshot } from './session/snapshot.js';
 
 /**
- * Nobody answered the agent. The last row of §32's table.
- *
- * §32 asks for "`awaiting_input` sem resposta por N minutos → notificação +
- * escalada". Two things decide whether this is implemented correctly, and both
- * are easy to get wrong:
- *
- * **1. This is not a human hold.** `core/human-hold.ts` measures how long
- * somebody has been *in control* of a run — they took it over and are reading.
- * This measures the opposite: the agent asked a question and **nobody came**.
- * Folding the two together would escalate in the middle of a legitimate
- * takeover, which is exactly the failure the hold exists to prevent. So an
- * escalation is suppressed for as long as a hold exists, and `heldForMs` is
- * never consulted here.
- *
- * **2. The policy is the pipeline's, not the dashboard's** (ADR-03). A run with
- * no interface at all — the default — that blocks waiting for input has to
- * escalate anyway; if the threshold lived in the browser, the only runs that
- * escalated would be the ones somebody was already watching, which is the case
- * that needs it least. So the decision is taken here, in the process that runs
- * the agent, and the interface renders `agent.awaitingInputEscalatedAt` rather
- * than recomputing it.
- *
- * The escalation is announced twice, deliberately, because the two audiences
- * are in different places: a `warn` log event (which reaches the snapshot's
- * `warnings`, the dashboard's alert card and `session.json`) and a diagnostic
- * line in `~/.issue-flow/logs`, which survives with no monitor running at all.
- */
-
-/**
  * How long an unanswered question waits before it is escalated.
  *
  * Five minutes is the shortest interval that does not fire on somebody who
@@ -65,8 +36,6 @@ export function decideAwaitingInputEscalation(
   // Not blocked on anybody: there is nothing to escalate.
   if (agent.lifecycle !== 'awaiting-input') return { waitedMs: null, escalate: false };
 
-  // Somebody is driving. They *are* the answer, and §32 is explicit that the
-  // watchdog and everything like it steps back while a person holds the run.
   if (agent.humanHold !== null) return { waitedMs: null, escalate: false };
 
   const since = agent.since === null ? Number.NaN : Date.parse(agent.since);
@@ -160,8 +129,6 @@ export function startAwaitingInputWatch(options: AwaitingInputWatchOptions): Awa
       phase: phase ?? '',
       waitedMs: decision.waitedMs,
     });
-    // The notification half of §32's row. `warn` and not `error`: nothing has
-    // failed — a person is late.
     options.publisher.publish({
       type: 'log',
       at,

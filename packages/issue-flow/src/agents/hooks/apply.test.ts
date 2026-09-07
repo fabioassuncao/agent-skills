@@ -3,11 +3,6 @@ import { setSessionPublisher } from '../../core/session-publisher.js';
 import { MemoryPublisher } from '../../core/session-state.js';
 import { applyAgentRuntimeEvent } from './apply.js';
 
-/**
- * The projection §18 of the absorption plan specifies: the four upstream event
- * types land on the session events Issue Flow already has, and the two new ones
- * are additive.
- */
 describe('applyAgentRuntimeEvent', () => {
   let publisher: MemoryPublisher;
 

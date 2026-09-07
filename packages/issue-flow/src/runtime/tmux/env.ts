@@ -1,22 +1,3 @@
-/**
- * Keeping a project's secrets out of the tmux server's global environment.
- *
- * Ported from WebMux `backend/src/adapters/project-env.ts` @ d8c9d5f. §2.3 of
- * the absorption plan calls this the second of the two defences worth more than
- * the rest of the tmux adapter, and the fact behind it is this:
- *
- * **Whichever tmux command first starts the server fixes the global environment
- * for the whole life of that server.** If that command carried a project's
- * `.env`, every pane created afterwards — in any project, for as long as the
- * server lives — inherits those secrets.
- *
- * Issue Flow removes the *class* of bug structurally with a dedicated socket
- * (`-L issue-flow`, ADR-09), so the server is never shared with the user's own
- * tmux. This stays as the safety net the upstream needed it to be: a dedicated
- * socket does not help a server this project itself started with a polluted
- * environment.
- */
-
 /** Marker variable naming the keys a caller loaded from a project `.env`. */
 export const PROJECT_ENV_KEYS_VARIABLE = 'ISSUE_FLOW_PROJECT_ENV_KEYS';
 

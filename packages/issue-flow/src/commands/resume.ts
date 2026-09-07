@@ -1,10 +1,7 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { loadRuntimeConfig } from '../config/runtime.js';
-import { parseJournal } from '../core/journal.js';
 import { PIPELINE_PHASES, PipelineManager, type PipelinePhase } from '../core/pipeline.js';
 import { loadTaskPlan } from '../core/state-manager.js';
-import { loadExecutionPlan, nextQueueIssue, queueNeedsFinalization } from '../execution/plan.js';
+import { nextQueueIssue, queueNeedsFinalization } from '../execution/plan.js';
 import { resolveCommandIssue } from '../issues/context.js';
 import { acquireExecutionSlot, describeSlotRefusal } from '../runtime/concurrency.js';
 import {
@@ -14,7 +11,6 @@ import {
 } from '../storage/db/queries.js';
 import { listHeldRuns, saveRunHumanHold } from '../storage/db/repository.js';
 import { describeRunLockOwner, type RunLockHandle } from '../storage/lock.js';
-import { getIssuePaths, QUEUES_DIR_NAME } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import type { TaskPlan } from '../types.js';
 import { printError, printInfo, printWarning } from '../ui/logger.js';
@@ -23,28 +19,16 @@ import { finishIssueClosure, persistClosureChoice } from './run/closure.js';
 import { runPipeline } from './run.js';
 
 /**
- * `issue-flow resume` — explicit recovery.
- *
- * Resumption already worked before this command existed, but only *implicitly*:
- * the user re-ran the same `run` and the pipeline happened to pick up where it
- * left off, because `PipelineManager` skips the phases already marked complete
- * and `nextQueueIssue()` treats a stale `in_progress` as "do this one first".
- * That is a coincidence of two mechanisms, not a contract — nothing said what
- * had been interrupted, nothing checked whether the repository was still in a
- * state to continue, and nothing distinguished "carry on" from "start over".
- *
- * This command makes each of those steps explicit, in this order:
+ * `issue-flow resume` — explicit recovery, in this order:
  *
  * 1. **ownership** — a live owner refuses, a dead one is taken over;
  * 2. **plans** — `execution-plan.json` for a queue, `tasks.json` for an issue;
- * 3. **the journal** — the last `phase:start` with no `phase:end` is what was
+ * 3. **the event history** — the last `phase:start` with no `phase:end` is what was
  *    running when the process died, which is the one fact no snapshot keeps;
  * 4. **the preflight** — the repository is described, and a state a human has to
  *    settle stops the resume instead of being repaired;
  * 5. **the phase** — `PipelineManager.getNextPhase()`, the same answer `run`
- *    has always used, now stated out loud before anything runs.
- *
- * `run` is untouched: its auto-resume still works exactly as it did.
+ *    uses, stated before anything runs.
  */
 
 export interface ResumeOptions {
@@ -58,11 +42,8 @@ export interface ResumeOptions {
 interface ResumeTarget {
   issue: string;
   projectId: string;
-  storageDriver: 'sqlite' | 'json';
   plan: TaskPlan;
   tasksFile: string;
-  eventsFile: string;
-  rotatedEventsFile: string;
 }
 
 export async function runResume(issue?: string, options: ResumeOptions = {}): Promise<number> {
@@ -76,11 +57,6 @@ export async function runResume(issue?: string, options: ResumeOptions = {}): Pr
     return 1;
   }
 
-  // 0. A run a person took over is **alive** and holding the lock on purpose:
-  // the pipeline is waiting for them, the watchdog is paused, and no phase has
-  // advanced. Resuming it means handing control back, not starting anything —
-  // and it has to happen before the ownership check, which would otherwise
-  // refuse with "another run owns this project" and be exactly wrong (§32).
   const released = await releaseHeldRuns(project, issue);
   if (released > 0) return 0;
 
@@ -117,16 +93,7 @@ export async function runResume(issue?: string, options: ResumeOptions = {}): Pr
 
   try {
     // Resume queue-owned delivery/closure as a queue, not as an isolated member.
-    const queues =
-      project.storageDriver === 'sqlite'
-        ? await listStoredQueues({ projectId: project.projectId })
-        : await Promise.all(
-            (await readdir(join(project.projectDir, QUEUES_DIR_NAME)).catch(() => [])).map((id) =>
-              loadExecutionPlan(
-                join(project.projectDir, QUEUES_DIR_NAME, id, 'execution-plan.json'),
-              ),
-            ),
-          );
+    const queues = await listStoredQueues({ projectId: project.projectId });
     const pendingQueues = queues.filter(
       (candidate) =>
         candidate &&
@@ -231,20 +198,14 @@ function activePhases(plan: TaskPlan): readonly PipelinePhase[] {
 }
 
 /**
- * The phase the journal shows as started and never ended.
- *
- * Both generations are read, oldest first, because a run long enough to rotate
- * its journal is exactly the kind that gets interrupted. A missing or
- * unreadable journal answers `null`: the resume continues from the plan, which
- * is what it did before a journal existed.
+ * The phase the canonical event history shows as started and never ended.
+ * An empty history answers `null` and the plan determines the next phase.
  */
 async function lastUnfinishedPhase(target: ResumeTarget): Promise<string | null> {
-  const entries =
-    target.storageDriver === 'sqlite'
-      ? await listStoredIssueEvents({ projectId: target.projectId, issueId: target.issue })
-      : parseJournal(
-          `${await readIfPresent(target.rotatedEventsFile)}${await readIfPresent(target.eventsFile)}`,
-        );
+  const entries = await listStoredIssueEvents({
+    projectId: target.projectId,
+    issueId: target.issue,
+  });
   if (entries.length === 0) return null;
 
   const open: string[] = [];
@@ -260,14 +221,6 @@ async function lastUnfinishedPhase(target: ResumeTarget): Promise<string | null>
     }
   }
   return open.at(-1) ?? null;
-}
-
-async function readIfPresent(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf-8');
-  } catch {
-    return '';
-  }
 }
 
 /**
@@ -299,10 +252,7 @@ async function unfinishedTargets(
 ): Promise<ResumeTarget[]> {
   let ids: string[];
   try {
-    ids =
-      project.storageDriver === 'sqlite'
-        ? await listStoredIssueIds({ projectId: project.projectId })
-        : await readdir(project.issuesDir);
+    ids = await listStoredIssueIds({ projectId: project.projectId });
   } catch {
     return [];
   }
@@ -335,12 +285,9 @@ async function loadTarget(
   project: Awaited<ReturnType<typeof resolveProjectPaths>>,
   issue: string,
 ): Promise<ResumeTarget | null> {
-  let paths: ReturnType<typeof getIssuePaths>;
+  let paths: Awaited<ReturnType<typeof resolveIssuePaths>>;
   try {
-    paths =
-      project.storageDriver === 'sqlite'
-        ? await resolveIssuePaths(issue)
-        : getIssuePaths(project.projectId, issue);
+    paths = await resolveIssuePaths(issue);
   } catch {
     // Not a usable issue identifier — a stray file in `issues/`, for instance.
     return null;
@@ -351,11 +298,8 @@ async function loadTarget(
     return {
       issue,
       projectId: project.projectId,
-      storageDriver: project.storageDriver,
       plan,
       tasksFile: paths.tasksFile,
-      eventsFile: paths.eventsFile,
-      rotatedEventsFile: paths.rotatedEventsFile,
     };
   } catch {
     return null;
@@ -376,8 +320,6 @@ async function releaseHeldRuns(
   project: Awaited<ReturnType<typeof resolveProjectPaths>>,
   issue: string | undefined,
 ): Promise<number> {
-  if (project.storageDriver !== 'sqlite') return 0;
-
   let held: Awaited<ReturnType<typeof listHeldRuns>>;
   try {
     held = await listHeldRuns({

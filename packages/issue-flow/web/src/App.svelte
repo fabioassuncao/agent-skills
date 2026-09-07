@@ -108,31 +108,7 @@
     matchesWorktreeSearch,
   } from './lib/worktree-list';
 
-  /**
-   * The shell.
-   *
-   * ADAPT of `frontend/src/App.svelte` @ d8c9d5f (1.648 lines). Global state in
-   * Svelte 5 runes, no state library and no router — the "route" is the first
-   * path segment, which is the project prefix (§48.3), and that is preserved
-   * exactly because it is what §47.2's prefix routing already does.
-   *
-   * What changed:
-   *
-   * - The migration sensor is gone (§48.1); the optional Linear panel is
-   *   capability-gated and uses environment-only authentication server-side.
-   * - **Polling is gone.** The upstream polls `/api/worktrees` every 5s (1s
-   *   while creating). Here the monitor pushes on `/api/stream`, and §35 puts a
-   *   hard 250 ms p95 ceiling on output→screen with no room to negotiate. The
-   *   interval survives only as the safety net the push channel needs when it
-   *   drops, and it is paused on a hidden tab exactly as upstream.
-   * - **Everything worktree-shaped is capability-gated.** This monitor may be
-   *   one a pipeline run bound inline, which serves executions and nothing
-   *   else; the sidebar says so instead of showing an empty list that looks
-   *   broken.
-   * - **The terminal is keyed by session** and carries a token (ADR-10).
-   * - **Theme is the panel's three options**, including the system listener
-   *   that is attached only in `system` mode.
-   */
+
 
   function createDefaultConfig(): AppConfig {
     return {
@@ -162,19 +138,11 @@
     );
   }
 
-  /**
-   * Listing sessions and the worktrees they run in.
-   *
-   * Split from `worktrees` in phase 8D. That name gates twenty mutation routes
-   * the port brought ahead of their backends; this one is the listing, which
-   * `src/web/worktrees-api.ts` now serves from the agent sessions of §49. One
-   * promise must not smuggle in the other, and the sidebar's second group has
-   * been empty for exactly that reason.
-   */
+
   const sessionsAvailable = hasCapability(CAPABILITY.sessions);
-  /** The ported mutation surface: create, merge, archive, re-profile. */
+
   const worktreeMutations = hasCapability(CAPABILITY.worktreeMutations);
-  /** Whether this monitor can open a session — the one click of I3 (§49.3). */
+
   const canOpenSession = canOpenSessions();
   const worktreesAvailable = sessionsAvailable || worktreeMutations;
   const preferencesWritable =
@@ -484,14 +452,7 @@
   let isSelectedAgentTerminalRefreshing = $derived(
     selectedBranch ? refreshingAgentTerminalBranches.has(selectedBranch) : false,
   );
-  /**
-   * The safety net's period.
-   *
-   * Three inputs, in this order: a worktree being created wants the tighter
-   * beat the upstream used; otherwise the user's own choice from the refresh
-   * control (U16); otherwise the 15 s default. `pausar` is handled separately —
-   * it stops the timer rather than lengthening it.
-   */
+
   let pollIntervalMs = $derived(
     hasCreatingWorktrees
       ? ACTIVE_CREATE_POLL_INTERVAL_MS
@@ -511,21 +472,11 @@
           : 'Nenhum worktree encontrado.',
   );
 
-  /* ------------------------------------------------------------------ *
-   * Executions (Fase 8C)
-   *
-   * The panel's half of the shell, in the same runes the rest of the state
-   * lives in — there is no store and no router here, and that is a decision
-   * (§48.3), not an omission.
-   *
-   * One selection drives the main panel: an execution, or a worktree, never
-   * both. That is what keeps §50.3's "one experience where the two overlap"
-   * true instead of two screens sharing a sidebar.
-   * ------------------------------------------------------------------ */
+
 
   let sessions = $state<SessionSummary[]>([]);
   let projects = $state<ProjectSummary[]>([]);
-  /** Free sessions across every served project — the other half of §49.4 (I5). */
+
   let agentSessions = $state<AgentSessionRow[]>([]);
   let selectedExecutionId = $state<string | null>(null);
   let selectedProjectId = $state<string>(readStored(PROJECT_STORAGE_KEY) ?? ALL_PROJECTS);
@@ -564,26 +515,7 @@
     }),
   );
 
-  /* ------------------------------------------------------------------ *
-   * The unified selection (§50.5).
-   *
-   * There is **one** panel, not an "execution area" and a "worktree area".
-   * `selectionKind` records only which of the two lists the person clicked
-   * last, because that decides which one gets to pick the other:
-   *
-   * - clicking an execution selects the Task; its sessions and worktrees are
-   *   the rows that carry its id, and the first of them is the workspace the
-   *   terminal opens on (I1);
-   * - clicking a session selects that workspace, and **whether the workflow
-   *   tabs appear is decided by the row's own `executionId`** — which is what
-   *   makes the promotion of §49.2 free: a free session linked to an issue
-   *   starts carrying one and the workflow simply appears (I4).
-   *
-   * A monitor a pipeline run bound inline announces neither `sessions` nor
-   * `worktrees`, so it only ever has the execution surface — which is what
-   * keeps a plain `issue-flow run` unchanged (ADR-03), and it is also the
-   * acceptance invariant of §48.6: Roteiro B must not get in Roteiro A's way.
-   * ------------------------------------------------------------------ */
+
   let selectionKind = $state<'execution' | 'session'>(
     worktreesAvailable ? 'session' : 'execution',
   );
@@ -714,14 +646,7 @@
 
   let openingSession = $state(false);
 
-  /**
-   * "Nova sessão" — I3, and S1 of §49.5.
-   *
-   * One click, and deliberately no dialog: agent, branch, profile and prompt
-   * are all optional on `POST /api/sessions`, and asking for any of them would
-   * be exactly the ceremony a free session exists to skip. The branch is
-   * generated server-side, and the session lands with its terminal open.
-   */
+
   async function handleNewSession(): Promise<void> {
     if (openingSession) return;
     openingSession = true;
@@ -748,14 +673,7 @@
    * "Sessões e worktrees" tab uses `handleSelectWorktree` alone — there the
    * person is reading the list, not asking for a shell.
    */
-  /**
-   * Picking a workspace from **inside** a Task.
-   *
-   * It does not leave the Task: a Task contains its sessions (§50.5), so the
-   * only thing that changes is which of them the terminal, the chat and the
-   * services describe. Only the sidebar's session group changes what is
-   * selected — that is `selectSessionRow`.
-   */
+
   function selectWorkspace(branch: string): void {
     revealWorktreeInFilters(branch);
     selectedBranch = branch;
@@ -1708,12 +1626,7 @@
             <ProjectSwitcher current={activePrefix} />
           </div>
           <div class="flex items-center gap-2">
-            <!--
-              I3: a free session, with no issue, no plan and no workflow, in one
-              click. No dialog on purpose — every field of `POST /api/sessions`
-              is optional and the branch is generated, so asking for any of them
-              would be the ceremony this mode exists to skip (§49.2).
-            -->
+
             {#if canOpenSession}
               <button
                 type="button"
@@ -1793,11 +1706,7 @@
           </div>
         </div>
       </div>
-      <!--
-        One sidebar, two groups (§50.3). "Execuções" is the panel's list of runs
-        of the workflow; "Sessões" is the worktree list the port brought. The
-        two words are not synonyms and never become one (§50.4, ADR-20).
-      -->
+
       <ExecutionSidebarList
         sessions={filteredSessions}
         selected={selectionKind === 'execution' ? selectedExecutionId : null}
@@ -1930,16 +1839,11 @@
       ondirtyclick={openDiffDialog}
       onCiClick={(pr) => (ciDetailsPr = pr)}
       onReviewsClick={(pr) => (commentReviewPr = pr)}
-      onnotificationselect={handleSelectWorktree}
       archiving={isSelectedArchiving}
       onlinearclick={(issue) => (linearDetail = issue)}
     />
 
-    <!--
-      One panel (§50.5). The dashboard answers "nothing in particular is
-      selected"; everything else — a Task or a free session — is the same
-      `ExecutionPanel`, given a snapshot, a workspace, or both.
-    -->
+
     <div class="flex-1 min-w-0 overflow-y-auto">
       {#if awaitingSnapshot && !showDashboard}
         <div class="if-surface"><p class="if-empty">Carregando a execução…</p></div>

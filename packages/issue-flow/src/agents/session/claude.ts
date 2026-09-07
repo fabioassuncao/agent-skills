@@ -13,49 +13,6 @@ import type {
   ConversationState,
 } from './conversation.js';
 
-/**
- * Reading a Claude conversation — the structured channel's Claude half.
- *
- * ## What this adds that `core/stream.ts` does not
- *
- * `core/stream.ts` reads the stream of an invocation **this process started**,
- * and answers one question: how did the turn end. It has no memory across
- * lines, no notion of a message, and nothing to say about a conversation that
- * finished yesterday.
- *
- * This module answers the questions the panel asks instead:
- *
- * - read a **recorded** conversation back from the provider's transcript
- *   (`~/.claude/projects/<encoded cwd>/<session id>.jsonl`);
- * - list the conversations that exist for a working directory, so a session can
- *   be resumed by id rather than started again;
- * - turn a live stream into ordered messages with **stable identities**, so the
- *   same block arriving by both routes renders once.
- *
- * It **delegates** the grammar of a line to `claude-stream.ts`, which
- * `core/stream.ts` also uses. There is one parser for the format; what differs
- * is what each reader takes from it (invariant 13).
- *
- * ## The rule that is invisible until it breaks (§45.2-A)
- *
- * A block's identity is `${anthropicMessageId}:${contentBlockIndex}`.
- * `content_block.index` restarts at 0 on every `message_start`, and one user
- * turn routinely spans several API messages, so the index alone collides and
- * two separate paragraphs collapse into one bubble. The transcript reader
- * reproduces the same numbering — counting **every** block of a message, even
- * the ones it skips — so an id minted from the file equals the id minted from
- * the stream. That equality is the whole mechanism: it is what lets the panel
- * upsert instead of append when a block it already streamed shows up again in
- * the persisted transcript.
- *
- * ## ADR-05 is not violated by any of this
- *
- * Reading the provider's own conversation file is not reading the agent's
- * *screen*. Workflow state still comes from hooks (`agents/hooks/`); nothing
- * here decides whether a phase passed. This is a reader for a panel and for an
- * export, and its output is data.
- */
-
 /** A message as the transcript stores it, before it is placed in a conversation. */
 export interface ClaudeTranscriptMessage {
   id: string;
@@ -160,14 +117,6 @@ function isClaudeAssistantRecord(raw: ClaudeStoredRecord): raw is ClaudeStoredRe
   return raw.message.role === 'assistant' && typeof raw.uuid === 'string';
 }
 
-/**
- * How a corrupt transcript line is reported.
- *
- * The upstream logs the first 120 characters of the offending line. A
- * conversation line is user and model content, and this project's telemetry is
- * redacted by contract (§45.3), so the default says *that* a line failed and
- * where — never what it contained. A caller that is debugging can pass its own.
- */
 export type ClaudeTranscriptWarn = (message: string) => void;
 
 const NO_WARNING: ClaudeTranscriptWarn = () => {};
@@ -336,7 +285,6 @@ export type ClaudeStreamEvent =
   | { type: 'complete'; sessionId: string }
   | { type: 'error'; message: string };
 
-/** The message/block currently being streamed. See §45.2-A. */
 interface ClaudeStreamCursor {
   messageId: string | null;
   blockIndex: number;
@@ -368,17 +316,6 @@ export interface ClaudeStreamReader {
   readonly sessionId: string | null;
 }
 
-/**
- * A stateful reader over the live stream.
- *
- * The state is the cursor and nothing else, and it is the reason this cannot be
- * a pure function: `message_start` and `content_block_start` arrive on their own
- * lines, before the deltas and the finalised blocks they identify.
- *
- * It does **not** start a process. Launching an agent is `agents/invoke.ts`
- * (headless) or `agents/tty.ts` (interactive) — one launcher, per §25 — and
- * this reader consumes whatever those produce.
- */
 export function createClaudeStreamReader(): ClaudeStreamReader {
   const cursor: ClaudeStreamCursor = { messageId: null, blockIndex: 0 };
   let sessionId: string | null = null;
@@ -396,10 +333,6 @@ export function createClaudeStreamReader(): ClaudeStreamReader {
         sessionId = parsed.sessionId;
         events.push({ type: 'sessionId', sessionId: parsed.sessionId });
       }
-      // `blockIndex` is deliberately *not* reset here, matching the upstream:
-      // every message that emits a block is preceded by its own
-      // `content_block_start`, which sets the index. Resetting would look
-      // tidier and would change the id of a block that arrives without one.
       if (parsed.messageStart) cursor.messageId = parsed.messageStart.messageId;
       if (parsed.blockStart) cursor.blockIndex = parsed.blockStart.index;
       if (parsed.assistantDelta) {

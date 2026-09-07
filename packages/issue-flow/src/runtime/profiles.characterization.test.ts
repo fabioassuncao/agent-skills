@@ -8,25 +8,6 @@ import {
   type SessionLayoutContext,
 } from './tmux/layout.js';
 
-/**
- * Characterization test **C8** (§34): *switch profile → window recreated, new
- * layout, `--resume <same id>`*.
- *
- * The upstream behaviour this pins down is `PUT /api/worktrees/:name/profile`
- * (§16): it writes the new profile into the worktree's metadata, destroys the
- * window, rebuilds it with the new layout and relaunches the agent with
- * `launchMode: "resume"` and the conversation id already stored. The
- * conversation survives a layout change — that is the whole claim, and it is
- * what makes profiles switchable rather than a decision taken once at creation.
- *
- * Here the three pieces meet for the first time: the profile provides the pane
- * templates, `planSessionLayout` turns them into a plan, and `ensureSessionLayout`
- * applies it with `force: true`. `force` is not an optimisation — without it the
- * intact window reattaches and the person sees the layout they just replaced.
- * The last case in this file asserts exactly that, so the flag can never be
- * dropped as redundant.
- */
-
 const PROJECT_ID = 'proj-a1b2c3';
 const BRANCH = 'feat/63-thing';
 const CONVERSATION_ID = 'conv-9f3d1e';
@@ -49,7 +30,7 @@ const profiles = parseRuntimeProfiles(
     },
     sandbox: {
       image: 'issue-flow-sandbox',
-      yolo: true,
+      permission: 'autonomous',
       panes: [
         { id: 'agent', kind: 'agent', focus: true },
         { id: 'shell', kind: 'shell', split: 'bottom', sizePct: 30 },

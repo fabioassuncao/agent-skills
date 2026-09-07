@@ -2,7 +2,7 @@
   import BaseDialog from './BaseDialog.svelte';
   import Btn from './Btn.svelte';
 
-  /** PORT of `frontend/src/lib/ConfirmDialog.svelte` @ d8c9d5f (32 lines). */
+
 
   let {
     message,

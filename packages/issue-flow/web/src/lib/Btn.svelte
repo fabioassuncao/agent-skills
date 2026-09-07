@@ -2,14 +2,7 @@
   import type { Snippet } from 'svelte';
   import type { HTMLButtonAttributes } from 'svelte/elements';
 
-  /**
-   * PORT of `frontend/src/lib/Btn.svelte` @ d8c9d5f (38 lines).
-   *
-   * One change: the upstream's `text-white` on the filled variants becomes
-   * `text-accent-text`. White reads fine on a light-theme accent and gives
-   * 2.98:1 on the dark theme's light fills — the panel already learned this and
-   * inverts the token instead (`web/AGENTS.md`, contrast table).
-   */
+
 
   let {
     variant = 'default',

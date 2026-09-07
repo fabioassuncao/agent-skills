@@ -46,7 +46,6 @@ export interface QueueRepositoryContext {
 }
 
 const contexts = new Map<string, PlanRepositoryContext>();
-const providerHealthContexts = new Map<string, PlanRepositoryContext>();
 const verificationContexts = new Map<string, PlanRepositoryContext>();
 const lastBranchContexts = new Map<string, PlanRepositoryContext>();
 const queueContexts = new Map<string, QueueRepositoryContext>();
@@ -69,7 +68,7 @@ export function getPlanRepository(path: string): PlanRepositoryContext | undefin
   return contexts.get(path);
 }
 
-/** Register the JSON compatibility projection for a multi-issue queue. */
+/** Register the agent-facing artifact for a multi-issue queue. */
 export function registerQueueRepository(context: QueueRepositoryContext): void {
   queueContexts.set(context.planFile, context);
 }
@@ -78,23 +77,15 @@ export function getQueueRepository(path: string): QueueRepositoryContext | undef
   return queueContexts.get(path);
 }
 
-/** Register project- and issue-level compatibility projections with their canonical store. */
+/** Register issue artifacts with their canonical store. */
 export function registerStorageProjections(input: {
   context: PlanRepositoryContext;
-  providersHealthFile?: string;
   verifyFile?: string;
   lastBranchFile?: string;
 }): void {
-  if (input.providersHealthFile !== undefined) {
-    providerHealthContexts.set(input.providersHealthFile, input.context);
-  }
   if (input.verifyFile !== undefined) verificationContexts.set(input.verifyFile, input.context);
   if (input.lastBranchFile !== undefined)
     lastBranchContexts.set(input.lastBranchFile, input.context);
-}
-
-export function getProviderHealthRepository(path: string): PlanRepositoryContext | undefined {
-  return providerHealthContexts.get(path);
 }
 
 export function getVerificationRepository(path: string): PlanRepositoryContext | undefined {
@@ -106,10 +97,8 @@ export function getLastBranchRepository(path: string): PlanRepositoryContext | u
 }
 
 /**
- * Compatibility bootstrap for direct engine consumers that bind telemetry
- * without first resolving an Issue Flow issue path. Production issue commands
- * always register their real project identity in `resolve.ts`; this preserves
- * the standalone API without making telemetry parse or rewrite its projection.
+ * Bootstrap direct engine consumers that bind telemetry without first resolving
+ * an Issue Flow issue path.
  */
 export async function ensurePlanRepository(path: string): Promise<PlanRepositoryContext | null> {
   const known = getPlanRepository(path);
@@ -120,9 +109,10 @@ export async function ensurePlanRepository(path: string): Promise<PlanRepository
     projectId: `projection-${digest}`,
     issueId: `projection-${digest}`,
     projectRoot: dirname(path),
+    databaseOptions: { env: { ISSUE_FLOW_HOME: dirname(path) } },
   };
   try {
-    const plan = parsePlan(await readFile(path, 'utf-8'), path);
+    const plan = parseTaskArtifact(await readFile(path, 'utf-8'), path);
     await saveStoredPlan(context, plan);
     registerPlanRepository(context);
     return context;
@@ -133,7 +123,6 @@ export async function ensurePlanRepository(path: string): Promise<PlanRepository
 
 export function resetPlanRepositories(): void {
   contexts.clear();
-  providerHealthContexts.clear();
   verificationContexts.clear();
   lastBranchContexts.clear();
   queueContexts.clear();
@@ -171,10 +160,6 @@ function ensureStoredProject(
 ): void {
   database
     .prepare(
-      // `last_seen_at` is what makes a project that only ever ran — never
-      // curated — sort into the dashboard's "recent" list (§47.3). The row was
-      // always created here; before the registry there was simply nothing that
-      // could tell one dormant project from another.
       `INSERT INTO projects (id, root, remote_url, created_at, updated_at, last_seen_at)
        VALUES (?, ?, NULL, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at,
@@ -210,12 +195,12 @@ export function setAgentProjectionWindow(path: string, active: boolean): void {
   else agentProjectionWindows.delete(path);
 }
 
-function parsePlan(value: string, path: string): TaskPlan {
+function parseTaskArtifact(value: string, path: string): TaskPlan {
   try {
     return taskPlanSchema.parse(JSON.parse(value)) as TaskPlan;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid SQLite task plan for ${path}: ${detail}`, { cause: error });
+    throw new Error(`Invalid task artifact at ${path}: ${detail}`, { cause: error });
   }
 }
 
@@ -239,11 +224,6 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
       .get<Record<string, unknown>>(context.projectId, context.issueId);
     if (row === undefined) {
       throw new Error(`No SQLite task plan exists for issue ${context.issueId}. Run plan first.`);
-    }
-    // Version 4 is fully relational. The fallback keeps a database imported by
-    // an older binary readable until its next normal plan materialization.
-    if (row.project === null || row.project === undefined) {
-      return parsePlan(String(row.state_json), context.tasksPath);
     }
     const dependencies = new Map<string, string[]>();
     for (const dependency of database
@@ -297,7 +277,7 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
       issueNumber: String(row.issue_number),
       issueUrl: String(row.issue_url ?? ''),
       branchName: String(row.branch_name ?? ''),
-      ...(Number(row.no_branch) === 1 ? { noBranch: true } : {}),
+      noBranch: Number(row.no_branch) === 1,
       ...(row.close_issue == null ? {} : { closeIssue: Number(row.close_issue) === 1 }),
       ...(row.issue_closed_at == null ? {} : { issueClosedAt: String(row.issue_closed_at) }),
       description: String(row.description ?? ''),
@@ -316,7 +296,6 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
       maxCorrectionCycles: Number(row.max_correction_cycles),
       lastReviewFindings: (row.last_review_findings as string | null) ?? null,
       pipeline: {
-        ...(Number(row.analyze_completed) === 1 ? { analyzeCompleted: true } : {}),
         prdCompleted: Number(row.prd_completed) === 1,
         jsonCompleted: Number(row.json_completed) === 1,
         executionCompleted: Number(row.execution_completed) === 1,
@@ -382,13 +361,7 @@ export async function loadStoredPlan(context: PlanRepositoryContext): Promise<Ta
           }),
       userStories: stories,
     };
-    const executions = database
-      .prepare(
-        'SELECT payload_json FROM executions WHERE project_id = ? AND issue_id = ? ORDER BY started_at, rowid',
-      )
-      .all<{ payload_json: string }>(context.projectId, context.issueId)
-      .map((execution) => JSON.parse(execution.payload_json));
-    return executions.length > 0 ? { ...plan, executions } : plan;
+    return plan;
   }, context.databaseOptions);
 }
 
@@ -400,10 +373,6 @@ export function writePlanRows(
   const timestamp = plan.lastAttemptAt ?? new Date().toISOString();
   database
     .prepare(
-      // `last_seen_at` is what makes a project that only ever ran — never
-      // curated — sort into the dashboard's "recent" list (§47.3). The row was
-      // always created here; before the registry there was simply nothing that
-      // could tell one dormant project from another.
       `INSERT INTO projects (id, root, remote_url, created_at, updated_at, last_seen_at)
        VALUES (?, ?, NULL, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at,
@@ -426,21 +395,18 @@ export function writePlanRows(
       timestamp,
       timestamp,
     );
-  // `state_json` is kept as an empty compatibility column for pre-v4 database
-  // files. Relational columns below are the source of truth.
   database
     .prepare(
-      `INSERT INTO pipelines (project_id, issue_id, state_json, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(project_id, issue_id) DO UPDATE SET state_json = excluded.state_json,
-       updated_at = excluded.updated_at`,
+      `INSERT INTO pipelines (project_id, issue_id, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(project_id, issue_id) DO UPDATE SET updated_at = excluded.updated_at`,
     )
-    .run(context.projectId, context.issueId, '{}', timestamp);
+    .run(context.projectId, context.issueId, timestamp);
   database
     .prepare(
       `UPDATE pipelines SET project = ?, issue_number = ?, issue_url = ?, branch_name = ?, no_branch = ?,
        description = ?, issue_status = ?, completed_at = ?, last_attempt_at = ?, last_error_category = ?,
        last_error_message = ?, last_error_at = ?, correction_cycle = ?, max_correction_cycles = ?,
-       last_review_findings = ?, analyze_completed = ?, prd_completed = ?, json_completed = ?,
+       last_review_findings = ?, prd_completed = ?, json_completed = ?,
        execution_completed = ?, review_completed = ?, pr_created = ?, pr_review_completed = ?, run_status = ?,
        run_phase = ?, run_attempt = ?, run_heartbeat_at = ?, run_blocked_reason = ?, run_owner_pid = ?,
        run_owner_host = ?, run_owner_started_at = ?, pr_number = ?, pr_url = ?, pr_head_branch = ?,
@@ -463,7 +429,6 @@ export function writePlanRows(
       plan.correctionCycle,
       plan.maxCorrectionCycles,
       plan.lastReviewFindings,
-      plan.pipeline.analyzeCompleted === true ? 1 : 0,
       plan.pipeline.prdCompleted ? 1 : 0,
       plan.pipeline.jsonCompleted ? 1 : 0,
       plan.pipeline.executionCompleted ? 1 : 0,
@@ -589,7 +554,7 @@ export function writePlanRows(
   }
 }
 
-/** Persist the canonical plan and refresh its file projection atomically. */
+/** Persist the canonical plan and refresh the agent-facing task artifact. */
 export async function saveStoredPlan(
   context: PlanRepositoryContext,
   plan: TaskPlan,
@@ -601,7 +566,7 @@ export async function saveStoredPlan(
   await materializePlan(context);
 }
 
-/** Write the compatibility file used by agents and legacy prompt contracts. */
+/** Write the task artifact consumed by execution agents. */
 export async function materializePlan(
   context: PlanRepositoryContext,
   plan?: TaskPlan,
@@ -609,19 +574,6 @@ export async function materializePlan(
   const projection = plan ?? (await loadStoredPlan(context));
   const content = `${JSON.stringify(projection, null, 2)}\n`;
   await writeFileAtomic(context.tasksPath, content);
-  const sha256 = createHash('sha256').update(content).digest('hex');
-  await withDatabase(
-    (database) =>
-      database
-        .prepare(
-          `INSERT INTO migrated_artifacts (source_path, sha256, migrated_at, table_counts_json)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(source_path) DO UPDATE SET sha256 = excluded.sha256,
-             migrated_at = excluded.migrated_at, table_counts_json = excluded.table_counts_json`,
-        )
-        .run(context.tasksPath, sha256, new Date().toISOString(), '{}'),
-    context.databaseOptions,
-  );
 }
 
 /** Persist a queue's coordination state before refreshing its readable projection. */
@@ -728,7 +680,7 @@ export async function saveStoredQueue(
   await writeFileAtomic(context.planFile, `${JSON.stringify(plan, null, 2)}\n`);
 }
 
-/** Load the canonical queue. The projection remains only for older JSON mode callers. */
+/** Load the canonical queue. */
 export async function loadStoredQueue(
   context: QueueRepositoryContext,
 ): Promise<ExecutionPlan | null> {
@@ -752,7 +704,10 @@ export async function ingestAgentPlan(
   context: PlanRepositoryContext,
   baseline?: Pick<TaskPlan, 'lastReviewFindings' | 'lastError'>,
 ): Promise<TaskPlan> {
-  const submitted = parsePlan(await readFile(context.tasksPath, 'utf-8'), context.tasksPath);
+  const submitted = parseTaskArtifact(
+    await readFile(context.tasksPath, 'utf-8'),
+    context.tasksPath,
+  );
   await withDatabase(
     (database) =>
       database.transaction(() => {
@@ -798,7 +753,7 @@ export async function ingestAgentPlan(
 
 /** Promote a newly generated plan after the plan phase has validated it. */
 export async function ingestGeneratedPlan(context: PlanRepositoryContext): Promise<TaskPlan> {
-  const plan = parsePlan(await readFile(context.tasksPath, 'utf-8'), context.tasksPath);
+  const plan = parseTaskArtifact(await readFile(context.tasksPath, 'utf-8'), context.tasksPath);
   // Generated output cannot grant/revoke CLI authorization or fake confirmation.
   const current = await loadStoredPlan(context).catch((error: unknown) => {
     if (error instanceof Error && error.message.startsWith('No SQLite task plan exists'))
@@ -942,16 +897,6 @@ export async function saveExecution(
       }),
     context.databaseOptions,
   );
-  // Direct library consumers historically read the projection themselves.
-  // Keep that contract only for their synthetic context; real issue paths
-  // intentionally leave projection refresh to the phase boundary so an
-  // execution ending cannot overwrite an agent's pending file mutation.
-  if (
-    context.projectId.startsWith('projection-') &&
-    !agentProjectionWindows.has(context.tasksPath)
-  ) {
-    await materializePlan(context);
-  }
 }
 
 /** Provider breaker state is a project-scoped canonical record, not a JSON file. */
@@ -1027,17 +972,6 @@ export async function updateStoredProviderHealth(
             next.probeInFlight ? 1 : 0,
             next.probeStartedAt,
           );
-        database
-          .prepare('DELETE FROM provider_health_failures WHERE project_id = ? AND provider = ?')
-          .run(context.projectId, provider);
-        for (const failure of next.failures) {
-          database
-            .prepare(
-              `INSERT INTO provider_health_failures (project_id, provider, occurred_at, kind)
-             VALUES (?, ?, ?, ?)`,
-            )
-            .run(context.projectId, provider, failure.at, failure.kind);
-        }
         return next;
       }),
     context.databaseOptions,
@@ -1344,16 +1278,6 @@ export async function touchStoredSession(
   }, context.databaseOptions);
 }
 
-/**
- * Persist one agent lifecycle event reported by a hook.
- *
- * The upstream this is absorbed from keeps these in memory (§2.5). Writing them
- * down is the point of the difference: an `awaiting_input` that happened while
- * no monitor was open is exactly the one worth being able to look up.
- *
- * Never rejects. This runs inside a handler on the agent's hot path, and a
- * storage failure may not become an agent failure.
- */
 export async function recordAgentEvent(
   context: PlanRepositoryContext,
   input: {
@@ -1445,12 +1369,11 @@ export interface StoredWorktree {
   allocatedPorts: Record<string, number>;
   source: string | null;
   conversationId: string | null;
-  /** Absent only in legacy/test callers; persisted and read back as false. */
-  archived?: boolean;
-  /** Active AgentSession tab in this worktree. Null/absent means the root. */
-  activeAgentSessionId?: string | null;
+  archived: boolean;
+  /** Active AgentSession tab in this worktree. Null means the root. */
+  activeAgentSessionId: string | null;
   /** Monotonic allocator for fork labels; deleted sequences are not reused. */
-  tabSequenceCounter?: number;
+  tabSequenceCounter: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -1560,8 +1483,8 @@ export async function saveWorktree(
           worktree.source,
           worktree.conversationId,
           worktree.archived ? 1 : 0,
-          worktree.activeAgentSessionId ?? null,
-          worktree.tabSequenceCounter ?? 0,
+          worktree.activeAgentSessionId,
+          worktree.tabSequenceCounter,
           worktree.createdAt,
           worktree.updatedAt,
         );
@@ -2185,10 +2108,10 @@ export async function loadExecution(
       )
       .get<{ payload_json: string }>(id, context.projectId, context.issueId);
     return row === undefined ? null : (JSON.parse(row.payload_json) as Record<string, unknown>);
-  });
+  }, context.databaseOptions);
 }
 
-/** Execution history is queried directly from SQLite; tasks.json is only a projection. */
+/** Execution history is queried directly from SQLite. */
 export async function listStoredExecutions(input: {
   projectId: string;
   issueId?: string;
@@ -2268,8 +2191,6 @@ export async function exportStoredState(
       'queue_issues',
       'queue_dependencies',
       'user_story_numbering',
-      'provider_health_failures',
-      'migrated_artifacts',
       'audit_log',
     ];
     return Object.fromEntries(
@@ -2286,15 +2207,6 @@ export interface StoredAuditEntry {
   occurredAt: string;
 }
 
-/**
- * Record a fact worth being able to explain later.
- *
- * `audit_log` already backed the branch history; reconciliation needs the same
- * append for a different reason (§30): when the outside world contradicts a row
- * and a session is closed as `orphaned`, the closure must leave a trace. A
- * status that changed with no record of why is indistinguishable from a bug,
- * and the row itself only carries the new value, never the reason.
- */
 export async function appendAuditEntry(
   context: PlanRepositoryContext,
   action: string,

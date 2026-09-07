@@ -223,9 +223,8 @@ export async function buildScaffoldPlan(state: RepositoryState): Promise<Scaffol
   } else if (isClaudeBridge(claude.content)) {
     actions.push(action('CLAUDE.md', 'keep', 'recommended', 'Already a bridge to AGENTS.md.'));
   } else if (agents === undefined) {
-    // The common migration: instructions live in CLAUDE.md and there is no
-    // AGENTS.md. Promoting the content is the user's call — the tool says so
-    // rather than moving text it did not write.
+    // Instructions live in CLAUDE.md and there is no AGENTS.md. Promoting the
+    // content is the user's call, so the tool never moves text it did not write.
     notes.push(
       'CLAUDE.md carries its own instructions and there is no AGENTS.md. Move that content into AGENTS.md and reduce CLAUDE.md to the one-line bridge; nothing here rewrites it for you.',
     );

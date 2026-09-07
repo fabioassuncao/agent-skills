@@ -621,11 +621,6 @@ describe('an origin that needs a human (US-014)', () => {
   });
 });
 
-/**
- * An origin may own an identifier namespace no other one could produce — the
- * `inline-<hash>` of §17 is minted by Issue Flow itself. `claims()` lets it say
- * so, and the resolver then leaves every other origin alone.
- */
 describe('an origin that claims its own identifiers', () => {
   const info = vi.fn();
   const warn = vi.fn();

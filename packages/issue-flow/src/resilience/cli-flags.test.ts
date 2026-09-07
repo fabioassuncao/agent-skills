@@ -12,14 +12,13 @@ describe('resolveResilienceOverrides — nothing asked for', () => {
 });
 
 describe('--continuous', () => {
-  it('turns on the six behaviours long autonomous work needs', () => {
+  it('turns on the autonomous behaviours', () => {
     const overrides = resolveResilienceOverrides({ continuous: true });
 
     expect(overrides).toEqual({
       profile: 'continuous',
       providers: { failover: true },
       queue: { onIssueFailure: 'skip' },
-      journal: { enabled: true },
       watchdog: { inactivityTimeoutMs: DEFAULT_INACTIVITY_TIMEOUT_MS },
     });
   });
@@ -61,7 +60,6 @@ describe('a granular flag beats the profile', () => {
     expect(overrides.providers).toEqual({ failover: false });
     // Nothing else the profile asked for is lost.
     expect(overrides.queue).toEqual({ onIssueFailure: 'skip' });
-    expect(overrides.journal).toEqual({ enabled: true });
   });
 
   it('--continuous --on-issue-failure stop keeps the queue behaviour of today', () => {

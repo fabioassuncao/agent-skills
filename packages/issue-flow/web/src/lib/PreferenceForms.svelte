@@ -12,25 +12,7 @@
   import type { EffectiveConfigResponse, HarnessCatalogEntry } from './types';
   import { errorMessage } from './utils';
 
-  /**
-   * The two write forms, and the only two (U8).
-   *
-   * PORT of the `config-form` / `config-routing-form` halves of
-   * `renderConfiguration`. §50.3 merges them into `SettingsDialog`, which is the
-   * one settings surface in the product — the "Contexto" block keeps showing the
-   * effective configuration of the execution (that is reference about this run)
-   * and links here for the two things that are actually writable.
-   *
-   * The rules the current panel already enforces, carried over exactly:
-   *
-   * - **Execution state stays read-only.** These two routes save a *global
-   *   preference for future executions* and nothing about the run on screen.
-   *   Every response says so (`appliesTo: 'future executions'`).
-   * - **Never infer permission from a version.** The forms exist only when
-   *   `/api/health.capabilities` announces both writes, which the server does
-   *   only on a loopback binding (ADR-10). A monitor reachable from the network
-   *   shows the configuration and offers nothing to change.
-   */
+
 
   const BUILTIN_PROVIDERS = ['claude', 'codex', 'cursor', 'antigravity', 'opencode'];
   const ROUTING_MODES = ['off', 'shadow', 'recommend', 'active'];
@@ -80,7 +62,7 @@
         if (!entry.installed) return false;
         if (entry.state === 'unavailable') return false;
         if (entry.authentication === 'failed') return false;
-        return entry.authenticated !== false || entry.state === 'conditional' || entry.state === 'ready';
+        return entry.state === 'conditional' || entry.state === 'ready';
       })
       .map((entry) => entry.provider);
     return usable.length > 0 ? usable : BUILTIN_PROVIDERS;

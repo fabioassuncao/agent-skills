@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatAskUserQuestionAnswer, parseAskUserQuestion } from './ask-user-question';
 
-/** PORT of `frontend/src/lib/ask-user-question.test.ts` @ d8c9d5f — 8 cases. */
-
 describe('parseAskUserQuestion', () => {
   it('parses a valid single-question payload', () => {
     const text = JSON.stringify({

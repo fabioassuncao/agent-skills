@@ -15,7 +15,7 @@ import type { PrReviewOutcome } from './types.js';
 
 /**
  * Numeric form of an identifier, or `null` when the origin uses a non-numeric
- * one. Published as-is in session.json: a local id like 'auth-refactor' has no
+ * one. Published as-is in the session snapshot: a local id like 'auth-refactor' has no
  * number, and reporting it as 0 would claim an Issue that does not exist.
  */
 export function toIssueNumber(id: string): number | null {

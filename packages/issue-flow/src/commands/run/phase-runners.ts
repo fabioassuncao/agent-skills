@@ -156,7 +156,7 @@ function createReviewRunner(input: BuildRunnersInput): () => Promise<void> {
       }
 
       // Re-execute
-      const execCode = await runExecute(undefined, {
+      const execCode = await runExecute({
         issue: issueNumber,
         inPipeline: true,
         commitScope: queueCommitScope,
@@ -253,7 +253,7 @@ export function buildInstrumentedPhaseRunners(input: BuildRunnersInput): {
     plan: createPlanRunner(input, makeRunner),
     execute: makeRunner(
       () =>
-        runExecute(undefined, {
+        runExecute({
           issue: issueNumber,
           inPipeline: true,
           commitScope: queueCommitScope,

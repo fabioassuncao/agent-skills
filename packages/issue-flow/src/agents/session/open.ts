@@ -54,46 +54,6 @@ import { canReuseSession, selectReusableSession } from './reuse.js';
 import { createAgentSession, listSessions, saveSession, updateSessionStatus } from './store.js';
 import { type AgentSession, isFreeSession, isLiveSession } from './types.js';
 
-/**
- * Opening an agent in a pane — with an issue behind it, or with nothing behind
- * it at all.
- *
- * §49 of the absorption plan calls these two modes, and ADR-16 is the reason
- * there is only one module for both: an `AgentSession` whose `runId`, `phase`
- * and `storyId` are empty *is* a free session. There is no second entity, no
- * second table and no second launch path — the fields a workflow fills in are
- * simply absent, and every consumer already had to tolerate that because the
- * columns were nullable from the day they were created.
- *
- * ADAPT of `createWorktree` / `openWorktree` in WebMux
- * `backend/src/services/lifecycle-service.ts` @ d8c9d5f, which is the upstream's
- * one-click "open an agent on a branch". Two upstream behaviours are kept
- * because dropping them changes what the feature is:
- *
- * - **the branch is generated when nobody names one** (`resolveBranch` →
- *   `generateFallbackBranchName`). Requiring a branch would be requiring the
- *   very ceremony a free session exists to skip;
- * - **reopening resumes rather than restarts** (`launchMode` from the stored
- *   conversation). Here it goes one step further than the upstream, which
- *   rebuilds the window unconditionally: `ensureSessionLayout` distinguishes
- *   `reattach` from `resume` (§27), so reopening a session whose agent is still
- *   working does not kill it.
- *
- * Three rules from §49.2 are enforced here and are the reason to read this file
- * before changing it:
- *
- * 1. **A free session never starts the pipeline.** Nothing in this module
- *    writes a `runs` row, publishes a snapshot or advances a phase. Promotion
- *    to mode 1 is a separate, explicit act (`linkSessionToRun`).
- * 2. **The pipeline never adopts a free session** (ADR-07 / ADR-16). The rule
- *    itself lives in `selectReusableSession`; this module only feeds it the
- *    phase it was asked for, and never works around the answer.
- * 3. **A free session never adopts the pipeline's conversation either.** The
- *    mirror image of rule 2, and the reason `candidateSessions` filters: a
- *    person opening a session on a branch a run is working on gets their own
- *    conversation, not a silent seat inside the run's.
- */
-
 /** Failures a caller is expected to distinguish, with the HTTP status they map to. */
 export class AgentSessionError extends Error {
   constructor(
@@ -111,17 +71,6 @@ export const FREE_SESSION_BRANCH_PREFIX = 'session';
 /** Longest slug taken from a label or prompt when generating a branch name. */
 export const FREE_SESSION_SLUG_MAX = 32;
 
-/**
- * The branch a free session works on when nobody named one.
- *
- * PORT of `generateFallbackBranchName` (`backend/src/lib/branch-name.ts`), with
- * the hint the upstream gets from its optional auto-namer folded in as a plain
- * slug. No model is consulted: naming a scratch branch must never cost a
- * round trip, and `session/` already says everything a reader needs.
- *
- * The random suffix is always present, even with a hint, because two sessions
- * labelled "debug" on the same day are the normal case, not the exception.
- */
 export function generateFreeSessionBranch(hint?: string, suffix?: string): string {
   const unique = suffix ?? randomUUID().slice(0, 8);
   const slug = hint === undefined ? '' : slugify(hint, FREE_SESSION_SLUG_MAX);
@@ -329,16 +278,6 @@ function decideAdoption(
   return { adopted: null, blockedBy: occupant };
 }
 
-/**
- * What every pane of the window opens with, and what is typed into the agent's.
- *
- * The container case is the upstream's, verbatim in structure: the *shell* is
- * what enters the container, and the agent command is typed into a shell that
- * is already inside it — so the agent command never mentions docker (WebMux
- * `agent-service.ts` asserts exactly that, and so does `tty.test.ts`). What it
- * does carry is the `PATH` fallback, because `docker exec … /bin/sh -c` reads no
- * login profile.
- */
 function buildPaneCommands(
   deps: AgentSessionDeps,
   argv: readonly string[],
@@ -416,18 +355,6 @@ export interface EnsuredSessionWorktree {
   allocatedPorts: Record<string, number>;
 }
 
-/**
- * Find the worktree for a branch, or make one.
- *
- * `existing` when git already knows the branch, `new` otherwise: the worktree
- * manager refuses the wrong mode with a 409 rather than guessing, so the mode
- * is decided here, from the one question that answers it.
- *
- * Exported because the `interactive` and `sandbox` runtimes need exactly this
- * in `prepare()`, before there is any agent to open. A second copy of the
- * decision — which mode, which paths, whether it was created — is how a runtime
- * and a session start disagreeing about a worktree they both point at (§25).
- */
 export async function ensureSessionWorktree(
   deps: AgentSessionDeps,
   input: EnsureSessionWorktreeInput,
@@ -692,12 +619,8 @@ export async function openAgentSession(
           await deps.tmux.tagPaneOwner(paneTarget, paneToken, plan.sessionName);
         }
         const paneIdentity = await deps.tmux.getPaneIdentity(paneTarget);
-        const legacyProof =
-          layout.mode === 'reattach' &&
-          adopted?.paneTarget?.startsWith('%') === false &&
-          paneIdentity.ownerToken === null;
         if (
-          (paneIdentity.sessionName !== plan.sessionName && !legacyProof) ||
+          paneIdentity.sessionName !== plan.sessionName ||
           paneIdentity.windowName !== plan.windowName
         ) {
           throw new AgentSessionError('The agent pane belongs to another tmux owner.', 409);
@@ -713,7 +636,7 @@ export async function openAgentSession(
             paneToken = physical.paneToken as string;
             resolvedPaneToken = paneToken;
           }
-          if (adopted === null || (paneIdentity.ownerToken !== paneToken && !legacyProof)) {
+          if (adopted === null || paneIdentity.ownerToken !== paneToken) {
             throw new AgentSessionError(
               'The live pane no longer belongs to this AgentSession.',
               409,
@@ -900,7 +823,6 @@ export async function listAgentSessions(
   return listSessions(storage, filter);
 }
 
-/** Only the ones a person opened for themselves (§49.4). */
 export async function listFreeSessions(storage: PlanRepositoryContext): Promise<AgentSession[]> {
   return (await listSessions(storage)).filter(isFreeSession);
 }

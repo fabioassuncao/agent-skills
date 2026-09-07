@@ -97,8 +97,6 @@ describe('resolveExecutionView (U1)', () => {
   });
 
   it('makes the consolidated view the home screen with several projects', () => {
-    // §47.4: with more than one project the question is "what is happening, and
-    // in which project", and that is true with one execution too.
     const view = resolveExecutionView({
       sessions: [session()],
       selectedSessionId: null,
@@ -175,10 +173,6 @@ describe('visibleSessions and activeWorkGroups', () => {
     expect(groups.at(-1)?.sessions).toHaveLength(1);
   });
 
-  /**
-   * I5 — the view answers "what is running anywhere", and a session with no run
-   * behind it is work in flight too (§49.4).
-   */
   it('puts a project’s free sessions in the same block as its executions', () => {
     const groups = activeWorkGroups({
       sessions: [session()],

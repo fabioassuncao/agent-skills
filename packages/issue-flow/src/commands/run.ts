@@ -16,10 +16,8 @@ export type { QueueFailureMode, RunPipelineOptions } from './run/types.js';
  * Settle what this invocation runs, minting the Issue when the demand came in
  * as a free prompt.
  *
- * §17 of the absorption plan: `--prompt` is `webmux oneshot`'s way in, and it
- * is absorbed **as an Issue** rather than as a second execution path. By the
- * time this returns, the rest of `run` cannot tell an inline demand from a
- * GitHub one — which is the whole point of the convergence.
+ * Free prompts become inline Issues before the pipeline starts. The rest of
+ * `run` therefore uses the same execution path for every provider.
  */
 async function resolveRequestedIssues(
   issue: string | readonly string[],
@@ -44,7 +42,7 @@ const runIssueSession: RunIssueSession = (issueNumber, mode, input) =>
 /**
  * Entry point of `issue-flow run`.
  *
- * Accepts one issue (the historical form, untouched) or several. The first
+ * Accepts one issue or several. The first
  * attempt runs as a plain single-issue pipeline; only if the planner decides
  * this invocation is really a queue does it hand control over to
  * {@link runQueue} — and that decision is taken before any session is

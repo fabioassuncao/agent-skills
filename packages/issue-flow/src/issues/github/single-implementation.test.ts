@@ -3,17 +3,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-/**
- * Guards invariant 13 of the WebMux absorption: **one implementation per
- * responsibility**. Pull Request reading, CI reading and review-comment reading
- * live in `src/issues/github/` and nowhere else, so a second `gh pr list`
- * grown somewhere in the tree fails this suite instead of quietly becoming the
- * duplicate the port was supposed to remove.
- *
- * Pull Request *creation* is deliberately not covered: §20 makes the Issue Flow
- * canonical there and it belongs to `commands/pr.ts`.
- */
-
 const SRC_DIR = fileURLToPath(new URL('../..', import.meta.url));
 
 /** Where the responsibility is allowed to be implemented, relative to `src/`. */

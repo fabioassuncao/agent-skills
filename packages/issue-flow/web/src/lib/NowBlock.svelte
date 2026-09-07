@@ -2,19 +2,7 @@
   import { formatAgo, formatClock, formatTotals } from './format';
   import type { ExecutionSnapshot } from './snapshot';
 
-  /**
-   * "Estado agora" — the first of the four blocks (U6).
-   *
-   * PORT of `renderProgress`, `renderNow`, `renderResilience` and
-   * `renderNextSteps`. First in the order on purpose: it is the only block with
-   * a **layout requirement** — it has to be readable without scrolling at
-   * 1440×900 *with the errors card open*. Before adding a line here, measure
-   * (`getBoundingClientRect().bottom <= innerHeight`).
-   *
-   * "Próximos passos" is one line, not a list, and its label comes from the
-   * markup: the steps are few and short, and a card of its own for three words
-   * is how twelve equal-weight cards happen.
-   */
+
 
   let { snapshot, now }: { snapshot: ExecutionSnapshot; now: number } = $props();
 

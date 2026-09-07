@@ -1,8 +1,8 @@
 # src/core/session
 
-Contract, pure reducer and publishers for the live session snapshot
-(`session.json`). This directory owns the shape every surface reads — the
-terminal status view, the web dashboard, and resume.
+Contract, pure reducer and publishers for the live session snapshot. This
+directory owns the shape every surface reads — the terminal status view, the
+web dashboard, and resume.
 
 ## Boundary with `session-*.ts` in `core/`
 
@@ -30,7 +30,7 @@ avoids treating the façade as the home of the class.
 | `reducer.ts` | `reduceSessionEvent`, exhaustive `applyEvent` dispatch, re-exports stage helpers |
 | `reducer-*.ts` | Cases by area (session, phase, story, metrics, git, log, resilience) |
 | `reducer-stage.ts` | `isTerminalStage`, `transitionStory`, `deriveStageOnStoriesUpdate` |
-| `publishers.ts` | `SessionPublisher`, `NullPublisher`, `MemoryPublisher`, `FilePublisher` |
+| `publishers.ts` | `SessionPublisher`, `NullPublisher`, `MemoryPublisher` |
 
 Adding a `SessionEvent` member without a matching case must fail
 `tsc --noEmit`: each area function takes a subtype of the union and the

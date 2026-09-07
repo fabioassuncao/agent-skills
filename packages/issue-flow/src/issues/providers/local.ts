@@ -91,9 +91,7 @@ function renderIssueMarkdown(title: string, body: string): string {
  * from the file so a hand-edited issue.md is never reported as unchanged.
  *
  * Every path goes through `resolveIssuePaths()`, exactly like the pipeline
- * commands, so an issue that still only exists under the legacy
- * `<projectRoot>/issues/` tree is migrated on first read instead of coming back
- * as "not found".
+ * commands.
  */
 export class LocalFileIssueProvider implements IssueProvider {
   readonly name = 'local' as const;
@@ -291,10 +289,7 @@ export class LocalFileIssueProvider implements IssueProvider {
     return this.cachedRoot;
   }
 
-  /**
-   * Every artifact of one issue, from the same resolver the pipeline commands
-   * use — which is also what triggers the migration of a legacy-only issue.
-   */
+  /** Every artifact of one issue, from the same resolver the pipeline uses. */
   private async paths(id: string): Promise<IssuePaths> {
     return resolveIssuePaths(id, { projectRoot: await this.root() });
   }
@@ -347,9 +342,7 @@ export class LocalFileIssueProvider implements IssueProvider {
    * Highest number across every `<issuesDir>/<id>/metadata.json` and numeric
    * directory name.
    *
-   * Resolving `issuesDir` also migrates the legacy tree when it is the only one
-   * that exists, which is what keeps an already-taken number from being handed
-   * out a second time after resolving artifact storage.
+   * Resolving `issuesDir` keeps allocation scoped to the selected store.
    */
   private async highestLocalNumber(): Promise<number> {
     const { issuesDir: dir } = await resolveProjectPaths({ projectRoot: await this.root() });

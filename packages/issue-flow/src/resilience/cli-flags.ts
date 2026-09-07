@@ -35,15 +35,14 @@ export interface ResilienceFlags {
  * The retry side is the `continuous` **profile** of `resolvePolicy()` — network
  * and rate limits retried forever, wider budgets for the rest — rather than a
  * list of numbers repeated here, so the two cannot drift. The rest is what the
- * profile implies at the pipeline level: keep the queue moving, keep a journal
- * of what happened, and notice an agent that has gone quiet.
+ * profile implies at the pipeline level: keep the queue moving and notice an
+ * agent that has gone quiet. Execution events are always persisted in SQLite.
  */
 function continuousProfile(): ResilienceConfig {
   return {
     profile: 'continuous',
     providers: { failover: true },
     queue: { onIssueFailure: 'skip' },
-    journal: { enabled: true },
     watchdog: { inactivityTimeoutMs: DEFAULT_INACTIVITY_TIMEOUT_MS },
   };
 }

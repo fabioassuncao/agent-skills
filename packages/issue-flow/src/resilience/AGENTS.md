@@ -50,8 +50,7 @@ which is a much louder change than editing a JSON file.
   consider the failure at all. How many attempts, and how long between them, is
   the policy's answer — never the classifier's.
 - **`internal` and `unknown` are not retryable.** An unclassified failure gets
-  the conservative answer, which is also exactly what `isTransientFailure()`
-  answered before this module existed. A policy may still grant them a small
+  the conservative answer. A policy may still grant them a small
   bounded budget; the classifier will not claim they are transient.
 - **`isTransientFailure(exitCode, output)` stays exported from `utils/retry.ts`
   as a thin adapter over `classify()`**, with the same signature and the same
@@ -132,11 +131,10 @@ which is a much louder change than editing a JSON file.
 - **`onAttempt` fires on *every* attempt, including the successful one and the
   one that spends the last of the budget.** `willRetry` is the discriminator,
   never the presence of a failure.
-- **`fixedBackoffPolicy()` is un-jittered on purpose.** It is the shape the two
-  legacy call sites express themselves in, and both publish their delay in a
+- **`fixedBackoffPolicy()` is un-jittered on purpose.** Both callers publish their delay in a
   `retry` event and print it; jitter arrives with the configuration key that
   asks for it, not as a silent change of today's numbers.
-- **The two historical budgets are preserved as data, not as code**:
+- **The two retry budgets are expressed as data**:
   `fixedBackoffPolicy(3, 15, 120)` for the single-shot phases and
   `fixedBackoffPolicy(retryLimit + 1, 30, 900)` for `execute`. The `+ 1` is not
   a fudge: `EngineConfig.retryLimit` counts *retries*, `maxAttempts` counts
@@ -218,8 +216,7 @@ which is a much louder change than editing a JSON file.
   legitimate place to say "on *this machine*, retry the network forever". Both
   files accept the identical object.
 - **Absence resolves to `{}`, never to a skeleton.** `resolvePolicy(kind, {})`
-  is the base table of the PRD, so an unconfigured project gets exactly the
-  behaviour of every release before the key existed. A section nobody configured
+  is the base table of the PRD. A section nobody configured
   is left out of the result rather than emitted empty — that is what makes the
   non-regression assertion a single `toEqual({})`.
 - **`retry` merges two levels deep**, per `FailureKind` *and* per field.
@@ -227,8 +224,8 @@ which is a much louder change than editing a JSON file.
   object; `mergeResilienceRetry()` in `config.ts` is the one place that goes
   further, because the table is two levels deep by construction.
 - **No default is materialized by the loader.** Each sub-key's defaults belong
-  to the layer that consumes it: `policy.ts` for `retry`, and one later story
-  each for `providers`, `queue`, `watchdog`, `journal` and `decompose`. A
+  to the layer that consumes it: `policy.ts` for `retry`, with dedicated
+  resolvers for `providers`, `queue`, `watchdog` and `decompose`. A
   default written into the loader would be indistinguishable from a value the
   user wrote and would override the rung above it.
 - **Configuration cannot buy an attempt for a human-action kind.** The clamp is

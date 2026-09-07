@@ -16,41 +16,6 @@ import type { GitWorktreeGateway, WorktreeStatus } from './worktree/git.js';
 import type { ManagedWorktree } from './worktree/lifecycle.js';
 import { getWorktreeStoragePaths } from './worktree/paths.js';
 
-/**
- * On-demand reconciliation between the outside world and the database.
- *
- * ADAPT of WebMux `backend/src/services/reconciliation-service.ts` (263 LOC)
- * and `services/session-restore-service.ts` (~120 LOC) @ d8c9d5f. The upstream
- * rebuilds an in-memory `ProjectRuntime` from `meta.json` files; here the
- * durable half already lives in SQLite, so what is rebuilt is the *projection*
- * — the derived view every consumer reads — while the bindings stay where they
- * are.
- *
- * Two rules shape every line of this module.
- *
- * **ADR-08 — who is the authority.** The outside world (git, tmux, docker, the
- * provider) is the authority on **existence and life**; SQLite is the authority
- * on **binding and intent**. When they disagree, the outside world wins on
- * existence and the row is marked `orphaned`. Nothing here recreates a worktree,
- * a window or a container because a row says it should be there, and nothing
- * here deletes a row because a directory is gone. A run that was interrupted
- * keeps its history; an operator keeps the evidence of what was attempted.
- *
- * **ADR-13 — aggregated calls.** `tmux list-windows -a` runs **once** per
- * reconcile, never once per entity, and so does the container listing. That is
- * what makes the pass O(1) in the number of sessions instead of O(N), and it is
- * the property the 500 ms freshness window depends on: a pass that grew with
- * the number of worktrees could not be repeated at that rate. Only `git status`
- * is genuinely per-worktree — git has no aggregated form of it — and it is
- * bounded by a worker pool, exactly as the upstream bounds it.
- *
- * The freshness window and the in-flight promise are ported verbatim: a call
- * arriving while a pass is running joins that pass rather than starting a
- * second one, and a call arriving inside the freshness window returns the
- * projection as it stands. Both exist so that a UI polling several panels at
- * once costs one pass, not one per panel.
- */
-
 /** Everything a caller may inject; every port is aggregated on purpose (ADR-13). */
 export interface ReconcileDependencies {
   /** Issue Flow's project id — what the tmux session is named after. */
@@ -86,14 +51,6 @@ export interface ContainerSource {
   listRunningContainerNames(): Promise<string[]>;
 }
 
-/**
- * The conversation ids a provider still knows about.
- *
- * The provider is the authority on whether a conversation exists (§30), and it
- * is the only thing that can turn a stored id into a `resume`. This never reads
- * a conversation *file*: reconstructing state from a provider's transcript is
- * the TTY-parsing mistake in another costume (ADR-05).
- */
 export interface ConversationSource {
   listConversationIds(): Promise<Iterable<string>>;
 }
@@ -109,7 +66,6 @@ export interface ReconcilePassOptions {
   force?: boolean;
 }
 
-/** What recovery a session needs, decided from what is actually alive (§27). */
 export type RecoveryAction = 'reattach' | 'resume' | 'fresh';
 
 export interface ReconciledAgentSession {
@@ -121,15 +77,7 @@ export interface ReconciledAgentSession {
   /** Status after reconciliation. Only ever demoted here, never promoted. */
   status: AgentSession['status'];
   paneTarget: string | null;
-  /**
-   * How this session would be reopened right now.
-   *
-   * `reattach` when the window is alive — the agent kept working with nobody
-   * watching, and killing that window to "restore" it is the destructive
-   * mistake §27 names. `resume` when the window is gone but the conversation
-   * survives: startup is paid again, context is not. `fresh` when there is
-   * nothing left to continue.
-   */
+
   recovery: RecoveryAction;
 }
 
@@ -196,14 +144,6 @@ function findWindow(
   );
 }
 
-/**
- * Decide how a session would be reopened.
- *
- * Pure, and separate from the pass, because this is the decision §27 says the
- * upstream gets wrong: it rebuilds the window unconditionally and so kills a
- * process that was still working. Reading it as a function makes the three
- * cases — and the fact that a live window always wins — checkable on its own.
- */
 export function decideRecovery(input: {
   windowAlive: boolean;
   conversationAlive: boolean;
@@ -260,9 +200,6 @@ export function createReconciler(
   }
 
   async function readStatus(worktree: ManagedWorktree): Promise<WorktreeStatus> {
-    // Never call git against a path git itself no longer lists. That is the
-    // upstream's ENOENT crash: a stale registration points at a directory that
-    // is gone, and probing it aborts the whole pass over one dead entry.
     if (deps.git === undefined || worktree.entry === null) return UNKNOWN_STATUS;
     try {
       return await deps.git.readWorktreeStatus(worktree.path);
@@ -277,11 +214,6 @@ export function createReconciler(
   ): ReconciledWorktree['container'] {
     if (names === null) return null;
     const prefix = containerNamePrefix(branch);
-    // The newest, as `findContainer` picks it. The upstream relies on `docker
-    // ps` listing newest-first; here the names arrive through an injected port
-    // whose order nobody promised, so the launch timestamp in the suffix is
-    // what decides — and it is compared as a number, or `…-9…` would beat
-    // `…-10…`.
     const name =
       selectBranchContainers(names.join('\n'), prefix).sort(
         (left, right) => Number(right.slice(prefix.length)) - Number(left.slice(prefix.length)),
@@ -386,10 +318,6 @@ export function createReconciler(
           paneCount: window?.paneCount ?? 0,
         },
         container: containerFor(worktree.branch, containerNames),
-        // Read straight off the binding: SQLite is the authority on allocated
-        // ports (§30), and a port is not something the outside world can be
-        // asked about — a listening socket says a service is up, not which
-        // allocation it belongs to.
         allocatedPorts: worktree.binding?.allocatedPorts ?? {},
         agentSessions,
       } satisfies ReconciledWorktree;
@@ -448,17 +376,6 @@ export function createReconciler(
 
 /* ── open-session snapshot ──────────────────────────────────────────────── */
 
-/**
- * The snapshot of which branches had a window open.
- *
- * ADAPT of `session-restore-service.ts`. It stays a file rather than a table
- * because it is a *hint for the next start*, not a binding: losing it costs a
- * restore, never a record. It lives under the git directory with the rest of
- * the runtime artifacts, so execution state can never be committed
- * (invariant 17), and it is written with `writeFileAtomic` rather than the
- * upstream's direct write — a crash mid-write must not leave a truncated file
- * where the restore expects a list (§45.3).
- */
 export const OPEN_SESSIONS_SNAPSHOT_VERSION = 1;
 
 export const OPEN_SESSIONS_SNAPSHOT_FILENAME = 'open-sessions.json';

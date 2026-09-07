@@ -159,13 +159,8 @@
   --overlay: rgb(0 0 0 / 0.65);
 }
 
-/* ---- Paletas WebMux ----
-
-   As cinco paletas do upstream são opções explícitas adicionais. Os papéis de
-   texto secundário foram clareados onde a cor original não chegava a 4,5:1 em
-   texto pequeno; os demais valores preservam a identidade visual de cada
-   paleta. Todos os 19 pares são medidos por `lib/contrast.test.ts` e na página
-   por `measure.html`. */
+/* Named palettes. Every foreground/background pair is checked by
+   `lib/contrast.test.ts` and `measure.html`. */
 
 :root[data-theme='github-dark'] {
   color-scheme: dark;

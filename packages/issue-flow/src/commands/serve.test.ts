@@ -165,7 +165,6 @@ describe('serve boot', () => {
     expect(manager.list().map((project) => project.entry.root)).toEqual(['/repo/ok']);
   });
 
-  // §47.4's own acceptance line: `serve` with three projects.
   it('serves three projects at once, each under its own prefix', async () => {
     const { registry, manager } = await harness();
     await registry.register({ id: 'id:/x/web', root: '/x/web', name: 'Web' });

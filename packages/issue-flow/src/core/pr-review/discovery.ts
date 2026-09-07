@@ -146,9 +146,8 @@ function describe(pr: ResolvedPullRequest): string {
  *
  * 1. the explicit argument;
  * 2. `plan.pullRequest`, written by the `pr` phase (when an issue is known);
- * 3. the PRs the active in-memory session publisher already knows about
- *    (populated during `run --web` via `publishGitState` — not by reading
- *    `session.json` from disk);
+ * 3. the PRs the active session publisher already knows about
+ *    (populated via `publishGitState`);
  * 4. the PRs of the current branch, via `gh`;
  * 5. an actionable failure.
  *

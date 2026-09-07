@@ -157,7 +157,7 @@ describe('the executions dashboard (U1)', () => {
     expect(onprojectchange).toHaveBeenCalledWith('proj-b');
   });
 
-  it('shows the §32 escalation on the card, distinct from "aguardando você"', () => {
+  it('shows the escalation on the card, distinct from "aguardando você"', () => {
     renderDashboard({
       sessions: [
         session({ agentLifecycle: 'awaiting-input' }),
@@ -180,15 +180,7 @@ describe('the executions dashboard (U1)', () => {
   });
 });
 
-/**
- * I5 — "Trabalho ativo" shows Tasks **and** sessions, from several projects.
- *
- * §49.4 draws exactly this: a block per project, each with its executions and
- * its free sessions. The executions half already existed; the sessions half is
- * what phase 8D added, and both live in the same block because "what is running
- * anywhere" is one question, not two screens.
- */
-describe('the consolidated view (I5, §49.4)', () => {
+describe('the consolidated view', () => {
   function freeSession(overrides: Record<string, unknown> = {}) {
     return {
       id: 's-1',

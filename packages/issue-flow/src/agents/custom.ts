@@ -4,22 +4,6 @@
 
 import type { AgentPermission } from './types.js';
 
-/**
- * Agents this project does not know how to invoke, described by the user.
- *
- * Ported from the custom-agent path of WebMux
- * `backend/src/services/agent-service.ts` @ d8c9d5f. §45.2-L keeps Issue Flow's
- * whole agent layer and absorbs **only** this: a command template plus the
- * variables it can reference. It is what lets someone run a harness this project
- * has never heard of without waiting for a runner to be written for it.
- *
- * Context is exposed only through environment variables. Known placeholders
- * become references to those variables after the editable field has been
- * parsed into argv; their values never become part of the argv or pane command.
- * The tmux boundary expands only this closed set of references, inside double
- * quotes, so a hostile value stays one argument and can never become syntax.
- */
-
 /** The placeholders a template may use, and the variable each becomes. */
 export const CUSTOM_AGENT_TEMPLATE_VARIABLES = {
   PROMPT: 'ISSUE_FLOW_AGENT_PROMPT',
@@ -59,14 +43,6 @@ export interface CustomAgentContext {
   permission: AgentPermission;
 }
 
-/**
- * What a custom agent can do.
- *
- * Restricted on purpose, and matching the upstream's: this project knows
- * nothing about the binary beyond the command line it was given, so it cannot
- * claim to read its conversation history or interrupt it meaningfully. `resume`
- * is true only when a resume command was actually provided.
- */
 export interface CustomAgentCapabilities {
   terminal: true;
   structuredChat: false;

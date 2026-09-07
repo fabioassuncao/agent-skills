@@ -147,7 +147,6 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 import { execa } from 'execa';
-import { parseJournal } from '../core/journal.js';
 import { listPullRequests } from '../core/session-git.js';
 import { getSessionPublisher } from '../core/session-publisher.js';
 import { MemoryPublisher, type SessionSnapshot } from '../core/session-state.js';
@@ -156,6 +155,7 @@ import type { IssueProvider } from '../issues/provider.js';
 import { getProvider } from '../issues/registry.js';
 import { IssueResolutionError, resolveIssue } from '../issues/resolver.js';
 import type { Issue, IssueSource, ResolvedIssue } from '../issues/types.js';
+import { listStoredSessionEvents, listStoredSessions } from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import {
   resetStorageResolutionCache,
@@ -204,6 +204,18 @@ afterEach(async () => {
  * assertions follow the storage layout instead of restating it by hand.
  */
 const globalPaths = async (id = '42') => await resolveIssuePaths(id);
+
+async function persistedSnapshot(id = '42'): Promise<SessionSnapshot> {
+  await globalPaths(id);
+  const project = await resolveProjectPaths();
+  const stored = await listStoredSessions({
+    activeSince: '1970-01-01T00:00:00.000Z',
+    databaseOptions: project.databaseOptions,
+  });
+  const row = stored.find((entry) => entry.projectId === project.projectId && entry.issueId === id);
+  if (row === undefined) throw new Error(`No persisted snapshot for issue ${id}`);
+  return sessionSnapshotSchema.parse(row.snapshot);
+}
 
 function makeResolved(
   overrides: Partial<Issue> = {},
@@ -315,14 +327,13 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  it('sem flags: não sobe servidor nem cria session.json', async () => {
+  it('sem flags: não sobe servidor nem cria projeções de sessão', async () => {
     const { code } = await runCaptured();
 
     expect(code).toBe(0);
     expect(vi.mocked(startWebServer)).not.toHaveBeenCalled();
-    expect(existsSync((await globalPaths()).sessionFile)).toBe(false);
     // O modo desligado não cria nenhum arquivo: nem o diretório global da
-    // issue, nem o legado issues/ dentro do repositório.
+    // issue nem `issues/` dentro do repositório.
     expect(existsSync((await globalPaths()).issueDir)).toBe(false);
     expect(existsSync(join(tmp, 'issues'))).toBe(false);
   });
@@ -338,7 +349,6 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
 
     expect(code).toBe(0);
     expect(publisherName).toBe('SqliteSessionPublisher');
-    expect(existsSync((await globalPaths()).sessionFile)).toBe(false);
     expect(existsSync((await globalPaths()).issueDir)).toBe(false);
   });
 
@@ -382,14 +392,13 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(lines.some((l) => /Reusing existing web monitor v\d+\.\d+\.\d+ at /.test(l))).toBe(true);
   });
 
-  it('com --web: ao término, session.json global contém o estado final', async () => {
+  it('com --web: ao término, o SQLite contém o estado final', async () => {
     setWebCliOverrides({ enabled: true, port: await getFreePort() });
 
     const { code } = await runCaptured();
     expect(code).toBe(0);
 
-    const raw = await readFile((await globalPaths()).sessionFile, 'utf-8');
-    const snapshot = sessionSnapshotSchema.parse(JSON.parse(raw));
+    const snapshot = await persistedSnapshot();
     expect(snapshot.status).toBe('completed');
     expect(snapshot.issue.number).toBe(42);
     expect(snapshot.endedAt).not.toBeNull();
@@ -433,7 +442,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
       expect(handle).toBeDefined();
       // /api/health rather than /api/status: with the server now backed by
       // the (polled) session directory instead of an in-process publisher,
-      // whether this run's own session.json has been scanned yet is a timing
+      // whether this run's own snapshot has been scanned yet is a timing
       // detail this test does not care about — only that the server is up.
       const res = await fetch(`${handle.url}/api/health`);
       expect(res.status).toBe(200);
@@ -447,8 +456,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     expect(code).toBe(0);
 
     // O publisher é independente do servidor: o estado final ainda é gravado.
-    const raw = await readFile((await globalPaths()).sessionFile, 'utf-8');
-    const snapshot = sessionSnapshotSchema.parse(JSON.parse(raw));
+    const snapshot = await persistedSnapshot();
     expect(snapshot.status).toBe('completed');
   });
 
@@ -519,7 +527,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     const code = await runPipeline('42', 'auto');
 
     expect(code).toBe(0);
-    expect(vi.mocked(runExecute)).toHaveBeenCalledWith(undefined, {
+    expect(vi.mocked(runExecute)).toHaveBeenCalledWith({
       issue: '42',
       inPipeline: true,
       commitScope: undefined,
@@ -536,7 +544,6 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
 
     expect(code).toBe(0);
     expect(vi.mocked(runExecute)).toHaveBeenCalledWith(
-      undefined,
       expect.objectContaining({ issue: '42', retryLimit: 3, retryForever: true }),
     );
   });
@@ -607,8 +614,7 @@ describe('runPipeline — impacto zero do monitoramento (US-009)', () => {
     const code = await runPipeline('auth-refactor', 'auto');
     expect(code).toBe(0);
 
-    const raw = await readFile((await globalPaths('auth-refactor')).sessionFile, 'utf-8');
-    const snapshot = sessionSnapshotSchema.parse(JSON.parse(raw));
+    const snapshot = await persistedSnapshot('auth-refactor');
     expect(snapshot.issue.number).toBeNull();
   });
 
@@ -651,7 +657,8 @@ function makePlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
     project: 'issue-flow',
     issueNumber: 42,
     issueUrl: '',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
+    noBranch: false,
     description: 'Sample',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -659,6 +666,7 @@ function makePlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
     lastError: null,
     correctionCycle: 0,
     maxCorrectionCycles: 3,
+    lastReviewFindings: null,
     pipeline: {
       prdCompleted: false,
       jsonCompleted: false,
@@ -882,7 +890,7 @@ describe('runPipeline — URL do PR no resumo final (issue 25, US-010)', () => {
     originalCwd = process.cwd();
     tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-pr-url-'));
     mockProjectRoot.current = tmp;
-    mockBranch.current = 'issue/42-sample';
+    mockBranch.current = 'feat/42-sample';
     process.chdir(tmp);
     for (const name of WEB_ENV_VARS) {
       savedEnv.set(name, process.env[name]);
@@ -917,7 +925,7 @@ describe('runPipeline — URL do PR no resumo final (issue 25, US-010)', () => {
         pullRequest: {
           number: 184,
           url: 'https://github.com/acme/repo/pull/184',
-          headBranch: 'issue/42-sample',
+          headBranch: 'feat/42-sample',
           createdAt: '2026-01-01T00:00:00Z',
         },
       }),
@@ -940,7 +948,7 @@ describe('runPipeline — URL do PR no resumo final (issue 25, US-010)', () => {
     const { code, lines } = await runCaptured();
 
     expect(code).toBe(0);
-    expect(vi.mocked(listPullRequests)).toHaveBeenCalledWith('issue/42-sample');
+    expect(vi.mocked(listPullRequests)).toHaveBeenCalledWith('feat/42-sample');
     expect(prLine(lines)).toBe('https://github.com/acme/repo/pull/184');
   });
 
@@ -991,10 +999,7 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
   };
 
   /** Session snapshot the web UI reads, after the run finished. */
-  const readSnapshot = async () =>
-    sessionSnapshotSchema.parse(
-      JSON.parse(await readFile((await globalPaths()).sessionFile, 'utf-8')),
-    );
+  const readSnapshot = async () => persistedSnapshot();
 
   beforeEach(async () => {
     originalCwd = process.cwd();
@@ -1029,7 +1034,7 @@ describe('runPipeline — superfícies de UI e monitoramento (issue 25, US-011)'
     await rm(tmp, { recursive: true, force: true });
   });
 
-  it('sem a flag, session.json continua listando apenas as fases padrão', async () => {
+  it('sem a flag, o snapshot lista apenas as fases padrão', async () => {
     setWebCliOverrides({ enabled: true, port: await getFreePort(), host: '127.0.0.1' });
 
     const { code } = await runCapturingLines();
@@ -1322,9 +1327,11 @@ describe('run ownership (US-017)', () => {
       JSON.stringify({
         pid: 1,
         host: hostname(),
+        ownerId: 'live-owner',
         target: '101',
         startedAt: new Date().toISOString(),
         lastHeartbeatAt: new Date().toISOString(),
+        detached: false,
       }),
       'utf-8',
     );
@@ -1356,9 +1363,11 @@ describe('run ownership (US-017)', () => {
       JSON.stringify({
         pid: 0x7ffffffe,
         host: hostname(),
+        ownerId: 'stale-owner',
         target: '101',
         startedAt: '2026-08-30T03:00:00.000Z',
         lastHeartbeatAt: '2026-08-30T03:00:00.000Z',
+        detached: false,
       }),
       'utf-8',
     );
@@ -1456,72 +1465,69 @@ describe('graceful shutdown (US-020)', () => {
     await pipeline;
   });
 
-  it('publishes session:end and closes the journal, so nothing stays on running', async () => {
-    // The journal is the surface that proves it without binding a web server:
-    // it receives the same event stream, and it is closed by the `close` phase
-    // of the shutdown.
-    process.env.ISSUE_FLOW_RESILIENCE_JOURNAL = 'true';
-    try {
-      const paths = await globalPaths();
-      await mkdir(paths.issueDir, { recursive: true });
-      await writeFile(
-        paths.tasksFile,
-        JSON.stringify(
-          makePlan({
-            pipeline: {
-              prdCompleted: true,
-              jsonCompleted: true,
-              executionCompleted: false,
-              reviewCompleted: false,
-              prCreated: false,
-            },
-          }),
-          null,
-          2,
-        ),
-        'utf-8',
-      );
+  it('publishes session:end, so nothing stays on running', async () => {
+    const paths = await globalPaths();
+    await mkdir(paths.issueDir, { recursive: true });
+    await writeFile(
+      paths.tasksFile,
+      JSON.stringify(
+        makePlan({
+          pipeline: {
+            prdCompleted: true,
+            jsonCompleted: true,
+            executionCompleted: false,
+            reviewCompleted: false,
+            prCreated: false,
+          },
+        }),
+        null,
+        2,
+      ),
+      'utf-8',
+    );
 
-      let releaseExecute: () => void = () => {};
-      const executing = new Promise<void>((resolve) => {
-        releaseExecute = resolve;
-      });
-      let executeStarted: () => void = () => {};
-      const started = new Promise<void>((resolve) => {
-        executeStarted = resolve;
-      });
-      vi.mocked(runExecute).mockImplementation(async () => {
-        executeStarted();
-        await executing;
-        return 0;
-      });
+    let releaseExecute: () => void = () => {};
+    const executing = new Promise<void>((resolve) => {
+      releaseExecute = resolve;
+    });
+    let executeStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      executeStarted = resolve;
+    });
+    vi.mocked(runExecute).mockImplementation(async () => {
+      executeStarted();
+      await executing;
+      return 0;
+    });
 
-      const pipeline = runPipeline('42', 'auto', 'execute');
-      await started;
+    const pipeline = runPipeline('42', 'auto', 'execute');
+    await started;
 
-      await beginShutdown('SIGINT', { graceMs: 0, exit: () => {}, notify: () => {} });
+    await beginShutdown('SIGINT', { graceMs: 0, exit: () => {}, notify: () => {} });
 
-      const journal = await readFile(paths.eventsFile, 'utf-8');
-      const types = parseJournal(journal).map((entry) => entry.event.type);
-      // The run said it ended. Without this, `session.json` (and every reader
-      // of the stream) would show `running` forever.
-      expect(types).toContain('session:end');
+    const snapshots = await listStoredSessions({
+      activeSince: '1970-01-01T00:00:00.000Z',
+      databaseOptions: (await resolveProjectPaths()).databaseOptions,
+    });
+    const project = await resolveProjectPaths();
+    const sessionId = snapshots.find(
+      (entry) => entry.projectId === project.projectId && entry.issueId === '42',
+    )?.sessionId;
+    expect(sessionId).toBeDefined();
+    const events = await listStoredSessionEvents({
+      projectId: project.projectId,
+      sessionId: sessionId ?? '',
+      databaseOptions: project.databaseOptions,
+    });
+    const types = events.map((entry) => entry.event.type);
+    expect(types).toContain('session:end');
 
-      releaseExecute();
-      await pipeline;
-    } finally {
-      delete process.env.ISSUE_FLOW_RESILIENCE_JOURNAL;
-    }
+    releaseExecute();
+    await pipeline;
   });
 });
 
-/**
- * The entry half of §17's convergence, end to end: `--prompt` mints an Issue
- * of the `inline` origin and hands `run` its identifier. Everything after that
- * is the pipeline `run` always had — which is the point: there is no second
- * execution path with fewer guarantees.
- */
-describe('runPipeline — free prompt as an inline Issue (§17)', () => {
+describe('runPipeline — free prompt as an inline Issue', () => {
   let tmp: string;
   let originalCwd: string;
 

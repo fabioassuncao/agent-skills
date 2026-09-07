@@ -11,14 +11,6 @@ import {
   type ServiceSpec,
 } from './services.js';
 
-/**
- * `allocateServicePorts` is ported from WebMux
- * `backend/src/__tests__/domain-policies.test.ts` @ d8c9d5f (its single case,
- * kept verbatim in intent) plus the cases the upstream never wrote for the
- * branches it does have: the grid filter, the missing reference and the service
- * that declares no range.
- */
-
 const frontend: ServiceSpec = {
   name: 'frontend',
   portEnv: 'FRONTEND_PORT',
@@ -150,7 +142,7 @@ describe('parseServiceSpecs', () => {
 });
 
 describe('the probe contract', () => {
-  it('keeps the upstream ceiling and both loopback families', () => {
+  it('keeps the probe ceiling and both loopback families', () => {
     expect(PORT_PROBE_TIMEOUT_MS).toBe(300);
     expect([...PORT_PROBE_HOSTNAMES]).toEqual(['127.0.0.1', '::1']);
   });

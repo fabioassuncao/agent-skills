@@ -3,12 +3,12 @@ import { dirname, join } from 'node:path';
 import { probeReadinessInventory } from '../agents/availability.js';
 import { AGENT_PHASES } from '../agents/types.js';
 import { GLOBAL_CONFIG_FILENAME, loadRoutingConfig } from '../config.js';
-import { loadTaskPlan } from '../core/state-manager.js';
 import { decideRouting } from '../routing/decide.js';
 import { MODEL_CATALOG_VERSION } from '../routing/models.js';
 import { RECOMMENDED_POLICY_VERSION } from '../routing/policy.js';
 import { PRIORS_VERSION } from '../routing/priors.js';
 import { type RoutingConfigInput, routingConfigInputSchema } from '../schemas.js';
+import { getPlanRepository, listStoredExecutions } from '../storage/db/repository.js';
 import { getGlobalRoot } from '../storage/paths.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import { printError, printInfo, printSuccess } from '../ui/logger.js';
@@ -85,8 +85,16 @@ export async function runRoutingReport(options: {
     return 0;
   }
   const paths = await resolveIssuePaths(options.issue);
-  const plan = await loadTaskPlan(paths.tasksFile);
-  const records = plan.executions ?? [];
+  const repository = getPlanRepository(paths.tasksFile);
+  if (repository === undefined) {
+    printError('SQLite repository is not registered for this issue.');
+    return 1;
+  }
+  const records = await listStoredExecutions({
+    projectId: repository.projectId,
+    issueId: repository.issueId,
+    databaseOptions: repository.databaseOptions,
+  });
   let agree = 0;
   let total = 0;
   for (const record of records) {

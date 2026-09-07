@@ -4,17 +4,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UNIT_LOCKS_DIR_NAME } from '../../storage/paths.js';
 
-/**
- * How a run takes the thing that stops two of them colliding (§31.3).
- *
- * The point of this file is the *seam*: `claimRunOwnership` is the single
- * place a run asks for a slot, and `runtime.maxConcurrent` is the only thing
- * that decides whether that slot is the project lock this project has always
- * had or a lock on the execution unit. Both halves are asserted here, because
- * a wiring that silently kept using the project lock would pass every test in
- * `runtime/concurrency.test.ts` and still make the ceiling do nothing.
- */
-
 const paths = vi.hoisted(() => ({ projectDir: '', runLockFile: '' }));
 const runtime = vi.hoisted(() => ({ maxConcurrent: 1 }));
 

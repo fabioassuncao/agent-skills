@@ -35,27 +35,10 @@ import type {
 } from './types';
 
 /**
- * Every call the dashboard makes to its server.
- *
- * PORT of `frontend/src/lib/api.ts` @ d8c9d5f (350 lines). The upstream's
- * structure is kept exactly — a prefixed per-project client, an unprefixed hub
- * client, and one exported function per operation so components never call
- * `fetch` — and four things are adapted:
- *
- * 1. The migration sensor is gone (§48.1); Linear is optional and reports its
- *    environment-backed availability explicitly.
- * 2. **Capabilities gate every surface.** The Issue Flow backend serves the
- *    execution half today; the worktree/session/agent half arrives with phases
- *    5–7, 10 and 14. Calling a route that has no backend would show the user a
- *    404; asking `/api/health` first shows them an honest "not available on
- *    this monitor". Never infer a capability from a version — the assets on
- *    screen may be newer than the process serving them.
- * 3. **The terminal socket is authenticated** (ADR-10): a token from
- *    `GET /api/terminal/token`, which only exists on a loopback binding.
- * 4. **Notifications come from `/api/stream`**, the Server-Sent Events channel
- *    the monitor already pushes on, rather than the upstream's
- *    `/api/notifications/stream`. There is no polling path here: §35 puts a
- *    hard 250 ms p95 ceiling on output→screen.
+ * Every call the dashboard makes to its server. Project operations use a
+ * prefixed client, registry operations use the unprefixed hub client, and
+ * capabilities gate every optional surface. Terminal sockets require a
+ * loopback-issued token; live updates use `/api/stream`.
  */
 
 /** The active project's URL prefix, taken from the first path segment. */
@@ -69,7 +52,7 @@ export const activePrefix: string = window.location.pathname.split('/')[1] ?? ''
  * page served at `/api/...` (which should not happen, but does under a
  * misconfigured proxy) must not derive a prefix from it.
  */
-const RESERVED_SEGMENTS = new Set(['api', 'ws', 'assets', 'health', 'legacy']);
+const RESERVED_SEGMENTS = new Set(['api', 'ws', 'assets', 'health']);
 export const apiBase: string =
   activePrefix && !RESERVED_SEGMENTS.has(activePrefix) ? `/${activePrefix}` : '';
 
@@ -217,7 +200,6 @@ function mapWorktree(snapshot: ProjectWorktreeSnapshot): WorktreeInfo {
     creating: snapshot.creation !== null,
     creationPhase: snapshot.creation?.phase ?? null,
     source: snapshot.source,
-    oneshot: snapshot.oneshot,
     tabs: snapshot.tabs,
     activeTabId: snapshot.activeTabId,
     supportsTabs: snapshot.supportsTabs,
@@ -322,68 +304,15 @@ export function interruptWorktreeConversation(branch: string): Promise<AgentsUiI
   return api.interruptAgentsWorktreeConversation({ params: { name: branch } });
 }
 
-function withWorktreeName(path: string, branch: string): string {
-  return path.replace(':name', encodeURIComponent(branch));
-}
-
 function webSocketOrigin(): string {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   return `${protocol}://${window.location.host}`;
-}
-
-export function connectWorktreeConversationStream(
-  branch: string,
-  callbacks: {
-    onEvent: (event: unknown) => void;
-    onError: (message: string) => void;
-    onClose?: () => void;
-  },
-): () => void {
-  const socket = new WebSocket(
-    `${webSocketOrigin()}${apiBase}${withWorktreeName(
-      apiPaths.streamAgentsWorktreeConversation,
-      branch,
-    )}`,
-  );
-  let closedByClient = false;
-
-  socket.addEventListener('message', (event) => {
-    if (typeof event.data !== 'string') return;
-    try {
-      callbacks.onEvent(JSON.parse(event.data));
-    } catch {
-      callbacks.onError('Dados malformados no fluxo da conversa.');
-    }
-  });
-
-  socket.addEventListener('error', () => {
-    callbacks.onError('Falha na conexão do fluxo da conversa.');
-  });
-
-  socket.addEventListener('close', () => {
-    if (!closedByClient) callbacks.onClose?.();
-  });
-
-  return () => {
-    closedByClient = true;
-    socket.close();
-  };
 }
 
 /* -------------------------------------------------------------------------- *
  * Terminal
  * -------------------------------------------------------------------------- */
 
-/**
- * Build the authenticated terminal URL.
- *
- * The token is fetched per connection rather than cached: it is minted per
- * server process, and a cached one silently stops working the moment the
- * monitor is replaced (`--restart-web`), which reads as "the terminal broke".
- *
- * `session` is the key, not the branch (§48.3) — a worktree can hold more than
- * one session, and the branch stopped being enough to name one.
- */
 export async function terminalSocketUrl(target: {
   sessionId?: string | null;
   branch?: string | null;
@@ -444,15 +373,6 @@ function delay(ms: number): Promise<void> {
 const SETUP_POLL_INTERVAL_MS = 600;
 const SETUP_TIMEOUT_MS = 5 * 60_000;
 
-/**
- * Add a project and, when the repository still needs the convention scaffold,
- * drive its setup to completion, reporting each phase via `onPhase`.
- *
- * A transient poll failure does not fail the flow — the server-side job keeps
- * running, so it is swallowed and retried until the deadline. That detail is
- * the upstream's and it is the difference between "the network hiccuped" and
- * "your project failed to set up".
- */
 export async function setUpProject(
   path: string,
   onPhase?: (phase: ProjectInitPhase) => void,
@@ -495,15 +415,6 @@ export async function removeProject(prefix: string): Promise<void> {
 
 export type ProjectBootstrap = 'ready' | 'redirecting' | 'no-projects' | 'single';
 
-/**
- * Decide what to mount before the app loads.
- *
- * One case the upstream does not have and that matters here: a monitor bound
- * inline by a pipeline run serves **no** project surface at all and answers an
- * empty list. That is not "no projects registered" — it is "this monitor is
- * watching one execution" — so it mounts the dashboard rather than the guided
- * empty state, which is what keeps a plain `issue-flow run` unchanged (ADR-03).
- */
 export async function ensureProjectPrefix(): Promise<ProjectBootstrap> {
   const projects = await fetchProjects().catch((): ProjectSummary[] => []);
   if (projects.length === 0) {
@@ -531,23 +442,12 @@ export function fetchSessions(): Promise<SessionSummary[]> {
   return api.fetchSessions();
 }
 
-/* -------------------------------------------------------------------------- *
- * Agent sessions (§49.3)
- *
- * Not contract routes: `POST /api/sessions`, `DELETE /api/sessions/:id` and
- * `POST /api/sessions/:id/link` were added by phase 9B and the contract package
- * describes the ported WebMux surface, whose worktree verbs mean something
- * different. They go through `fetch` for the same reason the two header-driven
- * behaviours below do — and, exactly as there, this module stays the boundary:
- * no component calls `fetch`.
- * -------------------------------------------------------------------------- */
-
 export interface OpenSessionRequest {
   agent?: string;
   branch?: string;
   label?: string;
   prompt?: string;
-  /** Present → the session belongs to that issue's run. Absent → free (§49.2). */
+
   issueRef?: string;
 }
 
@@ -572,14 +472,6 @@ function readSessionRow(value: unknown): AgentSessionRow | null {
   };
 }
 
-/**
- * Every agent session this monitor serves, across projects (§49.4, I5).
- *
- * The consolidated view answers "what is running anywhere", which a per-project
- * listing cannot: the dashboard would have to ask N times and would not know
- * what N was. A monitor that does not serve sessions answers an empty list, so
- * the caller never has to branch on that.
- */
 export async function fetchAgentSessions(): Promise<AgentSessionRow[]> {
   if (!hasCapability(CAPABILITY.sessions) && !hasCapability(CAPABILITY.sessionOpen)) return [];
   try {
@@ -620,13 +512,6 @@ async function sessionRequest(
   return body;
 }
 
-/**
- * Open a session — the one click of S1/I3.
- *
- * Every field is optional on purpose: a session with no issue, no branch and no
- * prompt is the free session of §49.2, and asking for any of them would be the
- * ceremony the mode exists to skip. The branch is generated server-side.
- */
 export async function openSession(request: OpenSessionRequest = {}): Promise<OpenedSession> {
   const body = await sessionRequest('/api/sessions', {
     method: 'POST',
@@ -650,12 +535,6 @@ export function stopSession(
   });
 }
 
-/**
- * Promote a free session to a run (S4/I4).
- *
- * The server refuses an issue with no run rather than creating one: a session
- * starting the pipeline is what §49.2 forbids literally.
- */
 export function linkSession(sessionId: string, issueRef: string): Promise<unknown> {
   return sessionRequest(`/api/sessions/${encodeURIComponent(sessionId)}/link`, {
     method: 'POST',
@@ -834,14 +713,6 @@ export function subscribeSessions(callbacks: {
  * File upload
  * -------------------------------------------------------------------------- */
 
-/**
- * Upload dropped or pasted images so the agent can be handed their paths.
- *
- * The upstream posts to `/api/worktrees/:name/upload`. Issue Flow has no such
- * route and this port does not invent one: the call reports itself unavailable
- * so the terminal writes an honest `[Erro no envio: …]` line instead of a 404
- * the user has to decode.
- */
 export function uploadFiles(_worktree: string, _files: File[]): Promise<FileUploadResult> {
   return Promise.reject(new Error('O envio de arquivos ainda não está disponível neste monitor.'));
 }

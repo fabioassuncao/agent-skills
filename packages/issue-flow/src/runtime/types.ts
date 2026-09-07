@@ -29,7 +29,6 @@ export type RuntimeMode = 'headless' | 'interactive' | 'sandbox';
 /** Where the agent's working directory comes from. */
 export type RuntimeIsolation = 'branch' | 'worktree';
 
-/** A long-running process the runtime keeps alongside the agent (§19). */
 export interface ServiceRuntimeState {
   name: string;
   /** Allocated port, when the service declares one. */
@@ -39,16 +38,6 @@ export interface ServiceRuntimeState {
   detail: string | null;
 }
 
-/**
- * What a worktree mode created, and therefore what its teardown owns.
- *
- * §27 calls this the `RuntimeSession` — worktree, env, ports, services,
- * container — and it is the one concept `headless` genuinely does not have, so
- * the field carrying it is optional and absent there. It exists because
- * `dispose()` receives a context rather than a handle, and "never remove what
- * you did not create" is only answerable if the context remembers which half of
- * what it points at this run brought into being.
- */
 export interface RuntimeSessionBinding {
   branch: string;
   /** Run the invocation belongs to; how its lifecycle events are correlated. */

@@ -4,23 +4,6 @@ import { loadWebConfig } from '../config.js';
 import type { WebConfig } from '../schemas.js';
 import { getProjectId } from '../storage/paths.js';
 
-/**
- * The per-project runtime: everything a single project needs in order to be
- * served alongside the others, and nothing more.
- *
- * ADAPT of `createWebmuxRuntime()` (`backend/src/runtime.ts` @ d8c9d5f),
- * reduced on purpose. Upstream a runtime also owns git, tmux, worktrees,
- * reconciliation and per-project trackers; those arrive with phases 5, 6 and
- * 12 and would be a second, weaker implementation if written here first
- * (invariant 13). What this phase needs is the identity, the locator, the
- * derived prefix, the label and the resolved configuration — the four things
- * every consumer of the registry asks a project for.
- *
- * Configuration is *resolved from the repository*, never stored in the
- * registry (§47.6): `.issue-flow.json` stays inside the project, which is what
- * lets a project be moved, cloned or edited without the registry going stale.
- */
-
 export interface ProjectRuntimeConfig {
   /** Display label. Cosmetic — the identity is `projectId`. */
   name: string;

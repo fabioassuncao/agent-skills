@@ -225,9 +225,7 @@ export interface SessionSnapshot {
   /**
    * What the agent's own hooks reported about its lifecycle (ADR-05).
    *
-   * Every field starts null: a run whose harness installed no hooks, or one
-   * from before this section existed, is simply "never reported" — it is never
-   * inferred from output.
+   * Every field starts null and is never inferred from terminal output.
    */
   agent: {
     lifecycle: SessionAgentLifecycle | null;
@@ -237,22 +235,11 @@ export interface SessionSnapshot {
     phase: string | null;
     /** How many times this run has blocked on a human. */
     awaitingInputCount: number;
-    /**
-     * When nobody answered the agent for longer than the escalation threshold
-     * (§32). `null` while the agent is not waiting, while somebody is holding
-     * the run, and until the threshold is actually crossed.
-     *
-     * The policy that sets this lives in `core/awaiting-input.ts` and runs in
-     * the pipeline process, so a headless run escalates with no UI in sight
-     * (ADR-03). The dashboard renders this field; it never computes it.
-     */
+
     awaitingInputEscalatedAt: string | null;
     /** How long the agent had waited when the escalation fired. */
     awaitingInputWaitedMs: number | null;
-    /**
-     * A person is in control (§32). While this is set the watchdog does not
-     * kill the agent and the pipeline does not advance a phase.
-     */
+
     humanHold: { since: string; reason: 'takeover' | 'requested' } | null;
   };
   /** Acceptance-contract verdict. `null` until a contract has run. */

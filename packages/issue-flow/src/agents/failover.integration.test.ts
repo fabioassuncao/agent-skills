@@ -1,9 +1,8 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setActiveResilienceConfig, setAgentCliOverrides } from '../config.js';
-import { JournalPublisher, parseJournal } from '../core/journal.js';
 import { setSessionPublisher } from '../core/session-publisher.js';
 import { MemoryPublisher } from '../core/session-state.js';
 import { classify } from '../resilience/errors.js';
@@ -59,13 +58,12 @@ afterEach(() => {
 });
 
 describe('agent failover integration', () => {
-  it('moves from Claude to Codex after two provider failures and journals the switch', async () => {
+  it('moves from Claude to Codex after two provider failures and publishes the switch', async () => {
     registerRunner(runner('claude', () => result('claude', false)));
     registerRunner(runner('codex', () => result('codex', true)));
-    const { projectDir } = await resolveProjectPaths();
-    const events = join(projectDir, 'events.jsonl');
-    const journal = new JournalPublisher(events, join(projectDir, 'events.1.jsonl'));
-    setSessionPublisher(journal);
+    await resolveProjectPaths();
+    const publisher = new MemoryPublisher();
+    setSessionPublisher(publisher);
     const invocation = {
       prompt: 'work',
       phase: 'execute' as const,
@@ -76,14 +74,9 @@ describe('agent failover integration', () => {
     expect((await invokeSelectedAgent(invocation)).run.agent.provider).toBe('claude');
     expect((await invokeSelectedAgent(invocation)).run.agent.provider).toBe('claude');
     expect((await invokeSelectedAgent(invocation)).run.agent.provider).toBe('codex');
-    await journal.close();
-
-    const entries = parseJournal(await readFile(events, 'utf-8'));
-    expect(entries.some((entry) => entry.event.type === 'failover')).toBe(true);
-    expect(entries.find((entry) => entry.event.type === 'failover')?.event).toMatchObject({
-      from: 'claude',
-      to: 'codex',
-      reason: 'provider_down',
+    expect(publisher.snapshot().resilience).toMatchObject({
+      provider: 'codex',
+      lastFailureKind: 'provider_down',
     });
   });
 
@@ -194,15 +187,15 @@ describe('agent failover integration', () => {
   it('waits for the shortest cooldown and admits one half-open probe', async () => {
     registerRunner(runner('claude', () => result('claude', true)));
     registerRunner(runner('codex', () => result('codex', true)));
-    const { providersHealthFile } = await resolveProjectPaths();
+    const { providerHealthContext } = await resolveProjectPaths();
     let now = Date.parse('2026-08-30T10:00:00.000Z');
     const healthConfig = { cooldownMs: 100, failuresToTrip: 1 };
     const down = classify({ source: 'agent', stdout: 'service unavailable' });
-    await recordProviderFailure(providersHealthFile, 'claude', down, {
+    await recordProviderFailure(providerHealthContext, 'claude', down, {
       now: () => now,
       config: healthConfig,
     });
-    await recordProviderFailure(providersHealthFile, 'codex', down, {
+    await recordProviderFailure(providerHealthContext, 'codex', down, {
       now: () => now,
       config: { ...healthConfig, cooldownMs: 200 },
     });
@@ -224,11 +217,11 @@ describe('agent failover integration', () => {
 
   it('reclaims a half-open probe abandoned by a killed run', async () => {
     registerRunner(runner('claude', () => result('claude', true)));
-    const { providersHealthFile } = await resolveProjectPaths();
+    const { providerHealthContext } = await resolveProjectPaths();
     let now = Date.parse('2026-08-30T10:00:00.000Z');
     const healthConfig = { cooldownMs: 100, failuresToTrip: 1 };
     await recordProviderFailure(
-      providersHealthFile,
+      providerHealthContext,
       'claude',
       classify({ source: 'agent', stdout: 'service unavailable' }),
       { now: () => now, config: healthConfig },
@@ -239,7 +232,7 @@ describe('agent failover integration', () => {
     now += 100;
     expect(
       (
-        await acquireHalfOpenProbe(providersHealthFile, 'claude', {
+        await acquireHalfOpenProbe(providerHealthContext, 'claude', {
           now: () => now,
           config: healthConfig,
         })
@@ -265,7 +258,7 @@ describe('agent failover integration', () => {
     expect(selected.provider).toBe('claude');
   });
 
-  it('keeps the configured primary and creates no health file when failover is disabled', async () => {
+  it('keeps the configured primary when failover is disabled', async () => {
     setActiveResilienceConfig({ providers: { failover: false } });
     registerRunner(runner('claude', () => result('claude', false)));
     let codexCalls = 0;
@@ -282,7 +275,7 @@ describe('agent failover integration', () => {
       permission: 'autonomous',
     });
 
-    expect(selected.selection).toMatchObject({ provider: 'claude', healthFile: null });
+    expect(selected.selection).toMatchObject({ provider: 'claude', health: null });
     expect(codexCalls).toBe(0);
   });
 

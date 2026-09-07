@@ -8,20 +8,6 @@ import {
 import { MemoryPublisher } from './session/publishers.js';
 import { createInitialSnapshot, type SessionSnapshot } from './session/snapshot.js';
 
-/**
- * The last row of §32's table: `awaiting_input` with no answer for N minutes
- * escalates.
- *
- * The two cases that decide whether this is right are the ones a naive
- * implementation gets wrong, and they each have their own case below:
- *
- * - a **human hold** is the opposite condition (somebody took the run over and
- *   is thinking) and must never escalate;
- * - the decision is the **pipeline's**, so it fires with no dashboard anywhere
- *   near it (ADR-03) — the watch here runs against a publisher, which is all a
- *   headless run has.
- */
-
 const T0 = Date.parse('2026-09-06T10:00:00.000Z');
 
 function agentOf(overrides: Partial<SessionSnapshot['agent']> = {}): SessionSnapshot['agent'] {
@@ -55,9 +41,6 @@ describe('decideAwaitingInputEscalation', () => {
   });
 
   it('never escalates while a person is holding the run', () => {
-    // The distinction §32 is explicit about: a hold means somebody is in
-    // control and reading. Escalating there is exactly the false alarm the
-    // hold exists to prevent, and it is why `heldForMs` is not this number.
     const decision = decideAwaitingInputEscalation(
       agentOf({
         lifecycle: 'awaiting-input',
@@ -120,7 +103,7 @@ describe('startAwaitingInputWatch', () => {
     );
     expect(snapshot.agent.awaitingInputWaitedMs).toBe(AWAITING_INPUT_ESCALATION_MS);
     // The notification half of the row: it reaches the snapshot's warnings, so
-    // it is on the alert card and in session.json without a monitor running.
+    // it is available to every current status consumer without a monitor running.
     expect(snapshot.warnings.map((entry) => entry.message)).toContain(
       describeAwaitingInputEscalation('execute', AWAITING_INPUT_ESCALATION_MS),
     );

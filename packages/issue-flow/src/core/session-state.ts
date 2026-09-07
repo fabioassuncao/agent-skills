@@ -19,14 +19,12 @@ export type {
 export {
   DEFAULT_LOG_LIMIT,
   DEFAULT_SESSION_HEARTBEAT_MS,
-  DEFAULT_THROTTLE_MS,
 } from './session/events.js';
 export type {
-  FilePublisherOptions,
   MemoryPublisherOptions,
   SessionPublisher,
 } from './session/publishers.js';
-export { FilePublisher, MemoryPublisher, NullPublisher } from './session/publishers.js';
+export { MemoryPublisher, NullPublisher } from './session/publishers.js';
 export { reduceSessionEvent } from './session/reducer.js';
 export type {
   SessionActivity,

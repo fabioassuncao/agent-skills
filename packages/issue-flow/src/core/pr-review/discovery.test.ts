@@ -7,7 +7,7 @@ function makeSources(overrides: Partial<PrDiscoverySources> = {}): Partial<PrDis
   return {
     sessionPullRequests: () => [],
     planPullRequest: async () => null,
-    currentBranch: async () => 'issue/25-pr-review-phase',
+    currentBranch: async () => 'feat/25-pr-review-phase',
     branchPullRequests: async () => [],
     ...overrides,
   };
@@ -99,7 +99,7 @@ describe('resolvePullRequest', () => {
           planPullRequest: async () => ({
             number: 184,
             url: 'https://github.com/acme/repo/pull/184',
-            headBranch: 'issue/25-pr-review-phase',
+            headBranch: 'feat/25-pr-review-phase',
             createdAt: '2026-08-03T21:00:00Z',
           }),
           sessionPullRequests,
@@ -113,7 +113,7 @@ describe('resolvePullRequest', () => {
         number: 184,
         url: 'https://github.com/acme/repo/pull/184',
         title: null,
-        headBranch: 'issue/25-pr-review-phase',
+        headBranch: 'feat/25-pr-review-phase',
         source: 'plan',
       });
       // Plan wins over a higher-numbered (or stale) session PR.
@@ -172,17 +172,17 @@ describe('resolvePullRequest', () => {
       const resolved = await resolvePullRequest(undefined, {
         issue: '25',
         yes: true,
-        sources: makeSources({ currentBranch: async () => 'issue/25-x', branchPullRequests }),
+        sources: makeSources({ currentBranch: async () => 'feat/25-x', branchPullRequests }),
         info,
         warn,
       });
 
-      expect(branchPullRequests).toHaveBeenCalledWith('issue/25-x');
+      expect(branchPullRequests).toHaveBeenCalledWith('feat/25-x');
       expect(resolved).toEqual({
         number: 19,
         url: 'https://github.com/acme/repo/pull/19',
         title: 'Reopened',
-        headBranch: 'issue/25-x',
+        headBranch: 'feat/25-x',
         source: 'branch',
       });
     });
@@ -264,7 +264,7 @@ describe('resolvePullRequest', () => {
       planPullRequest: async () => ({
         number: 184,
         url: 'https://github.com/acme/repo/pull/184',
-        headBranch: 'issue/25-pr-review-phase',
+        headBranch: 'feat/25-pr-review-phase',
         createdAt: '2026-08-03T21:00:00Z',
       }),
     });
@@ -285,7 +285,7 @@ describe('resolvePullRequest', () => {
       const shown = info.mock.calls.map((call) => String(call[0])).join('\n');
       expect(shown).toContain('#184');
       expect(shown).toContain('title:');
-      expect(shown).toContain('issue/25-pr-review-phase');
+      expect(shown).toContain('feat/25-pr-review-phase');
     });
 
     it('accepts pre-buffered y input', async () => {

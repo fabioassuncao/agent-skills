@@ -11,23 +11,6 @@ import {
 } from './auto-name.js';
 import { isValidBranchName, sanitizeBranchName } from './slug.js';
 
-/**
- * Ported from `backend/src/__tests__/auto-name-service.test.ts` @ d8c9d5f.
- *
- * This file is where **C2** of §34 lives — "generate a branch from a
- * description: kebab-case, at most 40 characters, no prefix; timeout →
- * `change-<uuid8>`". Both halves are asserted below, the length and shape by
- * the normalization cases and the fallback by the G3 group, so the
- * characterization has no separate file of its own.
- *
- * Nine of the seventeen upstream cases carry over. The eight that do not all
- * assert the argv of `claude -p` / `codex exec`, which this directory cannot
- * build: the provider lives outside the convention layer, behind the injected
- * generator. Three more are adapted rather than dropped — upstream throws where
- * Issue Flow degrades, and the assertion moves from `rejects.toThrow` to the
- * deterministic fallback.
- */
-
 function record(): { calls: AutoNameRequest[]; generate: (r: AutoNameRequest) => Promise<string> } {
   const calls: AutoNameRequest[] = [];
   return {
@@ -57,7 +40,7 @@ describe('the prompt handed to the generator', () => {
     expect(autoNameSystemPrompt({ systemPrompt: '   ' })).toBe(DEFAULT_AUTO_NAME_SYSTEM_PROMPT);
   });
 
-  it('builds the user prompt literally, as upstream does', async () => {
+  it('builds the user prompt literally', async () => {
     const { calls, generate } = record();
     await autoNameBranch('Fix the login flow', generate);
 
@@ -112,7 +95,7 @@ describe('normalizeGeneratedBranchName', () => {
   });
 });
 
-describe('failure handling — adapted from upstream', () => {
+describe('failure handling', () => {
   it('falls back instead of throwing when the generator is missing', async () => {
     const result = await autoNameBranch('Fix bug', async () => {
       throw new Error("'claude' CLI not found. Install it or check your PATH.");

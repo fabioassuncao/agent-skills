@@ -66,8 +66,7 @@ describe('run — without a retry policy', () => {
 
     expect(mockExeca).toHaveBeenCalledTimes(1);
     expect(result.exitCode).toBe(1);
-    // The three fields of every release before `retry` existed, and no more:
-    // nothing downstream may start reading a classification that is not there.
+    // Only the process result fields are exposed; retry policy lives elsewhere.
     expect(Object.keys(result).sort()).toEqual(['exitCode', 'stderr', 'stdout']);
   });
 

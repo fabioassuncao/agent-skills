@@ -2,22 +2,6 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { run } from '../../utils/shell.js';
 
-/**
- * Git operations a worktree needs.
- *
- * Ported from WebMux `backend/src/adapters/git.ts` @ d8c9d5f (483 LOC). The
- * Issue Flow had no worktree implementation at all, so §45.1-E makes the
- * upstream canonical for the operations themselves — but §45.1-F keeps Issue
- * Flow canonical for *how* a command is run. The combination §45.2 spells out
- * is what this file is: the upstream's operations, entering through Issue
- * Flow's `run()` chokepoint so they inherit the destructive-git allowlist and
- * the retry policy that `Bun.spawnSync` never had.
- *
- * That is also why every method is async here and synchronous upstream: the
- * chokepoint is async, and having a second, synchronous shell path would be
- * exactly the duplicated responsibility the absorption forbids.
- */
-
 export interface GitWorktreeEntry {
   path: string;
   branch: string | null;
@@ -106,10 +90,6 @@ export async function tryGit(args: string[], cwd: string): Promise<GitCommandRes
     }
     return { ok: true, stdout: result.stdout.trim() };
   } catch (error) {
-    // execa throws synchronously when cwd does not exist (posix_spawn ENOENT).
-    // The upstream carries the same guard, and the reason is the same: a
-    // worktree whose directory was deleted underneath us is an ordinary state,
-    // not a crash.
     return { ok: false, stderr: `spawn error (cwd=${cwd}): ${errorMessage(error)}` };
   }
 }
@@ -121,13 +101,6 @@ export async function git(args: string[], cwd: string): Promise<string> {
   return result.stdout;
 }
 
-/**
- * Parse `git worktree list --porcelain`.
- *
- * Pure, and ported line for line: the format is a stanza per worktree
- * terminated by a blank line, and the trailing stanza has no terminator — which
- * is why `flush()` runs once more after the loop.
- */
 export function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
   const entries: GitWorktreeEntry[] = [];
   let current: GitWorktreeEntry | null = null;
@@ -316,7 +289,7 @@ export async function listRemoteGitBranches(cwd: string): Promise<string[]> {
     nonEmptyLines(output)
       .map((line) => line.replace(/^origin\//, ''))
       // Defensive: some repositories expose a bare symbolic `origin` ref
-      // alongside `origin/*`, and neither is a branch anyone can check out.
+      // alongside remote branches, and neither is a branch anyone can check out.
       .filter((name) => name !== 'HEAD' && name !== 'origin')
   );
 }
@@ -326,9 +299,7 @@ export async function readGitWorktreeStatus(cwd: string): Promise<WorktreeStatus
   const commit = await tryGit(['rev-parse', 'HEAD'], cwd);
   let ahead = await tryGit(['rev-list', '--count', '@{upstream}..HEAD'], cwd);
   if (!ahead.ok) {
-    // No upstream configured. Counting against every origin ref may slightly
-    // over-count on a repository with many branches, but it is a truthful
-    // "commits nobody has" where the precise question has no answer.
+    // Without a tracking branch, count commits absent from all origin refs.
     ahead = await tryGit(['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'], cwd);
   }
 
@@ -339,7 +310,6 @@ export async function readGitWorktreeStatus(cwd: string): Promise<WorktreeStatus
   };
 }
 
-/** Build the argv of `git worktree add`. Pure, so the characterization test can compare it. */
 export function worktreeAddArgs(options: CreateWorktreeOptions): string[] {
   const args = ['worktree', 'add'];
   if (options.mode === 'new') {

@@ -13,7 +13,7 @@ Pure Markdown parsing, hashing and schema distribution to standalone Skills:
 
 ## Invariants
 
-- **Commands never call `gh issue *`.** Enforced by `migration.test.ts`.
+- **Commands never call `gh issue *`.** Provider tests enforce this boundary.
   Resolve once, pass `__ISSUE_*` placeholders; `preResolved` must not
   re-query.
 - **Extensible by registration.** `IssueSource` is open; a new origin
@@ -75,13 +75,13 @@ Pure Markdown parsing, hashing and schema distribution to standalone Skills:
   never runs. Pure, synchronous, never throws — a `claims` that throws
   is read as "no claim", because a predicate that is an optimization
   must never be why an Issue cannot be found.
-- **Inline provider (§17):** the origin of `issue-flow run --prompt`.
+- **Inline provider:** the origin of `issue-flow run --prompt`.
   The identifier is the sha-256 of the prompt, so the same demand is the
   same Issue and a second invocation resumes rather than forks. It
   answers `null` for any identifier that is not its own **before**
   touching storage, and reports itself unavailable (never throws)
-  outside a repository or on the legacy JSON store. Rows live in
-  `inline_issues` (migration 18), keyed by `(project_id, id)` — the same
+  outside a repository. Rows live in
+  `inline_issues`, keyed by `(project_id, id)` — the same
   prompt in two repositories is two Issues.
 
 ## Never

@@ -10,23 +10,6 @@ import {
   PROJECT_CONFIG_FILENAME,
 } from './config/sources.js';
 
-export { loadAutoNameConfig } from './config/auto-name.js';
-export { getInstallHint, validateDependencies } from './config/dependencies.js';
-export { createConfig, DEFAULTS, resolvePaths } from './config/engine.js';
-
-export type { ConfigLayers } from './config/layers.js';
-export { mergeConfigLayers } from './config/layers.js';
-
-export {
-  GLOBAL_CONFIG_FILENAME,
-  type LoadGlobalConfigOptions,
-  loadGlobalConfig,
-  PROJECT_CONFIG_FILENAME,
-};
-
-/** @deprecated Use {@link PROJECT_CONFIG_FILENAME}. Historical alias kept for call-site compatibility. */
-export const WEB_CONFIG_FILENAME = PROJECT_CONFIG_FILENAME;
-
 export type { AgentCliOverrides, AgentConfig } from './config/agent.js';
 export {
   getAgentCliOverrides,
@@ -34,6 +17,7 @@ export {
   loadAgentConfig,
   setAgentCliOverrides,
 } from './config/agent.js';
+export { loadAutoNameConfig } from './config/auto-name.js';
 export {
   type CustomAgentsConfig,
   type LoadCustomAgentsConfigOptions,
@@ -41,6 +25,8 @@ export {
   persistCustomAgent,
   removeCustomAgent,
 } from './config/custom-agents.js';
+export { getInstallHint, validateDependencies } from './config/dependencies.js';
+export { createConfig, DEFAULTS, resolvePaths } from './config/engine.js';
 export {
   type LoadGitHubConfigOptions,
   loadGitHubConfig,
@@ -51,6 +37,8 @@ export {
   loadIssuesConfig,
   setIssuesCliOverrides,
 } from './config/issues.js';
+export type { ConfigLayers } from './config/layers.js';
+export { mergeConfigLayers } from './config/layers.js';
 export {
   type LinearConfig,
   type LoadLinearConfigOptions,
@@ -87,7 +75,6 @@ export {
   type LoadTelemetryConfigOptions,
   loadTelemetryConfig,
 } from './config/telemetry.js';
-
 export {
   type LoadVerifyConfigOptions,
   loadVerifyConfig,
@@ -98,3 +85,9 @@ export {
   loadWebConfig,
   setWebCliOverrides,
 } from './config/web.js';
+export {
+  GLOBAL_CONFIG_FILENAME,
+  type LoadGlobalConfigOptions,
+  loadGlobalConfig,
+  PROJECT_CONFIG_FILENAME,
+};

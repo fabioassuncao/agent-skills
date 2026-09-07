@@ -436,7 +436,7 @@ export interface GitConventionDiscovery {
   commitTemplate: string | null;
   allowedTypes: string[] | null;
   scopes: string[] | null;
-  /** True when at least one source was `declared` rather than `inferred` (§11). */
+
   declared: boolean;
   sources: PolicySource[];
 }

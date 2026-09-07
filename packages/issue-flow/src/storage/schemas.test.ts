@@ -1,81 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { webConfigSchema } from '../schemas.js';
-import {
-  type GlobalConfig,
-  globalConfigSchema,
-  type ProjectMetadata,
-  projectMetadataSchema,
-  STORAGE_SCHEMA_VERSION,
-} from './schemas.js';
-
-const validMetadata: ProjectMetadata = {
-  schemaVersion: STORAGE_SCHEMA_VERSION,
-  projectId: 'issue-flow-a1b2c3d4e5f6',
-  root: '/Users/dev/Projects/issue-flow',
-  remoteUrl: 'github.com/fabioassuncao/issue-flow',
-  createdAt: '2026-08-03T12:00:00.000Z',
-  updatedAt: '2026-08-03T12:00:00.000Z',
-  lastAttemptAt: null,
-};
-
-describe('projectMetadataSchema', () => {
-  it('accepts a complete metadata file', () => {
-    expect(projectMetadataSchema.parse(validMetadata)).toEqual(validMetadata);
-  });
-
-  it('accepts a null remoteUrl (project without an origin remote)', () => {
-    const parsed = projectMetadataSchema.parse({ ...validMetadata, remoteUrl: null });
-    expect(parsed.remoteUrl).toBeNull();
-  });
-
-  it('accepts a filled lastAttemptAt', () => {
-    const parsed = projectMetadataSchema.parse({
-      ...validMetadata,
-      lastAttemptAt: '2026-08-04T09:30:00.000Z',
-    });
-    expect(parsed.lastAttemptAt).toBe('2026-08-04T09:30:00.000Z');
-  });
-
-  it('does not reject additive fields written by a newer version', () => {
-    const result = projectMetadataSchema.safeParse({
-      ...validMetadata,
-      issueCount: 12,
-      history: [{ at: '2026-08-04T09:30:00.000Z', issue: '32' }],
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it.each([
-    'schemaVersion',
-    'projectId',
-    'root',
-    'remoteUrl',
-    'createdAt',
-    'updatedAt',
-  ])('rejects metadata missing %s', (key) => {
-    const incomplete = { ...validMetadata } as Record<string, unknown>;
-    delete incomplete[key];
-
-    expect(projectMetadataSchema.safeParse(incomplete).success).toBe(false);
-  });
-
-  it('rejects an undefined lastAttemptAt (nullable, not optional)', () => {
-    const { lastAttemptAt: _omitted, ...rest } = validMetadata;
-
-    expect(projectMetadataSchema.safeParse(rest).success).toBe(false);
-  });
-
-  it.each([
-    ['schemaVersion', '1'],
-    ['projectId', ''],
-    ['root', ''],
-    ['remoteUrl', 42],
-    ['createdAt', ''],
-  ])('rejects an invalid %s', (key, value) => {
-    expect(projectMetadataSchema.safeParse({ ...validMetadata, [key]: value }).success).toBe(false);
-  });
-});
+import { type GlobalConfig, globalConfigSchema } from './schemas.js';
 
 describe('globalConfigSchema', () => {
   it('accepts an empty object without materializing any key', () => {
@@ -87,7 +12,7 @@ describe('globalConfigSchema', () => {
 
   it('accepts a complete configuration', () => {
     const config: GlobalConfig = {
-      schemaVersion: STORAGE_SCHEMA_VERSION,
+      schemaVersion: 1,
       storageDir: '/Volumes/work/issue-flow',
       web: { port: 4000, host: '127.0.0.1', refreshSeconds: 2, logLimit: 50 },
       retry: {
@@ -107,13 +32,13 @@ describe('globalConfigSchema', () => {
       web: { host: 'localhost' },
       retry: { retryForever: true },
       commit: { signoff: true },
-      storage: { driver: 'json', backupRetention: 2 },
+      storage: { retention: { executions: 30 } },
     });
 
     expect(parsed.web).toEqual({ host: 'localhost' });
     expect(parsed.retry).toEqual({ retryForever: true });
     expect(parsed.commit).toEqual({ signoff: true });
-    expect(parsed.storage).toEqual({ driver: 'json', backupRetention: 2 });
+    expect(parsed.storage).toEqual({ retention: { executions: 30 } });
   });
 
   it('exposes only the machine-wide subset of the web configuration', () => {
@@ -189,8 +114,7 @@ describe('globalConfigSchema', () => {
     ['retry.retryLimit negative', { retry: { retryLimit: -1 } }],
     ['retry.retryForever not a boolean', { retry: { retryForever: 'yes' } }],
     ['commit.signoff not a boolean', { commit: { signoff: 'true' } }],
-    ['storage.driver unknown', { storage: { driver: 'memory' } }],
-    ['storage.backupRetention negative', { storage: { backupRetention: -1 } }],
+    ['storage.retention.executions negative', { storage: { retention: { executions: -1 } } }],
   ])('rejects %s', (_label, value) => {
     expect(globalConfigSchema.safeParse(value).success).toBe(false);
   });

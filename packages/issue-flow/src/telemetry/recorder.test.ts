@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getPlanRepository, listStoredExecutions } from '../storage/db/repository.js';
 import type { TaskPlan } from '../types.js';
 import {
   beginExecution,
@@ -18,6 +19,7 @@ function plan(): TaskPlan {
     issueNumber: 1,
     issueUrl: '',
     branchName: 'feat/1-test',
+    noBranch: false,
     description: 't',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -74,8 +76,14 @@ describe('recorder', () => {
     resetTelemetryState();
   });
 
-  async function load(): Promise<TaskPlan> {
-    return JSON.parse(await readFile(tasksPath, 'utf-8')) as TaskPlan;
+  async function loadRecords() {
+    const repository = getPlanRepository(tasksPath);
+    if (repository === undefined) return [];
+    return listStoredExecutions({
+      projectId: repository.projectId,
+      issueId: repository.issueId,
+      databaseOptions: repository.databaseOptions,
+    });
   }
 
   it('persists startedAt before the invocation and finishedAt after', async () => {
@@ -86,15 +94,14 @@ describe('recorder', () => {
       provider: 'anthropic',
     });
     expect(id).toBeTruthy();
-    const running = await load();
-    expect(running.executions).toHaveLength(1);
-    expect(running.executions?.[0]?.status).toBe('running');
-    expect(running.executions?.[0]?.startedAt).toMatch(/^\d{4}-/);
-    expect(running.executions?.[0]?.finishedAt).toBeNull();
+    const running = await loadRecords();
+    expect(running).toHaveLength(1);
+    expect(running[0]?.status).toBe('running');
+    expect(running[0]?.startedAt).toMatch(/^\d{4}-/);
+    expect(running[0]?.finishedAt).toBeNull();
 
     await endExecution({ id: id!, usage: { inputTokens: 10, outputTokens: 4, costUsd: 0.12 } });
-    const done = await load();
-    const record = done.executions?.[0];
+    const record = (await loadRecords())[0];
     expect(record?.status).toBe('completed');
     expect(record?.finishedAt).toMatch(/^\d{4}-/);
     expect(record?.durationMs).toBeGreaterThanOrEqual(0);
@@ -111,8 +118,8 @@ describe('recorder', () => {
       error: status === 'timeout' ? 'agent timed out' : 'boom',
       exitCode: 1,
     });
-    expect((await load()).executions?.[0]?.status).toBe(status);
-    expect((await load()).executions?.[0]?.failure?.message).toBeTruthy();
+    expect((await loadRecords())[0]?.status).toBe(status);
+    expect((await loadRecords())[0]?.failure?.message).toBeTruthy();
   });
 
   it('does not write when telemetry is disabled', async () => {
@@ -122,7 +129,7 @@ describe('recorder', () => {
     });
     const id = await beginExecution({ purpose: 'prd', harness: 'claude-code' });
     expect(id).toBeNull();
-    expect((await load()).executions).toBeUndefined();
+    expect(await loadRecords()).toEqual([]);
   });
 
   it('swallows a write failure', async () => {
@@ -152,7 +159,7 @@ describe('recorder', () => {
       provider: 'anthropic',
     });
     await endExecution({ id: second!, usage: { costUsd: 0.01 } });
-    const records = (await load()).executions ?? [];
+    const records = await loadRecords();
     expect(records).toHaveLength(2);
     expect(records.map((r) => r.trigger)).toEqual(['initial', 'retry']);
     expect(records[0]?.status).toBe('failed');
@@ -166,7 +173,7 @@ describe('recorder', () => {
       id: id!,
       usage: { inputTokens: 2, cliDurationMs: 100, ttftMs: 40, numTurns: 1 },
     });
-    const record = (await load()).executions?.[0];
+    const record = (await loadRecords())[0];
     expect(record?.cliDurationMs).toBe(100);
     expect(record?.ttftMs).toBe(40);
     expect(record?.numTurns).toBe(1);

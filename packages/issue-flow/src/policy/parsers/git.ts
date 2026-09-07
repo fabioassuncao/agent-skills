@@ -8,10 +8,6 @@ import { isChangeType } from '../../conventions/git/index.js';
  * `import()`ed — that would execute arbitrary code from the target repository.
  */
 
-/**
- * Whether a source is a rule the repository wrote down or a pattern read out of
- * its history. Only `declared` turns the Issue Flow fallback off (§11).
- */
 export type GitConventionConfidence = 'declared' | 'inferred';
 
 export interface DiscoveredGitConventions {

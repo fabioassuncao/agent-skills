@@ -23,7 +23,7 @@ export function isCurrentRunHeld(): boolean {
     return gate?.() === true;
   } catch {
     // A gate that throws must not freeze a run, and must not kill one either:
-    // "not held" is the state everything behaved as before this existed.
+    // "not held" means the pipeline may continue normally.
     return false;
   }
 }

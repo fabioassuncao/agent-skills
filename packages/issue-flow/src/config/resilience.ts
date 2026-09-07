@@ -181,16 +181,6 @@ function readResilienceConfigEnv(
     layer.watchdog = { inactivityTimeoutMs: inactivity };
   }
 
-  const journal: Record<string, unknown> = {};
-  if (env.ISSUE_FLOW_RESILIENCE_JOURNAL !== undefined) {
-    journal.enabled = parseBooleanEnv(env.ISSUE_FLOW_RESILIENCE_JOURNAL);
-  }
-  const journalBytes = readNumberEnv(env, 'ISSUE_FLOW_RESILIENCE_JOURNAL_MAX_BYTES', warn);
-  if (journalBytes !== undefined) {
-    journal.maxFileBytes = journalBytes;
-  }
-  if (Object.keys(journal).length > 0) layer.journal = journal;
-
   if (env.ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE !== undefined) {
     layer.decompose = { auto: parseBooleanEnv(env.ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE) };
   }
@@ -212,7 +202,7 @@ function readResilienceConfigEnv(
  * "nothing configured" and "the behaviour of every release before this one" are
  * the same object. The defaults of each sub-key belong to the layer that
  * consumes it (`resilience/policy.ts` for `retry`, and one later story each for
- * `providers`, `queue`, `watchdog`, `journal` and `decompose`), never here.
+ * `providers`, `queue`, `watchdog` and `decompose`), never here.
  *
  * Never throws: an absent, malformed or invalid source degrades to "nothing
  * configured" with a warning, key by key.
@@ -250,7 +240,6 @@ export async function loadResilienceConfig(
   const providers = mergeResilienceSection(layers.map((layer) => layer.providers));
   const queue = mergeResilienceSection(layers.map((layer) => layer.queue));
   const watchdog = mergeResilienceSection(layers.map((layer) => layer.watchdog));
-  const journal = mergeResilienceSection(layers.map((layer) => layer.journal));
   const decompose = mergeResilienceSection(layers.map((layer) => layer.decompose));
 
   return {
@@ -259,7 +248,6 @@ export async function loadResilienceConfig(
     ...(providers === undefined ? {} : { providers }),
     ...(queue === undefined ? {} : { queue }),
     ...(watchdog === undefined ? {} : { watchdog }),
-    ...(journal === undefined ? {} : { journal }),
     ...(decompose === undefined ? {} : { decompose }),
   };
 }

@@ -27,14 +27,6 @@ const CURRENT_CLI_PAYLOAD = {
   },
 };
 
-/** Shape the old parser expected — flat keys, no nested `usage`. */
-const LEGACY_PAYLOAD = {
-  result: 'Analysis complete',
-  cost_usd: 0.05,
-  num_input_tokens: 1000,
-  num_output_tokens: 500,
-};
-
 describe('parseUsage', () => {
   it('parses the current CLI payload including cache tokens and cost', () => {
     expect(parseUsage(CURRENT_CLI_PAYLOAD)).toEqual({
@@ -46,26 +38,6 @@ describe('parseUsage', () => {
       cliDurationMs: 8123,
       numTurns: 3,
     });
-  });
-
-  it('falls back to the legacy flat keys', () => {
-    expect(parseUsage(LEGACY_PAYLOAD)).toEqual({
-      inputTokens: 1000,
-      outputTokens: 500,
-      costUsd: 0.05,
-    });
-  });
-
-  it('prefers the modern keys over the legacy ones when both are present', () => {
-    const usage = parseUsage({
-      total_cost_usd: 0.9,
-      cost_usd: 0.1,
-      num_input_tokens: 111,
-      num_output_tokens: 222,
-      usage: { input_tokens: 7, output_tokens: 8 },
-    });
-
-    expect(usage).toEqual({ inputTokens: 7, outputTokens: 8, costUsd: 0.9 });
   });
 
   it('reads envelope timing without inventing zeros when they are absent', () => {

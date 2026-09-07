@@ -2,14 +2,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BranchSelector from './BranchSelector.svelte';
 
-/**
- * PORT of `frontend/src/lib/BranchSelector.test.ts` @ d8c9d5f — 4 cases.
- *
- * The first two exist for the same failure from two directions: the dropdown
- * closes on `focusout`, so reopening it has to re-focus the search field or the
- * user types into nothing.
- */
-
 const BRANCHES = [{ name: 'main' }, { name: 'release/base' }];
 
 describe('BranchSelector', () => {

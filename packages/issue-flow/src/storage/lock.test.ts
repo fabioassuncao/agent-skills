@@ -39,10 +39,12 @@ function tmpdirOf(): string {
 function lockOf(overrides: Partial<RunLock> = {}): RunLock {
   return {
     pid: process.pid,
+    ownerId: 'test-owner',
     host: HOST,
     target: '63',
     startedAt: '2026-08-30T03:00:00.000Z',
     lastHeartbeatAt: '2026-08-30T03:00:00.000Z',
+    detached: false,
     ...overrides,
   };
 }
@@ -267,9 +269,7 @@ describe('acquireRunLock', () => {
       target: 'old',
     });
     await writeLock(stale);
-    const digest = createHash('sha256')
-      .update(stale.ownerId ?? '')
-      .digest('hex');
+    const digest = createHash('sha256').update(stale.ownerId).digest('hex');
     const abandonedGuard = `${lockFile}.owner-${digest}.abandoned.guard`;
     await writeFile(
       abandonedGuard,

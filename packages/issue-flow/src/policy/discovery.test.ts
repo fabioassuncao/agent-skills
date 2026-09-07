@@ -85,7 +85,7 @@ describe('discoverIssueTemplates', () => {
 
   it('searches docs/ and the repository root as well', async () => {
     await write('docs/ISSUE_TEMPLATE/task.md', '## Task');
-    await write('ISSUE_TEMPLATE.md', '## Legacy single template');
+    await write('ISSUE_TEMPLATE.md', '## Single Markdown template');
 
     const { templates } = await discoverIssueTemplates(root);
 

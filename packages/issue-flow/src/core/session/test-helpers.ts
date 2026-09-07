@@ -25,7 +25,7 @@ export function startedSnapshot(): SessionSnapshot {
     sessionId: 'abc',
     issueNumber: 22,
     issueUrl: 'https://github.com/test/test/issues/22',
-    branch: 'issue/22-test',
+    branch: 'feat/22-test',
     baseBranch: 'main',
     phases: ['init', 'prd', 'execute'],
   });

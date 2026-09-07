@@ -1,16 +1,6 @@
 import type { GitWorktreeGateway } from './git.js';
 import type { ManagedWorktree, WorktreeManager } from './lifecycle.js';
 
-/**
- * Keeping the worktree container from growing without bound.
- *
- * Ported from WebMux `backend/src/services/auto-remove-service.ts` and
- * `auto-pull-service.ts` @ d8c9d5f. Both run headless in the upstream, on a
- * timer, without the dashboard ever being opened — which is the property worth
- * keeping: a machine left running for a week should not accumulate forty merged
- * checkouts because nobody looked at a UI.
- */
-
 /** Merge evidence of one branch across every repository that has a pull request for it. */
 export interface BranchPullRequestEvidence {
   state: string;
@@ -128,16 +118,6 @@ export interface AutoPullDependencies {
   mainBranch: string;
 }
 
-/**
- * Bring the main branch up to date, by fetch plus **fast-forward only**.
- *
- * The upstream also exposes a force variant that fetches and hard-resets,
- * discarding whatever the local branch had. That one is deliberately not
- * ported: this project's rule is that nothing destructive runs automatically to
- * repair state, and a fast-forward is the version of this operation that cannot
- * lose a commit. A repository that has diverged reports `merge_failed` and
- * waits for a person.
- */
 export async function pullMainBranch(deps: AutoPullDependencies): Promise<AutoPullResult> {
   const before = (await deps.git.readWorktreeStatus(deps.projectRoot)).currentCommit;
 

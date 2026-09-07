@@ -126,9 +126,7 @@ describe('Commander completion integration', () => {
       'run\tExecute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
     );
     expect(output).toContain('runs\tHistory of the runs of this project, with how each ended');
-    expect(output).toContain(
-      'logs\tRead the execution journal (events.jsonl), filtered and readable',
-    );
+    expect(output).toContain('logs\tRead persisted execution events, filtered and readable');
     expect(output.at(-1)).toBe(':4');
   });
 

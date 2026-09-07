@@ -1,6 +1,5 @@
 import chalk from 'chalk';
 import { type ClaudeUsage, formatTokens } from '../core/metrics.js';
-import { groupBy, summarize } from '../telemetry/aggregate.js';
 import type { EngineConfig, PrReviewRecommendation, TaskPlan } from '../types.js';
 import {
   formatDuration,
@@ -61,7 +60,6 @@ export function printBox(lines: string[]): void {
   const hrule = h.repeat(maxContentWidth + 2);
 
   const blue = colored ? chalk.blue : (s: string) => s;
-  const _reset = (s: string) => s;
 
   // Top border
   console.log(blue(`${tl}${hrule}${tr}`));
@@ -187,7 +185,6 @@ export function printSummaryBox(
   ];
 
   boxLines.push(...tokenBoxLines(usage, usageByAgent));
-  boxLines.push(...executionCostLines(plan));
 
   boxLines.push(`Retries:     ${totalRetries}`);
 
@@ -235,37 +232,6 @@ export interface RunSummaryInfo {
   usageByAgent?: Record<string, ClaudeUsage>;
   /** Acceptance-contract verdict. Absent when the contract never ran. */
   verification?: { verdict: 'passed' | 'failed' | 'unverified'; level?: string | null } | null;
-}
-
-function executionCostLines(plan: TaskPlan, prefix = 'Cost:        '): string[] {
-  const records = plan.executions ?? [];
-  if (records.length === 0) return [];
-  const lines: string[] = [];
-  const groups = groupBy(records, 'harness');
-  let index = 0;
-  const pad = ' '.repeat(prefix.length);
-  for (const [harness, summary] of groups) {
-    const parts: string[] = [];
-    if (summary.totalCost.reported > 0) {
-      parts.push(`$${summary.totalCost.reported.toFixed(4)} reported`);
-    }
-    if (summary.totalCost.estimated > 0) {
-      parts.push(`$${summary.totalCost.estimated.toFixed(4)} estimated`);
-    }
-    if (summary.totalCost.unknownExecutions > 0) {
-      parts.push(`${summary.totalCost.unknownExecutions} unknown`);
-    }
-    if (parts.length === 0) {
-      const totals = summarize(records).totalCost;
-      if (totals.reported === 0 && totals.estimated === 0) {
-        parts.push('not reported');
-      }
-    }
-    if (parts.length === 0) continue;
-    lines.push(`${index === 0 ? prefix : pad}${harness} · ${parts.join(' · ')}`);
-    index += 1;
-  }
-  return lines;
 }
 
 function tokenBoxLines(

@@ -17,7 +17,7 @@ const selection: AgentSelection = {
     opencode: {},
     origin: { provider: 'default', model: 'default' },
   },
-  healthFile: null,
+  health: null,
   failover: false,
   reason: null,
   cooldownUntil: null,
@@ -30,7 +30,6 @@ function availability(
   return {
     id,
     installed: true,
-    authenticated: true,
     authentication: 'confirmed',
     state: 'ready',
     version: 'test',
@@ -130,7 +129,6 @@ describe('applyRoutingDecision', () => {
       probe: async (id) =>
         availability(id, {
           installed: true,
-          authenticated: id === 'claude',
           authentication: id === 'claude' ? 'unverified' : 'failed',
           state: id === 'claude' ? 'conditional' : 'unavailable',
         }),
@@ -148,7 +146,6 @@ describe('applyRoutingDecision', () => {
       probe: async (id) =>
         availability(id, {
           installed: false,
-          authenticated: false,
           authentication: 'failed',
           state: 'unavailable',
         }),

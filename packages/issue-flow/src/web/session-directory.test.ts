@@ -1,9 +1,7 @@
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createInitialSnapshot } from '../core/session-state.js';
 import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import { recordAgentEvent, touchStoredSession } from '../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
@@ -204,11 +202,6 @@ describe('web/session-directory', () => {
       expect(seen).toEqual([]);
     });
 
-    // Phase 1's completion criterion (§35: output → screen ≤ 250 ms p95) rests
-    // on this hop: a write by the pipeline process must reach the monitor
-    // without waiting for an interval. The poll is pushed out of reach on
-    // purpose — if the storage watch regressed, this test would only pass after
-    // 60 s and time out instead of quietly measuring the fallback.
     it('delivers a write to subscribers without waiting for the poll interval', async () => {
       const handle = watch({ pollIntervalMs: 60_000 });
       const latencies: number[] = [];
@@ -254,36 +247,5 @@ describe('web/session-directory', () => {
       { runId: 'sess-a', phase: 'execute', type: 'agent_status_changed', lifecycle: 'idle' },
     ]);
     await expect(handle.agentEvents('missing')).resolves.toBeUndefined();
-  });
-
-  it('reads compatibility sessions and journals without SQLite in JSON mode', async () => {
-    const issueDir = join(home, 'projects', 'json-project', 'issues', '42');
-    await mkdir(issueDir, { recursive: true });
-    const now = new Date().toISOString();
-    await writeFile(
-      join(issueDir, 'session.json'),
-      JSON.stringify({
-        ...createInitialSnapshot(),
-        sessionId: 'json-session',
-        status: 'running',
-        updatedAt: now,
-        issue: { ...createInitialSnapshot().issue, number: 42 },
-      }),
-    );
-    await writeFile(
-      join(issueDir, 'events.jsonl'),
-      `${JSON.stringify({ seq: 1, event: { type: 'phase:start', at: now, phase: 'execute' } })}\n`,
-    );
-    const handle = watch({ storageDriver: 'json' });
-
-    await handle.refresh();
-    expect(handle.getSession('json-session')).toMatchObject({
-      projectId: 'json-project',
-      issueId: '42',
-    });
-    await expect(handle.events('json-session')).resolves.toMatchObject([
-      { seq: 1, event: { type: 'phase:start', phase: 'execute' } },
-    ]);
-    expect(existsSync(join(home, 'issue-flow.db'))).toBe(false);
   });
 });

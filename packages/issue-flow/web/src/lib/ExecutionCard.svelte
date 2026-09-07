@@ -4,16 +4,7 @@
   import type { SessionSummary } from './types';
   import { AGENT_LIFECYCLE_LABELS } from './vocabulary';
 
-  /**
-   * One execution, on the dashboard (U1).
-   *
-   * PORT of `buildSessionCard`. A `<button>`, like the Kanban card and for the
-   * same reason — so everything inside it is phrasing content.
-   *
-   * The metadata row is not decoration: a card that shows only a percentage
-   * cannot tell a run that is progressing from one that has been retrying for
-   * twenty minutes, which is the question somebody opens this screen to answer.
-   */
+
 
   const DESCRIPTION_PREVIEW = 140;
 

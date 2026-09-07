@@ -1,5 +1,5 @@
 import { setIssuesCliOverrides } from '../config.js';
-import { loadTaskPlan } from '../core/state-manager.js';
+import { getPlanRepository, listStoredExecutions } from '../storage/db/repository.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { resetStorageResolutionCache, resolveIssuePaths } from '../storage/resolve.js';
 import { runAcceptance } from '../verify/run-issue.js';
@@ -41,8 +41,13 @@ export function createLiveRepeatRunner(deps: LiveRepeatDeps): RepeatRunner {
       const paths = await resolveIssuePaths(input.fixture.issueRef, {
         projectRoot: input.fixture.root,
       });
-      const plan = await loadTaskPlan(paths.tasksFile);
-      const records = plan.executions ?? [];
+      const repository = getPlanRepository(paths.tasksFile);
+      if (repository === undefined) throw new Error('SQLite repository is not registered');
+      const records = await listStoredExecutions({
+        projectId: repository.projectId,
+        issueId: repository.issueId,
+        databaseOptions: repository.databaseOptions,
+      });
       const acceptance = await runAcceptance({
         cwd: input.fixture.root,
         issueDir: paths.issueDir,

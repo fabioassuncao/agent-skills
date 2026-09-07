@@ -2,16 +2,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import type { ITheme } from '@xterm/xterm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/**
- * PORT of `frontend/src/lib/Terminal.test.ts` @ d8c9d5f — 5 cases, plus 4 for
- * the two protocol additions of §15 (offset framing and incremental replay,
- * backpressure's `truncated` marker) and the authenticated handshake (ADR-10).
- *
- * `connect()` is asynchronous here because the token is fetched before the
- * socket opens, so every case waits for the socket rather than assuming it
- * exists synchronously.
- */
-
 const { MockFitAddon, MockTerminal } = vi.hoisted(() => {
   class MockFitAddon {
     static instances: MockFitAddon[] = [];

@@ -12,13 +12,6 @@ import {
   runProjectUse,
 } from './project.js';
 
-/**
- * These exercise the adaptation §47.5 marks as mandatory: the commands read
- * and write SQLite directly, so every case here runs with **no server at all**
- * (P12). `notifyServer` is stubbed for the same reason — reaching a monitor is
- * a courtesy, never a precondition.
- */
-
 const directories: string[] = [];
 
 afterEach(async () => {

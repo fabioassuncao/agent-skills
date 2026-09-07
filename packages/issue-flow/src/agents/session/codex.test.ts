@@ -10,17 +10,6 @@ import {
   readCodexAppServerStdoutLines,
 } from './codex.js';
 
-/**
- * Parity suite for the `codex app-server` client.
- *
- * Framing and schema cases ported from
- * `.references/webmux-main/backend/src/__tests__/codex-app-server.test.ts`.
- * The upstream had no test for the client itself — it could not drive one
- * without spawning `codex` — so the protocol cases below are new, and they
- * exist mainly to pin `rejectPending` on exit (§45.2-B), which is the detail
- * the ficha names as the one that must not be lost.
- */
-
 /** A stand-in for `codex app-server`, so no test needs the binary. */
 class FakeCodexAppServer implements CodexAppServerProcess {
   readonly stdout = new PassThrough();
@@ -123,7 +112,6 @@ async function flush(): Promise<void> {
 }
 
 describe('readCodexAppServerStdoutLines', () => {
-  // upstream: "decodes split UTF-8 stdout chunks before splitting JSON-RPC lines"
   it('decodes a multi-byte character split across two chunks', () => {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
@@ -145,7 +133,6 @@ describe('readCodexAppServerStdoutLines', () => {
     expect(second.lines).toEqual(['{"text":"hello €"}', '{"text":"done"}']);
   });
 
-  // upstream: "flushes a final line without a trailing newline"
   it('flushes a final line that has no trailing newline', () => {
     const decoder = new TextDecoder();
     const chunk = new TextEncoder().encode('{"ok":true}');
@@ -186,7 +173,6 @@ describe('readCodexAppServerStdoutLines', () => {
 });
 
 describe('parseCodexAppServerThreadItem', () => {
-  // upstream: "parses app-server tool thread items"
   it('parses mcp tool calls and file changes', () => {
     expect(
       parseCodexAppServerThreadItem({
@@ -223,8 +209,6 @@ describe('parseCodexAppServerThreadItem', () => {
     ).toBe('fileChange');
   });
 
-  // upstream: "keeps parsing partially modeled app-server items" — the reason
-  // the union ends with a generic `{type, id}` member.
   it('keeps an item type it has never seen, down to its type and id', () => {
     expect(
       parseCodexAppServerThreadItem({
@@ -275,7 +259,6 @@ describe('parseCodexAppServerThreadItem', () => {
 });
 
 describe('parseCodexAppServerThreadReadResponse', () => {
-  // upstream: "keeps parsing thread reads with future turn statuses"
   it('accepts a turn status this release has never seen', () => {
     const parsed = parseCodexAppServerThreadReadResponse({
       thread: makeThread({
@@ -371,9 +354,6 @@ describe('CodexAppServerClient', () => {
     await expect(pending).rejects.toThrow(/invalid thread\/read response/);
   });
 
-  // §45.2-B — the detail the ficha names. Without `rejectPending` this promise
-  // never settles: the daemon is gone, there is no child of the invocation for
-  // the watchdog to notice, and the caller waits forever.
   it('rejects every in-flight request when the daemon dies', async () => {
     const proc = new FakeCodexAppServer();
     const client = new CodexAppServerClient({ spawn: () => proc });

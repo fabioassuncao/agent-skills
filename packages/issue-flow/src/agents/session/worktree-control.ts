@@ -393,7 +393,7 @@ export interface OpenManagedWorktreesInput {
   prompt?: string;
   envOverrides?: Readonly<Record<string, string>>;
   issueRef?: string;
-  source?: 'ui' | 'oneshot';
+  source?: 'ui';
 }
 
 export interface OpenManagedWorktreesOptions {

@@ -117,7 +117,7 @@ describe('findHighestUserStoryNumber', () => {
     expect(result).toEqual({ number: 20, issueId: '13', storyId: 'US-020' });
   });
 
-  it('does not consult a corrupt compatibility projection in a sibling issue', async () => {
+  it('does not consult unrelated sibling artifacts', async () => {
     const { resolveProjectPaths } = await import('./resolve.js');
     const { issuesDir } = await resolveProjectPaths({ projectRoot, env });
     await mkdir(join(issuesDir, '14'), { recursive: true });

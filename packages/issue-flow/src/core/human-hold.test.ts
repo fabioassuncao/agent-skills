@@ -21,16 +21,6 @@ import {
 import { createInitialSnapshot } from './session-state.js';
 import { createWatchdog } from './watchdog.js';
 
-/**
- * **C10** of §34, and the rule §32 states as non-negotiable:
- *
- * > While a run is held, the watchdog does not kill the process and the
- * > pipeline does not advance a phase.
- *
- * The mechanism itself is absorbed from WebMux's `disarmOneshotIfArmed`: a
- * human touching the keyboard is the signal, with no confirmation and no mode
- * to switch.
- */
 describe('human hold', () => {
   let home: string;
   let context: PlanRepositoryContext;

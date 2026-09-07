@@ -19,7 +19,7 @@ vi.mock('./run.js', () => ({ runPipeline: vi.fn(async () => 0) }));
 
 const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
 /** What `git symbolic-ref -q HEAD` answers; the branch the repository is on. */
-const mockHead = vi.hoisted(() => ({ current: 'issue/42-work', detached: false }));
+const mockHead = vi.hoisted(() => ({ current: 'feat/42-work', detached: false }));
 /** Extra git answers a test needs, keyed by argv. */
 const mockGit = vi.hoisted(() => ({
   answers: {} as Record<string, { out: string; code: number }>,
@@ -68,7 +68,7 @@ beforeEach(async () => {
   mockProjectRoot.current = repo;
   process.chdir(repo);
 
-  mockHead.current = 'issue/42-work';
+  mockHead.current = 'feat/42-work';
   mockHead.detached = false;
   mockGit.answers = {};
   resetStorageResolutionCache();
@@ -91,7 +91,15 @@ async function writeForeignLock(lockFile: string, target: string): Promise<void>
   const now = new Date().toISOString();
   await writeFile(
     lockFile,
-    JSON.stringify({ pid: 1, host: hostname(), target, startedAt: now, lastHeartbeatAt: now }),
+    JSON.stringify({
+      pid: 1,
+      host: hostname(),
+      ownerId: 'foreign-owner',
+      target,
+      startedAt: now,
+      lastHeartbeatAt: now,
+      detached: false,
+    }),
     'utf-8',
   );
 }
@@ -101,7 +109,8 @@ function plan(overrides: Partial<TaskPlan> = {}): TaskPlan {
     project: 'widgets',
     issueNumber: 42,
     issueUrl: '',
-    branchName: 'issue/42-work',
+    branchName: 'feat/42-work',
+    noBranch: false,
     description: 'Work',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -122,16 +131,16 @@ function plan(overrides: Partial<TaskPlan> = {}): TaskPlan {
   } as TaskPlan;
 }
 
-/** Write a plan (and optionally a journal) for `issue` in the global storage. */
+/** Write a plan and optional session events for `issue` in global storage. */
 async function writeIssue(
   issue: string,
   taskPlan: TaskPlan,
-  journalLines: string[] = [],
+  events: Array<{ seq: number; event: SessionEvent }> = [],
 ): Promise<void> {
   const paths = await resolveIssuePaths(issue);
   await saveTaskPlan(paths.tasksFile, taskPlan);
   const repository = getPlanRepository(paths.tasksFile);
-  if (repository !== undefined && journalLines.length > 0) {
+  if (repository !== undefined && events.length > 0) {
     const now = new Date().toISOString();
     const initial = createInitialSnapshot();
     const snapshot = {
@@ -142,8 +151,7 @@ async function writeIssue(
       updatedAt: now,
       issue: { ...initial.issue, number: Number(issue) },
     };
-    for (const line of journalLines) {
-      const parsed = JSON.parse(line) as { seq: number; event: SessionEvent };
+    for (const parsed of events) {
       await saveSessionEvent(repository, {
         sessionId: snapshot.sessionId,
         sequence: parsed.seq,
@@ -154,9 +162,8 @@ async function writeIssue(
   }
 }
 
-/** One journal line, in the shape `JournalPublisher` writes. */
-function entry(seq: number, event: Record<string, unknown>): string {
-  return JSON.stringify({ seq, event });
+function entry(seq: number, event: SessionEvent): { seq: number; event: SessionEvent } {
+  return { seq, event };
 }
 
 describe('resume picks the phase up where it stopped', () => {
@@ -359,9 +366,11 @@ describe('run ownership', () => {
       JSON.stringify({
         pid: 1,
         host: hostname(),
+        ownerId: 'live-owner',
         target: '42',
         startedAt: new Date().toISOString(),
         lastHeartbeatAt: new Date().toISOString(),
+        detached: false,
       }),
       'utf-8',
     );
@@ -371,9 +380,6 @@ describe('run ownership', () => {
     expect(mockRunPipeline).not.toHaveBeenCalled();
   });
 
-  // §31.3: `run` and `resume` have to contend for the *same* thing. Above the
-  // default ceiling a run holds a lock on its unit, so a resume still taking the
-  // project lock would exclude nothing — and two processes would work one issue.
   describe('above the default ceiling', () => {
     const previous = process.env.ISSUE_FLOW_RUNTIME_MAX_CONCURRENT;
 
@@ -427,9 +433,11 @@ describe('run ownership', () => {
       JSON.stringify({
         pid: 0x7ffffffe,
         host: hostname(),
+        ownerId: 'stale-owner',
         target: '42',
         startedAt: '2026-08-30T03:00:00.000Z',
         lastHeartbeatAt: '2026-08-30T03:00:00.000Z',
+        detached: false,
       }),
       'utf-8',
     );

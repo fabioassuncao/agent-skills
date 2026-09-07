@@ -1,15 +1,6 @@
 import type { AgentSessionRow, ProjectSummary, SessionSummary } from './types';
 import { RESILIENCE_EVENTS, SUMMARY_STATUS_LABELS, SUMMARY_STATUS_ORDER } from './vocabulary';
 
-/**
- * Which execution the panel is looking at, and how the list is grouped.
- *
- * PORT of `resolveView`, `visibleSessions`, `activeWorkGroups` and
- * `renderDashboardSummary` from `web/public/app.js`. Pure on purpose: these are
- * the rules that decide whether the user sees a dashboard or a detail, and they
- * are worth testing without a DOM.
- */
-
 /** The empty string means "every project" — the absence of a filter. */
 export const ALL_PROJECTS = '';
 
@@ -28,20 +19,6 @@ export function visibleSessions(
   return sessions.filter((session) => session.projectId === selectedProjectId);
 }
 
-/**
- * Dashboard or detail, and which execution.
- *
- * Four rules, in this order, and each of them is a decision:
- *
- * 1. An explicit choice that no longer exists is dropped rather than left
- *    pointing at nothing.
- * 2. An explicit choice wins over everything else.
- * 3. **With more than one project the consolidated view is the home screen**,
- *    even with a single execution: it is the view that answers "what is
- *    happening, and in which project" (§47.4).
- * 4. With one project (or none) the behaviour is exactly what it was — zero or
- *    one execution opens the detail directly, two or more open the dashboard.
- */
 export function resolveExecutionView(input: {
   sessions: readonly SessionSummary[];
   selectedSessionId: string | null;
@@ -70,9 +47,9 @@ export function resolveExecutionView(input: {
 export interface ActiveWorkGroup {
   id: string | null;
   label: string;
-  /** Executions: runs of the workflow over a Task (mode 1 of §49). */
+
   sessions: SessionSummary[];
-  /** Free sessions: a live agent with no run behind it (mode 2 of §49). */
+
   freeSessions: AgentSessionRow[];
 }
 
@@ -93,7 +70,7 @@ export function activeWorkGroups(input: {
   sessions: readonly SessionSummary[];
   projects: readonly ProjectSummary[];
   selectedProjectId: string;
-  /** Free sessions of §49.2, so a block can show what §49.4 says it shows. */
+
   agentSessions?: readonly AgentSessionRow[];
 }): ActiveWorkGroup[] {
   const groups: ActiveWorkGroup[] = [];

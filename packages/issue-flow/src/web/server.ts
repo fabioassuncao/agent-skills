@@ -11,11 +11,7 @@ import { writeRoutingPreference } from '../commands/routing.js';
 import { loadRoutingConfig } from '../config.js';
 import type { JournalEntry } from '../core/journal.js';
 import { resolvePackageDir } from '../core/prompt-resolver.js';
-import {
-  NullPublisher,
-  type SessionPublisher,
-  type SessionSnapshot,
-} from '../core/session-state.js';
+import type { SessionSnapshot } from '../core/session-state.js';
 import { MODEL_CATALOG } from '../routing/models.js';
 import { routingConfigInputSchema } from '../schemas.js';
 import { readDiagnostics } from '../storage/diagnostics.js';
@@ -30,6 +26,12 @@ import {
   updateAgentRoute,
   validateAgentRoute,
 } from './agents-api.js';
+import {
+  conversationStateRoute,
+  interruptConversationRoute,
+  matchConversationRoute,
+  sendConversationMessageRoute,
+} from './conversation-api.js';
 import {
   autoNameConfigRoute,
   type IntegrationsApiDeps,
@@ -95,8 +97,7 @@ import {
 
 /**
  * HTTP server for the web monitoring mode. Plain node:http — no new runtime
- * dependencies. Serves the publisher's in-memory snapshot (it never re-reads
- * issues/N/session.json) and the static UI assets.
+ * dependencies. Serves canonical SQLite-backed snapshots and static UI assets.
  *
  * Resilience contract: nothing here may ever affect the pipeline. Listen
  * failures (EADDRINUSE included) log a warning and the execution continues
@@ -115,16 +116,6 @@ export const SESSION_LIST_DESCRIPTION_MAX = 280;
  */
 export const STREAM_HEARTBEAT_MS = 15_000;
 
-/**
- * How often the legacy single-publisher backend is checked for a new version.
- *
- * This is the one source that cannot push: `SessionPublisher` exposes a
- * monotonic `version()` and no notification. The read is an in-memory counter
- * comparison, so a tick this short costs nothing and keeps the US-006 fallback
- * inside the same output-to-screen budget as the directory-backed path.
- */
-export const PUBLISHER_TICK_MS = 100;
-
 /** Collapse whitespace and truncate for the sessions list payload. */
 export function truncateSessionDescription(
   text: string | null | undefined,
@@ -138,19 +129,8 @@ export function truncateSessionDescription(
 }
 
 export interface WebServerOptions {
-  /**
-   * Legacy single-session mode (pre-US-003, still used by the US-006
-   * fallback): serves this publisher's in-memory snapshot directly, with no
-   * directory scan and no lock file involved. Mutually exclusive with
-   * `sessions` — when both are given, `sessions` wins.
-   */
-  publisher?: SessionPublisher;
-  /**
-   * Multi-session mode: sessions discovered by polling the global storage
-   * tree (`web/session-directory.ts`). This is what every current entry
-   * point (`web serve`) passes; `publisher` only exists for the legacy path.
-   */
-  sessions?: SessionDirectoryHandle;
+  /** Sessions discovered from the canonical SQLite store. */
+  sessions: SessionDirectoryHandle;
   port: number;
   host: string;
   /** Suggested UI polling interval, exposed via /api/health. */
@@ -159,11 +139,7 @@ export interface WebServerOptions {
   version?: string;
   /** Stable identity for this server process. Default: a fresh UUID at startup. */
   instanceId?: string;
-  /**
-   * Directory holding the built dashboard (index.html + assets/), served at
-   * `/`. Default: auto-resolved. Absent or unbuilt answers a page that says so
-   * and links `status.json`, which is the no-JavaScript fallback §50.8 keeps.
-   */
+
   dashboardDir?: string;
   /** Info logger. Default: printInfo. */
   info?: (message: string) => void;
@@ -179,12 +155,7 @@ export interface WebServerOptions {
    * to do, so staying alive for as long as the server is bound *is* the job.
    */
   unref?: boolean;
-  /**
-   * The multi-project surface (§47). Absent for a monitor bound inline by the
-   * pipeline, which serves exactly the project it is running in: without it
-   * `/api/projects` answers an empty list and no URL prefix is ever resolved,
-   * so a single-project user sees precisely the behaviour they had before.
-   */
+
   projects?: ProjectsApiDeps;
   /**
    * Serve the terminal transport (`/ws/terminal`).
@@ -194,22 +165,9 @@ export interface WebServerOptions {
    * loopback (ADR-10) — the same gate the configuration write routes use.
    */
   terminal?: Pick<TerminalWebSocketOptions, 'resolveTarget' | 'token' | 'onHumanInput' | 'tmux'>;
-  /**
-   * The agent-session surface (§49): opening an agent with no issue behind it.
-   *
-   * Absent leaves it off — `GET /api/agent-sessions` then answers an empty list
-   * rather than 404, so one dashboard build serves a monitor that has it and
-   * one that does not, and every mutating route answers 501.
-   */
+
   agentSessions?: SessionsApiDeps;
-  /**
-   * The session/worktree listing (`GET /api/worktrees`).
-   *
-   * Absent leaves the sidebar's second group off entirely — the `sessions`
-   * capability is not announced and the ported worktree surface is never
-   * offered, which is exactly what a monitor a pipeline run bound inline should
-   * do: it has one execution and no session registry behind it.
-   */
+
   worktrees?: WorktreesApiDeps;
   /** Built-in/custom agent registry. Reads may be remote; writes are loopback-only. */
   agents?: AgentsApiDeps;
@@ -243,9 +201,7 @@ interface StaticAsset {
 const JSON_TYPE = 'application/json; charset=utf-8';
 
 /**
- * Uniform view over "whatever sessions this server knows about", so the route
- * handlers below never care whether they are backed by a single in-memory
- * publisher (legacy mode) or by the global directory scan (US-003/US-004).
+ * Uniform view over sessions in the canonical directory.
  */
 interface SessionSource {
   /** Every session currently considered active, in no particular order. */
@@ -271,75 +227,12 @@ interface SessionSource {
   subscribe(listener: (change: SessionSourceChange) => void): () => void;
 }
 
-/** Which sessions changed, in the shape both backends can produce. */
+/** Which sessions changed. */
 interface SessionSourceChange {
   added: string[];
   updated: string[];
   removed: string[];
   revision: number;
-}
-
-function publisherSessionSource(publisher: SessionPublisher): SessionSource {
-  const listeners = new Set<(change: SessionSourceChange) => void>();
-  let timer: NodeJS.Timeout | null = null;
-  let lastVersion = publisher.version();
-  let lastSessionId = publisher.snapshot().sessionId;
-  let revision = 0;
-
-  const tick = (): void => {
-    const version = publisher.version();
-    const sessionId = publisher.snapshot().sessionId;
-    if (version === lastVersion && sessionId === lastSessionId) return;
-    revision += 1;
-    const change: SessionSourceChange = {
-      added: sessionId !== null && sessionId !== lastSessionId ? [sessionId] : [],
-      updated: sessionId !== null && sessionId === lastSessionId ? [sessionId] : [],
-      removed: lastSessionId !== null && lastSessionId !== sessionId ? [lastSessionId] : [],
-      revision,
-    };
-    lastVersion = version;
-    lastSessionId = sessionId;
-    for (const listener of listeners) {
-      try {
-        listener(change);
-      } catch {
-        // A subscriber must never be able to take the monitor down.
-      }
-    }
-  };
-
-  return {
-    list: () => {
-      const snapshot = publisher.snapshot();
-      return snapshot.sessionId === null ? [] : [snapshot];
-    },
-    get: (sessionId) => {
-      const snapshot = publisher.snapshot();
-      return snapshot.sessionId === sessionId ? snapshot : undefined;
-    },
-    // The legacy in-process publisher serves exactly the run that owns it, so
-    // there is no project to disambiguate.
-    projectOf: () => null,
-    events: async (sessionId) => (publisher.snapshot().sessionId === sessionId ? [] : undefined),
-    agentEvents: async (sessionId) =>
-      publisher.snapshot().sessionId === sessionId ? [] : undefined,
-    subscribe: (listener) => {
-      listeners.add(listener);
-      if (timer === null) {
-        lastVersion = publisher.version();
-        lastSessionId = publisher.snapshot().sessionId;
-        timer = setInterval(tick, PUBLISHER_TICK_MS);
-        timer.unref();
-      }
-      return () => {
-        listeners.delete(listener);
-        if (listeners.size === 0 && timer !== null) {
-          clearInterval(timer);
-          timer = null;
-        }
-      };
-    },
-  };
 }
 
 function directorySessionSource(handle: SessionDirectoryHandle): SessionSource {
@@ -403,22 +296,11 @@ function sessionListPayload(source: SessionSource, projectId?: string | null): u
       // because only one of the two is waiting for the person reading it.
       agentLifecycle: snapshot.agent.lifecycle,
       awaitingInputCount: snapshot.agent.awaitingInputCount,
-      // §32's last row, decided in the pipeline (`core/awaiting-input.ts`) and
-      // only rendered here: a card has to distinguish "the agent just asked"
-      // from "the agent asked and nobody came".
       awaitingInputEscalatedAt: snapshot.agent.awaitingInputEscalatedAt,
-      // A card has to be able to say "somebody is driving this one": while a
-      // run is held the watchdog is paused and no phase advances, so it looks
-      // idle and is not (§32).
       humanHold: snapshot.agent.humanHold,
       statusUrl: `/api/status?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
       eventsUrl: `/api/events?session=${encodeURIComponent(snapshot.sessionId ?? '')}`,
     }));
-}
-
-function resolveSessionSource(options: WebServerOptions): SessionSource {
-  if (options.sessions) return directorySessionSource(options.sessions);
-  return publisherSessionSource(options.publisher ?? new NullPublisher());
 }
 
 const HTML_TYPE = 'text/html; charset=utf-8';
@@ -428,11 +310,8 @@ const JS_TYPE = 'text/javascript; charset=utf-8';
 /**
  * What to serve when there is no build.
  *
- * The previous panel used to be this answer (ADR-18 kept it at `/legacy/` and
- * as the unbuilt fallback). It was removed in phase 8D with §50.7 green, so a
- * checkout that never ran `npm run build:web` gets a page that says exactly
- * that — and the `status.json` link, which §50.8 requires to survive as the
- * one fallback that needs no JavaScript at all.
+ * A checkout that never ran `npm run build:web` gets a page with the build
+ * command and the raw status endpoint.
  */
 const UNBUILT_DASHBOARD = `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8" />
@@ -551,15 +430,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const instanceId = options.instanceId ?? randomUUID();
   const startedAtMs = Date.now();
 
-  // The dashboard ships at the package root under web/dist (sibling of
-  // prompts/), resolved the same way from src/ and from the published dist/
-  // layout. There is one panel now: the previous one was removed in phase 8D,
-  // with the three blocks of §50.7 green (§50.8).
   const assets = await loadDashboardAssets(
     options.dashboardDir ?? resolvePackageDir(join('web', 'dist')),
   );
 
-  const source = resolveSessionSource(options);
+  const source = directorySessionSource(options.sessions);
   let terminal: TerminalWebSocketHandle | null = null;
   const projects = options.projects ?? null;
   const agentSessions = options.agentSessions ?? null;
@@ -602,20 +477,6 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     return entry;
   };
 
-  // -------------------------------------------------------------------
-  // Push transport (absorption phase 1). The measured 3–8 s the dashboard used
-  // to take to show agent output was two polling hops stacked on top of each
-  // other: the server re-read SQLite every 3 s and the browser re-read the
-  // server every 5 s. `/api/stream` removes the second hop, and the storage
-  // watch in `session-directory.ts` removes the first.
-  //
-  // Server-Sent Events rather than WebSocket: this channel carries reduced JSON
-  // state in one direction only, so it needs no framing, no upgrade handshake
-  // and no dependency, and it reconnects on its own. The bidirectional
-  // WebSocket the terminal needs is a separate transport with separate
-  // requirements (backpressure, replay), and conflating the two would force
-  // both to carry the union of their constraints.
-  // -------------------------------------------------------------------
   const streams = new Set<ServerResponse>();
 
   const openStream = (
@@ -759,18 +620,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       return;
     }
 
-    // §49.3's surface. `GET /api/sessions` is deliberately *not* part of it:
-    // that path has answered the pipeline-execution list since the
-    // multi-session dashboard, and ADR-20 keeps an execution and a session
-    // distinct. The listing therefore lives at `/api/agent-sessions`; the
-    // verbs, which collide with nothing, answer on both spellings.
     if (req.method === 'GET' && path === '/api/agent-sessions') {
       respondApi(
         res,
         await listSessionsRoute(agentSessions, routedProjectId, {
           freeOnly: requestUrl.searchParams.get('free') === '1',
-          // `?all=1` is the consolidated view of §49.4: what is running
-          // *anywhere*, which a per-project listing cannot answer.
           allProjects: requestUrl.searchParams.get('all') === '1',
         }),
       );
@@ -785,11 +639,50 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       return;
     }
 
-    // The sidebar's second group, and the "Sessões e worktrees" tab of a Task.
-    // A projection of `agent_sessions`, never a second worktree registry (§25).
     if (req.method === 'GET' && path === '/api/worktrees') {
       respondApi(res, await listWorktreesRoute(worktrees, routedProjectId));
       return;
+    }
+
+    const conversationResource = matchConversationRoute(path);
+    if (conversationResource !== null) {
+      if (
+        (req.method === 'GET' && conversationResource.action === 'history') ||
+        (req.method === 'POST' && conversationResource.action === 'attach')
+      ) {
+        respondApi(
+          res,
+          await conversationStateRoute(
+            mutableWorktrees,
+            routedProjectId,
+            conversationResource.branch,
+          ),
+        );
+        return;
+      }
+      if (req.method === 'POST' && conversationResource.action === 'messages') {
+        respondApi(
+          res,
+          await sendConversationMessageRoute(
+            mutableWorktrees,
+            routedProjectId,
+            conversationResource.branch,
+            await readJsonBody(req),
+          ),
+        );
+        return;
+      }
+      if (req.method === 'POST' && conversationResource.action === 'interrupt') {
+        respondApi(
+          res,
+          await interruptConversationRoute(
+            mutableWorktrees,
+            routedProjectId,
+            conversationResource.branch,
+          ),
+        );
+        return;
+      }
     }
 
     if (req.method === 'POST' && path === '/api/worktrees') {
@@ -1005,8 +898,6 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       }
     }
 
-    // §20's two read surfaces, both gated by `pr:ci`: the manual refresh and
-    // the failed-run log the CI dialog opens.
     const syncPrsBranch = req.method === 'POST' ? matchSyncPullRequests(path) : null;
     if (syncPrsBranch !== null) {
       respondApi(
@@ -1273,7 +1164,6 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
             harness,
             provider: providers[index],
             installed: entry?.installed ?? false,
-            authenticated: entry?.authenticated ?? false,
             authentication: entry?.authentication ?? 'failed',
             state: entry?.state ?? 'unavailable',
             source: entry?.source ?? 'probe',
@@ -1316,17 +1206,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
           ...(mutableAgents?.writable === true ? ['agents:write'] : []),
           ...(integrations === null ? [] : ['linear:read']),
           ...(mutableIntegrations?.writable === true ? ['linear:write', 'settings:write'] : []),
-          // Listing sessions and the worktrees they run in. Split from
-          // `worktrees` in phase 8D: that name gates twenty mutation routes
-          // whose backends are not ported, and one promise must not smuggle
-          // in the other.
           ...(worktrees === null ? [] : ['sessions']),
           ...(mutableWorktrees?.writable === true && mutableWorktrees.resolveRuntime !== undefined
             ? ['worktrees:mutate', 'worktrees:tabs', 'terminal:refresh']
             : []),
-          // §20's display sync. Announced only where a pass can actually run,
-          // so the PR badge and the CI dialog are offered exactly where they
-          // have something to show.
+          ...(mutableWorktrees?.writable === true ? ['agent:conversation'] : []),
           ...(worktrees?.ciLog === undefined ? [] : ['pr:ci']),
         ],
       });

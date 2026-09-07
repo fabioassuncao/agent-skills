@@ -6,11 +6,6 @@ import { RUN_LOCK_HEARTBEAT_MS, RUN_LOCK_STALE_INTERVALS } from '../storage/lock
 import { getUnitRunLockPath, UNIT_LOCKS_DIR_NAME } from '../storage/paths.js';
 import { acquireExecutionSlot, countLiveUnitLocks, describeSlotRefusal } from './concurrency.js';
 
-/**
- * §31.3: parallelism is a consequence of worktree isolation, not a feature of
- * its own — and the default has to stay exactly what this project has always
- * done. Nothing becomes parallel by upgrading.
- */
 describe('execution slots', () => {
   let projectDir: string;
   const handles: Array<{ release(): Promise<void> }> = [];
@@ -54,9 +49,11 @@ describe('execution slots', () => {
       JSON.stringify({
         pid: 1,
         host: 'test-host',
+        ownerId: 'foreign-owner',
         target: 'someone else',
         startedAt: now,
         lastHeartbeatAt: now,
+        detached: false,
       }),
     );
   }
@@ -71,9 +68,11 @@ describe('execution slots', () => {
       JSON.stringify({
         pid: process.pid,
         host: 'test-host',
+        ownerId: `live-${unitId}`,
         target: unitId,
         startedAt: now,
         lastHeartbeatAt: now,
+        detached: false,
       }),
     );
     return lockFile;
@@ -154,8 +153,6 @@ describe('execution slots', () => {
     });
   });
 
-  // §39's completion criterion for this phase: five executions at once, with a
-  // marginal cost per session inside the §35 budget of 30 ms.
   it('takes five slots at once, well inside the marginal budget', async () => {
     const samples: number[] = [];
     for (let index = 0; index < 5; index += 1) {
@@ -197,10 +194,10 @@ describe('execution slots', () => {
       expect(lock.detached).toBe(true);
     });
 
-    it('leaves an interactive run unmarked rather than writing false', async () => {
+    it('marks an interactive run as attached', async () => {
       await acquire({ maxConcurrent: 3 });
       const lock = JSON.parse(await readFile(getUnitRunLockPath(projectDir, '42'), 'utf-8'));
-      expect(lock.detached).toBeUndefined();
+      expect(lock.detached).toBe(false);
     });
   });
 
@@ -226,11 +223,13 @@ describe('execution slots', () => {
         JSON.stringify({
           pid: process.pid,
           host: 'test-host',
+          ownerId: 'stale-owner',
           target: '42',
           startedAt: now,
           lastHeartbeatAt: new Date(
             Date.now() - RUN_LOCK_HEARTBEAT_MS * (RUN_LOCK_STALE_INTERVALS + 2),
           ).toISOString(),
+          detached: false,
         }),
       );
       await expect(countLiveUnitLocks(projectDir)).resolves.toBe(0);

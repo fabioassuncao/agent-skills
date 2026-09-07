@@ -1,22 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
 
-/**
- * Running a command on a pseudo-terminal.
- *
- * §15 of the absorption plan specifies `node-pty` in `optionalDependencies`
- * **with a fallback** to the `script`/`python3` trick the upstream uses. Both
- * halves are load-bearing, and this machine demonstrates why: `node-pty`
- * installs cleanly here and then fails at `pty.fork` with `posix_spawnp
- * failed`, because its prebuilt spawn helper does not run. A native optional
- * dependency is exactly the kind of thing that is present but unusable, so the
- * fallback is not a formality — it is the path that works.
- *
- * The upstream has only the fallback. Its choice of wrapper is ported as it
- * stands: `python3` on macOS, `script` on Linux (lighter) with `python3` behind
- * it. Neither present is an error the user can act on, which is why the message
- * names the packages.
- */
-
 export type PtyBackend = 'node-pty' | 'script' | 'python3';
 
 export interface PtySession {
@@ -47,13 +30,6 @@ function commandExists(command: string): boolean {
   return spawnSync('which', [command], { stdio: 'ignore' }).status === 0;
 }
 
-/**
- * Which wrapper turns a command into a pty-backed process.
- *
- * macOS ships `script` with a different, incompatible interface, so `python3`
- * is used unconditionally there — the upstream's choice, and the reason it is
- * not a `which` probe on both platforms.
- */
 export function detectPtyWrapper(): 'script' | 'python3' | null {
   if (cachedWrapper !== undefined) return cachedWrapper;
   if (process.platform === 'darwin') {
@@ -152,9 +128,6 @@ function wrapperSession(options: SpawnPtyOptions, wrapper: 'script' | 'python3')
     write: (data) => {
       child.stdin.write(data);
     },
-    // The wrapper backends have no handle on the pty. Size is instead applied
-    // by the multiplexer (`tmux resize-window`), which is what the attach layer
-    // does — and what the upstream does too, since it only has this path.
     resize: () => {},
     onData: (listener) => {
       child.stdout.on('data', (chunk: string) => listener(chunk));

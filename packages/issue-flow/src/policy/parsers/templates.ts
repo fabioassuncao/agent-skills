@@ -6,7 +6,7 @@ import { emptyTemplateMetadata, extractFrontMatter, parseTemplateMetadata } from
  * Turn a template file into an {@link IssueTemplate}.
  *
  * The format is decided by the extension, not by the content: `.yml`/`.yaml` is
- * an Issue Form whose whole document is metadata, everything else is a legacy
+ * an Issue Form whose whole document is metadata, everything else is a Markdown
  * markdown template whose metadata — if any — lives in a front matter block.
  */
 export function parseIssueTemplateFile(relPath: string, content: string): IssueTemplate {
@@ -22,7 +22,7 @@ export function parseIssueTemplateFile(relPath: string, content: string): IssueT
     format: isForm ? 'form' : 'markdown',
     origin: 'filesystem',
     // A template with no `name:` is still addressable by its file name, which
-    // is what GitHub falls back to for legacy markdown templates.
+    // is what GitHub uses for Markdown templates.
     name: metadata.name ?? basename(relPath, extension),
     about: metadata.about,
     title: metadata.title,

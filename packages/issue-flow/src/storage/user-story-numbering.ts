@@ -57,7 +57,7 @@ export interface FindHighestUserStoryNumberOptions extends ResolveIssuePathsOpti
 /**
  * Highest User Story number already used anywhere in the project's canonical
  * SQLite state. The issue named by `excludeIssueId` is skipped, so re-planning
- * is idempotent. This deliberately never scans compatibility projections.
+ * is idempotent. This deliberately scans only task artifacts.
  */
 export async function findHighestUserStoryNumber(
   options: FindHighestUserStoryNumberOptions = {},
@@ -201,22 +201,14 @@ export async function determineUserStoryNumbering(
 
   const outcome = await resolveUserStoryNumbering({ ...rest, projectRoot });
   const project = await resolveProjectPaths({ projectRoot, env: options.env });
-  if (project.storageDriver === 'sqlite') {
-    await saveStoredUserStoryNumbering(
-      {
-        projectId: project.projectId,
-        projectRoot,
-        databaseOptions: project.databaseOptions,
-      },
-      outcome.decision,
-    );
-  } else {
-    const { recordUserStoryNumbering } = await import('./compat.js');
-    await recordUserStoryNumbering(projectRoot, outcome.decision, {
-      env: options.env,
-      now: options.now,
-    });
-  }
+  await saveStoredUserStoryNumbering(
+    {
+      projectId: project.projectId,
+      projectRoot,
+      databaseOptions: project.databaseOptions,
+    },
+    outcome.decision,
+  );
 
   return { ...outcome, nextUserStoryId: formatUserStoryId(outcome.decision.nextNumber) };
 }

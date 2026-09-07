@@ -33,7 +33,8 @@ function minimalPlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
     project: 'test',
     issueNumber: 1,
     issueUrl: 'https://github.com/test/test/issues/1',
-    branchName: 'issue/1-test',
+    branchName: 'feat/1-test',
+    noBranch: false,
     description: 'Test plan',
     issueStatus: 'pending',
     completedAt: null,
@@ -41,6 +42,7 @@ function minimalPlan(overrides: Partial<TaskPlan> = {}): TaskPlan {
     lastError: null,
     correctionCycle: 0,
     maxCorrectionCycles: 3,
+    lastReviewFindings: null,
     pipeline: {
       prdCompleted: true,
       jsonCompleted: true,

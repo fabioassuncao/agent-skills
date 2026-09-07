@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** PORT of `frontend/src/lib/CursorButton.svelte` @ d8c9d5f (9 lines). */
+
   let { url }: { url: string } = $props();
 </script>
 

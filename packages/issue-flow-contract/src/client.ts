@@ -2,11 +2,8 @@ import { type InitClientArgs, initClient } from '@ts-rest/core';
 import { apiContract } from './contract.js';
 
 /**
- * The typed client every dashboard call goes through.
- *
- * PORT of `packages/api-contract/src/client.ts` from windmill-labs/webmux
- * @ d8c9d5f (107 lines), unchanged in behaviour. Two details carry their own
- * reason and are kept verbatim:
+ * The typed client every dashboard call goes through. Two details carry their
+ * own reason:
  *
  * - **`withEncodedPathParams`.** ts-rest interpolates path params into the URL
  *   verbatim, so a branch called `feature/search` would produce a path with an

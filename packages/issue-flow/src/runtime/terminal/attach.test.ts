@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildAttachCommand, VIEWER_SESSION_PREFIX } from './attach.js';
+import { VIEWER_SESSION_PREFIX } from '../tmux/names.js';
+import { buildAttachCommand } from './attach.js';
 import { buildPtyArgs } from './pty.js';
 
-/**
- * Ported from WebMux `backend/src/adapters/terminal.ts` @ d8c9d5f
- * (`buildAttachCmd`, `buildPtyArgs`). Both are pure, and the attach command is
- * compared literally: every step in it is there for a reason the upstream
- * learned, and a port that quietly dropped one would look fine until the day it
- * mattered.
- */
 describe('buildAttachCommand', () => {
   const base = {
     viewerSessionName: 'if-view-1234-abcd',

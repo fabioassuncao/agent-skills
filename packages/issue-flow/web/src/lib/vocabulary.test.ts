@@ -13,15 +13,6 @@ import {
   VERIFICATION_TONE,
 } from './vocabulary';
 
-/**
- * The closed vocabulary (ADR-20).
- *
- * One term per concept, and an unknown value from the backend falls back
- * **inside** the vocabulary rather than leaking a raw identifier onto a badge.
- * `execução` and `sessão` are different things and neither is a synonym of the
- * other — the collision §50.4 resolved.
- */
-
 describe('the execution status', () => {
   it('has one term per state, and no synonyms', () => {
     expect(statusLabel('idle')).toBe('aguardando');

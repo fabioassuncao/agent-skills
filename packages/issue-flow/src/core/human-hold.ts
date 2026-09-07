@@ -3,31 +3,6 @@ import { loadRunHumanHold, saveRunHumanHold } from '../storage/db/repository.js'
 import { installHumanHoldGate } from './hold-gate.js';
 import { getSessionPublisher } from './session-publisher.js';
 
-/**
- * A person took over. Everything automatic steps back.
- *
- * Absorbed from WebMux's `disarmOneshotIfArmed` (`backend/src/server.ts:2231`),
- * whose mechanism §32 of the absorption plan calls elegant and tiny, and it is:
- * there is no state machine, no confirmation and no mode switch. **A human
- * touching the keyboard is the signal.** Any input arriving on the terminal
- * socket disarms the autonomous run.
- *
- * What is added on top is the typing §32 asks for, and one rule that is not
- * negotiable:
- *
- * > While a run is held, the watchdog does not kill the process and the
- * > pipeline does not advance a phase.
- *
- * Without it the watchdog would kill the session at exactly the moment the
- * human is thinking about what to type — the run looks silent because a person
- * is reading it.
- *
- * The hold lives in SQLite rather than in memory for two reasons. It is
- * **intent**, which is what the database is the authority over (ADR-08); and it
- * has to cross a process boundary, because the person types in the monitor
- * while the watchdog runs in the pipeline.
- */
-
 export type HumanHoldReason =
   /** The person typed into the agent's terminal. No confirmation is asked for. */
   | 'takeover'
@@ -131,12 +106,6 @@ export async function isHeldForHuman(
   return (await currentHumanHold(context, runId)) !== null;
 }
 
-/**
- * How long a run has waited for the person who took it over.
- *
- * `null` when it is not held. §32 wants an unanswered hold to escalate rather
- * than to sit forever, and this is the number that decision reads.
- */
 export function heldForMs(
   hold: HumanHold | null,
   now: () => Date = () => new Date(),

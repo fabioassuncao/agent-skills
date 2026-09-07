@@ -5,17 +5,6 @@ import { run } from '../../utils/shell.js';
 /**
  * Docker container lifecycle for sandbox worktrees.
  *
- * Ported from WebMux `backend/src/adapters/docker.ts` @ d8c9d5f (384 LOC) in
- * phase 12, and hardened in phase 13 against the threat model of §14.
- *
- * Phase 13 adds, and the argument list therefore **diverges deliberately from
- * the upstream**: `--cap-drop=ALL`, `--security-opt no-new-privileges`,
- * `--pids-limit`, `--memory` and an explicit `--network`. It also flips two
- * defaults the upstream leaves open — `SSH_AUTH_SOCK` forwarding is opt-in, and
- * the implicit credential mounts are deprecated and reported. Every divergence
- * is asserted by `C7` in `docker.test.ts`, which now compares against the
- * hardened baseline and documents, case by case, what changed and why.
- *
  * The container never knows tmux exists: a pane runs `docker exec -it -w
  * <worktree> <container> …`, and the web terminal is exactly the same path.
  *
@@ -28,28 +17,8 @@ import { run } from '../../utils/shell.js';
 /** How long a `docker run` may take before the launch is abandoned. */
 export const DOCKER_RUN_TIMEOUT_MS = 60_000;
 
-/**
- * Prefix every container this project creates carries.
- *
- * Three characters, exactly like the upstream's `wm-`, so the 46-character
- * budget `sanitizeBranchForName` works to stays valid unchanged. It is *not*
- * `wm-`: `findContainer` and `removeContainer` select by prefix, so sharing the
- * upstream's would make this project adopt — and force-remove — containers
- * belonging to an actual WebMux install on the same machine.
- */
 export const CONTAINER_NAME_PREFIX = 'if-';
 
-/* ── hardening defaults (phase 13, §14 stage 2) ─────────────────────────── */
-
-/**
- * The network the container gets when a profile says nothing.
- *
- * `bridge` is what §14 fixes as the default, and it is also what docker would
- * pick — but the flag is written explicitly all the same: a daemon configured
- * with a different default network would otherwise silently change what a
- * sandbox can reach. The value being in the argument list is what makes the
- * policy reviewable in `docker inspect` and in C7.
- */
 export const DEFAULT_NETWORK_MODE = 'bridge' as const;
 
 /**
@@ -76,15 +45,6 @@ export const DEFAULT_MEMORY_FRACTION = 0.75;
 /** Docker refuses `--memory` below 6 MB; below that the flag is dropped. */
 const MIN_MEMORY_MB = 6;
 
-/**
- * Environment variable names that look like they carry a credential.
- *
- * Used to report — never to block. §14 asks for `envPassthrough` to be
- * "validated against secret patterns and what was passed logged": the profile
- * is an allowlist a human wrote, so refusing an entry would break the very
- * launches the allowlist exists for. What the check buys is that forwarding a
- * credential into a sandbox is a visible act instead of a silent one.
- */
 const SECRET_LIKE_ENV_KEY =
   /(?:^|_)(?:TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_KEY)S?$|API_?KEY|ACCESS_KEY|AUTH$/;
 
@@ -93,32 +53,14 @@ const VALID_CAPABILITY = /^(?:CAP_)?[A-Z][A-Z0-9_]*$/;
 
 /* ── configuration this module reads ────────────────────────────────────── */
 
-/**
- * One extra bind mount declared by a profile.
- *
- * Structural subset of the upstream's `MountSpec` (`domain/config.ts:36`). The
- * profile configuration itself is phase 10's (§16, §19); declaring the shape
- * here keeps phase 12 self-contained, and phase 10's richer type only has to
- * stay assignable to it.
- */
 export interface SandboxMountConfig {
   hostPath: string;
   guestPath?: string;
   writable?: boolean;
 }
 
-/** Network policy a sandbox container may be given (§14). */
 export type SandboxNetworkMode = 'none' | 'bridge';
 
-/**
- * The hardening knobs of a docker profile (phase 13, §14 stage 2).
- *
- * Every field is optional and every default is the safe one, so a profile that
- * declares nothing still gets the whole hardened argument list. The fields exist
- * for the launches the defaults would otherwise break — an agent that genuinely
- * needs the host's SSH agent, a build that genuinely needs a capability — and
- * make each of those an explicit, reviewable decision instead of an ambient one.
- */
 export interface SandboxSecurityConfig {
   /** `--network`. Default {@link DEFAULT_NETWORK_MODE}. `none` also drops published ports. */
   network?: SandboxNetworkMode;
@@ -139,27 +81,11 @@ export interface SandboxSecurityConfig {
   capAdd?: string[];
   /** `--security-opt no-new-privileges`. Default `true`; see the module docs before disabling. */
   noNewPrivileges?: boolean;
-  /**
-   * Forward the host's `SSH_AUTH_SOCK` into the container. Default `false`.
-   *
-   * §14 makes this opt-in: the socket lets anything in the container sign and
-   * push with the user's key, including for repositories the sandbox has
-   * nothing to do with. The upstream forwards it whenever it exists.
-   */
+
   sshAgent?: boolean;
-  /**
-   * The implicit agent-config and credential mounts. Default `true`, deprecated.
-   *
-   * `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.gitconfig`, `~/.ssh` and
-   * `~/.config/gh` are mounted because the upstream mounts them and agents
-   * inside the sandbox stop authenticating without them. Phase 13 deprecates the
-   * *implicitness*, not the mounts: they are reported through `onWarn` on every
-   * launch, and `false` turns them off in favour of an explicit `mounts` list.
-   */
-  implicitMounts?: boolean;
 }
 
-/** The docker slice of a runtime profile. Subset of the upstream `DockerProfileConfig`. */
+/** The Docker slice of a runtime profile. */
 export interface SandboxProfileConfig {
   runtime: 'docker';
   image: string;
@@ -170,7 +96,6 @@ export interface SandboxProfileConfig {
   security?: SandboxSecurityConfig;
 }
 
-/** A long-running service that claims a port. Subset of the upstream `ServiceSpec`. */
 export interface SandboxServiceConfig {
   name: string;
   /** Variable in `runtimeEnv` holding the allocated port. */
@@ -186,15 +111,6 @@ export interface LaunchContainerOpts {
   runtimeEnv: Record<string, string>;
 }
 
-/**
- * Everything `buildDockerRunArgs` needs that it must not go and read itself.
- *
- * The upstream declares the same intent in a doc comment — "all I/O must be
- * resolved by the caller and passed in as parameters" — but still reads
- * `Bun.env` for the passthrough allowlist. `hostEnv` closes that one leak, which
- * is what makes the function genuinely pure and lets C7 (§34) compare the
- * argument list literally, with no process state involved.
- */
 export interface DockerRunArgsContext {
   /** Host paths confirmed to exist; decides which credential mounts are included. */
   existingPaths: ReadonlySet<string>;
@@ -313,15 +229,6 @@ export function isSecretLikeEnvKey(key: string): boolean {
   return SECRET_LIKE_ENV_KEY.test(key.toUpperCase());
 }
 
-/**
- * Whether a host path is the Docker daemon's own socket.
- *
- * §14 keeps "the docker socket is not mounted" as an explicit invariant rather
- * than an accident of the upstream never having written the line: a profile
- * mount is arbitrary user configuration, and `-v /var/run/docker.sock:…` inside
- * a container that already runs as the host user is a complete handover of the
- * host daemon — every other flag in this file becomes decorative.
- */
 export function isDockerSocketPath(hostPath: string): boolean {
   return /(?:^|\/)(?:docker|containerd|podman)\.sock$/.test(hostPath);
 }
@@ -411,15 +318,6 @@ const RESERVED_ENV_KEYS: ReadonlySet<string> = new Set([
   'GIT_CONFIG_VALUE_1',
 ]);
 
-/**
- * Build the `docker run` argument list from the given options.
- *
- * A pure function: every path check, environment read and clock read is
- * resolved by the caller and handed in through `context`. That is what C7 (§34)
- * compares literally, and the reason the whole parity criterion of phase 12 —
- * and the hardened baseline of phase 13 — can be verified on a machine with no
- * docker installed.
- */
 export function buildDockerRunArgs(
   opts: LaunchContainerOpts,
   context: DockerRunArgsContext,
@@ -444,8 +342,6 @@ export function buildDockerRunArgs(
     '--user',
     `${hostUid}:${hostGid}`,
   ];
-
-  /* ── hardening (phase 13, §14 stage 2) ────────────────────────────────── */
 
   // Nothing the sandbox does needs a Linux capability: the agent compiles, runs
   // tests and talks to git, all as an unprivileged uid. Dropping the set removes
@@ -515,13 +411,6 @@ export function buildDockerRunArgs(
   args.push('-e', 'GIT_CONFIG_KEY_1=safe.directory');
   args.push('-e', `GIT_CONFIG_VALUE_1=${mainRepoDir}`);
 
-  // Pass through host env vars listed in the docker profile.
-  //
-  // §14 asks for two things here that the upstream does not do: check the names
-  // against secret patterns, and report what was actually forwarded. Both are
-  // reports, never refusals — the allowlist is a decision a human already made,
-  // and a sandbox that silently loses `ANTHROPIC_API_KEY` is a broken sandbox.
-  // Only names are ever reported; a value never reaches a log line.
   const forwarded: string[] = [];
   if (sandboxConfig.envPassthrough) {
     for (const key of sandboxConfig.envPassthrough) {
@@ -558,68 +447,11 @@ export function buildDockerRunArgs(
   }
 
   // Core mounts. These are the sandbox's reason to exist — the worktree the
-  // agent works in and the object store its `.git` points at — and are not
-  // subject to `implicitMounts`.
+  // agent works in and the object store its `.git` points at.
   args.push('-v', `${wtDir}:${wtDir}`);
   args.push('-v', `${mainRepoDir}/.git:${mainRepoDir}/.git`);
   args.push('-v', `${mainRepoDir}:${mainRepoDir}:ro`);
 
-  // The implicit mounts phase 13 deprecates: agent configuration and host
-  // credentials, mounted because they exist rather than because a profile asked
-  // for them. They stay on by default — turning them off silently would leave
-  // every agent in the sandbox unauthenticated — but the launch now says which
-  // of the user's directories it reached into, and a profile can decline.
-  const implicitMounts = security?.implicitMounts !== false;
-  const implicit: string[] = [];
-
-  if (implicitMounts) {
-    args.push('-v', `${home}/.claude:/root/.claude`);
-    args.push('-v', `${home}/.claude.json:/root/.claude.json`);
-    args.push('-v', `${home}/.codex:/root/.codex`);
-    implicit.push(`${home}/.claude`, `${home}/.claude.json`, `${home}/.codex`);
-  }
-
-  // Compute which guest paths are already covered by configured mounts so
-  // credential mounts for the same path can be skipped (explicit mounts win).
-  const extraMountGuestPaths = new Set<string>();
-  if (sandboxConfig.mounts) {
-    for (const mount of sandboxConfig.mounts) {
-      const hostPath = mount.hostPath.replace(/^~/, home);
-      if (!hostPath.startsWith('/')) continue;
-      extraMountGuestPaths.add(mount.guestPath ?? hostPath);
-    }
-  }
-
-  // Git/GitHub credential mounts (read-only, only if they exist on host and
-  // are not overridden by a configured mount for the same guest path).
-  const credentialMounts = [
-    { hostPath: `${home}/.gitconfig`, guestPath: '/root/.gitconfig' },
-    { hostPath: `${home}/.ssh`, guestPath: '/root/.ssh' },
-    { hostPath: `${home}/.config/gh`, guestPath: '/root/.config/gh' },
-  ];
-  if (implicitMounts) {
-    for (const { hostPath, guestPath } of credentialMounts) {
-      if (extraMountGuestPaths.has(guestPath)) continue;
-      if (existingPaths.has(hostPath)) {
-        args.push('-v', `${hostPath}:${guestPath}:ro`);
-        implicit.push(hostPath);
-      }
-    }
-  }
-
-  if (implicit.length > 0) {
-    warn(
-      `[docker] implicit credential mounts (deprecated — set security.implicitMounts=false and declare them): ${implicit.join(', ')}`,
-    );
-  }
-
-  // SSH agent forwarding — mount the socket so git+ssh works with
-  // passphrase-protected keys and hardware tokens. Use --mount instead of -v
-  // because Docker's -v tries to mkdir socket paths and fails.
-  //
-  // Opt-in since phase 13 (§14): the socket is not a file the container can
-  // read, it is the user's key answering signature requests for as long as the
-  // container lives, for every repository and host that key reaches.
   if (security?.sshAgent === true && sshAuthSock && existingPaths.has(sshAuthSock)) {
     args.push('--mount', `type=bind,source=${sshAuthSock},target=${sshAuthSock}`);
     args.push('-e', `SSH_AUTH_SOCK=${sshAuthSock}`);
@@ -670,16 +502,6 @@ export function createDockerGateway(options: DockerGatewayOptions = {}): DockerG
   const warn = options.onWarn ?? (() => {});
   const error = options.onError ?? (() => {});
 
-  /**
-   * Every docker invocation of this project, through the one shell chokepoint.
-   *
-   * `diagnostics` is off by default because most calls here are *probes*: a
-   * machine with no daemon answers non-zero to `docker version` and `docker ps`
-   * as a legitimate result, and writing a diagnostic for each would bury the one
-   * failure that matters. `docker run` turns it back on — that one is a real
-   * failure with real stderr, and losing it would be the regression §45.3 warns
-   * about.
-   */
   async function docker(
     args: string[],
     opts: { cancelSignal?: AbortSignal; diagnostics?: boolean } = {},
@@ -747,8 +569,6 @@ export function createDockerGateway(options: DockerGatewayOptions = {}): DockerG
       const name = containerName(branch);
       const home = env.HOME ?? '/root';
 
-      // Resolve which credential paths exist on the host before building args.
-      //
       // The socket is not even looked at unless the profile opted in: probing it
       // otherwise would emit a "not world-accessible" warning about a socket
       // this launch was never going to forward.
@@ -766,18 +586,8 @@ export function createDockerGateway(options: DockerGatewayOptions = {}): DockerG
         }
       }
 
-      const credentialHostPaths = [
-        `${home}/.gitconfig`,
-        `${home}/.ssh`,
-        `${home}/.config/gh`,
-        ...(sshAuthSock ? [sshAuthSock] : []),
-      ];
       const existingPaths = new Set<string>();
-      await Promise.all(
-        credentialHostPaths.map(async (p) => {
-          if (await pathExists(p)) existingPaths.add(p);
-        }),
-      );
+      if (sshAuthSock && (await pathExists(sshAuthSock))) existingPaths.add(sshAuthSock);
 
       const args = buildDockerRunArgs(opts, {
         existingPaths,
@@ -793,11 +603,6 @@ export function createDockerGateway(options: DockerGatewayOptions = {}): DockerG
 
       info(`[docker] launching container: ${name}`);
 
-      // A hung daemon or a slow image pull must not block the caller
-      // indefinitely. `run()` is the only shell path of this project, so the
-      // upstream's manual race against `Bun.sleep` becomes an abort signal it
-      // forwards to execa. The flag — not the elapsed time — is what tells a
-      // timeout apart from a plain failure, which the two report differently.
       const controller = new AbortController();
       let timedOut = false;
       const timer = setTimeout(() => {

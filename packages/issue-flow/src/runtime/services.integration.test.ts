@@ -2,17 +2,6 @@ import { createServer, type Server } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createPortProbe } from './services.js';
 
-/**
- * The port probe against real sockets. It lives here rather than in the default
- * suite because it binds real ports on real loopback addresses — the boundary
- * `docs/` reserves for the integration configuration.
- *
- * The two families are the point of this file. A server bound only to `::1`
- * refuses `127.0.0.1` and vice versa, and the upstream probes both in parallel
- * precisely so that neither case reports a running service as down. A unit test
- * with a fake socket cannot show that.
- */
-
 const servers: Server[] = [];
 
 afterEach(async () => {

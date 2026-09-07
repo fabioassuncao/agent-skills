@@ -14,7 +14,7 @@ import type { IssueTemplate, PolicyDocument, RepositoryPolicy } from './types.js
  * inside Issue Flow, a rule that already lives in the repository.
  *
  * The whole projection is empty when the repository declares nothing, which is
- * what lets a prompt render byte for byte as it did before this layer existed.
+ * what lets a prompt preserve its literal content.
  */
 
 /** Every placeholder this module produces. Ordered as they appear in a prompt. */

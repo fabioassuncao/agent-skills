@@ -16,15 +16,6 @@ import { type RunServeOptions, runServe } from './serve.js';
 
 export type RunWebServeOptions = RunServeOptions;
 
-/**
- * Bind (or defer to) the single web monitor instance and keep the process
- * alive for as long as it stays bound.
- *
- * `issue-flow web serve` is now an alias of `issue-flow serve` (§47.4). One
- * body, not two: the lock, the detached-spawn contract and the silence on the
- * happy path are unchanged, and the only difference the rename could have
- * introduced — a second way to bind — is exactly what `web/AGENTS.md` forbids.
- */
 export async function runWebServe(options: RunWebServeOptions): Promise<number> {
   return runServe(options);
 }

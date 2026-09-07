@@ -66,6 +66,34 @@ function makePublisher(): MemoryPublisher {
   return publisher;
 }
 
+function directoryForPublisher(publisher: MemoryPublisher): SessionDirectoryHandle {
+  const current = (): ActiveSession[] => {
+    const snapshot = publisher.snapshot();
+    return snapshot.sessionId === null
+      ? []
+      : [
+          {
+            projectId: 'project-1',
+            issueId: String(snapshot.issue.number ?? 'unknown'),
+            snapshot,
+            updatedAtMs: Date.now(),
+          },
+        ];
+  };
+  return {
+    sessions: current,
+    getSession: (sessionId) => current().find((entry) => entry.snapshot.sessionId === sessionId),
+    events: async (sessionId) =>
+      current().some((entry) => entry.snapshot.sessionId === sessionId) ? [] : undefined,
+    agentEvents: async (sessionId) =>
+      current().some((entry) => entry.snapshot.sessionId === sessionId) ? [] : undefined,
+    refresh: async () => {},
+    subscribe: () => () => {},
+    revision: () => publisher.version(),
+    close: () => {},
+  };
+}
+
 describe('startWebServer', () => {
   const handles: WebServerHandle[] = [];
   const tmpDirs: string[] = [];
@@ -74,7 +102,7 @@ describe('startWebServer', () => {
     overrides: Partial<Parameters<typeof startWebServer>[0]> = {},
   ): Promise<WebServerHandle> {
     const handle = await startWebServer({
-      publisher: makePublisher(),
+      sessions: directoryForPublisher(makePublisher()),
       port: 0,
       host: '127.0.0.1',
       info: noop,
@@ -126,7 +154,7 @@ describe('startWebServer', () => {
       labels: ['enhancement'],
       state: 'open',
     });
-    const handle = await start({ publisher });
+    const handle = await start({ sessions: directoryForPublisher(publisher) });
 
     const payload = await (await fetch(`${handle.url}/api/status`)).json();
     expect(payload.issue).toEqual({
@@ -144,20 +172,20 @@ describe('startWebServer', () => {
     publisher.publish({
       type: 'git:update',
       at: '2026-08-03T12:00:02Z',
-      branch: 'issue/22-test',
+      branch: 'feat/22-test',
       baseBranch: 'main',
       repositoryName: 'acme/repo',
       remoteUrl: 'git@github.com:acme/repo.git',
       headCommit: 'c56b163',
       repositoryRoot: '/repo/root',
     });
-    const handle = await start({ publisher });
+    const handle = await start({ sessions: directoryForPublisher(publisher) });
 
     const payload = await (await fetch(`${handle.url}/api/status`)).json();
     expect(payload.repository).toEqual({
       name: 'acme/repo',
       remoteUrl: 'git@github.com:acme/repo.git',
-      branch: 'issue/22-test',
+      branch: 'feat/22-test',
       headCommit: 'c56b163',
       root: '/repo/root',
     });
@@ -174,7 +202,7 @@ describe('startWebServer', () => {
 
   it('answers 304 with an empty body for a matching If-None-Match', async () => {
     const publisher = makePublisher();
-    const handle = await start({ publisher });
+    const handle = await start({ sessions: directoryForPublisher(publisher) });
 
     const first = await fetch(`${handle.url}/api/status`);
     const etag = first.headers.get('etag');
@@ -237,7 +265,7 @@ describe('startWebServer', () => {
     publisher.publish({
       type: 'git:update',
       at: '2026-08-03T12:00:02Z',
-      branch: 'issue/35-dashboard',
+      branch: 'feat/35-dashboard',
       baseBranch: 'main',
       commits: [],
       repositoryName: 'acme/issue-flow',
@@ -246,7 +274,7 @@ describe('startWebServer', () => {
       repositoryRoot: '/tmp/issue-flow',
     });
     publisher.publish({ type: 'phase:start', at: '2026-08-03T12:00:03Z', phase: 'prd' });
-    const handle = await start({ publisher });
+    const handle = await start({ sessions: directoryForPublisher(publisher) });
 
     const sessions = await (await fetch(`${handle.url}/api/sessions`)).json();
     expect(sessions).toHaveLength(1);
@@ -276,7 +304,7 @@ describe('startWebServer', () => {
       labels: [],
       state: 'open',
     });
-    const handle = await start({ publisher });
+    const handle = await start({ sessions: directoryForPublisher(publisher) });
 
     const sessions = await (await fetch(`${handle.url}/api/sessions`)).json();
     expect(sessions[0].issueDescription.length).toBeLessThanOrEqual(SESSION_LIST_DESCRIPTION_MAX);
@@ -338,7 +366,6 @@ describe('startWebServer', () => {
         probeAvailability: async (id) => ({
           id,
           installed: id === 'claude' || id === 'codex',
-          authenticated: id === 'claude' || id === 'codex',
           authentication: id === 'claude' || id === 'codex' ? 'confirmed' : 'failed',
           state: id === 'claude' || id === 'codex' ? 'ready' : 'unavailable',
           version: 'test',
@@ -401,13 +428,7 @@ describe('startWebServer', () => {
     expect(forbidden.status).toBe(403);
   });
 
-  /**
-   * A checkout that never ran `npm run build:web`.
-   *
-   * The previous panel used to be this answer (ADR-18). Phase 8D removed it
-   * with §50.7 green, so `/` says what is missing and links `status.json` —
-   * which §50.8 keeps as the one fallback that needs no JavaScript at all.
-   */
+  /** A checkout that never ran `npm run build:web`. */
   it('says the dashboard is not built, and keeps status.json reachable', async () => {
     const handle = await start({ dashboardDir: join(tmpdir(), 'issue-flow-no-dashboard') });
 
@@ -422,8 +443,7 @@ describe('startWebServer', () => {
     // any panel existing.
     expect((await fetch(`${handle.url}/status.json`)).status).toBe(200);
 
-    // The previous panel is gone: nothing answers at its addresses.
-    for (const path of ['/legacy/', '/legacy', '/app.css', '/app.js']) {
+    for (const path of ['/app.css', '/app.js']) {
       expect((await fetch(`${handle.url}${path}`, { redirect: 'manual' })).status).toBe(404);
     }
   });
@@ -475,9 +495,6 @@ describe('startWebServer', () => {
       expect(bundleResponse.status).toBe(200);
       expect(bundleResponse.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
     }
-
-    // ...and there is no second panel behind it any more (§50.8).
-    expect((await fetch(`${handle.url}/legacy/`)).status).toBe(404);
   });
 
   it('answers 404 JSON for unknown routes, missing assets and non-GET methods', async () => {
@@ -502,7 +519,7 @@ describe('startWebServer', () => {
     const warn = vi.fn();
 
     const second = await startWebServer({
-      publisher: makePublisher(),
+      sessions: directoryForPublisher(makePublisher()),
       port: first.port,
       host: '127.0.0.1',
       info: noop,
@@ -574,8 +591,8 @@ function makeSnapshot(sessionId: string, issueNumber: number): SessionSnapshot {
  */
 function fakeSessionDirectory(snapshots: SessionSnapshot[]) {
   let sessions: ActiveSession[] = snapshots.map((snapshot) => ({
-    issueDir: '/fake/issue-dir',
-    filePath: '/fake/issue-dir/session.json',
+    projectId: 'project-1',
+    issueId: String(snapshot.issue.number ?? 'unknown'),
     snapshot,
     updatedAtMs: Date.now(),
   }));
@@ -601,8 +618,8 @@ function fakeSessionDirectory(snapshots: SessionSnapshot[]) {
     close: () => listeners.clear(),
     replace: (next, change = {}) => {
       sessions = next.map((snapshot) => ({
-        issueDir: '/fake/issue-dir',
-        filePath: '/fake/issue-dir/session.json',
+        projectId: 'project-1',
+        issueId: String(snapshot.issue.number ?? 'unknown'),
         snapshot,
         updatedAtMs: Date.now(),
       }));
@@ -922,28 +939,9 @@ describe('startWebServer — push transport (/api/stream, absorption phase 1)', 
     const health = await (await fetch(`${handle.url}/api/health`)).json();
     expect(health.capabilities).toContain('stream:sessions');
   });
-
-  it('works over the legacy single-publisher backend, which cannot push on its own', async () => {
-    const publisher = makePublisher();
-    const handle = await startWebServer({
-      publisher,
-      port: 0,
-      host: '127.0.0.1',
-      info: noop,
-      warn: noop,
-    });
-    if (handle === null) throw new Error('server failed to start');
-    handles.push(handle);
-
-    const stream = await connect(`${handle.url}/api/stream?session=session-1`);
-    await stream.next('status');
-
-    publisher.publish({ type: 'phase:start', at: '2026-08-03T12:00:05Z', phase: 'prd' });
-    expect((await stream.next('status')).data).toMatchObject({ currentPhase: 'prd' });
-  });
 });
 
-describe('startWebServer — the terminal surface (absorption phase 8)', () => {
+describe('startWebServer — the terminal surface', () => {
   const handles: WebServerHandle[] = [];
 
   afterEach(async () => {
@@ -954,7 +952,7 @@ describe('startWebServer — the terminal surface (absorption phase 8)', () => {
     overrides: Partial<Parameters<typeof startWebServer>[0]> = {},
   ): Promise<WebServerHandle> {
     const handle = await startWebServer({
-      publisher: makePublisher(),
+      sessions: directoryForPublisher(makePublisher()),
       port: 0,
       host: '127.0.0.1',
       info: noop,
@@ -1014,7 +1012,7 @@ describe('startWebServer — the session listing (absorption phase 8D)', () => {
     overrides: Partial<Parameters<typeof startWebServer>[0]> = {},
   ): Promise<WebServerHandle> {
     const handle = await startWebServer({
-      publisher: makePublisher(),
+      sessions: directoryForPublisher(makePublisher()),
       port: 0,
       host: '127.0.0.1',
       info: noop,

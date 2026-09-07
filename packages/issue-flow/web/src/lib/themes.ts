@@ -1,22 +1,5 @@
 import type { ITheme } from '@xterm/xterm';
 
-/**
- * ADAPT of `frontend/src/lib/themes.ts` @ d8c9d5f (151 lines).
- *
- * The upstream ships five named palettes (GitHub Dark, Dracula, Nord,
- * Solarized Dark, One Dark). They are additions to the Issue Flow's three
- * modes, not replacements: `system`, `light` and `dark` keep their semantics,
- * while a named palette is an explicit dark choice.
- *
- * The upstream copied literal colours onto `--color-*` at runtime. That part
- * stays adapted: every palette is expressed as the same role tokens as the
- * measured Issue Flow palette, and all nineteen contrast pairs are verified.
- *
- * What survives from the upstream is the shape — a resolved theme object that
- * feeds xterm — and it is now *derived* from the same tokens the rest of the
- * page uses, rather than duplicated beside them.
- */
-
 export const THEME_KEYS = [
   'system',
   'light',

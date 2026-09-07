@@ -14,22 +14,6 @@ import {
   type LaunchContainerOpts,
 } from './docker.js';
 
-/**
- * The docker gateway against a real daemon.
- *
- * Covers what a pure function cannot: that the argument list `buildDockerRunArgs`
- * produces is one docker actually accepts, that `launchContainer` is idempotent
- * per branch — the property §45.2-H names explicitly — and, since phase 13, that
- * the hardening flags reach the container as the kernel sees them while the
- * operations they could plausibly break still work.
- *
- * Docker may well not be installed, and that is not a failure of either phase:
- * parity (C7) and the whole §14 threat model are proven by `docker.test.ts`
- * alone. The probe below therefore runs **synchronously at module load** —
- * `it.runIf` is evaluated while the file is being collected, so a flag assigned
- * in `beforeAll` would still be false and every case would skip in silence.
- */
-
 const TEST_IMAGE = process.env.ISSUE_FLOW_SANDBOX_TEST_IMAGE ?? 'alpine:latest';
 
 function probeDocker(): boolean {

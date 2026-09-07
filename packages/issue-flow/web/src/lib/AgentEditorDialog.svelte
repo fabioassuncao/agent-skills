@@ -4,19 +4,7 @@
   import type { UpsertCustomAgentRequest, ValidateCustomAgentResponse } from './types';
   import { errorMessage } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/AgentEditorDialog.svelte` @ d8c9d5f (163 lines).
-   *
-   * The one thing §45.2-L absorbs from the upstream's agent layer: a custom
-   * agent declared as a start command and an optional resume command. Issue
-   * Flow's own registry, capabilities, routing, health and failover stay
-   * exactly as they are — this adds a provider, it does not replace the layer.
-   *
-   * The placeholders are substituted by the runtime as **argv**, never
-   * interpolated into a shell string (ADR-04). The note under the list says so
-   * in the UI, because someone reading `${PROMPT}` will otherwise assume shell
-   * semantics and write quoting that then gets escaped literally.
-   */
+
 
   let {
     title,

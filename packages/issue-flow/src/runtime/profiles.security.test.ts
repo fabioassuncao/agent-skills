@@ -58,7 +58,6 @@ describe('sandbox hardening reaches the container', () => {
       capAdd: ['NET_ADMIN'],
       noNewPrivileges: false,
       sshAgent: true,
-      implicitMounts: false,
     });
     expect(profile.security).toEqual({
       network: 'none',
@@ -67,7 +66,6 @@ describe('sandbox hardening reaches the container', () => {
       capAdd: ['NET_ADMIN'],
       noNewPrivileges: false,
       sshAgent: true,
-      implicitMounts: false,
     });
 
     const args = argsFor(profile.security);
@@ -79,8 +77,6 @@ describe('sandbox hardening reaches the container', () => {
     expect(args).not.toContain('--security-opt');
   });
 
-  // A profile that says nothing must still get the whole §14 posture, or the
-  // escape hatch would have quietly become the default.
   it('leaves the hardened defaults in place when nothing is declared', () => {
     expect(profileFrom(undefined).security).toBeUndefined();
 

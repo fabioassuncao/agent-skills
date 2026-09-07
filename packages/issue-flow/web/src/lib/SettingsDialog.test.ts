@@ -5,11 +5,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentDetails, AgentSummary, AppConfig } from './types';
 
-/**
- * PORT of `frontend/src/lib/SettingsDialog.test.ts` @ d8c9d5f — 4 cases, plus 1
- * for the capability gate, including the optional Linear automation toggle.
- */
-
 vi.mock('./api', () => ({
   CAPABILITY: {
     configAgentWrite: 'config:agent:write',
@@ -35,8 +30,6 @@ vi.mock('./api', () => ({
   updateAgent: vi.fn(),
   deleteAgent: vi.fn(),
   validateAgent: vi.fn(),
-  // §50.3 merged the panel's two preference forms into this dialog, so the
-  // dialog now reaches the execution-configuration half of the API too.
   fetchEffectiveConfig: vi.fn(async () => ({
     effective: null,
     capturedForSession: null,

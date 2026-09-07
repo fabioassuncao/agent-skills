@@ -93,9 +93,6 @@ export function applyAgentLifecycleEvent(
           // Idempotent: a person typing produces one of these per burst, and
           // moving `since` would erase how long they have been in control.
           humanHold: snapshot.agent.humanHold ?? { since: event.at, reason: event.reason },
-          // A takeover *is* somebody coming. The two conditions are distinct
-          // (§32), and the one that means "nobody answered" stops being true
-          // the moment a person is in control.
           awaitingInputEscalatedAt: null,
           awaitingInputWaitedMs: null,
         },

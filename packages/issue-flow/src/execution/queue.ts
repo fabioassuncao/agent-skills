@@ -21,7 +21,7 @@ import type { ExecutionPlan } from './types.js';
  *
  * Everything here happens *before* the session starts, so a run that turns out
  * to be a plain single-issue pipeline is indistinguishable from what the CLI
- * did before this feature existed: no prompt, no artifact, no extra output.
+ * has no prompt, artifact or extra output.
  */
 
 export type QueueDecision =

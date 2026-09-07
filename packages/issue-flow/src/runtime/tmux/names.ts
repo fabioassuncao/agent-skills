@@ -1,18 +1,3 @@
-/**
- * How tmux sessions, windows and panes are named.
- *
- * Ported from the naming helpers of WebMux `backend/src/adapters/tmux.ts`
- * @ d8c9d5f. Pure functions, so the characterization tests can compare names
- * without a tmux server anywhere.
- *
- * One deliberate change (§13, change 3): the session is keyed by Issue Flow's
- * **project id** rather than by a hash of the path. The project id is derived
- * from the git remote (`storage/project-identity.ts`), so it survives moving the
- * directory and is identical across two clones of the same repository — which
- * is exactly what a session name should be stable against. The upstream hashes
- * the path because it has no other identity available.
- */
-
 /** Prefix of everything this project creates in tmux. */
 export const TMUX_NAME_PREFIX = 'if';
 

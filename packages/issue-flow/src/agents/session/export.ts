@@ -1,28 +1,12 @@
 import { z } from 'zod';
 import { writeFileAtomic } from '../../utils/fs.js';
-import {
-  type ConversationMessage,
-  type ConversationState,
-  countConversationTurns,
-} from './conversation.js';
+import { type ConversationState, countConversationTurns } from './conversation.js';
 
 /**
  * Exporting a conversation, and seeding a new one from an exported file.
  *
- * ## What was ported and what was dropped
- *
- * The upstream service pushes a conversation into **Linear** as a JSON
- * attachment plus a summary comment, and reads it back to seed the next
- * session. This module owns the provider-neutral half — the payload format,
- * its backward-compatible parser, markdown rendering, local file transport and
- * reseed builder. The restored Linear integration reuses this exact payload in
- * `issues/linear/`; importing/reseeding from a Linear attachment remains out.
- *
- * That is not a smaller feature; it is the same feature with the part this
- * project actually has. An exported conversation is an artefact: it belongs
- * next to the run's other artefacts, written the way this project writes every
- * artefact — `writeFileAtomic`, so a crash mid-write leaves the previous export
- * intact rather than a truncated JSON file (§45.3).
+ * An exported conversation is an artefact next to the run's other artefacts.
+ * It is written atomically so a crash cannot leave a truncated payload.
  *
  * ## The rule that governs the reseed
  *
@@ -41,11 +25,8 @@ export const CONVERSATION_EXPORT_VERSION = 1;
 const messageSchema = z.object({
   id: z.string(),
   turnId: z.string(),
-  // Both optional on input: an export written by an earlier release predates
-  // them, and refusing to read it would strip the format of the only property
-  // an archive needs. They are filled in below and are required on output.
-  order: z.number().int().nonnegative().optional(),
-  kind: z.enum(['text', 'thinking', 'toolUse', 'toolResult']).optional(),
+  order: z.number().int().nonnegative(),
+  kind: z.enum(['text', 'thinking', 'toolUse', 'toolResult']),
   role: z.enum(['user', 'assistant']),
   text: z.string(),
   status: z.enum(['completed', 'inProgress', 'failed']),
@@ -65,15 +46,7 @@ const payloadSchema = z.object({
   baseBranch: z.string().nullable(),
   agent: z.string().nullable(),
   createdAt: z.string(),
-  conversation: z.array(messageSchema).transform((messages) =>
-    messages.map(
-      (message, order): ConversationMessage => ({
-        ...message,
-        order: message.order ?? order,
-        kind: message.kind ?? 'text',
-      }),
-    ),
-  ),
+  conversation: z.array(messageSchema),
 });
 
 export type ConversationExportPayload = z.infer<typeof payloadSchema>;

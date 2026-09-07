@@ -5,14 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { getDatabasePath } from '../db/index.js';
 import { createProjectRegistry, type ProjectRegistry } from './registry.js';
 
-/**
- * Ported from `backend/src/__tests__/projects-registry.test.ts` @ d8c9d5f
- * (7 cases). Adapted where the store changed: an upsert keyed by `projectId`
- * instead of by path, `unregister` demoting instead of deleting, and a
- * malformed *file* becoming an unreadable *database* — the tolerant-read
- * behaviour the original protects is the part that had to survive.
- */
-
 const directories: string[] = [];
 
 async function freshRegistry(): Promise<{ home: string; registry: ProjectRegistry }> {

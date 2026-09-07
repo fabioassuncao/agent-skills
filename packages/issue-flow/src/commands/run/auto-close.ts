@@ -10,29 +10,6 @@ import type { SessionPublisher } from '../../core/session-state.js';
 import { isoNow } from '../../core/state-manager.js';
 import { listAgentEvents, type PlanRepositoryContext } from '../../storage/db/repository.js';
 
-/**
- * The end of an autonomous run, in the terms of this repository.
- *
- * `core/run-completion.ts` is the ported decision — *when* a run counts as
- * finished and what stands it down. This is the half that knows Issue Flow:
- * where the agent's signals are read from, what "close what it left open"
- * closes, and what "disarmed" means.
- *
- * **Disarm.** §32 already gave this repository the mechanism WebMux calls
- * elegant: a person touching the keyboard puts the run in `human_hold`, and
- * nothing automatic proceeds. So there is no second armed/disarmed flag here —
- * armed *is* "no human hold", and disarming a run that finished on its own is
- * simply not having one to disarm. That is the invariant-13 answer: one
- * implementation of "a person is in control", in `core/human-hold.ts`.
- *
- * **Close.** Upstream's `closeWorktree` closes the *session*, never the
- * worktree itself — the work stays on disk. The equivalent here is the run's
- * live `AgentSession` rows: they are the link between a conversation and what
- * it is being used for, and a finished run has no use for them. Nothing is
- * deleted, no branch is touched and no worktree is removed; a headless run,
- * which opens no session at all, closes nothing and is unaffected (ADR-03).
- */
-
 export interface SettleRunOptions {
   context: PlanRepositoryContext;
   /** Session id of the run — `runs.id`. */
@@ -110,10 +87,6 @@ export async function settleFinishedRun(options: SettleRunOptions): Promise<Sett
     closeRun: async (id) => {
       closedSessions = await closeRunSessions(context, id);
     },
-    // A run that finished on its own has no hold to clear, and one that a
-    // person is holding never reaches here. Releasing the hold would be
-    // exactly the auto-resume §32 forbids, so standing down is a no-op by
-    // design — the arming state is derived, never stored twice.
     disarm: async () => {},
     autoClose,
     ...(options.now === undefined ? {} : { now: options.now }),
@@ -141,14 +114,6 @@ export async function settleFinishedRun(options: SettleRunOptions): Promise<Sett
   return { settled: settled > 0, closedSessions, heldByHuman };
 }
 
-/**
- * Stop the run's live sessions.
- *
- * `stopped`, never deleted: the row is the record that the conversation
- * existed and which worktree it ran in, and `--resume` of a later run reads
- * it. Upstream closes the tmux window and leaves the worktree alone for the
- * same reason.
- */
 async function closeRunSessions(context: PlanRepositoryContext, runId: string): Promise<number> {
   const sessions = await listSessions(context, { runId });
   let closed = 0;

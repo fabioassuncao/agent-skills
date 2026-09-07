@@ -20,7 +20,7 @@ vi.mock('execa', () => ({
       return { stdout: mockRepo.remote, exitCode: 0 };
     }
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
-      return { stdout: 'issue/42-sample', exitCode: 0 };
+      return { stdout: 'feat/42-sample', exitCode: 0 };
     }
     if (file === 'gh' && args[0] === 'pr' && args[1] === 'list') {
       return { stdout: mockOpenPrs.sequence.shift() ?? mockOpenPrs.json, exitCode: 0 };
@@ -66,7 +66,8 @@ function makePlan(): TaskPlan {
     project: 'test',
     issueNumber: 42,
     issueUrl: 'https://github.com/acme/repo/issues/42',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
+    noBranch: false,
     description: 'Test plan',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -74,6 +75,7 @@ function makePlan(): TaskPlan {
     lastError: null,
     correctionCycle: 0,
     maxCorrectionCycles: 3,
+    lastReviewFindings: null,
     pipeline: {
       prdCompleted: true,
       jsonCompleted: true,
@@ -148,7 +150,7 @@ describe('runPr — persisted Pull Request', () => {
     expect(plan.pullRequest).toEqual({
       number: 128,
       url: 'https://github.com/acme/repo/pull/128',
-      headBranch: 'issue/42-sample',
+      headBranch: 'feat/42-sample',
       createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     });
   });
@@ -181,7 +183,7 @@ describe('runPr — persisted Pull Request', () => {
     expect(persisted.pullRequest).toMatchObject({
       number: 129,
       url: 'https://github.com/acme/repo/pull/129',
-      headBranch: 'issue/42-sample',
+      headBranch: 'feat/42-sample',
     });
   });
 
@@ -257,7 +259,7 @@ describe('runPr — persisted Pull Request', () => {
     expect(tasksPath.startsWith(globalHome)).toBe(true);
     expect(String(headlessOptions.last?.prompt)).toContain(tasksPath);
     expect(headlessOptions.last?.addDirs).toEqual([issueDir]);
-    // Nothing was written under the legacy tree.
+    // No repository-local duplicate was written.
     await expect(readFile(join(tmpDir, 'issues', '42', 'tasks.json'), 'utf-8')).rejects.toThrow();
   });
 });
@@ -419,7 +421,7 @@ describe('runPr — an open Pull Request is adopted, never duplicated (US-021)',
     }
     // And it asked the right question.
     expect(await invocations()).toContainEqual(
-      expect.stringContaining('gh pr list --head issue/42-sample --state open'),
+      expect.stringContaining('gh pr list --head feat/42-sample --state open'),
     );
   });
 
@@ -435,7 +437,7 @@ describe('runPr — an open Pull Request is adopted, never duplicated (US-021)',
     expect(plan.pullRequest).toMatchObject({
       number: 128,
       url: 'https://github.com/acme/repo/pull/128',
-      headBranch: 'issue/42-sample',
+      headBranch: 'feat/42-sample',
     });
   });
 

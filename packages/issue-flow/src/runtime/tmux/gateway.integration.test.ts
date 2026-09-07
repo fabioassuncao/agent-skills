@@ -8,18 +8,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTmuxGateway, type TmuxGateway } from './gateway.js';
 import { ensureSessionLayout, type PaneTemplate, planSessionLayout } from './layout.js';
 
-/**
- * The tmux gateway against a real tmux server.
- *
- * Covers phase 6's completion criterion — **C3**, plus the §35 budget for
- * `ensureSessionLayout` with two panes (**≤ 400 ms**, upstream 254 ms) — and the
- * one behaviour the port is not allowed to lose: a missing tmux degrades
- * cleanly instead of failing a run.
- *
- * Every command runs on a **throwaway socket**, never `issue-flow` and never the
- * user's default: a test that killed windows on the real project socket would
- * kill a real agent.
- */
 const socketName = `issue-flow-test-${randomUUID().slice(0, 8)}`;
 
 // Probed at module load, synchronously: `it.runIf` is evaluated while the file
@@ -98,7 +86,6 @@ describe('tmux gateway against a real server', () => {
     );
   });
 
-  // The improvement over the upstream (§27): reopening must not kill the agent.
   it.runIf(tmuxAvailable)('reattaches to an intact window, leaving its panes alive', async () => {
     const layout = plan([
       { id: 'agent', kind: 'agent', focus: true },
@@ -236,10 +223,6 @@ describe('tmux gateway against a real server', () => {
     await ensureSessionLayout(tmux, plan([{ id: 'agent', kind: 'agent' }], 'proj-one'));
     await ensureSessionLayout(tmux, plan([{ id: 'agent', kind: 'agent' }], 'proj-two'));
 
-    // `new-session -d` always creates a window of its own, and a session with
-    // no windows is destroyed by tmux — so every session carries one unnamed
-    // window besides the worktree's. The upstream lives with the same thing;
-    // what matters is that one aggregated call sees both projects.
     const windows = await tmux.listWindows();
     expect(
       windows
@@ -267,7 +250,6 @@ describe('tmux gateway against a real server', () => {
     await expect(missing.listWindows()).resolves.toEqual([]);
   });
 
-  // §35: ensureSessionLayout with two panes, measured at 254 ms upstream.
   it.runIf(tmuxAvailable)('lays out two panes within the 400 ms budget', async () => {
     const samples: number[] = [];
     for (let round = 0; round < 5; round += 1) {
@@ -289,7 +271,6 @@ describe('tmux gateway against a real server', () => {
     expect(median).toBeLessThanOrEqual(400);
   });
 
-  // §35: the marginal cost of one more session, measured at 15 ms upstream.
   it.runIf(tmuxAvailable)('adds a session for under the 30 ms marginal budget', async () => {
     const templates: PaneTemplate[] = [{ id: 'agent', kind: 'agent' }];
     await ensureSessionLayout(tmux, plan(templates, 'proj-warm'));

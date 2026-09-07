@@ -40,7 +40,7 @@ async function selectionForForced(invocation: AgentInvocation): Promise<AgentSel
     primary: settings.provider,
     provider: settings.provider,
     settings,
-    healthFile: null,
+    health: null,
     failover: false,
     reason: null,
     cooldownUntil: null,
@@ -393,22 +393,11 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     projectRoot: invocation.workingDirectory ?? process.cwd(),
   });
 
-  // While a person holds the run (§32) the watchdog must not kill the agent:
-  // the silence is somebody reading, not a stall. The watch installs the
-  // process-wide gate every runner's watchdog already consults, so none of the
-  // five had to be changed. Absent context or session id means no hold can
-  // exist, and the gate stays uninstalled.
   const holdContext = repositoryContextForRun();
   const runId = publisher.snapshot().sessionId;
   const holdWatch =
     holdContext !== null && runId !== null ? startHumanHoldWatch(holdContext, runId) : null;
 
-  // The other half of §32: an `awaiting-input` nobody answers has to escalate,
-  // and it has to do so **headless** (ADR-03) — a run with no dashboard open is
-  // exactly the one that most needs to be told. It hangs here, on the single
-  // chokepoint every invocation goes through, so none of the five runners had
-  // to change and no mode is left uncovered. Unlike the hold watch it needs no
-  // storage: the state it reads is the publisher's, in this process.
   const awaitingInputWatch = startAwaitingInputWatch({ publisher });
 
   let run: AgentRunResult;
@@ -546,11 +535,11 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
   else lastFailure.set(invocation.phase, failure.kind);
 
   let health: ProviderHealthRecord | null = null;
-  if (selection.healthFile !== null) {
+  if (selection.health !== null) {
     health =
       failure === null
-        ? await recordProviderSuccess(selection.healthFile, selection.provider)
-        : await recordProviderFailure(selection.healthFile, selection.provider, failure, {
+        ? await recordProviderSuccess(selection.health, selection.provider)
+        : await recordProviderFailure(selection.health, selection.provider, failure, {
             config: config.providers,
           });
   }

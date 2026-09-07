@@ -8,8 +8,7 @@
  * and merges it with the explicit `policy` key of `.issue-flow.json`.
  *
  * It degrades silently by construction: a repository with none of those sources
- * resolves to an empty policy, without an error and without a warning, which is
- * exactly the behaviour every flow had before this layer existed.
+ * resolves to an empty policy, without an error and without a warning.
  */
 
 export {

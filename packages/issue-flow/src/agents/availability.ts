@@ -46,20 +46,10 @@ export interface ReadinessSnapshot {
   providers: Record<AgentProviderId, ProviderReadiness>;
 }
 
-/**
- * Legacy surface kept for callers that only need "may we attempt". Prefer
- * `authentication` + `state` when distinguishing confirmed vs unverified.
- */
 export interface AgentAvailability {
   id: AgentProviderId;
   installed: boolean;
   version: string | null;
-  /**
-   * True when the provider may be attempted: installed and not auth-failed.
-   * `authProbe: 'none'` stays attemptable when installed even though
-   * authentication is `unverified`.
-   */
-  authenticated: boolean;
   authentication: AuthenticationState;
   state: ReadinessState;
   detail: string;
@@ -116,7 +106,6 @@ function toAvailability(readiness: ProviderReadiness): AgentAvailability {
     id: readiness.provider,
     installed: readiness.installed,
     version: readiness.version,
-    authenticated: readiness.installed && readiness.authentication !== 'failed',
     authentication: readiness.authentication,
     state: readiness.state,
     detail: readiness.detail,

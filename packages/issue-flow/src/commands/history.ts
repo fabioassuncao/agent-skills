@@ -1,48 +1,15 @@
-import { readFile } from 'node:fs/promises';
-import { parseJournal } from '../core/journal.js';
-import { loadTaskPlan } from '../core/state-manager.js';
-import { getStoredIssueHistory, type StoredIssueHistory } from '../storage/db/queries.js';
-import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
+import { getStoredIssueHistory } from '../storage/db/queries.js';
+import { resolveProjectPaths } from '../storage/resolve.js';
 import { printError, printInfo } from '../ui/logger.js';
 
 export interface HistoryOptions {
   json?: boolean;
 }
 
-async function readJson(path: string): Promise<Record<string, unknown> | null> {
-  try {
-    return JSON.parse(await readFile(path, 'utf-8')) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-async function jsonHistory(issueId: string): Promise<StoredIssueHistory> {
-  const paths = await resolveIssuePaths(issueId);
-  const plan = await loadTaskPlan(paths.tasksFile);
-  const content = `${await readFile(paths.rotatedEventsFile, 'utf-8').catch(() => '')}${await readFile(paths.eventsFile, 'utf-8').catch(() => '')}`;
-  const phases = parseJournal(content)
-    .filter(({ event }) => event.type === 'phase:start' || event.type === 'phase:end')
-    .map(({ event }) => event as unknown as Record<string, unknown>);
-  const evidence = await readJson(paths.verifyFile);
-  return {
-    issueId,
-    runs: [],
-    phases,
-    executions: plan.executions ?? [],
-    verifications: evidence === null ? [] : [evidence],
-    reviews:
-      plan.prReview === undefined ? [] : [plan.prReview as unknown as Record<string, unknown>],
-  };
-}
-
 export async function runHistory(issueId: string, options: HistoryOptions = {}): Promise<number> {
   try {
     const project = await resolveProjectPaths();
-    const history =
-      project.storageDriver === 'sqlite'
-        ? await getStoredIssueHistory({ projectId: project.projectId, issueId })
-        : await jsonHistory(issueId);
+    const history = await getStoredIssueHistory({ projectId: project.projectId, issueId });
 
     if (options.json === true) {
       printInfo(JSON.stringify({ schemaVersion: 1, ...history }, null, 2));

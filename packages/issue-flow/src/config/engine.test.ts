@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,8 +7,8 @@ import { GLOBAL_ROOT_ENV, getIssuePaths, projectIdFromRemote } from '../storage/
 import { resetStorageResolutionCache } from '../storage/resolve.js';
 import { getProjectRoot, getRemoteUrl, normalizeRemoteUrl } from '../utils/git.js';
 
-// Only the git seams are faked, so the real project id derivation and the real
-// migration keep running against the temporary trees these tests build.
+// Only the git seams are faked, so project id derivation runs against the
+// temporary trees these tests build.
 vi.mock('../utils/git.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../utils/git.js')>();
   return {
@@ -97,24 +97,6 @@ describe('resolvePaths', () => {
     ]) {
       expect(path.startsWith(join(projectRoot, 'issues'))).toBe(false);
     }
-  });
-
-  it('migrates a legacy issue tree on first resolution and reads it from the global path', async () => {
-    const legacyIssueDir = join(projectRoot, 'issues', '42');
-    await mkdir(join(legacyIssueDir, 'archive'), { recursive: true });
-    await writeFile(join(legacyIssueDir, 'tasks.json'), '{"project":"legacy"}', 'utf-8');
-    await writeFile(join(legacyIssueDir, 'progress.txt'), 'legacy log\n', 'utf-8');
-    await writeFile(join(legacyIssueDir, '.last-branch'), 'issue/42-old\n', 'utf-8');
-
-    const paths = await resolvePaths(createConfig({ issueNumber: '42' }));
-
-    await expect(readFile(paths.prdFile, 'utf-8')).resolves.toBe('{"project":"legacy"}');
-    await expect(readFile(paths.progressFile, 'utf-8')).resolves.toBe('legacy log\n');
-    await expect(readFile(paths.lastBranchFile, 'utf-8')).resolves.toBe('issue/42-old\n');
-    // The legacy tree is read-only: the source survives the copy untouched.
-    await expect(readFile(join(legacyIssueDir, 'tasks.json'), 'utf-8')).resolves.toBe(
-      '{"project":"legacy"}',
-    );
   });
 
   it('supports a non-numeric issue identifier', async () => {

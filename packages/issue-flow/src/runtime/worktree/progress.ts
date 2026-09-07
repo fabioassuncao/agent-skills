@@ -1,8 +1,5 @@
 /**
- * What is being created right now.
- *
- * Ported from WebMux `backend/src/services/worktree-creation-service.ts`
- * @ d8c9d5f (40 LOC). Creating a worktree takes long enough — a checkout, a
+ * What is being created right now. Creating a worktree takes long enough — a checkout, a
  * hook, a runtime — that a caller polling "which worktrees exist" would see
  * nothing at all until it finished. This is what makes the gap observable, and
  * it is also the lock that stops two creations of the same branch.
@@ -15,8 +12,8 @@ export type WorktreeCreationPhase =
   | 'starting_session'
   | 'reconciling';
 
-/** Who asked for the worktree. Kept from the upstream: it survives into the UI. */
-export type WorktreeSource = 'cli' | 'ui' | 'api' | 'oneshot';
+/** Who asked for the worktree. */
+export type WorktreeSource = 'cli' | 'ui' | 'api';
 
 export interface WorktreeCreationProgress {
   branch: string;

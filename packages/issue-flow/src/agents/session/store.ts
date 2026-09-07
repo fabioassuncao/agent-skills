@@ -150,19 +150,6 @@ export async function recordPaneTarget(
   return next;
 }
 
-/**
- * Promote a free session to a workflow one by binding it to a run.
- *
- * The whole of "mode 2 becomes mode 1" (§49.2). Everything that carries the
- * session's history — its id, its conversation id, its branch, its pane and its
- * `createdAt` — is left exactly as it was, because the point of promoting a
- * session instead of opening a new one is that the conversation continues.
- *
- * The run has to exist already. Minting one here would be this module deciding
- * that work is underway, and whether work is underway is not something a
- * binding table gets to assert (ADR-08); it would also be a session starting
- * the pipeline on its own, which §49.2 forbids outright.
- */
 export async function linkSessionToRun(
   context: PlanRepositoryContext,
   session: AgentSession,

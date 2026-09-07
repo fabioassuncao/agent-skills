@@ -13,8 +13,6 @@ import {
   type ParsedBranch,
 } from './types.js';
 
-const LEGACY_PREFIX = 'issue';
-
 export { isValidBranchName, sanitizeBranchName } from './slug.js';
 
 function applyConvention(
@@ -109,16 +107,6 @@ export interface ResolvedBranchName {
   source: BranchNameSource;
 }
 
-/**
- * The three paths a branch name can take (§10.4).
- *
- * 1. A known issue, or a title that still slugifies to something → the
- *    repository's convention, unchanged from what Issue Flow always did.
- * 2. No issue but a description, with a generator configured → a generated
- *    name: flat, kebab-case, no prefix. This is the case the convention never
- *    served, where the slug came out of an arbitrary document title.
- * 3. Neither → `change-<uuid8>`, which is always a legal branch name.
- */
 export async function resolveBranchName(
   input: ResolveBranchNameInput,
 ): Promise<ResolvedBranchName> {
@@ -137,10 +125,7 @@ export async function resolveBranchName(
   return { branch: generateFallbackBranchName(), source: 'fallback' };
 }
 
-/**
- * Extract type and issue number from a branch, including the historical
- * `issue/{N}-*` form so existing worktrees keep archiving correctly.
- */
+/** Extract type and issue number from a branch that follows the current convention. */
 export function parseBranch(name: string): ParsedBranch {
   const raw = name.trim();
   const match = raw.match(/^([^/]+)\/(?:(\d+)(?:-(.*))?|(.*))$/);
@@ -151,8 +136,7 @@ export function parseBranch(name: string): ParsedBranch {
   const numbered = match[2];
   const numberedSlug = match[3] ?? '';
   const unnumberedSlug = match[4] ?? '';
-  const type: ParsedBranch['type'] =
-    prefix === LEGACY_PREFIX ? 'issue' : isChangeType(prefix) ? prefix : null;
+  const type: ParsedBranch['type'] = isChangeType(prefix) ? prefix : null;
   if (numbered !== undefined) {
     return { type, issueNumber: Number(numbered), slug: numberedSlug, raw };
   }

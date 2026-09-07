@@ -154,7 +154,6 @@ export interface ExecutionSummary {
 
 export interface TelemetryConfig {
   enabled: boolean;
-  maxExecutions: number;
   pricing: {
     estimate: boolean;
     overrides: Record<string, Partial<PricingSnapshot>>;
@@ -163,6 +162,5 @@ export interface TelemetryConfig {
 
 export const DEFAULT_TELEMETRY_CONFIG: TelemetryConfig = {
   enabled: true,
-  maxExecutions: 500,
   pricing: { estimate: false, overrides: {} },
 };

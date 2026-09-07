@@ -66,9 +66,7 @@ describe('the resilience configuration ladder', () => {
     it('resolves to an empty object, not to a skeleton of empty sections', async () => {
       const config = await load();
 
-      // The whole non-regression contract of this story in one assertion: an
-      // unconfigured project hands `resolvePolicy()` the same `{}` every
-      // release before the key existed effectively handed it.
+      // An unconfigured project hands `resolvePolicy()` an empty layer.
       expect(config).toEqual({});
       expect(warn).not.toHaveBeenCalled();
     });
@@ -132,10 +130,10 @@ describe('the resilience configuration ladder', () => {
     });
 
     it('never lets a rung erase a key the rung below it set', async () => {
-      await writeGlobalConfig({ resilience: { journal: { enabled: true, maxFileBytes: 1024 } } });
-      await writeProjectConfig({ resilience: { journal: { maxFileBytes: 2048 } } });
+      await writeGlobalConfig({ resilience: { providers: { failover: true, cooldownMs: 1024 } } });
+      await writeProjectConfig({ resilience: { providers: { cooldownMs: 2048 } } });
 
-      expect((await load()).journal).toEqual({ enabled: true, maxFileBytes: 2048 });
+      expect((await load()).providers).toEqual({ failover: true, cooldownMs: 2048 });
     });
   });
 
@@ -210,7 +208,6 @@ describe('the resilience configuration ladder', () => {
           providers: { failover: true, chain: ['claude', 'codex'], cooldownMs: 60_000 },
           queue: { onIssueFailure: 'skip', maxIssueAttempts: 3 },
           watchdog: { inactivityTimeoutMs: 600_000 },
-          journal: { enabled: true, maxFileBytes: 10_485_760 },
           decompose: { auto: false },
         },
       });
@@ -224,7 +221,6 @@ describe('the resilience configuration ladder', () => {
       });
       expect(config.queue).toEqual({ onIssueFailure: 'skip', maxIssueAttempts: 3 });
       expect(config.watchdog).toEqual({ inactivityTimeoutMs: 600_000 });
-      expect(config.journal).toEqual({ enabled: true, maxFileBytes: 10_485_760 });
       expect(config.decompose).toEqual({ auto: false });
       expect(config.retry?.providerDown).toEqual({ maxAttempts: 4, failover: 'after_attempts' });
     });
@@ -239,8 +235,6 @@ describe('the resilience configuration ladder', () => {
         ISSUE_FLOW_RESILIENCE_ON_ISSUE_FAILURE: 'skip',
         ISSUE_FLOW_RESILIENCE_MAX_ISSUE_ATTEMPTS: '3',
         ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS: '600000',
-        ISSUE_FLOW_RESILIENCE_JOURNAL: 'yes',
-        ISSUE_FLOW_RESILIENCE_JOURNAL_MAX_BYTES: '2048',
         ISSUE_FLOW_RESILIENCE_AUTO_DECOMPOSE: 'off',
       });
 
@@ -250,7 +244,6 @@ describe('the resilience configuration ladder', () => {
         providers: { failover: false, chain: ['claude', 'codex'], cooldownMs: 60_000 },
         queue: { onIssueFailure: 'skip', maxIssueAttempts: 3 },
         watchdog: { inactivityTimeoutMs: 600_000 },
-        journal: { enabled: true, maxFileBytes: 2048 },
         decompose: { auto: false },
       });
     });
@@ -313,7 +306,6 @@ describe('resilienceConfigSchema', () => {
 
   it('materializes no default, so it can sit in an intermediate rung', () => {
     expect(resilienceConfigSchema.parse({})).toEqual({});
-    expect(resilienceConfigSchema.parse({ journal: {} })).toEqual({ journal: {} });
     expect(resilienceConfigSchema.parse({ retry: { network: {} } })).toEqual({
       retry: { network: {} },
     });

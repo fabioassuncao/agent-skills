@@ -26,23 +26,6 @@ import ExecutionPanel from './ExecutionPanel.svelte';
 import { createExecutionSnapshot } from './execution-fixtures';
 import { createWorktree } from './test-fixtures';
 
-/**
- * The main panel, end to end in a DOM.
- *
- * Defends **U2** (the header), **U4** (alerts), **U5** (the ARIA tablist),
- * **U6** (the "Estado agora" block), **U7** (context), **U9** (progress),
- * **U10** (Kanban), **U11** (history), **U12** (drawer), **U13** (metrics on
- * screen), **U14** (output) and **U21** (verification) — and, since phase 8D,
- * **I1** (a Task listing its own sessions and worktrees), **I2** (a session row
- * leading to the terminal), **I4** (a session with a run showing the workflow)
- * and **I6** (reviewer findings and PR comments on one screen).
- *
- * The tab set is §50.5's, so the assertions that named the old three tabs were
- * **rewritten, never dropped**: `kanban` became `stories`, verification moved
- * out of "Saída" into its own tab, and the panel now also answers the free
- * session — which is the same component with no snapshot.
- */
-
 const NOW = Date.parse('2026-09-06T10:05:00.000Z');
 
 interface Handlers {
@@ -147,7 +130,7 @@ describe('errors and warnings (U4)', () => {
     expect(alerts?.compareDocumentPosition(tablist)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it('renders the §32 escalation as its own line, in words', () => {
+  it('renders the escalation as its own line, in words', () => {
     renderPanel({
       snapshot: createExecutionSnapshot({
         agent: {
@@ -180,9 +163,6 @@ describe('the tablist (U5)', () => {
   it('gives only the active tab a tabindex of 0', () => {
     renderPanel();
     const tabs = screen.getAllByRole('tab');
-    // §50.5's tab set for a Task: overview, stories, sessions, verification,
-    // review, output, history. The terminal and the chat only appear when the
-    // shell hands the panel a snippet for them.
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       'Visão geral',
       'Stories',
@@ -306,11 +286,6 @@ describe('"Contexto" (U7)', () => {
 });
 
 describe('"Andamento" (U9)', () => {
-  /**
-   * §50.5 splits the block in two: phases under "Visão geral", stories under
-   * "Stories" beside the Kanban. Both halves are the same `ProgressBlock` with
-   * a different `part`, so this asserts both, in their new panels.
-   */
   it('lists phases with their metrics, and opens the drawer', async () => {
     const on = renderPanel();
     const block = screen.getByText('Andamento').closest('section') as HTMLElement;
@@ -454,7 +429,7 @@ describe('"Saída" (U14)', () => {
 
     expect(within(block).getByText('abc1234')).toBeInTheDocument();
     expect(within(block).getByText('feat: primeiro commit')).toBeInTheDocument();
-    // §50.3: the WebMux badge on the panel's PR list, one badge in the product.
+
     expect(within(block).getByText('PR #7')).toBeInTheDocument();
     expect(within(block).getByText('Um PR')).toBeInTheDocument();
 
@@ -478,8 +453,6 @@ describe('"Saída" (U14)', () => {
   });
 
   it('renders unverified as an honest verdict, never as a success (U21)', () => {
-    // §50.5 gives verification a tab of its own; U21 is about what the verdict
-    // says, not about which tab shows it, and the card is unchanged.
     renderPanel({ activeTab: 'verification' });
     const block = document.getElementById('panel-verification') as HTMLElement;
     const verdict = within(block).getByText('não verificado');
@@ -531,15 +504,7 @@ describe('the footer', () => {
   });
 });
 
-/**
- * §50.5's unified navigation, from the panel's side.
- *
- * The rule under test is the one that keeps this from being two interfaces: the
- * panel branches on **whether there is a snapshot**, not on which list the
- * selection came from. So a free session is the same component with `snapshot:
- * null`, and a session that belongs to a run is the same component with one.
- */
-describe('the unified panel (§50.5)', () => {
+describe('the unified panel', () => {
   it('shows a free session without any workflow tab', () => {
     renderPanel({
       snapshot: null,

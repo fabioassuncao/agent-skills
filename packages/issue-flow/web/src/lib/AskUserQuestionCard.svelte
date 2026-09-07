@@ -2,18 +2,7 @@
   import { formatAskUserQuestionAnswer } from './ask-user-question';
   import type { AskUserQuestionInput } from './types';
 
-  /**
-   * PORT of `frontend/src/lib/AskUserQuestionCard.svelte` @ d8c9d5f (141 lines).
-   *
-   * Human-in-the-loop, already built (§48.1 marks it the priority port and
-   * phase 9 consumes it). `autoSend` is the interaction rule: a single
-   * single-select question answers on one tap, anything else needs an explicit
-   * submit, because a stray tap on a multi-select would otherwise send a
-   * half-formed answer the agent then acts on.
-   *
-   * `text-white` is replaced by `text-accent-text` throughout (ADR-19 /
-   * contrast table).
-   */
+
 
   interface Props {
     input: AskUserQuestionInput;

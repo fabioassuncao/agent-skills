@@ -3,25 +3,6 @@ import { dirname, join, resolve } from 'node:path';
 import { writeFileAtomic } from '../../utils/fs.js';
 import { AGENTCTL_FILENAME, buildAgentCtlScript, shellQuote } from './agentctl.js';
 
-/**
- * Install (and remove) the hooks through which an agent reports its own
- * lifecycle.
- *
- * Ported from WebMux `backend/src/adapters/agent-runtime.ts` @ d8c9d5f. The two
- * details this port exists to preserve, both named in §45.2-D of the absorption
- * plan as "must not lose":
- *
- * - **The merge keeps hook groups that are not ours.** A naive install
- *   overwrites the user's own `settings.local.json`, which is their
- *   configuration, not ours.
- * - **`resolveGitCommonDir()`.** Inside a worktree, `<gitDir>` is the
- *   worktree's own directory and `info/exclude` lives in the *common* one. A
- *   port that skips this writes the exclude where git will never read it.
- *
- * Everything here is idempotent: installing twice leaves exactly one generated
- * group per event.
- */
-
 /** Path written to `info/exclude` so the generated Codex hooks never enter the repo. */
 const GENERATED_CODEX_HOOKS_EXCLUDE = '.codex/hooks.json';
 
@@ -183,16 +164,6 @@ function isGeneratedHookGroup(group: unknown, agentCtlPath: string): boolean {
   );
 }
 
-/**
- * Merge generated groups into a hook file, keeping every group that is not
- * ours.
- *
- * The upstream applies this to `.codex/hooks.json` only and replaces whole
- * event arrays in `settings.local.json`. Applying it to both is a deliberate
- * divergence: §45.2-D names "the merge that preserves foreign groups in the
- * user's `settings.local.json`" as the behaviour that must not be lost, and
- * replacing an event array there deletes the user's own hooks.
- */
 function mergeHooks(
   existing: Record<string, unknown>,
   generated: HookConfigFile['hooks'],

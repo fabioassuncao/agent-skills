@@ -9,21 +9,7 @@
     WorktreeInfo,
   } from './types';
 
-  /**
-   * The structured agent conversation.
-   *
-   * PORT of `frontend/src/lib/WorktreeConversationPanel.svelte` @ d8c9d5f
-   * (403 lines).
-   *
-   * This channel is **independent of the terminal** (ADR-06): the chat renders
-   * what the agent reported, the terminal renders bytes, and no workflow
-   * decision is ever taken from terminal output. They coexist (§50.3) — chat
-   * for the conversation, logs for process output.
-   *
-   * `buildTranscriptItems` folds a `toolResult` into the `toolUse` that
-   * produced it, keyed by `toolCallId`, so a tool call and its output are one
-   * collapsible block instead of two entries the reader has to pair up.
-   */
+
 
   interface Props {
     worktree: WorktreeInfo;

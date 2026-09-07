@@ -4,10 +4,6 @@ import TopBar from './TopBar.svelte';
 import { createWorktree } from './test-fixtures';
 import type { WorktreeInfo } from './types';
 
-/**
- * PORT of `frontend/src/lib/TopBar.test.ts` @ d8c9d5f.
- */
-
 function renderTopBar(
   branch: string,
   overrides: Partial<WorktreeInfo> = {},
@@ -18,8 +14,6 @@ function renderTopBar(
       worktree: createWorktree(branch, { mux: '✓', status: 'running', ...overrides }),
       sshHost: '',
       linkedRepos: [],
-      notificationHistory: [],
-      unreadCount: 0,
       onclose: vi.fn(),
       onarchive: vi.fn(),
       onmerge: vi.fn(),
@@ -65,8 +59,6 @@ describe('TopBar', () => {
         worktree: createWorktree(branch, { mux: '✓', label: 'Ranking da busca' }),
         sshHost: '',
         linkedRepos: [],
-        notificationHistory: [],
-        unreadCount: 0,
         onclose: vi.fn(),
         onarchive: vi.fn(),
         onmerge: vi.fn(),

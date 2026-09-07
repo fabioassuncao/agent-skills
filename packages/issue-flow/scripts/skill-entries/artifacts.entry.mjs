@@ -106,8 +106,6 @@ if (positional[0] === '--help') {
   }
   if (json || context) console.log(JSON.stringify(result));
   else if (!result.ok) console.error(result.errors.map((error) => error.message).join('\n'));
-  else if (operation === 'plan')
-    console.log(JSON.stringify({ valid: true, stories: result.data.counts.total }));
   else console.log(JSON.stringify(result.data));
   process.exitCode = result.ok ? 0 : 1;
 }

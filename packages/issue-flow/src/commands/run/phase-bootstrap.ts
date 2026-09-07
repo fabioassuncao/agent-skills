@@ -35,7 +35,6 @@ export type BootstrapResult =
       sessionId: string;
       initialBranch: string;
       initialCommit: string | null;
-      publishedIssueNumber: number | null;
       publishSessionStart: (
         phases: readonly string[],
         at: string,
@@ -246,7 +245,6 @@ export async function bootstrapThroughIssueResolution(
     sessionId,
     initialBranch,
     initialCommit,
-    publishedIssueNumber,
     publishSessionStart,
     agentSummary,
     configurationSnapshot,

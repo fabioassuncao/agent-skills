@@ -55,7 +55,6 @@ describe('codex app-server', () => {
     HANDSHAKE_TIMEOUT_MS + 5_000,
   );
 
-  // §45.2-B against the real daemon: killing it must settle every promise.
   it.runIf(codexAvailable)(
     'rejects an in-flight request when the daemon is killed',
     async () => {

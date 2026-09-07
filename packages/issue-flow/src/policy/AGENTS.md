@@ -19,7 +19,7 @@ discovery is best-effort by construction: an unreadable directory, a missing
 `gh`, an unauthenticated one, a network that never answers, a repository that
 declares nothing — all produce an empty result, no warning, and no error. A
 repository with none of these sources resolves to a policy that is empty, which
-is exactly the input every consumer had before this module existed.
+is the neutral input expected by every consumer.
 
 The one thing that *is* recorded is why a source could not answer:
 `PolicySource.status === 'unavailable'` distinguishes "the repository declares

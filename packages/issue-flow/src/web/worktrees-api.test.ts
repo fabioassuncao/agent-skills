@@ -36,20 +36,6 @@ import {
   type WorktreesApiDeps,
 } from './worktrees-api.js';
 
-/**
- * `GET /api/worktrees` — the sidebar's session group and a Task's own workspace
- * list (I1).
- *
- * The point of every case here is that the answer is a **projection of the
- * agent sessions**, not a second worktree registry: `executionId` is the
- * session's `runId`, and the run id is the dashboard's `sessionId`. That single
- * equality is what lets a Task list its own workspaces and what makes the
- * promotion of §49.2 show the workflow with no new component (I4).
- *
- * Nothing here touches a socket: `readGitWorktreeStatus` is mocked, the probe is
- * injected, and the handler returns `{ status, body }`.
- */
-
 vi.mock('../runtime/worktree/git.js', async () => {
   const actual = await vi.importActual<typeof import('../runtime/worktree/git.js')>(
     '../runtime/worktree/git.js',
@@ -134,6 +120,8 @@ function managed(
       source: null,
       conversationId: null,
       archived,
+      activeAgentSessionId: null,
+      tabSequenceCounter: 0,
       createdAt: '2026-09-06T10:00:00.000Z',
       updatedAt: '2026-09-06T10:00:00.000Z',
     },
@@ -336,7 +324,7 @@ describe('the worktree listing', () => {
   });
 });
 
-describe('the §20 read surfaces', () => {
+describe('the worktree read surfaces', () => {
   it('matches the two paths and nothing else', () => {
     expect(matchSyncPullRequests('/api/worktrees/feat%2F1/sync-prs')).toBe('feat/1');
     expect(matchSyncPullRequests('/api/worktrees/feat/sync-prs/x')).toBeNull();

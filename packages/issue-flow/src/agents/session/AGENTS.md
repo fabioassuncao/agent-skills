@@ -2,8 +2,7 @@
 
 The durable link between a model conversation and what it is being used for.
 
-§27 of the absorption plan separates seven concepts that are easy to conflate.
-Only one of them is persisted here:
+Only one of the related runtime concepts is persisted here:
 
 | Concept | Owner | Where it lives |
 |---|---|---|
@@ -49,14 +48,14 @@ Only one of them is persisted here:
 
 `openAgentSession` is the only way an agent is put in a pane, and it serves
 both modes. A caller that passes `runId`/`phase`/`storyId` gets a workflow
-session; a caller that passes none gets a free one (§49). There is no second
-launcher, and adding one would be the duplication §25 forbids.
+session; a caller that passes none gets a free one. There is no second
+launcher.
 
 - **`context.ts` is the wiring, not a second model.** The CLI and the HTTP
   surface both call `resolveAgentSessionDeps` so they cannot disagree about
   which profile a session used or which tmux socket its window is on.
 - **The branch is generated when nobody names one.** Explicit creation through
-  the configured HTTP flow uses the canonical auto-namer ported in
+  the configured HTTP flow uses the canonical auto-namer in
   `config/auto-name.ts`; `session new` keeps the offline
   `session/<slug>-<8 hex>` fallback so the direct CLI never requires a model or
   network call. Requiring a branch would reinstate the ceremony a free session
@@ -81,7 +80,7 @@ launcher, and adding one would be the duplication §25 forbids.
   does not already exist.
 - **`label` is a caption, never an identity.** Nothing is looked up by it; it
   exists because a session with no issue has only a uuid and a generated branch
-  to show a person (migration 17).
+  to show a person.
 
 ## Never
 
@@ -177,7 +176,7 @@ segunda cópia:
 Acrescentar um campo à gramática é acrescentar em `claude-stream.ts`. Ler uma
 linha à mão em qualquer outro lugar é criar o segundo parser.
 
-### A identidade de bloco (§45.2-A)
+### A identidade de bloco
 
 Um bloco é `${anthropicMessageId}:${contentBlockIndex}`. `content_block.index`
 reinicia em 0 a cada `message_start` e um turno costuma ter várias mensagens de
@@ -187,7 +186,7 @@ que ela não renderiza — e é essa igualdade que faz o painel dar upsert em ve
 append quando o bloco chega pelas duas rotas. O sintoma de perder isso aparece
 longe da causa; `claude.test.ts` é onde ele é defendido.
 
-### `rejectPending` (§45.2-B)
+### `rejectPending`
 
 Quando o `codex app-server` morre, toda requisição em voo é rejeitada. Sem isso
 elas esperam para sempre: não há filho da invocação para o watchdog observar, e
@@ -206,11 +205,9 @@ redação deliberadamente parecida.
 ### Never
 
 - Never spawn an agent from here. `agents/invoke.ts` (headless) and
-  `agents/tty.ts` (interactive) are the launcher; the upstream's `sendMessage`
-  was deliberately not ported (§25).
+  `agents/tty.ts` (interactive) are the launchers.
 - Never log the content of a conversation line. The corrupt-transcript warning
-  reports a count and nothing else — §45.3 lists raw logging as the degraded
-  form of this project's redacted telemetry.
+  reports a count and nothing else.
 - Never write a second truncation rule for tool payloads. Both routes go through
   `compactToolPayload`/`extractToolResultText`, or the two copies of one block
   differ by their tail and the block rewrites itself on screen.

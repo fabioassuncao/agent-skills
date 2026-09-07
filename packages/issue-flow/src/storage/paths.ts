@@ -5,14 +5,11 @@ import { ISSUES_DIR_NAME, type IssuePaths, resolveIssueArtifactPaths } from './a
 import { projectIdFromRemote } from './project-identity.js';
 
 export {
-  EVENTS_FILENAME,
   ISSUES_DIR_NAME,
   type IssuePaths,
   PRD_FILENAME,
-  ROTATED_EVENTS_FILENAME,
   ROTATED_RUN_LOG_FILENAME,
   RUN_LOG_FILENAME,
-  SESSION_FILENAME,
   TASKS_FILENAME,
   VERIFY_FILENAME,
 } from './artifact-paths.js';
@@ -37,13 +34,6 @@ export const QUEUES_DIR_NAME = 'queues';
 /** Run-ownership lock, a sibling of `issues/` inside the project directory. */
 export const RUN_LOCK_FILENAME = 'run.lock';
 
-/**
- * Directory holding one lock per execution unit.
- *
- * Only used once `runtime.maxConcurrent` is above 1 (§31.3). At the default of
- * 1 the project-wide `run.lock` is still the only lock, which is what keeps a
- * serial project serial.
- */
 export const UNIT_LOCKS_DIR_NAME = 'locks';
 
 /**
@@ -64,10 +54,6 @@ export function getUnitRunLockPath(projectDir: string, unitId: string): string {
   return join(projectDir, UNIT_LOCKS_DIR_NAME, `${safe}.lock`);
 }
 
-/** Persisted agent-provider health, shared by every run of one project. */
-export const PROVIDERS_HEALTH_FILENAME = 'providers.json';
-
-/** Projection and journal filenames shared by storage and the web reader. */
 /**
  * Acceptance-contract evidence. Named here — and not at the call site — because
  * `verify/run-issue.ts` also writes it in standalone mode, where there is no
@@ -147,15 +133,6 @@ export async function getProjectId(projectRoot: string): Promise<string> {
   return projectIdFromRemote(remote, projectRoot);
 }
 
-/**
- * Pure half of {@link getProjectId}: derive the id once the normalized remote
- * (or `null`) is already known.
- *
- * Exported so a caller that already resolved the remote for another reason
- * (e.g. {@link resolveStorageMode} in `compat.ts`, which also persists it into
- * `metadata.json`) can compute the id without shelling out to git a second
- * time.
- */
 /**
  * Absolute directory of a project inside the global storage tree.
  *

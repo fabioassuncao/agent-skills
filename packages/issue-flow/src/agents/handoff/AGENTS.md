@@ -35,7 +35,7 @@ between "the reviewer saw the plan" and "the reviewer probably saw the plan".
 - **Writing never fails a phase.** A handoff is bookkeeping; failing the work
   over it would trade a finished piece of work for a lost note.
 
-## Sessions per phase (§28)
+## Sessions per phase
 
 `PHASE_SESSION_GROUP` records which phases may share a conversation:
 understanding (`analyze`, `generate`, `prd`, `plan`) shares one because the plan

@@ -4,10 +4,6 @@ import { createWorktree } from './test-fixtures';
 import type { LinearIssue, WorktreeInfo, WorktreeListRow } from './types';
 import WorktreeList from './WorktreeList.svelte';
 
-/**
- * PORT of `frontend/src/lib/WorktreeList.test.ts` @ d8c9d5f, in pt-BR.
- */
-
 function liveWorktree(branch: string, overrides: Partial<WorktreeInfo> = {}): WorktreeInfo {
   return createWorktree(branch, {
     agent: 'working',

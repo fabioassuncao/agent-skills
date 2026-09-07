@@ -21,20 +21,6 @@ import type { TmuxGateway } from './tmux/gateway.js';
 import type { TmuxWindowSummary } from './tmux/names.js';
 import type { CreatedWorktree, ManagedWorktree } from './worktree/lifecycle.js';
 
-/**
- * The `sandbox` runtime: the interactive one, inside a container.
- *
- * What is asserted here is only the difference — the container's lifecycle and
- * the two pane commands it changes. Everything else is `interactive.test.ts`,
- * because everything else is the same code (§25): a second copy of those cases
- * would assert the same lines twice and drift the moment one of them changed.
- *
- * The container never runs here. `buildDockerRunArgs` is a pure function with
- * its own suite (`sandbox/docker.test.ts`, C7), and a machine with no daemon
- * must still be able to prove that this adapter passes the profile through and
- * removes only what it started.
- */
-
 const PANES: readonly PaneTemplate[] = [
   { id: 'agent', kind: 'agent', focus: true },
   { id: 'shell', kind: 'shell', split: 'right', sizePct: 25 },
@@ -393,9 +379,6 @@ describe('the sandbox runtime', () => {
     expect(shell).toContain('/bin/bash');
     expect(shell).toContain('elif [ -x /bin/sh ]; then exec /bin/sh -i;');
 
-    // The agent command is typed into a shell that is already inside, so it
-    // must not wrap itself in a second `docker exec` — the upstream asserts the
-    // same thing.
     const agent = context.tmux.paneCommands[0] ?? '';
     expect(agent).not.toContain('docker exec');
     expect(agent).toContain('export PATH="$PATH:/root/.local/bin:/usr/local/bin"');
@@ -493,7 +476,7 @@ describe('the sandbox runtime', () => {
       image: 'issue-flow/sandbox:local',
       envPassthrough: ['GITHUB_TOKEN'],
       mounts: [{ hostPath: '/cache', guestPath: '/cache', writable: true }],
-      security: { network: 'none', implicitMounts: false },
+      security: { network: 'none' },
       panes: [...PANES],
     };
     expect(requireDockerProfile(profile, 'sandbox')).toEqual({
@@ -501,7 +484,7 @@ describe('the sandbox runtime', () => {
       image: 'issue-flow/sandbox:local',
       envPassthrough: ['GITHUB_TOKEN'],
       mounts: [{ hostPath: '/cache', guestPath: '/cache', writable: true }],
-      security: { network: 'none', implicitMounts: false },
+      security: { network: 'none' },
     });
   });
 });

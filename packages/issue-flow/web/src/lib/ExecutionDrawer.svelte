@@ -24,20 +24,7 @@
   } from './snapshot';
   import { configSourceLabel, STORY_STAGE_LABELS, STORY_STATUS_LABELS } from './vocabulary';
 
-  /**
-   * The details drawer (U12).
-   *
-   * PORT of `openDrawer`/`renderDrawer`/`drawerSection`/`renderExecutionHistory`/
-   * `renderProcessLogs`/`renderGlobalDiagnostics`. One drawer for **both** a
-   * phase and a story, and its content is rehydrated from `{kind, id}` on every
-   * update rather than captured when it opened — the boards and lists behind it
-   * are rebuilt on each refresh, so anything captured would be stale by the
-   * next frame, and a story that leaves the plan closes the drawer instead of
-   * showing a ghost.
-   *
-   * `data-story-id` on the Kanban card is how focus returns on close, for the
-   * same reason.
-   */
+
 
   let {
     snapshot,

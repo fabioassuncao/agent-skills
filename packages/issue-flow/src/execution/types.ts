@@ -19,9 +19,7 @@ export type IssuePriority = 'high' | 'medium' | 'low';
  *
  * `blocked` and `skipped` are what let a queue survive one bad Issue:
  * `blocked` means a human is needed and no retry will help, `skipped` means the
- * queue moved on and will come back to it. Neither is reachable without the
- * queue policy asking for it, so a plan written before they existed still only
- * ever holds the original four.
+ * queue moved on and will come back to it.
  */
 export type QueueIssueStatus =
   | 'pending'
@@ -77,8 +75,7 @@ export interface ExecutionPlanIssue {
    * How many times the queue has handed this Issue to the pipeline.
    *
    * A queue that skips a failing Issue and comes back to it needs a count, or
-   * "come back later" becomes "come back forever". `0` on a plan written before
-   * the field existed, which is exactly right: nothing had been counted.
+   * "come back later" becomes "come back forever".
    */
   attempts: number;
   /** Why a human is needed. Non-null only while `status` is `blocked`. */

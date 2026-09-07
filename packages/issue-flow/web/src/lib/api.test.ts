@@ -1,22 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-/**
- * PORT of `frontend/src/lib/api.test.ts` @ d8c9d5f — 6 cases, plus 2 for the
- * capability gate this port adds.
- *
- * `apiBase` is derived from `window.location.pathname` at module load, so each
- * case sets the URL and re-imports `api.ts` fresh. It is the regression guard
- * for the push stream, which must be scoped under the active project's
- * `/<prefix>` like every other request — otherwise it falls through to the hub
- * and gets `index.html` back instead of the real endpoint.
- *
- * Two upstream cases changed shape rather than intent:
- *
- * - the SSE assertion targets `/api/stream` (the Issue Flow push channel)
- *   rather than `/api/notifications/stream`;
- * - `uploadFiles` has no route to post to, so the case asserts the honest
- *   refusal instead of a request that would 404.
- */
 async function loadApiAt(pathname: string): Promise<typeof import('./api')> {
   window.history.replaceState({}, '', pathname);
   vi.resetModules();
@@ -39,7 +22,6 @@ describe('project-prefixed network calls', () => {
     // prefix from one would scope every call under a route that is not a
     // project.
     expect((await loadApiAt('/api/status')).apiBase).toBe('');
-    expect((await loadApiAt('/legacy/')).apiBase).toBe('');
   });
 
   it('subscribeSessions opens the push stream under the active prefix', async () => {
@@ -137,7 +119,7 @@ describe('capability gate', () => {
   });
 });
 
-describe('agent sessions (§49.3)', () => {
+describe('agent sessions', () => {
   it('opens one under the active prefix, with nothing the caller did not ask for', async () => {
     const api = await loadApiAt('/myproject/');
     api.setCapabilities(['session:open']);
@@ -155,7 +137,6 @@ describe('agent sessions (§49.3)', () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('/myproject/api/sessions');
     expect(init.method).toBe('POST');
-    // Every field is optional: an empty body is what makes it *free* (§49.2).
     expect(init.body).toBe('{}');
   });
 
@@ -191,11 +172,6 @@ describe('agent sessions (§49.3)', () => {
     await expect(api.linkSession('sess-1', '42')).rejects.toThrow(/no run to attach/);
   });
 
-  /**
-   * The consolidated listing of §49.4 answers "what is running anywhere", so a
-   * monitor that cannot answer it says nothing rather than failing: the caller
-   * renders a view with no sessions instead of an error nobody can act on.
-   */
   it('answers an empty list where there is no session surface at all', async () => {
     const api = await loadApiAt('/myproject/');
     api.setCapabilities([]);

@@ -2,14 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { TmuxGateway } from '../tmux/gateway.js';
 import { interruptPrompt, PROMPT_BUFFER_PREFIX, sendPrompt, sendRawKeys } from './input.js';
 
-/**
- * **C5** of §34: sending a prompt uses `load-buffer` + `paste-buffer -rp -d`
- * followed by `Enter`, and the buffer is gone afterwards.
- *
- * Ported from `sendPrompt` in WebMux `backend/src/adapters/terminal.ts`
- * @ d8c9d5f — the single best isolated artefact in the upstream (§2.4).
- */
-
 interface FakeTmux extends TmuxGateway {
   calls: string[];
   buffers: Map<string, string>;

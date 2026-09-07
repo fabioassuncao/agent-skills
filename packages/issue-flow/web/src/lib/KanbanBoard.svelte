@@ -2,19 +2,7 @@
   import type { SnapshotStory } from './snapshot';
   import { KANBAN_COLUMNS, STORY_STATUS_LABELS } from './vocabulary';
 
-  /**
-   * The Kanban (U10).
-   *
-   * PORT of `renderKanban`/`storyCard`. Each card is a `<button>` — Enter,
-   * Space and focus come for free — which is exactly why everything inside it
-   * is a `<span>`: `<button>` only accepts phrasing content, so a `<p>` or a
-   * `<div>` in there is invalid HTML that browsers repair in ways that break
-   * the click target.
-   *
-   * `data-story-id` is what the drawer focuses back on when it closes: the
-   * board is rebuilt on every update, so a node reference captured on opening
-   * would point outside the document by then.
-   */
+
 
   let {
     stories,

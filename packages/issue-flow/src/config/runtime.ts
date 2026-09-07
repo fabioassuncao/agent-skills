@@ -10,33 +10,6 @@ import { parseServiceSpecs, type ServiceSpec } from '../runtime/services.js';
 import { printWarning } from '../ui/logger.js';
 import { PROJECT_CONFIG_FILENAME, readProjectConfigFile } from './sources.js';
 
-/**
- * The `runtime` key of `.issue-flow.json` — profiles, panes and services.
- *
- * Adapted from WebMux `backend/src/adapters/config.ts` @ d8c9d5f (§16, §19). The
- * upstream reads two YAML files (`.webmux.yaml` plus a `.webmux.local.yaml`
- * overlay); this project already has a layered configuration and one project
- * file, so the *ladder* is Issue Flow's and only the *parsing* is the
- * upstream's. Profiles overlay by name across layers exactly as they do
- * upstream, which is what makes a locally declared `sandbox` replace a project
- * one instead of half-merging with it.
- *
- * Precedence, as documented in `docs/configuration.md`:
- *
- * ```text
- * CLI flag > environment variable > .issue-flow.json > built-in defaults
- * ```
- *
- * There is no machine rung, exactly like `web` and `github`: a profile names
- * pane commands and container images that only mean something inside one
- * repository, so a machine-wide default would be a window somebody else's
- * project has to live with.
- *
- * Never throws. An invalid section degrades to the defaults with a warning, and
- * inside a valid one an unusable profile, pane or service is dropped on its own
- * — a typo in a fourth pane must not cost the other three.
- */
-
 export interface RuntimeConfig {
   /** Profile a run opens with when nothing else selects one. */
   profile: string;
@@ -44,15 +17,7 @@ export interface RuntimeConfig {
   services: ServiceSpec[];
   /** Variables exported into every pane, hook and agent of a worktree. */
   startupEnv: Record<string, string>;
-  /**
-   * How many execution units may run at once in a project.
-   *
-   * **Default 1**, which is exactly today's behaviour: a serial queue behind a
-   * project-wide `run.lock`. Above 1 the lock moves to the execution *unit*
-   * and a slot ceiling replaces the exclusion — parallelism is a consequence of
-   * worktree isolation, not a feature of its own (§31.3), so it only means
-   * anything in the modes that create one.
-   */
+
   maxConcurrent: number;
 }
 
@@ -88,13 +53,6 @@ interface RuntimeConfigLayer {
 /** Ceiling on a ceiling: past this, the bound is a mistake rather than a choice. */
 export const MAX_CONCURRENT_LIMIT = 20;
 
-/**
- * Read a concurrency ceiling, or `undefined` when the value is unusable.
- *
- * Anything below 1 would mean "run nothing"; anything above the limit is past
- * where §31.2 measured tmux staying flat, and a number nobody measured is not a
- * number this project will act on.
- */
 export function parseMaxConcurrent(
   raw: unknown,
   warn: (message: string) => void,
@@ -117,15 +75,6 @@ export function parseMaxConcurrent(
   return value;
 }
 
-/**
- * Normalise one `startupEnv` entry.
- *
- * The upstream stores `string | boolean` and stringifies at the point of use
- * (`stringifyStartupEnvValue`). One representation is kept instead of two: the
- * file is a shell-consumable env map, everything in it ends up a string, and
- * carrying the boolean further only creates a second place where the conversion
- * could disagree.
- */
 function stringifyStartupEnvValue(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
   if (typeof value === 'boolean' || typeof value === 'number') return String(value);

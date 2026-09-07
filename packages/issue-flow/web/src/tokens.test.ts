@@ -3,26 +3,6 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-/**
- * The palette's two structural rules.
- *
- * ADDITION over the upstream, and the reason ADR-19 can be stated as a fact
- * rather than a hope.
- *
- * **What changed in phase 8D.** This suite used to open with a drift guard:
- * `tokens.css` had to be a verbatim copy of the palette layer of
- * `web/public/app.css`, because while both panels existed (ADR-18) nothing else
- * kept them from diverging. §50.8 removed that panel, so there is one palette
- * and nothing left to drift from — the case went with the file it was guarding.
- * What it was ultimately protecting is stronger and still here:
- * `lib/contrast.test.ts` recalculates the nineteen measured pairs from
- * `tokens.css` and `app.css` themselves, never from the table.
- *
- * The two rules below are about `tokens.css` on its own and are unchanged: a
- * token defined only inside a theme block, and the two dark blocks disagreeing,
- * are both failures whose symptom appears far from their cause.
- */
-
 // This suite reads files, not a DOM, so it runs under the node environment —
 // which is also what makes `import.meta.url` a `file:` URL here.
 const tokensPath = fileURLToPath(new URL('./tokens.css', import.meta.url));

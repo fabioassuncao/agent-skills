@@ -176,7 +176,7 @@ function isSelf(lock: RunLock, pid: number, host: string): boolean {
 }
 
 function ownershipIdentity(lock: RunLock): string {
-  return lock.ownerId ?? `${lock.pid}\0${lock.host}\0${lock.target}\0${lock.startedAt}`;
+  return lock.ownerId;
 }
 
 function hasSameOwnership(left: RunLock, right: RunLock): boolean {
@@ -448,7 +448,7 @@ export async function acquireRunLock(
     target: options.target,
     startedAt,
     lastHeartbeatAt: startedAt,
-    ...(options.detached === true ? { detached: true } : {}),
+    detached: options.detached === true,
   };
 
   let reclaimedFrom: RunLock | null = null;
@@ -519,10 +519,12 @@ export async function acquireRunLock(
     ok: false,
     owner: {
       pid: 0,
+      ownerId: 'unknown',
       host,
       target: options.target,
       startedAt: new Date(clock()).toISOString(),
       lastHeartbeatAt: new Date(clock()).toISOString(),
+      detached: false,
     },
   };
 }

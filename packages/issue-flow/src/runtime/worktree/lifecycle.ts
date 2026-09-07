@@ -33,24 +33,6 @@ import {
   type WorktreeSource,
 } from './progress.js';
 
-/**
- * Create, remove and merge managed worktrees.
- *
- * Ported from WebMux `backend/src/services/lifecycle-service.ts` @ d8c9d5f
- * (1.523 LOC), narrowed to what a worktree *is*: the checkout, its branch, its
- * durable binding and its rollback. Everything the upstream folds into the same
- * class but that belongs to another responsibility — tmux windows, containers,
- * port allocation, profiles — enters through the extension points below, and
- * the phases that own those fill them in. Half-porting them here would have
- * produced a second, weaker implementation of each.
- *
- * ADR-08 is the rule that shapes `list()`: git is the authority on which
- * worktrees exist, the database on what each is bound to. A binding whose
- * directory git no longer lists is reported as `orphaned` — never recreated,
- * never silently deleted.
- */
-
-/** Failures a caller is expected to distinguish, carrying the upstream's status codes. */
 export class WorktreeError extends Error {
   constructor(
     message: string,
@@ -290,6 +272,8 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
       source: meta.source ?? null,
       conversationId: meta.conversationId ?? null,
       archived: false,
+      activeAgentSessionId: null,
+      tabSequenceCounter: 0,
       createdAt: meta.createdAt,
       updatedAt: meta.createdAt,
     };
@@ -422,16 +406,6 @@ export function createWorktreeManager(options: WorktreeManagerOptions) {
     return entry;
   }
 
-  /**
-   * Remove a worktree, and by default the branch with it.
-   *
-   * `keepBranch` exists for the runtime's `dispose()`, which is asked to free
-   * the checkout without discarding the work: the branch is the only thing that
-   * still holds the commits once the directory is gone, so deleting it there
-   * would destroy exactly what the caller asked to keep. The default stays
-   * "delete", which is what every existing caller means and what the upstream
-   * does.
-   */
   async function removeUnlocked(
     branch: string,
     opts: { force?: boolean; keepBranch?: boolean } = {},

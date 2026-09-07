@@ -3,47 +3,6 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import { registerChild } from '../../core/shutdown.js';
 
-/**
- * A JSON-RPC client for `codex app-server` — the structured channel's Codex half.
- *
- * ## Why a daemon and not `codex exec`
- *
- * `agents/codex.ts` runs one `codex exec` per invocation and reads its JSONL.
- * That is the right shape for a headless phase, and it is untouched. It is the
- * wrong shape for a panel: reading a thread, listing threads and interrupting a
- * turn are *control* operations, and there is no control channel into a process
- * that was started to run one turn and exit. `codex app-server` is that channel
- * — one long-lived process answering JSON-RPC over stdio for every request.
- *
- * This is not a second agent launcher (§25). It never runs a phase, never
- * produces an `AgentRunResult` and is never on the path of `issue-flow run`.
- *
- * ## The detail that must not be lost (§45.2-B)
- *
- * `rejectPending()` on process exit. Every in-flight request is a promise
- * waiting for a reply from a process that has just died; without this they wait
- * forever. The watchdog does not catch it, because there is no child of the
- * invocation to observe — the caller is simply blocked on an `await` that will
- * never settle. It is two lines and it is the difference between a failed
- * request and a hung one.
- *
- * Everything else in the port keeps the upstream's structure: a monotonic
- * request id, `initialized` sent after the handshake, every response validated
- * by schema before it is handed back, a typed `CodexAppServerRequestError` for
- * a JSON-RPC error, and stdout/stderr read by independent loops so a chatty
- * stderr can never stall the protocol.
- */
-
-// ── Wire types ─────────────────────────────────────────────────────────────
-//
-// The upstream declares each shape twice — a TypeScript interface and a zod
-// schema annotated to it. Here the **schema is the single source of truth** and
-// the types are inferred from it. Under zod 4 a schema's key optionality is
-// derived from its input type, so `unknown` fields (`error`, `gitInfo`,
-// `arguments`) infer as optional and no longer satisfy an interface that
-// declares them required; keeping both declarations would mean a cast at every
-// parse boundary, which is exactly what schema validation is there to avoid.
-
 const unknownValue = z.unknown();
 
 /** Any JSON value. Rejects `undefined`, which is what makes a missing key fail. */
@@ -633,10 +592,6 @@ export class CodexAppServerClient implements CodexAppServerGateway {
     this.startStdoutLoop(proc);
     this.startStderrLoop(proc);
     proc.onExit((code) => {
-      // §45.2-B: without this every in-flight request waits forever for a reply
-      // from a process that no longer exists. There is no child of the
-      // invocation for the watchdog to notice, so nothing else would ever
-      // settle these promises.
       this.rejectPending(new Error(`codex app-server exited with code ${code ?? 'unknown'}`));
       this.resetProcess();
     });

@@ -4,25 +4,7 @@
   import type { ProjectInitPhase, ProjectSummary } from './types';
   import { errorMessage, projectInitPhaseLabel } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/ProjectSwitcher.svelte` @ d8c9d5f (185 lines).
-   *
-   * Switching project is a whole-page navigation to `/<prefix>/`, exactly as
-   * upstream: the prefix *is* the route (§48.3), so there is no router to keep
-   * in sync and no state to carry across.
-   *
-   * Two adaptations for the Issue Flow registry (§47):
-   *
-   * - a project can be **registered but not served**, which the upstream had no
-   *   way to express (`prefix` is nullable). Those are listed and open through
-   *   the hub rather than through a prefix they do not have;
-   * - `path` became `root`, and `id` — the `projectId` derived from the remote,
-   *   never from the path — is what identifies a row.
-   *
-   * `positionMenu` measures the trigger instead of using absolute positioning
-   * because the menu is `position: fixed`: inside the sidebar's `overflow:
-   * hidden` an absolutely positioned menu is clipped.
-   */
+
 
   let { current }: { current: string } = $props();
 

@@ -3,7 +3,6 @@ import { SLUG_MAX_LENGTH } from './types.js';
 const COMBINING = /[\u0300-\u036f]/g;
 const NON_SLUG = /[^a-z0-9]+/g;
 
-/** Characters git itself refuses in a ref name. Ported from WebMux `domain/policies.ts`. */
 const INVALID_BRANCH_CHARS = /[~^:?*[\]\\]+/g;
 
 /**

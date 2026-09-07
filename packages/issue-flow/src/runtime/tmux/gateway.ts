@@ -3,26 +3,6 @@ import { leakedProjectEnvKeys, stripProjectEnv } from './env.js';
 import { detectUtf8Locale, pickTmuxLocale } from './locale.js';
 import { parseWindowSummaries, type TmuxWindowSummary, VIEWER_SESSION_PREFIX } from './names.js';
 
-/**
- * Every tmux command this project runs.
- *
- * Ported from `BunTmuxGateway` in WebMux `backend/src/adapters/tmux.ts`
- * @ d8c9d5f, with the same surface and three deliberate changes:
- *
- * 1. **`execa` through `run()`** instead of `Bun.spawnSync`, and asynchronous
- *    throughout. `run()` is this project's only shell path, and `extendEnv:
- *    false` is mandatory: `execa` merges `process.env` by default, while the
- *    upstream depends on the environment being *replaced* — which is the whole
- *    point of `stripProjectEnv`.
- * 2. **A dedicated socket, `-L issue-flow`** (ADR-09). The tmux server this
- *    project talks to is never the user's own, so a session created here cannot
- *    inherit — or pollute — the environment of the user's personal tmux. It
- *    removes structurally the class of bug the upstream cures reactively.
- * 3. **`scrubLeakedGlobalEnv` stays** as the safety net. A dedicated socket does
- *    not help a server this project itself started with a polluted environment,
- *    which is exactly what an older release could have left behind.
- */
-
 /** Socket the project's tmux server listens on. Never the user's default one. */
 export const TMUX_SOCKET_NAME = 'issue-flow';
 
@@ -169,13 +149,6 @@ export interface TmuxResult {
   exitCode: number;
 }
 
-/**
- * Errors from `kill-window` that mean "it is already gone".
- *
- * Ported verbatim, including the fourth: a socket path that no longer exists
- * reports a connection error rather than a tmux-level one, and treating that as
- * a failure would make every teardown after a server exit throw.
- */
 function isIgnorableKillError(stderr: string): boolean {
   return (
     stderr.includes("can't find window") ||
@@ -267,22 +240,6 @@ export function createTmuxGateway(options: TmuxGatewayOptions = {}): TmuxGateway
       await assertOk(['start-server'], 'tmux start-server');
     },
 
-    /**
-     * Create the project's session, or adopt the one that is already there.
-     *
-     * Creation and `destroy-unattached off` travel in **one** tmux invocation,
-     * separated by `;`. That is the upstream's shape and it is load-bearing
-     * here for a different reason: §35 budgets 30 ms for an additional session,
-     * and every extra invocation is a process spawn that costs about half of
-     * it. `has-session` is not asked first for the same reason — tmux already
-     * answers "duplicate session", and paying a spawn to find out beforehand
-     * doubles the cost of the common case.
-     *
-     * `destroy-unattached off` is what lets an agent keep working with the
-     * browser closed: without it tmux tears the session down the moment the
-     * last client detaches. It is re-applied when adopting an existing session,
-     * so one created by something else still gets it.
-     */
     ensureSession: async (sessionName, cwd) => {
       const created = await tmux([
         'new-session',

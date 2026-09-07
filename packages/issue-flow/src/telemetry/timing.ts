@@ -1,4 +1,4 @@
-import { loadTaskPlan } from '../core/state-manager.js';
+import { getPlanRepository, listStoredExecutions } from '../storage/db/repository.js';
 import { getTelemetryContext } from './recorder.js';
 import { EXECUTION_PURPOSES, type ExecutionPurpose, type ExecutionRecord } from './types.js';
 
@@ -109,8 +109,14 @@ export async function loadPhaseTiming(
   const ctx = getTelemetryContext();
   if (ctx === null) return { ...EMPTY_TIMING };
   try {
-    const plan = await loadTaskPlan(ctx.tasksPath);
-    return summarizePhaseTiming(plan.executions ?? [], phase, phaseWallMs);
+    const repository = getPlanRepository(ctx.tasksPath);
+    if (repository === undefined) return { ...EMPTY_TIMING };
+    const records = await listStoredExecutions({
+      projectId: repository.projectId,
+      issueId: repository.issueId,
+      databaseOptions: repository.databaseOptions,
+    });
+    return summarizePhaseTiming(records, phase, phaseWallMs);
   } catch {
     return { ...EMPTY_TIMING };
   }

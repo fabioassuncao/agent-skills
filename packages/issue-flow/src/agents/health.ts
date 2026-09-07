@@ -1,16 +1,10 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import type { ClassifiedFailure, FailureKind } from '../resilience/errors.js';
-import {
-  getProviderHealthRepository,
-  readStoredProvidersHealth,
-  updateStoredProviderHealth,
-} from '../storage/db/repository.js';
-import {
-  type ProviderHealthRecord,
-  type ProvidersHealth,
-  providersHealthSchema,
-  type ResilienceProvidersConfig,
+import type { PlanRepositoryContext } from '../storage/db/repository.js';
+import { readStoredProvidersHealth, updateStoredProviderHealth } from '../storage/db/repository.js';
+import type {
+  ProviderHealthRecord,
+  ProvidersHealth,
+  ResilienceProvidersConfig,
 } from '../storage/schemas.js';
 
 export const DEFAULT_PROVIDER_COOLDOWN_MS = 60_000;
@@ -47,47 +41,18 @@ export function resolveProviderHealthConfig(
   };
 }
 
-function emptyHealth(): ProvidersHealth {
-  return providersHealthSchema.parse({});
-}
-
-function emptyRecord(): ProviderHealthRecord {
-  return providersHealthSchema.parse({ providers: { provider: {} } }).providers.provider;
-}
-
-export async function readProvidersHealth(filePath: string): Promise<ProvidersHealth> {
-  const repository = getProviderHealthRepository(filePath);
-  if (repository !== undefined) return readStoredProvidersHealth(repository);
-  try {
-    return providersHealthSchema.parse(JSON.parse(await readFile(filePath, 'utf-8')));
-  } catch {
-    return emptyHealth();
-  }
-}
-
-async function writeProvidersHealth(filePath: string, value: ProvidersHealth): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.tmp-${process.pid}`;
-  await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
-  await rename(tmp, filePath);
+export async function readProvidersHealth(
+  context: PlanRepositoryContext,
+): Promise<ProvidersHealth> {
+  return readStoredProvidersHealth(context);
 }
 
 async function updateRecord(
-  filePath: string,
+  context: PlanRepositoryContext,
   provider: string,
   update: (record: ProviderHealthRecord) => ProviderHealthRecord,
 ): Promise<ProviderHealthRecord> {
-  const repository = getProviderHealthRepository(filePath);
-  if (repository !== undefined) {
-    return updateStoredProviderHealth(repository, provider, update);
-  }
-  const health = await readProvidersHealth(filePath);
-  const next = update(health.providers[provider] ?? emptyRecord());
-  await writeProvidersHealth(filePath, {
-    ...health,
-    providers: { ...health.providers, [provider]: next },
-  });
-  return next;
+  return updateStoredProviderHealth(context, provider, update);
 }
 
 function cooldownDelay(level: number, config: ResolvedProviderHealthConfig): number {
@@ -102,7 +67,7 @@ const BREAKER_KINDS = new Set<FailureKind>([
 ]);
 
 export async function recordProviderFailure(
-  filePath: string,
+  context: PlanRepositoryContext,
   provider: string,
   failure: ClassifiedFailure,
   options: ProviderHealthOptions = {},
@@ -111,7 +76,7 @@ export async function recordProviderFailure(
   const at = new Date(nowMs).toISOString();
   const config = resolveProviderHealthConfig(options.config);
 
-  return updateRecord(filePath, provider, (record) => {
+  return updateRecord(context, provider, (record) => {
     const failures = [
       ...record.failures.filter((entry) => {
         const timestamp = Date.parse(entry.at);
@@ -187,12 +152,12 @@ export async function recordProviderFailure(
 }
 
 export async function recordProviderSuccess(
-  filePath: string,
+  context: PlanRepositoryContext,
   provider: string,
   options: Pick<ProviderHealthOptions, 'now'> = {},
 ): Promise<ProviderHealthRecord> {
   const at = new Date(options.now?.() ?? Date.now()).toISOString();
-  return updateRecord(filePath, provider, (record) => ({
+  return updateRecord(context, provider, (record) => ({
     ...record,
     status: 'healthy',
     failures: [],
@@ -208,13 +173,13 @@ export async function recordProviderSuccess(
 
 /** Open the circuit when retry policy asks for failover before the trip count. */
 export async function openProviderCircuit(
-  filePath: string,
+  context: PlanRepositoryContext,
   provider: string,
   options: ProviderHealthOptions = {},
 ): Promise<ProviderHealthRecord> {
   const nowMs = options.now?.() ?? Date.now();
   const config = resolveProviderHealthConfig(options.config);
-  return updateRecord(filePath, provider, (record) => {
+  return updateRecord(context, provider, (record) => {
     if (record.status === 'unavailable' || record.status === 'rate_limited') return record;
     const delay = cooldownDelay(record.cooldownLevel, config);
     return {
@@ -235,7 +200,7 @@ export interface HalfOpenResult {
 
 /** Atomically enough for the project-level single-run lock: one half-open probe per provider. */
 export async function acquireHalfOpenProbe(
-  filePath: string,
+  context: PlanRepositoryContext,
   provider: string,
   options: ProviderHealthOptions = {},
 ): Promise<HalfOpenResult> {
@@ -243,7 +208,7 @@ export async function acquireHalfOpenProbe(
   const at = new Date(nowMs).toISOString();
   const config = resolveProviderHealthConfig(options.config);
   let acquired = false;
-  const record = await updateRecord(filePath, provider, (current) => {
+  const record = await updateRecord(context, provider, (current) => {
     const cooldownUntil = current.cooldownUntil === null ? 0 : Date.parse(current.cooldownUntil);
     if (Number.isFinite(cooldownUntil) && cooldownUntil > nowMs) return current;
 

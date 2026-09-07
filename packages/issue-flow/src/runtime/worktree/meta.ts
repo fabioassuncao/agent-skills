@@ -2,21 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { writeFileAtomic } from '../../utils/fs.js';
 import { ensureWorktreeStorageDirs, getWorktreeStoragePaths } from './paths.js';
 
-/**
- * Durable state of one managed worktree.
- *
- * Adapted from WebMux `backend/src/domain/model.ts` (`WorktreeMeta`) and
- * `backend/src/adapters/fs.ts` @ d8c9d5f. §45.2-G is explicit about the split:
- * the **model** is the upstream's — it is good — and the **vehicle** is Issue
- * Flow's. So the metadata goes to SQLite, where the rest of this project's
- * durable state already lives, and `runtime.env` stays a file because `bash`
- * and the lifecycle hooks read it and neither can query a database.
- *
- * The upstream writes both with `Bun.write`, which is not atomic. Every write
- * here goes through `writeFileAtomic`: a crash mid-write must leave the
- * previous content, not a truncated file (§45.3).
- */
-
 export const WORKTREE_META_SCHEMA_VERSION = 1;
 
 /** Which runtime mode the worktree was prepared for. */
@@ -74,13 +59,6 @@ export function createWorktreeMeta(input: CreateWorktreeMetaInput): WorktreeMeta
   };
 }
 
-/**
- * Environment every pane, hook and agent of this worktree sees.
- *
- * Ported from `buildRuntimeEnvMap`. The allocated ports are exported under
- * their own service key so a `postCreate` hook can start a dev server on the
- * port the worktree owns without knowing how allocation works.
- */
 export function buildRuntimeEnvMap(
   meta: WorktreeMeta,
   worktreePath: string,

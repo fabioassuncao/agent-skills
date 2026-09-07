@@ -5,15 +5,6 @@ import { parseBooleanEnv, readNumberEnv } from './layers.js';
 import { updateProjectConfigSection } from './project-settings.js';
 import { PROJECT_CONFIG_FILENAME, readProjectConfigFile } from './sources.js';
 
-/**
- * The `github` key of `.issue-flow.json` — linked repositories and the display
- * sync interval.
- *
- * Linked repositories come from the WebMux absorption (§20): a unit of work can
- * span sibling repositories, and their Pull Requests belong to the same view.
- * Declaring none — the default — leaves every `gh` call exactly where it was.
- */
-
 export interface LoadGitHubConfigOptions {
   /** Highest-precedence layer, for a future flag. */
   cli?: Partial<GitHubConfig>;

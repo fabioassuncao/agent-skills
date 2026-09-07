@@ -5,30 +5,7 @@
   import { ALL_PROJECTS, activeWorkGroups, summarizeSessions } from './executions';
   import type { AgentSessionRow, ProjectSummary, SessionSummary } from './types';
 
-  /**
-   * The executions dashboard (U1).
-   *
-   * PORT of `renderDashboard`/`renderDashboardSummary`/`renderProjectSelect`.
-   * Two rules hold this together, and both are about not surprising a
-   * single-project user:
-   *
-   * - **The project selector only appears with more than one project.** On a
-   *   single-project monitor it would be a control with one option.
-   * - **The chosen project is a viewing preference**, kept in this browser like
-   *   the theme and the interval. The registry is the authority over which
-   *   projects exist, never over which one somebody is looking at — and a
-   *   project that leaves the registry while the filter points at it returns the
-   *   view to "all" rather than leaving an empty screen with no explanation.
-   *
-   * The heading is "Trabalho ativo", not the product's name: the brand lives in
-   * the document `<title>`.
-   *
-   * Since phase 8D each block also lists the project's **free sessions** (I5,
-   * §49.4): "what is running anywhere" is not answered by the executions alone,
-   * because a session with no run behind it is work in flight too. Only the
-   * free ones — a session that belongs to a run is already the card above it,
-   * and listing it twice would be the view disagreeing with itself.
-   */
+
 
   let {
     sessions,

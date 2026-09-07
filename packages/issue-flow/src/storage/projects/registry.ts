@@ -11,30 +11,6 @@ import {
   upsertStoredProject,
 } from '../db/projects.js';
 
-/**
- * The Project Registry (§47.2) — the one list of projects the CLI, the server,
- * the dashboard and the runtime all read.
- *
- * Three decisions define it, and each one closes a duplication:
- *
- * 1. **The key is `projectId`, never the path.** `projectIdFromRemote()`
- *    survives moving the checkout and is identical across two clones of the
- *    same repository; `root` is a locator the registry updates when it moves.
- *    The upstream keys by path only because it has no other identity.
- * 2. **The store is the `projects` table that already exists.** There is no
- *    `projects.json`: a second state file beside the database would need its
- *    own consistency story for the same facts.
- * 3. **Nothing derivable from the repository is copied in.** Configuration
- *    stays in `.issue-flow.json` inside the repository, the URL prefix is
- *    derived per process, and only the label plus curation state live here.
- *
- * Reads never throw. A database that does not exist yet, one being migrated by
- * another process, or a row shape from a newer release must degrade to "no
- * projects" — the dashboard, `serve` and `ps` all call these on paths where an
- * exception would take down something more important than the project list.
- * Writes do surface their error: `project add` has to be able to say it failed.
- */
-
 export type { ProjectSource, StoredProject } from '../db/projects.js';
 
 /** What a caller needs to know about one registered project. */

@@ -5,7 +5,7 @@ FROM debian:bookworm-slim
 # Playwright with Chromium, the AWS CLI and the Mermaid CLI.
 #
 # Since phase 13 it is **not** the default. `Dockerfile.sandbox` is, and it holds
-# only what an agent needs to take an issue to a Pull Request (§14, stage 2:
+# only what an agent needs to take an issue to a Pull Request:
 # "minimal image as the default, the current one as `full`"). Name whichever one
 # you built in the docker profile's `image`.
 #

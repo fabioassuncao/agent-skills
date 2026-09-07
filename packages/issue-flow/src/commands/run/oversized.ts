@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { getActiveResilienceConfig } from '../../config.js';
 import {
   assessDecomposition,
@@ -84,9 +84,7 @@ export async function reportIfOversized(
 
 async function readJournal(paths: IssuePaths): Promise<string> {
   const repository = getPlanRepository(paths.tasksFile);
-  if (repository === undefined) {
-    return `${await readFileIfPresent(paths.rotatedEventsFile)}${await readFileIfPresent(paths.eventsFile)}`;
-  }
+  if (repository === undefined) return '';
   const events = await listStoredIssueEvents({
     projectId: repository.projectId,
     issueId: repository.issueId,
@@ -162,13 +160,5 @@ export async function countChangedFiles(): Promise<number> {
     return result.stdout.split('\n').filter((line) => line.trim() !== '').length;
   } catch {
     return 0;
-  }
-}
-
-async function readFileIfPresent(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf-8');
-  } catch {
-    return '';
   }
 }

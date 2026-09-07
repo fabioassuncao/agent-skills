@@ -2,28 +2,6 @@ import { resolve } from 'node:path';
 import type { PaneSplit, TmuxGateway } from './gateway.js';
 import { buildPaneTarget, buildProjectSessionName, buildWorktreeWindowName } from './names.js';
 
-/**
- * Laying a worktree's window out, and — the part that is not the upstream's —
- * deciding whether to lay it out at all.
- *
- * Ported from WebMux `backend/src/services/session-service.ts` @ d8c9d5f.
- * `planSessionLayout` is a pure function and is ported as one, so the
- * characterization test compares a plan rather than a tmux server.
- *
- * `ensureSessionLayout` carries the one improvement §27 of the absorption plan
- * asks for. The upstream kills the existing window unconditionally and rebuilds
- * it, which means reopening a worktree kills the agent that was working in it —
- * its conversation survives through `--resume`, but the running process does
- * not. Distinguishing the three cases is what turns "persistent session" from a
- * promise into a fact:
- *
- * ```text
- * reattach → the window exists and its panes are alive → do not touch it
- * resume   → the window is gone, the conversation is not → rebuild + --resume
- * fresh    → nothing exists                             → build from scratch
- * ```
- */
-
 export type PaneKind = 'agent' | 'shell' | 'command';
 
 export interface PaneTemplate {

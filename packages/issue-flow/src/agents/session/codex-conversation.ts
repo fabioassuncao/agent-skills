@@ -19,33 +19,6 @@ import type {
 } from './conversation.js';
 
 /**
- * A Codex thread, as the structured channel's shared message shape.
- *
- * ## Why this file exists
- *
- * `codex.ts` speaks the app-server's own vocabulary: threads, turns and a dozen
- * item types. The panel speaks `ConversationMessage`, and so does Claude's half
- * of this channel. Without the translation the port would deliver a typed
- * client that nothing can render — half a channel.
- *
- * §22 assigns only `adapters/codex-app-server.ts` to this phase, so the
- * translation is taken from the **pure half** of the upstream's
- * `services/worktree-conversation-service.ts` (the item → message builders and
- * the turn-status predicates). The stateful service wrapped around them — meta
- * persistence, streaming subscriptions, tab bookkeeping — is not ported here;
- * that file belongs to the panel's own phase and half of it depends on state
- * this project keeps elsewhere.
- *
- * ## What the shapes encode
- *
- * A tool call becomes **two** messages, not one: an assistant `toolUse` and, if
- * there is output, a `toolResult` keyed `${id}:result`. That is what lets a
- * long command's output collapse independently of the command line, and it is
- * why `order` advances by the number of messages an item produced rather than
- * by one per item.
- */
-
-/**
  * Codex reports times in epoch **seconds**; the shared shape carries ISO-8601.
  * Treating the number as milliseconds silently dates every message to 1970.
  */

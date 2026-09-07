@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRunResult } from '../agents/types.js';
-import { loadTaskPlan } from '../core/state-manager.js';
+import { getPlanRepository, listStoredExecutions } from '../storage/db/repository.js';
 import type { TaskPlan } from '../types.js';
 import { summarize } from './aggregate.js';
 import { bindTelemetry, resetTelemetryState } from './recorder.js';
@@ -51,7 +51,7 @@ function selection(provider: 'claude' | 'codex', failover: boolean) {
       opencode: {},
       origin: { provider: 'default' as const, model: 'default' as const },
     },
-    healthFile: null,
+    health: null,
     failover,
     reason: failover ? ('rate_limit' as const) : null,
     cooldownUntil: null,
@@ -69,6 +69,7 @@ describe('execution record sequence', () => {
       issueNumber: 63,
       issueUrl: '',
       branchName: 'feat/63-x',
+      noBranch: false,
       description: '',
       issueStatus: 'in_progress',
       completedAt: null,
@@ -157,7 +158,13 @@ describe('execution record sequence', () => {
     await invokeSelectedAgent(invocation);
     await invokeSelectedAgent(invocation);
 
-    const records = (await loadTaskPlan(tasksPath)).executions ?? [];
+    const repository = getPlanRepository(tasksPath);
+    expect(repository).toBeDefined();
+    const records = await listStoredExecutions({
+      projectId: repository!.projectId,
+      issueId: repository!.issueId,
+      databaseOptions: repository!.databaseOptions,
+    });
     expect(records.map((record) => record.trigger)).toEqual(['initial', 'retry', 'fallback']);
     expect(records.map((record) => record.agent.harness)).toEqual([
       'claude-code',

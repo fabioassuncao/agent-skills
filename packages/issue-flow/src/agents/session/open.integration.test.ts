@@ -17,19 +17,6 @@ import { type AgentSessionDeps, openAgentSession, stopAgentSession } from './ope
 import { listSessions } from './store.js';
 import { isFreeSession } from './types.js';
 
-/**
- * S1, S2 and S3 of §49.5 against a **real** `git worktree add` and a **real**
- * tmux server, plus the §35 budget the path has to stay inside.
- *
- * The stubbed versions in `free-session.characterization.test.ts` assert the
- * decisions; these assert that the decisions survive contact with the two tools
- * that actually carry them out — a generated branch git will accept, a window
- * tmux will really create, and two projects that really do not collide.
- *
- * Everything runs on a throwaway tmux socket. A test that killed windows on the
- * `issue-flow` socket would kill a real agent someone is working with.
- */
-
 // Probed at module load, synchronously: `it.runIf` is evaluated while the file
 // is collected, so a flag assigned in `beforeAll` would always still be false
 // and every case would skip in silence.
@@ -215,7 +202,7 @@ describe('opening a free session for real', () => {
   );
 
   it.runIf(ready)(
-    'reopening a session whose agent is still running reattaches instead of rebuilding (§27)',
+    'reopening a session whose agent is still running reattaches instead of rebuilding',
     async () => {
       const { deps } = await fixture('proj-real-4');
 
@@ -261,7 +248,7 @@ describe('opening a free session for real', () => {
   );
 
   it.runIf(ready)(
-    'stays inside the §35 T0→T4 budget of 600 ms for worktree + agent started',
+    'stays inside the 600 ms T0→T4 budget for worktree + agent started',
     async () => {
       const { deps } = await fixture('proj-real-6');
       const samples: number[] = [];

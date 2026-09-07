@@ -49,7 +49,7 @@ export async function writeEvidence(path: string, bundle: EvidenceBundle): Promi
   if (repository !== undefined) {
     await saveStoredVerification(repository, bundle as unknown as Record<string, unknown>);
   }
-  // Keep the existing evidence file as a human-readable compatibility projection.
+  // Keep the evidence file as a human-readable artifact.
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(bundle, null, 2)}\n`, 'utf-8');
 }

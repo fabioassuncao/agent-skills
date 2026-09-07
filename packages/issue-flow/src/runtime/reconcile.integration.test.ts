@@ -13,23 +13,6 @@ import { createTmuxGateway, type TmuxGateway } from './tmux/gateway.js';
 import { buildProjectSessionName, buildWorktreeWindowName } from './tmux/names.js';
 import type { ManagedWorktree } from './worktree/lifecycle.js';
 
-/**
- * Reconciliation against a real tmux server.
- *
- * This is where ADR-13 is *measured* rather than asserted: the §35 budget is
- * "≤ 50 ms and obligatorily O(1) in N", and the only way to tell an aggregated
- * pass from a per-entity one is to grow the number of sessions and watch the
- * number stay put. The unit suite proves the call is made once; this proves
- * that making it once is what keeps the pass flat.
- *
- * The worktree list is a fake on purpose. `git status` is genuinely per
- * worktree — git has no aggregated form — so leaving real git in would measure
- * git's fan-out instead of the property ADR-13 governs.
- *
- * Every command runs on a **throwaway socket**, never `issue-flow` and never
- * the user's default: a test that killed windows on the real project socket
- * would kill a real agent.
- */
 const socketName = `issue-flow-test-${randomUUID().slice(0, 8)}`;
 
 // Probed at module load, synchronously: `it.runIf` is evaluated while the file
@@ -188,7 +171,6 @@ describe('reconciliation against a real tmux server', () => {
       );
       const last = await reconcile.reconcile({ force: true });
       expect(last.worktrees.filter((entry) => entry.session.exists)).toHaveLength(21);
-      // §35: ≤ 50 ms, and constant rather than proportional.
       expect(withTwentyOne.best).toBeLessThanOrEqual(50);
       // The shape. A pass that asked tmux once per worktree would land near
       // `withOne × 21`; an aggregated one lands nowhere near it, and this is

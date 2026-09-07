@@ -17,10 +17,6 @@ import {
   renderHandoffForPrompt,
 } from './types.js';
 
-/**
- * §29: agents do not talk over a terminal. What a phase learned reaches the next
- * one as a persisted, typed, auditable row.
- */
 describe('handoffs', () => {
   let home: string;
   let context: PlanRepositoryContext;
@@ -206,7 +202,7 @@ describe('handoffs', () => {
     });
   });
 
-  describe('which session a phase runs in (§28)', () => {
+  describe('which session a phase runs in', () => {
     // The plan is written by whoever read the issue: sharing the conversation
     // is the point, not an optimisation.
     it('keeps understanding together and execution apart', () => {

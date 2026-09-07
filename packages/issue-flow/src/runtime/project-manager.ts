@@ -7,27 +7,6 @@ import {
   type ProjectRuntimeLike,
 } from './project-runtime.js';
 
-/**
- * The set of projects one Issue Flow process serves: a runtime per project,
- * addressed by its derived URL prefix, on top of the registry that says which
- * projects survive a restart.
- *
- * PORT + ADAPT of `backend/src/services/project-manager.ts` @ d8c9d5f. The
- * shape is the original's — `list` / `getByPrefix` / `getByPath` /
- * `loadPersisted` / `add` / `addEphemeral` / `remove` / `setActive`, the two
- * loop tiers, idempotence by resolved root, and a `loadPersisted` that logs
- * and skips instead of aborting the boot.
- *
- * Two adaptations, both forced:
- *
- * - **Asynchronous.** Resolving a root and an identity means asking git, and
- *   the identity is `projectIdFromRemote()` rather than the path. The upstream
- *   could stay synchronous because it keyed by path and read a JSON file.
- * - **Curation is a column, not a file.** `add` promotes the project to
- *   `registered`, `remove` demotes it back to `discovered`. Neither deletes:
- *   the runs, artifacts and telemetry attached to `projectId` outlive both.
- */
-
 export interface ManagedProjectEntry {
   /** `projectIdFromRemote()` — the identity. */
   id: string;

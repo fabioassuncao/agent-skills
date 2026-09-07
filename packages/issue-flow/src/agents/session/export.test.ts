@@ -13,18 +13,6 @@ import {
   writeConversationExport,
 } from './export.js';
 
-/**
- * Parity suite for conversation export.
- *
- * Ported from
- * `.references/webmux-main/backend/src/__tests__/conversation-export-service.test.ts`.
- * The Linear transport cases live now in `issues/linear/client.test.ts`, which
- * reuses this canonical payload. The `buildSeedFromLinear` cases remain out:
- * importing an external attachment has a different prompt-injection boundary.
- * This suite instead owns file transport and the data-notice rule, neither of
- * which the upstream had.
- */
-
 function makeConversation(): ConversationState {
   return {
     provider: 'codexAppServer',
@@ -68,28 +56,24 @@ function makeConversation(): ConversationState {
 }
 
 describe('countConversationTurns', () => {
-  // upstream: "counts unique turn ids"
   it('counts unique turn ids', () => {
     expect(countConversationTurns(makeConversation())).toBe(2);
   });
 });
 
 describe('deriveConversationTitle', () => {
-  // upstream: "uses the first non-empty line of the prompt"
   it('uses the first non-empty line of the prompt', () => {
     expect(deriveConversationTitle('\n\nFix the parser\nMore detail', 'feat/foo')).toBe(
       'Fix the parser',
     );
   });
 
-  // upstream: "truncates long titles"
   it('truncates a long title to 100 characters', () => {
     const title = deriveConversationTitle('a'.repeat(150), 'feat/foo');
     expect(title.length).toBe(100);
     expect(title.endsWith('...')).toBe(true);
   });
 
-  // upstream: "falls back to a branch-based title"
   it('falls back to a branch-based title', () => {
     expect(deriveConversationTitle(undefined, 'feat/foo')).toBe('Agent session: feat/foo');
   });
@@ -100,7 +84,6 @@ describe('deriveConversationTitle', () => {
 });
 
 describe('renderConversationAsMarkdown', () => {
-  // upstream: "renders each message under its role heading"
   it('renders each message under its role heading', () => {
     const markdown = renderConversationAsMarkdown(makeConversation());
     expect(markdown).toContain('### user (2026-05-11T10:00:00.000Z)');
@@ -108,9 +91,6 @@ describe('renderConversationAsMarkdown', () => {
     expect(markdown).toContain('Do the thing');
   });
 
-  // upstream: "escapes inner triple backticks" — an assistant message that
-  // contains ``` would close the block it is rendered inside and let the rest
-  // of the conversation escape into the surrounding document.
   it('neutralises a fence inside message text', () => {
     const markdown = renderConversationAsMarkdown({
       ...makeConversation(),
@@ -152,7 +132,6 @@ describe('renderConversationAsMarkdown', () => {
 });
 
 describe('buildConversationExportPayload', () => {
-  // upstream: "includes the conversation messages and metadata"
   it('includes the conversation and its branch metadata', () => {
     const payload = buildConversationExportPayload({
       branch: 'feat/foo',
@@ -170,60 +149,6 @@ describe('buildConversationExportPayload', () => {
 });
 
 describe('parseConversationExportPayload', () => {
-  // upstream: "normalizes old webmux v1 attachment messages without order or
-  // kind" — the compatibility rule that lets an export written by an earlier
-  // release still be read.
-  it('fills in order and kind for messages written without them', () => {
-    const payload = parseConversationExportPayload({
-      issueFlowConversation: 1,
-      branch: 'feat/foo',
-      baseBranch: null,
-      agent: 'codex',
-      createdAt: '2026-05-11T00:00:00.000Z',
-      conversation: [
-        {
-          id: 'm1',
-          turnId: 't1',
-          role: 'user',
-          text: 'Old prompt',
-          status: 'completed',
-          createdAt: '2026-05-11T00:00:01.000Z',
-        },
-        {
-          id: 'm2',
-          turnId: 't1',
-          role: 'assistant',
-          text: 'Old reply',
-          status: 'completed',
-          createdAt: '2026-05-11T00:00:02.000Z',
-        },
-      ],
-    });
-
-    expect(payload?.conversation).toEqual([
-      {
-        id: 'm1',
-        turnId: 't1',
-        order: 0,
-        kind: 'text',
-        role: 'user',
-        text: 'Old prompt',
-        status: 'completed',
-        createdAt: '2026-05-11T00:00:01.000Z',
-      },
-      {
-        id: 'm2',
-        turnId: 't1',
-        order: 1,
-        kind: 'text',
-        role: 'assistant',
-        text: 'Old reply',
-        status: 'completed',
-        createdAt: '2026-05-11T00:00:02.000Z',
-      },
-    ]);
-  });
-
   it('keeps an explicit order and kind rather than renumbering', () => {
     const payload = parseConversationExportPayload({
       issueFlowConversation: 1,
@@ -248,7 +173,7 @@ describe('parseConversationExportPayload', () => {
   });
 
   it('rejects a payload that is not one of ours', () => {
-    expect(parseConversationExportPayload({ webmux: 1 })).toBeNull();
+    expect(parseConversationExportPayload({ unrelated: 1 })).toBeNull();
     expect(parseConversationExportPayload(null)).toBeNull();
   });
 });
@@ -264,8 +189,6 @@ describe('writeConversationExport', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  // New: the transport. `writeFileAtomic` is a §45.3 guarantee — the upstream
-  // wrote through Linear's API and had nothing here.
   it('writes a file that reads back as the same payload', async () => {
     const path = join(dir, 'nested', 'conversation.json');
     const written = await writeConversationExport({
@@ -322,9 +245,6 @@ describe('buildConversationSeedPrompt', () => {
     expect(seed.prompt.trimEnd().endsWith('</prior-conversation>')).toBe(true);
   });
 
-  // upstream: `buildPriorConversationSection` — the branch, base and messages
-  // that the seed carried. The Linear issue header it wrapped them in becomes
-  // the caller's own `header`, because that half was Linear-specific.
   it('carries the branch, the base and every message', () => {
     const seed = buildConversationSeedPrompt(payload());
     expect(seed.branch).toBe('feat/foo');

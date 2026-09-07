@@ -67,7 +67,8 @@ function plan(overrides: Partial<TaskPlan> = {}): TaskPlan {
     project: 'widgets',
     issueNumber: 42,
     issueUrl: '',
-    branchName: 'issue/42-work',
+    branchName: 'feat/42-work',
+    noBranch: false,
     description: 'Work',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -131,9 +132,11 @@ async function writeLock(overrides: Record<string, unknown> = {}): Promise<void>
     JSON.stringify({
       pid: process.pid,
       host: hostname(),
+      ownerId: 'operations-owner',
       target: '42',
       startedAt: new Date().toISOString(),
       lastHeartbeatAt: new Date().toISOString(),
+      detached: false,
       ...overrides,
     }),
     'utf-8',
@@ -251,13 +254,12 @@ describe('runs', () => {
 });
 
 describe('logs', () => {
-  it('explains how to get a journal when there is none', async () => {
+  it('reports when there are no persisted events', async () => {
     await writeIssue('42', plan());
 
     await expect(runLogs('42')).resolves.toBe(0);
 
-    expect(output()).toContain('no journal');
-    expect(output()).toContain('--continuous');
+    expect(output()).toContain('no recorded events');
   });
 
   it('prints the journal in order, with the detail of each event', async () => {

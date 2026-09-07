@@ -33,7 +33,7 @@ vi.mock('../pr.js', () => ({ runPr: vi.fn(async () => 0) }));
 vi.mock('../pr-review.js', () => ({ runPrReview: vi.fn(async () => 0) }));
 
 /** The `plan` phase is the one that writes tasks.json, so it is a real double. */
-const planned = vi.hoisted(() => ({ branchOf: (issue: string) => `issue/${issue}-work` }));
+const planned = vi.hoisted(() => ({ branchOf: (issue: string) => `feat/${issue}-work` }));
 vi.mock('../plan.js', () => ({ runPlan: vi.fn(async () => 0) }));
 
 const mockProjectRoot = vi.hoisted(() => ({ current: '' }));
@@ -43,12 +43,12 @@ vi.mock('execa', () => ({
       return { stdout: mockProjectRoot.current, exitCode: 0 };
     }
     if (file === 'git' && args[0] === 'branch' && args[1] === '--show-current') {
-      return { stdout: 'issue/50-work', exitCode: 0 };
+      return { stdout: 'feat/50-work', exitCode: 0 };
     }
     // The repository preflight (US-019) asks which branch HEAD points at. The
     // queue shares one branch, so every issue of it answers the same.
     if (file === 'git' && args[0] === 'symbolic-ref') {
-      return { stdout: 'refs/heads/issue/50-work\n', exitCode: 0 };
+      return { stdout: 'refs/heads/feat/50-work\n', exitCode: 0 };
     }
     return { stdout: '', exitCode: 1 };
   }),
@@ -156,6 +156,7 @@ function taskPlan(issue: string, branchName: string): TaskPlan {
     issueNumber: Number(issue),
     issueUrl: `https://github.com/acme/repo/issues/${issue}`,
     branchName,
+    noBranch: false,
     description: `Issue ${issue}`,
     issueStatus: 'pending',
     completedAt: null,
@@ -259,7 +260,6 @@ describe('single issue — no behaviour change', () => {
     // The pr phase still runs for a standalone issue.
     expect(vi.mocked(runPr)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(runExecute)).toHaveBeenCalledWith(
-      undefined,
       expect.objectContaining({ issue: '42', commitScope: undefined }),
     );
     expect(closed).toEqual([]);
@@ -283,7 +283,7 @@ describe('single issue — no behaviour change', () => {
 
     const executed = vi
       .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+      .mock.calls.map(([options]) => (options as { issue?: string }).issue);
     expect(executed).toEqual(['98']);
     expect(existsSync((await resolveQueuePaths('98')).planFile)).toBe(false);
   });
@@ -305,7 +305,7 @@ describe('queue of several issues', () => {
 
     const executed = vi
       .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+      .mock.calls.map(([options]) => (options as { issue?: string }).issue);
     expect(executed).toEqual(['52', '51']);
     // Prerequisites are checked once for the whole queue, not per issue.
     expect(vi.mocked(runInit)).toHaveBeenCalledTimes(1);
@@ -323,11 +323,11 @@ describe('queue of several issues', () => {
         return plan.branchName;
       }),
     );
-    expect(branches).toEqual(['issue/52-work', 'issue/52-work']);
+    expect(branches).toEqual(['feat/52-work', 'feat/52-work']);
 
     const scopes = vi
       .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { commitScope?: string }).commitScope);
+      .mock.calls.map(([options]) => (options as { commitScope?: string }).commitScope);
     expect(scopes).toEqual(['issue-52', 'issue-51']);
   });
 
@@ -338,14 +338,14 @@ describe('queue of several issues', () => {
     await mkdir(paths.issueDir, { recursive: true });
     await writeFile(
       paths.tasksFile,
-      JSON.stringify(taskPlan('51', 'issue/51-standalone'), null, 2),
+      JSON.stringify(taskPlan('51', 'feat/51-standalone'), null, 2),
       'utf-8',
     );
 
     await run('50');
 
     const plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8'));
-    expect(plan.branchName).toBe('issue/52-work');
+    expect(plan.branchName).toBe('feat/52-work');
   });
 
   it('opens exactly one Pull Request, covering every issue of the queue', async () => {
@@ -366,7 +366,7 @@ describe('queue of several issues', () => {
     const pullRequest = {
       number: 7,
       url: 'https://github.com/acme/repo/pull/7',
-      headBranch: 'issue/50-work',
+      headBranch: 'feat/50-work',
       createdAt: '2026-08-05T10:00:00Z',
     };
     // The real `pr` phase writes the reference on the primary issue's plan.
@@ -377,7 +377,7 @@ describe('queue of several issues', () => {
       try {
         plan = JSON.parse(await readFile(paths.tasksFile, 'utf-8')) as TaskPlan;
       } catch {
-        plan = taskPlan(issue, 'issue/52-work');
+        plan = taskPlan(issue, 'feat/52-work');
       }
       plan.pullRequest = pullRequest;
       plan.pipeline.prCreated = true;
@@ -443,7 +443,7 @@ describe('queue of several issues', () => {
 
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
     expect(plan.status).toBe('completed');
-    expect(plan.branchName).toBe('issue/52-work');
+    expect(plan.branchName).toBe('feat/52-work');
     expect(plan.issues.map((entry) => [entry.id, entry.status])).toEqual([
       ['50', 'completed'],
       ['52', 'completed'],
@@ -468,7 +468,7 @@ describe('queue of several issues', () => {
 
     const executed = vi
       .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+      .mock.calls.map(([options]) => (options as { issue?: string }).issue);
     expect(executed).toEqual(['50', '51']);
 
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
@@ -479,7 +479,7 @@ describe('queue of several issues', () => {
     expect(await run('50,51', { only: true })).toBe(0);
     const first = vi
       .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+      .mock.calls.map(([options]) => (options as { issue?: string }).issue);
 
     vi.mocked(runExecute).mockClear();
     const secondHome = await mkdtemp(join(tmpdir(), 'issue-flow-queue-home-'));
@@ -490,7 +490,7 @@ describe('queue of several issues', () => {
       expect(await run(['50', '51'], { only: true })).toBe(0);
       const second = vi
         .mocked(runExecute)
-        .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+        .mock.calls.map(([options]) => (options as { issue?: string }).issue);
 
       expect(second).toEqual(first);
     } finally {
@@ -508,7 +508,7 @@ describe('failure and resume', () => {
   });
 
   it('stops at the failing issue, recording where it happened', async () => {
-    vi.mocked(runExecute).mockImplementation(async (_max, options) =>
+    vi.mocked(runExecute).mockImplementation(async (options) =>
       (options as { issue?: string }).issue === '51' ? 1 : 0,
     );
 
@@ -523,7 +523,7 @@ describe('failure and resume', () => {
   });
 
   it('resumes from the failed issue without redoing the completed ones', async () => {
-    vi.mocked(runExecute).mockImplementation(async (_max, options) =>
+    vi.mocked(runExecute).mockImplementation(async (options) =>
       (options as { issue?: string }).issue === '51' ? 1 : 0,
     );
     await run('50');
@@ -537,7 +537,7 @@ describe('failure and resume', () => {
 
     const executed = vi
       .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+      .mock.calls.map(([options]) => (options as { issue?: string }).issue);
     expect(executed).toEqual(['51']);
 
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
@@ -549,7 +549,7 @@ describe('failure and resume', () => {
     relations.set('49', { ...emptyRelations('49'), blocking: ['50'] });
     issues.set('50', makeIssue('50'));
     issues.set('49', makeIssue('49'));
-    vi.mocked(runExecute).mockImplementation(async (_max, options) =>
+    vi.mocked(runExecute).mockImplementation(async (options) =>
       (options as { issue?: string }).issue === '49' ? 1 : 0,
     );
 
@@ -564,7 +564,7 @@ describe('failure and resume', () => {
 
     const executed = vi
       .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+      .mock.calls.map(([options]) => (options as { issue?: string }).issue);
     expect(executed).toEqual(['50']);
     const plan = await loadExecutionPlan((await resolveQueuePaths('50')).planFile);
     expect(plan.issues.find((entry) => entry.id === '49')).toMatchObject({
@@ -610,7 +610,7 @@ describe('dependency cycles', () => {
 
     const executed = vi
       .mocked(runExecute)
-      .mock.calls.map(([, options]) => (options as { issue?: string }).issue);
+      .mock.calls.map(([options]) => (options as { issue?: string }).issue);
     expect(executed).toEqual(['50']);
   });
 });
@@ -624,11 +624,10 @@ describe('one failing issue does not have to end the queue (US-027)', () => {
 
   /** Which issues the pipeline actually executed, in order. */
   const executed = (): string[] =>
-    vi.mocked(runExecute).mock.calls.map(([, options]) => (options as { issue?: string }).issue!);
+    vi.mocked(runExecute).mock.calls.map(([options]) => (options as { issue?: string }).issue!);
 
   function failing(id: string) {
-    return async (_max: unknown, options: unknown) =>
-      (options as { issue?: string }).issue === id ? 1 : 0;
+    return async (options: unknown) => ((options as { issue?: string }).issue === id ? 1 : 0);
   }
 
   it('stops at the failing issue by default, exactly as before', async () => {
@@ -664,7 +663,7 @@ describe('one failing issue does not have to end the queue (US-027)', () => {
 
   it('with skip, an issue that passes on the second attempt completes the queue', async () => {
     let firstAttempt = true;
-    vi.mocked(runExecute).mockImplementation(async (_max, options) => {
+    vi.mocked(runExecute).mockImplementation(async (options) => {
       if ((options as { issue?: string }).issue !== '51') return 0;
       if (firstAttempt) {
         firstAttempt = false;

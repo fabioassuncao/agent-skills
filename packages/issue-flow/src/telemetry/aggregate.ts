@@ -1,4 +1,3 @@
-import type { TaskPlan } from '../types.js';
 import type { ExecutionRecord, ExecutionStatus, ExecutionSummary } from './types.js';
 
 function emptySummary(discarded = 0): ExecutionSummary {
@@ -36,15 +35,7 @@ function add(into: ExecutionSummary, record: ExecutionRecord): void {
   }
 }
 
-function isPlan(value: TaskPlan | readonly ExecutionRecord[]): value is TaskPlan {
-  return !Array.isArray(value) && 'userStories' in value;
-}
-
-export function summarize(
-  input: TaskPlan | readonly ExecutionRecord[],
-  discarded = 0,
-): ExecutionSummary {
-  const records = isPlan(input) ? (input.executions ?? []) : input;
+export function summarize(records: readonly ExecutionRecord[], discarded = 0): ExecutionSummary {
   const summary = emptySummary(discarded);
   for (const record of records) add(summary, record);
   return summary;

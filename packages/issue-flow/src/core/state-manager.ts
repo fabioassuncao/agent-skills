@@ -2,12 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { ZodError } from 'zod';
 import { taskPlanSchema } from '../schemas.js';
 import { getPlanRepository, loadStoredPlan, saveStoredPlan } from '../storage/db/repository.js';
-import { reconcileInterruptedExecutions } from '../telemetry/reconcile.js';
-import type { LastError, PipelineState, TaskPlan, UserStory } from '../types.js';
+import type { LastError, TaskPlan, UserStory } from '../types.js';
 import { writeFileAtomic } from '../utils/fs.js';
 import { type ClaudeUsage, sumUsage } from './metrics.js';
 import { eligibleStories } from './task-plan.js';
-import { DEFAULT_MAX_CORRECTION_CYCLES, DEFAULT_PIPELINE_STATE } from './workflow-contract.js';
 
 /**
  * Get the current ISO timestamp.
@@ -31,11 +29,6 @@ export async function loadTaskPlan(path: string): Promise<TaskPlan> {
       try {
         parsed = await loadStoredPlan(repository);
       } catch (error) {
-        // The plan phase (and compatible test/embedding callers) writes the
-        // agent-facing projection after resolution. Until it is promoted there
-        // is deliberately no pipeline row, so bootstrap it exactly once from
-        // that validated phase output instead of treating SQLite as an empty
-        // plan that masks the file.
         if (!(error instanceof Error) || !error.message.startsWith('No SQLite task plan exists')) {
           throw error;
         }
@@ -43,16 +36,7 @@ export async function loadTaskPlan(path: string): Promise<TaskPlan> {
         await saveStoredPlan(repository, parsed);
       }
     }
-    const reconciled = reconcileInterruptedExecutions(parsed);
-    if (reconciled !== parsed) {
-      try {
-        await saveTaskPlan(path, reconciled);
-      } catch {
-        // Observational: a failed persist of interrupted status still returns
-        // the reconciled plan to this reader.
-      }
-    }
-    return reconciled;
+    return parsed;
   } catch (err) {
     if (err instanceof ZodError) {
       const issues = err.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
@@ -73,30 +57,6 @@ export async function saveTaskPlan(path: string, plan: TaskPlan): Promise<void> 
     return;
   }
   await writeFileAtomic(path, `${JSON.stringify(plan, null, 2)}\n`);
-}
-
-/**
- * Initialize default state fields on a TaskPlan.
- * Fills in missing fields with defaults, matching the Bash script behavior.
- *
- * The opt-in fields (`pullRequest`, `prReview`, `pipeline.prReviewCompleted`)
- * are deliberately absent from the defaults: they ride along on the spread when
- * present and stay out of the file entirely when the phases never ran.
- */
-export function initializeState(plan: TaskPlan): TaskPlan {
-  const defaultPipeline: PipelineState = DEFAULT_PIPELINE_STATE;
-
-  return {
-    ...plan,
-    issueStatus: plan.issueStatus ?? 'pending',
-    completedAt: plan.completedAt ?? null,
-    lastAttemptAt: plan.lastAttemptAt ?? null,
-    lastError: plan.lastError ?? null,
-    correctionCycle: plan.correctionCycle ?? 0,
-    maxCorrectionCycles: plan.maxCorrectionCycles ?? DEFAULT_MAX_CORRECTION_CYCLES,
-    lastReviewFindings: plan.lastReviewFindings ?? null,
-    pipeline: plan.pipeline ? { ...defaultPipeline, ...plan.pipeline } : defaultPipeline,
-  };
 }
 
 /**

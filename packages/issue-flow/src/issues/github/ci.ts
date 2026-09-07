@@ -1,17 +1,6 @@
 import { ghBounded } from './client.js';
 import type { CiCheck, CiStatus, GhCheckEntry } from './types.js';
 
-/**
- * CI check rollup — summarising, deduping and typing `statusCheckRollup`, plus
- * reading the failed-step log of a GitHub Actions run.
- *
- * Ported from WebMux `backend/src/services/pr-service.ts` @ d8c9d5f (the check
- * helpers) and `backend/src/server.ts:1769` (`gh run view --log-failed`). The
- * Issue Flow had no CI reading at all, so this is `PORT`, not `MERGE`: the
- * dedupe rule and the cancelled-run handling below are the whole reason the
- * upstream dashboard does not report a re-triggered PR as permanently failed.
- */
-
 /** Group key for an entry: check-run name, or external status context. */
 function checkEntryKey(check: GhCheckEntry): string {
   return check.__typename === 'StatusContext' ? `status:${check.context}` : `check:${check.name}`;

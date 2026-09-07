@@ -40,36 +40,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { terminalSocketUrl, uploadFiles } from './api';
 
-  /**
-   * The agent's terminal, in the browser.
-   *
-   * ADAPT of `frontend/src/lib/Terminal.svelte` @ d8c9d5f (489 lines). Every
-   * behaviour of the original is here — xterm + fit + web links, reconnect on
-   * `visibilitychange`/`focus`/`online`, OSC 52 clipboard, auto-copy on
-   * selection, Shift+Enter as CSI u, the app shortcuts that must bubble past
-   * xterm, image paste and drop, and the manual touch scroll for mobile. What
-   * changed is the transport, and it changed in four ways, all of them required
-   * by `src/web/terminal-ws.ts`:
-   *
-   * 1. **The socket is authenticated** (ADR-10). The URL carries a token from
-   *    `GET /api/terminal/token`, which only exists on a loopback binding. The
-   *    upstream has no authentication at all and binds `0.0.0.0`; that is the
-   *    one part of WebMux this absorption rejects outright.
-   * 2. **The key is the session, not the branch.** A worktree can hold more
-   *    than one live agent (§48.3), so `sessionId` addresses the window.
-   * 3. **Frames carry an offset.** `o<offset>\n<data>` and `s<offset>\n<data>`
-   *    — the upstream strips one character; here the payload starts after the
-   *    first newline and the number before it is remembered.
-   * 4. **Reconnects ask for the delta.** `lastOffset` rides on the attach
-   *    `resize`, so returning to a tab replays what was missed instead of the
-   *    whole 1 MB ring. A browser reconnects on `visibilitychange`, `focus` and
-   *    `online`; switching tabs twice used to cost two megabytes and two full
-   *    repaints.
-   *
-   * The first message on the socket **must** be a `resize`: the server treats it
-   * as the attach signal, and sending the client's real dimensions before the
-   * pty exists is what makes the first frame already the right shape.
-   */
+
 
   let {
     sessionId = null,
@@ -405,7 +376,6 @@
             break;
         }
       } catch {
-        // Malformed message — ignored, as upstream.
       }
     };
 

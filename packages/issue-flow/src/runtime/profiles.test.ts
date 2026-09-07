@@ -21,14 +21,6 @@ import {
 import type { SandboxProfileConfig, SandboxServiceConfig } from './sandbox/index.js';
 import type { ServiceSpec } from './services.js';
 
-/**
- * Ported from WebMux `backend/src/__tests__/setup.test.ts` @ d8c9d5f — the
- * profile, pane and `expandTemplate` cases, which are the slice of that file
- * this module owns. The YAML of the original becomes the plain objects the
- * parser actually receives, because reading the file is `src/config/runtime.ts`'s
- * job and is tested there.
- */
-
 describe('expandTemplate', () => {
   it('replaces known placeholders', () => {
     expect(expandTemplate('Hello ${NAME}', { NAME: 'world' })).toBe('Hello world');
@@ -119,19 +111,12 @@ describe('parsePaneTemplates', () => {
 });
 
 describe('parseProfilePermission', () => {
-  it('maps yolo: true to autonomous', () => {
-    expect(parseProfilePermission({ yolo: true })).toBe('autonomous');
-  });
-
-  // The upstream's own test asserts that `yolo: false` leaves no `yolo` behind;
-  // here that means the phase's permission is left alone, not narrowed.
-  it('maps yolo: false to no override at all', () => {
-    expect(parseProfilePermission({ yolo: false })).toBeUndefined();
+  it('leaves permission absent when it is not declared', () => {
     expect(parseProfilePermission({})).toBeUndefined();
   });
 
-  it('prefers the semantic permission over yolo', () => {
-    expect(parseProfilePermission({ permission: 'read-only', yolo: true })).toBe('read-only');
+  it('reads a semantic permission', () => {
+    expect(parseProfilePermission({ permission: 'read-only' })).toBe('read-only');
   });
 
   it('ignores an unknown permission value', () => {
@@ -145,7 +130,7 @@ describe('parseRuntimeProfile', () => {
       parseRuntimeProfile(
         {
           runtime: 'host',
-          yolo: true,
+          permission: 'autonomous',
           envPassthrough: ['GITHUB_TOKEN'],
           systemPrompt: 'be terse',
           panes: [{ id: 'agent', kind: 'agent', focus: true }],
@@ -253,8 +238,6 @@ describe('mergeProfileLayers', () => {
   });
 });
 
-// The upstream has this exact test: mutating what one load handed back must not
-// be visible in the next one.
 describe('defensive copies', () => {
   it('never hands out the shared default profile', () => {
     const first = defaultProfiles();
@@ -340,11 +323,8 @@ describe('resolveProfileSystemPrompt', () => {
   });
 });
 
-// Phase 12 wrote the sandbox before profiles existed, so it declared structural
-// subsets of these shapes and recorded that "phase 10's richer type only has to
-// stay assignable to it". This is that contract, checked by the compiler: if the
-// two drift apart, the sandbox quietly stops receiving what a profile declares.
-describe('the shapes phase 12 declared subsets of', () => {
+// The compiler checks the profile and sandbox shapes remain assignable.
+describe('profile and sandbox shapes', () => {
   it('stays assignable to SandboxProfileConfig and SandboxServiceConfig', () => {
     const profile: DockerRuntimeProfile = {
       runtime: 'docker',

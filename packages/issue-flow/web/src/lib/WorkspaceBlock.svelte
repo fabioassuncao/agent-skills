@@ -2,23 +2,7 @@
   import AgentStatusIcon from './AgentStatusIcon.svelte';
   import type { WorktreeInfo } from './types';
 
-  /**
-   * "Sessões e worktrees" — the tab that makes §50.5's rule true.
-   *
-   * A Task **contains** its sessions, worktrees and services; it does not point
-   * at another area. This is the component that holds them, and it is the
-   * **same** component a free session uses to show its own workspace — the only
-   * difference is how many rows it is given and what the heading calls them.
-   *
-   * That is deliberate and it is the anti-pattern the phase exists to avoid: a
-   * second "session version" of this block is exactly how the two interfaces
-   * would grow back inside one product.
-   *
-   * Service health comes from `runtime/services.ts` through the row, and a
-   * probe can only tell `ready` from `stopped` — a port nobody allocated says
-   * so rather than reading as "stopped", which would be a state somebody
-   * observed.
-   */
+
 
   let {
     worktrees,

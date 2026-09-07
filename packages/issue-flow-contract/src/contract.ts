@@ -27,14 +27,12 @@ import {
   HealthResponseSchema,
   JournalResponseSchema,
   LinearIssuesResponseSchema,
-  NotificationIdParamsSchema,
   OkResponseSchema,
   OpenWorktreeRequestSchema,
   PostWorktreeToLinearRequestSchema,
   PostWorktreeToLinearResponseSchema,
   ProjectInitsResponseSchema,
   ProjectPrefixParamsSchema,
-  ProjectSnapshotSchema,
   ProjectsResponseSchema,
   ProjectWorktreeSnapshotSchema,
   PullMainRequestSchema,
@@ -63,27 +61,6 @@ import {
 
 /**
  * The Issue Flow HTTP contract.
- *
- * PORT of `packages/api-contract/src/contract.ts` from windmill-labs/webmux
- * @ d8c9d5f (527 lines). The router shape, the `apiPaths` map and
- * `strictStatusCodes` are the upstream's; what changed is the route set:
- *
- * - the migration sensor (`/api/instances`, `/api/projects/migrate`) is gone;
- *   the optional Linear routes use an environment-only credential and expose
- *   availability explicitly instead of persisting authentication material;
- * - the terminal socket is keyed by **session**, not by branch (§48.3), and it
- *   carries a token (ADR-10) — the upstream's unauthenticated
- *   `WS /<prefix>/ws/:branch` is not portable as-is;
- * - the execution half of Issue Flow (`/api/sessions`, `/api/status`,
- *   `/api/events`, `/api/agent-events`, `/api/diagnostics`, `/api/config`,
- *   `/api/health`, `/api/stream`) is added — those are the routes
- *   `src/web/server.ts` serves today.
- *
- * `SERVED_TODAY` below is not decoration: it is what the dashboard reads to
- * decide whether a surface can be offered at all. A route in the ported
- * worktree half has no backend behind it until phases 5–7, 10 and 14 land, and
- * a dashboard that called it anyway would show the user a 404 instead of an
- * honest "not available on this monitor".
  */
 
 const c = initContract();
@@ -103,17 +80,16 @@ export const apiPaths = {
   terminalToken: '/api/terminal/token',
   streamTerminal: '/ws/terminal',
 
-  /* Projects — the unified registry (§47), served today. */
+
   fetchProjects: '/api/projects',
   addProject: '/api/projects',
   projectInits: '/api/project-inits',
   removeProject: '/api/projects/:prefix',
 
-  /* Worktrees, sessions and agents — ported from WebMux, backed by phases 5–7. */
+  /* Worktrees, sessions and agents. */
   fetchConfig: '/api/config/project',
   fetchAvailableBranches: '/api/branches',
   fetchBaseBranches: '/api/base-branches',
-  fetchProject: '/api/project',
   fetchAgents: '/api/agents',
   createAgent: '/api/agents',
   updateAgent: '/api/agents/:id',
@@ -123,7 +99,6 @@ export const apiPaths = {
   fetchAgentsWorktreeConversationHistory: '/api/agents/worktrees/:name/history',
   sendAgentsWorktreeConversationMessage: '/api/agents/worktrees/:name/messages',
   interruptAgentsWorktreeConversation: '/api/agents/worktrees/:name/interrupt',
-  streamAgentsWorktreeConversation: '/ws/conversation/:name',
   fetchWorktrees: '/api/worktrees',
   createWorktree: '/api/worktrees',
   removeWorktree: '/api/worktrees/:name',
@@ -147,18 +122,11 @@ export const apiPaths = {
   setAutoRemoveOnMerge: '/api/github/auto-remove-on-merge',
   pullMain: '/api/pull-main',
   fetchCiLogs: '/api/ci-logs/:runId',
-  dismissNotification: '/api/notifications/:id/dismiss',
 } as const;
 
 export type ApiRouteName = keyof typeof apiPaths;
 
-/**
- * Routes `packages/issue-flow/src/web/server.ts` answers today.
- *
- * Verified against that file, not assumed. Everything absent from this set is
- * ported ahead of its backend and must be reached only behind a capability
- * check — see `capabilities.ts`.
- */
+
 export const SERVED_TODAY: ReadonlySet<ApiRouteName> = new Set<ApiRouteName>([
   'health',
   'fetchSessions',
@@ -207,6 +175,10 @@ export const SERVED_TODAY: ReadonlySet<ApiRouteName> = new Set<ApiRouteName>([
   'postWorktreeToLinear',
   'setAutoRemoveOnMerge',
   'fetchAutoNameConfig',
+  'attachAgentsWorktreeConversation',
+  'fetchAgentsWorktreeConversationHistory',
+  'sendAgentsWorktreeConversationMessage',
+  'interruptAgentsWorktreeConversation',
 ]);
 
 const commonErrorResponses = {
@@ -365,9 +337,7 @@ export const apiContract = c.router(
       },
     },
 
-    /* --------------------------------------------------------------------- *
-     * Worktrees, sessions and agents — ported ahead of their backend
-     * --------------------------------------------------------------------- */
+
     fetchConfig: {
       method: 'GET',
       path: apiPaths.fetchConfig,
@@ -398,16 +368,6 @@ export const apiContract = c.router(
         404: ErrorResponseSchema,
         500: ErrorResponseSchema,
         501: ErrorResponseSchema,
-      },
-    },
-    fetchProject: {
-      method: 'GET',
-      path: apiPaths.fetchProject,
-      responses: {
-        200: ProjectSnapshotSchema,
-        404: ErrorResponseSchema,
-        500: ErrorResponseSchema,
-        502: ErrorResponseSchema,
       },
     },
     fetchAgents: {
@@ -734,17 +694,6 @@ export const apiContract = c.router(
       responses: {
         200: CiLogsResponseSchema,
         ...commonErrorResponses,
-      },
-    },
-    dismissNotification: {
-      method: 'POST',
-      path: apiPaths.dismissNotification,
-      pathParams: NotificationIdParamsSchema,
-      body: c.noBody(),
-      responses: {
-        200: OkResponseSchema,
-        400: ErrorResponseSchema,
-        404: ErrorResponseSchema,
       },
     },
   },

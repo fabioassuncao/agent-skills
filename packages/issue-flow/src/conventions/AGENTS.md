@@ -26,7 +26,7 @@ Distribution of these pure rules to independent Skills is defined in the
   the convention.
 - **Git layer accepts no provider, agent or model.** Names such as
   `claude` may appear in a subject; never as type or scope
-  (`FORBIDDEN_PROVIDER_NAMES`). Telemetry stays in `session.json`.
+  (`FORBIDDEN_PROVIDER_NAMES`). Telemetry stays in canonical SQLite records.
 - **Change-type ladder: two rungs.** declared (explicit, or a label
   through `typeMap` overlaying `DEFAULT_LABEL_TYPE_MAP`) → `feat`
   fallback. The Issue Type and title-prefix rungs, with
@@ -42,8 +42,7 @@ Distribution of these pure rules to independent Skills is defined in the
   (`issueReferenceLines`). A container closes only when
   `allChildrenComplete`. There is no `Story:` trailer: that link lives
   in the `stories` table, and a copy in the message was a second truth.
-- **Branches are deterministic.** `{type}/{N}-{slug}`; legacy
-  `issue/{N}-*` still parses. Three paths, in `resolveBranchName`:
+- **Branches are deterministic.** `{type}/{N}-{slug}`. Three paths, in `resolveBranchName`:
   convention, generated name, `change-<uuid8>`.
 - **`auto-name.ts` names no provider.** The model call is an injected
   `BranchNameGenerator`; the prompt, the eleven normalization steps and

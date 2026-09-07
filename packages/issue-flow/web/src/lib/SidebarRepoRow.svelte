@@ -1,7 +1,7 @@
 <script lang="ts">
   import CursorButton from './CursorButton.svelte';
 
-  /** PORT of `frontend/src/lib/SidebarRepoRow.svelte` @ d8c9d5f (24 lines). */
+
 
   let {
     label,

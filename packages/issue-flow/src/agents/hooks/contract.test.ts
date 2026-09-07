@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseAgentRuntimeEvent } from './contract.js';
 
-/**
- * Ported from WebMux `backend/src/__tests__/runtime-events.test.ts` @ d8c9d5f
- * (2 cases). The correlation keys are Issue Flow's (`runId` + `phase`) instead
- * of the upstream's (`worktreeId` + `branch`) — §18 — but every acceptance and
- * rejection the upstream asserts is asserted here on the equivalent shape.
- */
 describe('parseAgentRuntimeEvent', () => {
   it('parses valid runtime events', () => {
     expect(

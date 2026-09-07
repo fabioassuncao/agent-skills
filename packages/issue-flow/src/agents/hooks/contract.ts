@@ -1,34 +1,9 @@
-/**
- * Runtime events an agent's own hooks report about its lifecycle.
- *
- * Ported from WebMux `backend/src/domain/events.ts` @ d8c9d5f. The taxonomy is
- * kept at exactly four types — the upstream's, unchanged — because it is the
- * complete set an agent harness can report from a hook, and inventing a fifth
- * here would mean inventing a producer for it.
- *
- * Two deliberate differences from the upstream, both from §18 of the absorption
- * plan:
- *
- * 1. **Correlation.** WebMux keys events by `worktreeId` + `branch`, which is
- *    what it knows. Issue Flow keys them by `runId` + `phase`, which is what
- *    the pipeline knows — `runId` is the session id (`runs.id` and
- *    `runs.session_id` are the same value, see `storage/db/repository.ts`).
- * 2. **`occurredAt`.** The upstream mutates an in-memory projection, so when an
- *    event happened is the moment it arrived. These are persisted, so they
- *    carry their own timestamp.
- *
- * ADR-05 is the reason this module exists at all: agent state comes from a
- * hook, never from parsing a TTY. A parser over a TUI produces data that is
- * plausible and wrong, and it breaks on every harness release.
- */
-
 export type AgentRuntimeEventType =
   | 'agent_stopped'
   | 'agent_status_changed'
   | 'pr_opened'
   | 'runtime_error';
 
-/** The four states a harness hook can report. Identical to the upstream's. */
 export type AgentLifecycle = 'starting' | 'running' | 'idle' | 'stopped';
 
 export const AGENT_LIFECYCLES: readonly AgentLifecycle[] = [

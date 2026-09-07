@@ -10,12 +10,6 @@ import {
   ProjectManager,
 } from './project-manager.js';
 
-/**
- * Ported from `backend/src/__tests__/project-manager.test.ts` @ d8c9d5f
- * (11 cases). Adapted where the port had to adapt: the methods are async, the
- * registry is keyed by `projectId`, and `remove` demotes instead of deleting.
- */
-
 interface FakeRuntime {
   projectId: string;
   config: { name: string };

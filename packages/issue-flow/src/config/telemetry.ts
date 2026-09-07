@@ -1,7 +1,7 @@
 import { type TelemetryConfigInput, telemetryConfigInputSchema } from '../storage/schemas.js';
 import { DEFAULT_TELEMETRY_CONFIG, type TelemetryConfig } from '../telemetry/types.js';
 import { printWarning } from '../ui/logger.js';
-import { mergeConfigLayers, parseBooleanEnv, readNumberEnv } from './layers.js';
+import { mergeConfigLayers, parseBooleanEnv } from './layers.js';
 import { loadGlobalConfig, PROJECT_CONFIG_FILENAME, readProjectConfigFile } from './sources.js';
 
 export interface LoadTelemetryConfigOptions {
@@ -26,16 +26,11 @@ function parseTelemetryLayer(
   return {};
 }
 
-function readTelemetryEnv(
-  env: NodeJS.ProcessEnv,
-  warn: (message: string) => void,
-): TelemetryConfigInput {
+function readTelemetryEnv(env: NodeJS.ProcessEnv): TelemetryConfigInput {
   const layer: TelemetryConfigInput = {};
   if (env.ISSUE_FLOW_TELEMETRY !== undefined) {
     layer.enabled = parseBooleanEnv(env.ISSUE_FLOW_TELEMETRY);
   }
-  const max = readNumberEnv(env, 'ISSUE_FLOW_TELEMETRY_MAX_EXECUTIONS', warn);
-  if (max !== undefined) layer.maxExecutions = max;
   if (env.ISSUE_FLOW_TELEMETRY_ESTIMATE !== undefined) {
     layer.pricing = { estimate: parseBooleanEnv(env.ISSUE_FLOW_TELEMETRY_ESTIMATE) };
   }
@@ -64,7 +59,7 @@ export async function loadTelemetryConfig(
     ).telemetry;
   const projectFile = await readProjectConfigFile(options.projectRoot, warn);
   const project = parseTelemetryLayer(projectFile?.telemetry, PROJECT_CONFIG_FILENAME, warn);
-  const envLayer = readTelemetryEnv(env, warn);
+  const envLayer = readTelemetryEnv(env);
 
   const pricing = mergeConfigLayers<TelemetryConfig['pricing']>({
     defaults: DEFAULT_TELEMETRY_CONFIG.pricing,
@@ -79,30 +74,21 @@ export async function loadTelemetryConfig(
     ...envLayer.pricing?.overrides,
   };
 
-  const scalars = mergeConfigLayers<Pick<TelemetryConfig, 'enabled' | 'maxExecutions'>>({
-    defaults: {
-      enabled: DEFAULT_TELEMETRY_CONFIG.enabled,
-      maxExecutions: DEFAULT_TELEMETRY_CONFIG.maxExecutions,
-    },
+  const scalars = mergeConfigLayers<Pick<TelemetryConfig, 'enabled'>>({
+    defaults: { enabled: DEFAULT_TELEMETRY_CONFIG.enabled },
     global: {
       ...(globalFile?.enabled === undefined ? {} : { enabled: globalFile.enabled }),
-      ...(globalFile?.maxExecutions === undefined
-        ? {}
-        : { maxExecutions: globalFile.maxExecutions }),
     },
     project: {
       ...(project.enabled === undefined ? {} : { enabled: project.enabled }),
-      ...(project.maxExecutions === undefined ? {} : { maxExecutions: project.maxExecutions }),
     },
     env: {
       ...(envLayer.enabled === undefined ? {} : { enabled: envLayer.enabled }),
-      ...(envLayer.maxExecutions === undefined ? {} : { maxExecutions: envLayer.maxExecutions }),
     },
   });
 
   return {
     enabled: scalars.enabled ?? DEFAULT_TELEMETRY_CONFIG.enabled,
-    maxExecutions: scalars.maxExecutions ?? DEFAULT_TELEMETRY_CONFIG.maxExecutions,
     pricing: {
       estimate: pricing.estimate ?? DEFAULT_TELEMETRY_CONFIG.pricing.estimate,
       overrides,

@@ -5,7 +5,7 @@
  * Before this module there was no `SIGINT` handler anywhere in the pipeline —
  * the only one in the project belonged to the web server — so an interrupt
  * killed the process mid-phase: nothing was marked as paused, no `session:end`
- * was published (leaving `session.json` on `running` forever), and the `claude`
+ * was published (leaving the session snapshot on `running` forever), and the `claude`
  * child was orphaned rather than asked to stop. Resumption then worked by
  * accident, because a stale `in_progress` happens to be treated as "do this
  * one first".

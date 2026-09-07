@@ -1,14 +1,5 @@
 import type { WorktreeInfo } from './types';
 
-/**
- * Fixtures shared by the ported suites.
- *
- * The upstream repeats `createWorktree` in four test files. Keeping one copy
- * matters here for a specific reason: `WorktreeInfo` gained `executionId` and
- * `issueRef` (§48.3), and four independent copies is four places to forget a
- * new field — which fails as a type error in one suite and as a silently wrong
- * fixture in the others.
- */
 export function createWorktree(
   branch: string,
   overrides: Partial<WorktreeInfo> = {},
@@ -35,7 +26,6 @@ export function createWorktree(
     creating: false,
     creationPhase: null,
     source: 'ui',
-    oneshot: null,
     tabs: [],
     activeTabId: null,
     supportsTabs: false,

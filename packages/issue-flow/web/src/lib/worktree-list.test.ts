@@ -9,11 +9,6 @@ import {
   filterWorktrees,
 } from './worktree-list';
 
-/**
- * PORT of `frontend/src/lib/worktree-list.test.ts` @ d8c9d5f — 12 cases, plus 1
- * for the `issueRef` haystack that replaced the Linear identifier.
- */
-
 describe('buildWorktreeListRows', () => {
   it('nests child worktrees under their base worktree when it exists', () => {
     const rows = buildWorktreeListRows([

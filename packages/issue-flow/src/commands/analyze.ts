@@ -3,7 +3,6 @@ import { parseDocumentResult } from '../core/document-result.js';
 import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
 import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
-import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
 import { issuePlaceholders, resolveCommandIssue } from '../issues/context.js';
 import type { ResolvedIssue } from '../issues/types.js';
@@ -62,16 +61,6 @@ export async function runAnalyze(issue: string, resolvedIssue?: ResolvedIssue): 
   } catch (error) {
     printError(`Analysis output could not be parsed: ${(error as Error).message}`);
     return 1;
-  }
-
-  // Update pipeline state
-  const tasksPath = paths.tasksFile;
-  try {
-    const plan = await loadTaskPlan(tasksPath);
-    plan.pipeline.analyzeCompleted = true;
-    await saveTaskPlan(tasksPath, plan);
-  } catch {
-    // tasks.json may not exist yet — that's OK for standalone analyze
   }
 
   printSuccess(`Analysis saved to ${analysisPath}`);

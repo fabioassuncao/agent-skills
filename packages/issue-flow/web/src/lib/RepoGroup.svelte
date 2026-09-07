@@ -3,13 +3,7 @@
   import PrStatusGroup from './PrStatusGroup.svelte';
   import type { PrEntry, ServiceStatus } from './types';
 
-  /**
-   * PORT of `frontend/src/lib/RepoGroup.svelte` @ d8c9d5f (45 lines).
-   *
-   * This is also where service health lands (§19): port, state and a link, and
-   * a service that is not running is `pointer-events-none` rather than hidden —
-   * "configured but down" and "not configured" are different answers.
-   */
+
 
   let {
     label,

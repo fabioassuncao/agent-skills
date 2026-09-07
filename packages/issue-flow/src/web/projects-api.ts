@@ -3,21 +3,6 @@ import type { ManagedProjectEntry } from '../runtime/project-manager.js';
 import type { ProjectRecord, ProjectRegistry } from '../storage/projects/registry.js';
 
 /**
- * `GET/POST/DELETE /api/projects` and `GET /api/project-inits`.
- *
- * ADAPT of the upstream hub routes (`backend/src/server.ts` @ d8c9d5f). The
- * four add paths are the original's, in the original order, because each one
- * exists for a case the others get wrong: a project already being served must
- * answer immediately, a setup already in flight must not be started twice, a
- * configured repository must not be dragged through a setup it does not need,
- * and an unconfigured one must not block the request while it is prepared.
- *
- * The handlers return `{ status, body }` rather than writing to a
- * `ServerResponse`, so the whole surface is testable without a socket — the
- * same shape the rest of `server.ts` could adopt later.
- */
-
-/**
  * What one served project looks like from here.
  *
  * Structural rather than `ManagedProject<R>` on purpose: the API never touches
@@ -220,10 +205,6 @@ export async function removeProject(
   if (project === null) {
     return { status: 404, body: { error: `No project served under '${prefix}'.` } };
   }
-  // Order matters upstream (sockets are closed before the project leaves the
-  // map, or the global handler can no longer find the cleanup). There are no
-  // per-project sockets yet — the terminal transport arrives with phase 8 —
-  // so the note is here to keep that ordering when they do.
   await deps.manager.remove(prefix);
   return { status: 200, body: { ok: true, prefix, id: project.entry.id } };
 }

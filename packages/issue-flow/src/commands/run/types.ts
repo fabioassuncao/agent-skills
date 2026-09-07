@@ -82,22 +82,9 @@ export interface IssueRunResult {
 /** Options `run` accepts on top of the phase selection ones. */
 export interface RunPipelineOptions {
   closeIssue?: boolean;
-  /**
-   * `--prompt <text>`: the demand itself, with no Issue behind it (§17).
-   *
-   * The pipeline never sees it as a prompt. It is minted into an Issue of the
-   * `inline` origin before anything starts, so every phase, the acceptance
-   * contract and the independent reviewer run exactly as they always did.
-   */
+
   prompt?: string;
-  /**
-   * `--auto-close` / `--keep-open`: whether the run closes the agent sessions
-   * it left open once it is over. `undefined` falls back to `run.autoClose`
-   * in `.issue-flow.json`, whose default is off.
-   *
-   * A run a person took over (`human_hold`) never closes anything, whatever
-   * this says — §32's takeover is the disarm.
-   */
+
   autoClose?: boolean;
   /** `--yes`: accept the discovered hierarchy without confirmation. */
   yes?: boolean;
@@ -117,16 +104,14 @@ export interface RunPipelineOptions {
   startUs?: number;
   /**
    * `--retry-limit <n>`: consecutive retries the `execute` phase may spend on a
-   * transient failure. Absent means the engine default (`DEFAULTS.retryLimit`),
-   * which is what every release before this flag existed used.
+   * transient failure. Absent means the engine default (`DEFAULTS.retryLimit`).
    */
   retryLimit?: number;
   /** `--retry-forever`: lift the retry count of the `execute` phase. */
   retryForever?: boolean;
   /**
    * `--on-issue-failure <mode>`: what one failing Issue does to the rest of a
-   * queue. `stop` is the default and the behaviour of every release before the
-   * flag existed.
+   * queue. `stop` is the default.
    */
   onIssueFailure?: QueueFailureMode;
 }

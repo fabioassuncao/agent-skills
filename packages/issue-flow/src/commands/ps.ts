@@ -1,7 +1,5 @@
 import { z } from 'zod';
-import { loadGlobalConfig } from '../config/sources.js';
 import { type LiveRun, listLiveRuns } from '../execution/registry.js';
-import { resolveProjectPaths } from '../storage/resolve.js';
 import { formatDuration, printInfo } from '../ui/logger.js';
 
 export const liveRunJsonSchema = z.object({
@@ -57,14 +55,8 @@ function pad(cells: string[]): string {
 }
 
 export async function runPs(options: PsOptions = {}): Promise<number> {
-  let storageDriver = (await loadGlobalConfig()).storage?.driver ?? 'sqlite';
-  try {
-    storageDriver = (await resolveProjectPaths()).storageDriver;
-  } catch {
-    // `ps` is machine-wide and remains usable outside a repository.
-  }
   const render = async () => {
-    const runs = await listLiveRuns({ storageDriver });
+    const runs = await listLiveRuns();
     if (options.json === true) {
       const payload = liveRunJsonSchema.parse({
         schemaVersion: 1,

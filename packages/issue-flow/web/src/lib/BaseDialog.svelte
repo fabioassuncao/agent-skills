@@ -1,14 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  /**
-   * PORT of `frontend/src/lib/BaseDialog.svelte` @ d8c9d5f (46 lines).
-   *
-   * `pressStartedOnBackdrop` is the detail worth keeping: a click closes the
-   * dialog only when the press *started* on the backdrop. Without it, selecting
-   * text inside the dialog and releasing outside it closes the dialog and
-   * throws away whatever the user was doing.
-   */
+
 
   let {
     onclose,

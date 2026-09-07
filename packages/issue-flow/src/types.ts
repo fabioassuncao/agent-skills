@@ -4,7 +4,6 @@
  */
 
 import type { ClaudeUsage } from './core/metrics.js';
-import type { ExecutionRecord } from './telemetry/types.js';
 
 /**
  * Granular lifecycle state of a story, for consumers that need more than the
@@ -48,8 +47,7 @@ export type StoryStage =
  *
  * The metrics inherited from {@link ClaudeUsage} plus `durationSeconds` are all
  * optional and purely observational: they are written by the execute loop when
- * the story completes, and a `tasks.json` produced before they existed (or by a
- * CLI that reports no usage) simply omits them. Absent means "not reported",
+ * the story completes, and a CLI that reports no usage omits them. Absent means "not reported",
  * never zero.
  */
 export interface UserStory extends ClaudeUsage {
@@ -90,15 +88,13 @@ export interface LastError {
 }
 
 export interface PipelineState {
-  analyzeCompleted?: boolean;
   prdCompleted: boolean;
   jsonCompleted: boolean;
   executionCompleted: boolean;
   reviewCompleted: boolean;
   prCreated: boolean;
   /**
-   * Optional like `analyzeCompleted`: the `pr-review` phase is opt-in, so every
-   * `tasks.json` written before it existed stays valid without the field.
+   * Optional because the `pr-review` phase is opt-in.
    */
   prReviewCompleted?: boolean;
 }
@@ -181,12 +177,10 @@ export interface TaskPlan {
   issueNumber: number | string;
   /**
    * `''` when the Issue has no remote counterpart (local-only demands).
-   * Always a string once loaded through `taskPlanSchema`, which defaults the
-   * field — never actually `undefined` at runtime, unlike a plain optional.
    */
   issueUrl: string;
   branchName: string;
-  noBranch?: boolean;
+  noBranch: boolean;
   description: string;
   issueStatus: 'pending' | 'in_progress' | 'completed';
   completedAt: string | null;
@@ -211,20 +205,14 @@ export interface TaskPlan {
    * worked by accident — `nextQueueIssue()` treating a stale `in_progress` as
    * "resume this first" — and a `Ctrl+C` left no trace at all.
    *
-   * Optional and purely additive: a plan written before it simply has none, and
-   * absent means exactly what it always meant.
+   * Optional because a plan has no active run before execution starts.
    */
   runState?: IssueRunState;
-  /** Written by the `pr` phase; absent in every plan created before it. */
+  /** Written by the `pr` phase. */
   pullRequest?: PullRequestRef;
   /** Written by the `pr-review` phase; absent while the phase never ran. */
   prReview?: PrReviewState;
   userStories: UserStory[];
-  /**
-   * One row per agent invocation. Additive and optional: a plan written
-   * before this field has none, and absent is not the same as `[]`.
-   */
-  executions?: ExecutionRecord[];
 }
 
 export interface EngineConfig {
@@ -242,12 +230,12 @@ export interface EngineConfig {
    *
    * Only set when several issues share a branch (a multi-issue queue), where the
    * commit message is the only thing that says which issue a change belongs to.
-   * Absent means the historical format, `feat: [Story ID] - [Story Title]`.
+   * Absent means the default format, `feat: [Story ID] - [Story Title]`.
    */
   commitScope?: string;
   /**
    * How many related stories the execute agent may close in one session.
-   * Default `1` is the historical "ONE story per iteration".
+   * Default `1` executes one story per iteration.
    */
   storiesPerIteration?: number;
 }

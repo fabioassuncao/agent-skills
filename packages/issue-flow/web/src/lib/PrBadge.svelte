@@ -2,15 +2,7 @@
   import type { PrEntry } from './types';
   import { isDraftPr, type PrBadgeInput, prBadgeClass, prLabel } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/PrBadge.svelte` @ d8c9d5f (24 lines).
-   *
-   * One adaptation, for §50.3's merge: `state` may be `null`. The panel's PR
-   * list comes from the execution snapshot, which records that a pull request
-   * was opened and nothing about what happened to it afterwards. Rendering that
-   * as "aberto" would be a state nobody observed, so it renders as unknown —
-   * and there is still only one PR badge in the product.
-   */
+
 
   let {
     pr,

@@ -3,8 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import PrStatusGroup from './PrStatusGroup.svelte';
 import type { PrEntry } from './types';
 
-/** PORT of `frontend/src/lib/PrStatusGroup.test.ts` @ d8c9d5f — 3 cases. */
-
 function renderPr(overrides: Partial<PrEntry> = {}): ReturnType<typeof render> {
   return render(PrStatusGroup, {
     props: {

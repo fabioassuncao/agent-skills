@@ -12,6 +12,7 @@ function plan(): TaskPlan {
     issueNumber: 91,
     issueUrl: '',
     branchName: 'develop',
+    noBranch: false,
     description: 'Canonical state',
     issueStatus: 'in_progress',
     completedAt: null,

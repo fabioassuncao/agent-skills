@@ -278,7 +278,7 @@ program
 program.hook('preAction', (_thisCommand, actionCommand) => {
   // Installed once, before any command runs: a `Ctrl+C` during a six-hour run
   // has to write a checkpoint and stop the agent, not kill the process
-  // mid-phase and leave `session.json` on `running` forever.
+  // mid-phase and leave the session snapshot on `running` forever.
   installShutdownHandlers();
 
   const opts = actionCommand.opts();
@@ -397,10 +397,6 @@ withUserStoryNumberingOptions(
               'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
             )
             .argument('[issues...]', 'Issue number(s): 42, "42,43" or 42 43')
-            // The demand itself, with no Issue behind it (§17). It is minted
-            // into an Issue of the `inline` origin before anything starts, so
-            // the pipeline, the acceptance contract and the independent
-            // reviewer are the same ones an issue number gets.
             .option('--prompt <text>', 'Describe the work directly, without an Issue')
             .option('--auto-close', 'Close the agent sessions this run leaves open once it is done')
             .option('--keep-open', 'Leave them open, revoking a configured run.autoClose')
@@ -674,14 +670,6 @@ db.command('verify')
     process.exit(await runDbVerify());
   });
 
-db.command('import')
-  .description('Import preserved compatibility artifacts')
-  .option('--with-events', 'Also import the potentially large JSONL journal')
-  .action(async (options: { withEvents?: boolean }) => {
-    const { runDbImport } = await import('./commands/db.js');
-    process.exit(await runDbImport(options));
-  });
-
 withGlobalOptions(
   program.command('runs').description('History of the runs of this project, with how each ended'),
 ).action(async () => {
@@ -703,10 +691,10 @@ withGlobalOptions(
 withGlobalOptions(
   program
     .command('logs')
-    .description('Read the execution journal (events.jsonl), filtered and readable')
+    .description('Read persisted execution events, filtered and readable')
     .argument('[issue]', 'Issue to read. Omitted: the most recently attempted one')
     .option('--issue <issue>', 'Same as the positional argument')
-    .option('--follow', 'Keep reading as the journal grows')
+    .option('--follow', 'Keep reading as new events are recorded')
     .option('--tail <n>', 'How many entries to show first (default 50)', parseInteger)
     .option('--kind <kinds>', 'Only these event types, comma separated (retry, phase:end, …)'),
 ).action(
@@ -819,27 +807,19 @@ withWebOptions(
         'Retry transient Claude failures up to N consecutive times',
         parseInteger,
       )
-      .option('--retry-forever', 'Retry transient Claude failures indefinitely')
-      .argument(
-        '[max-iterations]',
-        'Backward-compatible alias for --max-iterations N',
-        parseInteger,
-      ),
+      .option('--retry-forever', 'Retry transient Claude failures indefinitely'),
   ),
 ).action(
-  async (
-    positionalMaxIter: number | undefined,
-    options: {
-      issue?: string;
-      maxIterations?: number;
-      retryLimit?: number;
-      retryForever?: boolean;
-      restartWeb?: boolean;
-    },
-  ) => {
+  async (options: {
+    issue?: string;
+    maxIterations?: number;
+    retryLimit?: number;
+    retryForever?: boolean;
+    restartWeb?: boolean;
+  }) => {
     try {
       const { runExecute } = await import('./commands/execute.js');
-      const code = await runExecute(positionalMaxIter, options);
+      const code = await runExecute(options);
       process.exit(code);
     } catch (error) {
       printError(error instanceof Error ? error.message : String(error));
@@ -876,11 +856,6 @@ withIssueOptions(
   process.exit(code);
 });
 
-// ── web ─────────────────────────────────────────────────────────────────────
-// ── serve ───────────────────────────────────────────────────────────────────
-// The canonical name for the machine-wide monitor. `web serve` stays as its
-// alias (§47.4): the command, the lock and the detached-spawn contract are
-// unchanged, so nothing that already spells `web serve` has to be rewritten.
 program
   .command('serve')
   .description('Serve every registered project on one dashboard')
@@ -904,10 +879,6 @@ program
     },
   );
 
-// ── project ─────────────────────────────────────────────────────────────────
-// Reads and writes the registry in SQLite directly: these commands work with
-// no server running (§47.5), which is the one adaptation the upstream CLI —
-// a pure HTTP client — could not have.
 const projectCommand = program
   .command('project')
   .description('Curate the projects the dashboard serves');
@@ -950,11 +921,6 @@ projectCommand
     process.exit(await runProjectUse(target));
   });
 
-// ── session ─────────────────────────────────────────────────────────────────
-// The one entry point that does not start from an Issue (§49, ADR-16): an
-// agent, on a branch, in a worktree, with no plan and no workflow behind it.
-// Like `project`, it reads and writes SQLite directly, so it works with no
-// server running.
 const sessionCommand = program
   .command('session')
   .description('Open and manage agent sessions, with or without an issue');

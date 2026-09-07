@@ -29,13 +29,16 @@ beforeEach(async () => {
     taskPlanSchema.parse({
       project: 'test',
       issueNumber: 42,
+      issueUrl: '',
       issueStatus: 'pending',
       completedAt: null,
       lastAttemptAt: null,
       lastError: null,
       correctionCycle: 0,
       maxCorrectionCycles: 3,
+      lastReviewFindings: null,
       branchName: 'main',
+      noBranch: false,
       description: '',
       userStories: [
         {
@@ -62,7 +65,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 describe('explicit recoverable closure', () => {
-  it('leaves legacy and revoked issues open', async () => {
+  it('leaves unauthorized and revoked issues open', async () => {
     expect(await finishIssueClosure(path, '42', 'local')).toBe(0);
     expect(close).not.toHaveBeenCalled();
     await persistClosureChoice(path, true);

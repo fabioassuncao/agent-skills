@@ -1,13 +1,3 @@
-/**
- * The GitHub Pull Request / CI model.
- *
- * Ported from WebMux `backend/src/domain/model.ts` @ d8c9d5f (the `PrEntry`,
- * `CiCheck` and `PrComment` shapes) and from the private `Gh*` interfaces of
- * `backend/src/services/pr-service.ts`. The raw shapes live here rather than
- * inside a parser because `pr.ts` and `ci.ts` both read them, and the whole
- * point of this phase is that one responsibility has one implementation.
- */
-
 /** Lifecycle of a Pull Request, lowercased from the `gh` payload. */
 export type PullRequestState = 'open' | 'closed' | 'merged';
 

@@ -10,9 +10,8 @@ during a running pipeline corrupts that region — that was issue #17.
 
 `formatIssueHeadline` names the version — `Issue Flow v0.16.0 · #42 · …` — and
 takes it from `snapshot.environment.cliVersion`, never from the manifest. This
-module reads no manifest and does no I/O, and a replayed session must keep
-naming the build that produced it. A snapshot from before the field existed
-degrades to the bare name.
+module reads no manifest and does no I/O. A `null` version renders the bare
+product name.
 
 ## Modes
 
@@ -62,15 +61,14 @@ print a prompt alongside a running task renderer.
 
 `activity` events feed `currentActivity` on the snapshot. They are published
 in every mode — not only `--verbose` — so the clean view and the dashboard
-see the same tool. `FilePublisher` already throttles the disk write; the
-ETag cost is accepted because a blank activity line is the worse outcome.
+see the same tool.
 
 ## Agent output
 
 The agent's full report is not a terminal event. In clean mode it is
 swallowed; a failure still prints an 8-line excerpt, already stripped of
 markdown. `--verbose` emits the text line by line. The complete report
-stays on `session.json` and the journal.
+stays in the canonical session event history.
 
 ## stdout
 

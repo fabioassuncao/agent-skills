@@ -173,10 +173,13 @@ export async function attachVerdict(verdict: ExecutionRecord['verdict']): Promis
   try {
     const repository = getPlanRepository(ctx.tasksPath);
     if (repository === undefined) return;
-    const plan = await import('../storage/db/repository.js').then(({ loadStoredPlan }) =>
-      loadStoredPlan(repository),
+    const current = await import('../storage/db/repository.js').then(({ listStoredExecutions }) =>
+      listStoredExecutions({
+        projectId: repository.projectId,
+        issueId: repository.issueId,
+        databaseOptions: repository.databaseOptions,
+      }).then((records) => records.at(-1)),
     );
-    const current = plan.executions?.at(-1);
     if (current !== undefined) await saveExecution(repository, { ...current, verdict });
   } catch {
     // Observational: a failed write must never change the invocation outcome.

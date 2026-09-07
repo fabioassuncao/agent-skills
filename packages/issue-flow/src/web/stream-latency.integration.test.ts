@@ -8,26 +8,7 @@ import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import { startWebServer, type WebServerHandle } from './server.js';
 import { type SessionDirectoryHandle, watchSessionDirectory } from './session-directory.js';
 
-/**
- * Phase 1 of the WebMux absorption replaced two stacked polling hops — the
- * monitor re-reading SQLite every 3 s, the browser re-reading the monitor every
- * 5 s — with a push path. §35 of the absorption plan makes the resulting
- * output-to-screen latency a **hard ceiling**: 250 ms at p95, with no
- * acceptable justification for going back to an interval on the interactive
- * path.
- *
- * This measures the whole server-side path a real viewer depends on: a write by
- * a pipeline process, through the storage watch, through the session scan, out
- * of `/api/stream` and into a socket a browser could be holding. The client's
- * own render is the only step left out, and it is the one step that does not
- * involve waiting for anybody.
- *
- * It lives in the integration suite because it needs a real SQLite database, a
- * real filesystem watch and a real bound socket, and because a timing assertion
- * belongs where a loaded machine cannot turn a budget into a flake in the
- * default suite.
- */
-describe('web/stream latency budget (§35: output → screen ≤ 250 ms p95)', () => {
+describe('web/stream latency budget (output → screen ≤ 250 ms p95)', () => {
   let home: string;
   const directories: SessionDirectoryHandle[] = [];
   const servers: WebServerHandle[] = [];
@@ -119,7 +100,6 @@ describe('web/stream latency budget (§35: output → screen ≤ 250 ms p95)', (
     const sorted = [...samples].sort((a, b) => a - b);
     const p95 = sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
     const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-    // Recorded for docs/absorption-trace.md; the assertion is the gate.
     console.log(`output→screen: median ${median} ms, p95 ${p95} ms over ${samples.length} samples`);
     expect(p95).toBeLessThanOrEqual(250);
   });

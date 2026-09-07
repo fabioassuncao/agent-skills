@@ -9,21 +9,6 @@ import type {
   PullRequestSummary,
 } from './types.js';
 
-/**
- * Pull Request reading — listing, parsing and single-PR status.
- *
- * `PORT` per §20: the WebMux implementation is the more complete one (it knows
- * about drafts, about linked repositories and about the difference between a
- * failed query and an empty answer), so this is the canonical implementation of
- * the responsibility. `core/session-git.ts` and `commands/pr-review.ts`
- * delegate here instead of shelling out to `gh pr list` / `gh pr view`
- * themselves — one responsibility, one implementation.
- *
- * Pull Request *creation* stays where it is (`commands/pr.ts`): §20 makes the
- * Issue Flow canonical there, because WebMux delegates it to the agent and has
- * no deterministic `Closes` / `Refs` body.
- */
-
 /** How many Pull Requests a single `gh pr list` returns. */
 export const PR_FETCH_LIMIT = 50;
 

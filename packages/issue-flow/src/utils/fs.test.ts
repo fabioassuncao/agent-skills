@@ -20,7 +20,7 @@ describe('writeFileAtomic', () => {
 
   it('creates missing parent directories before writing', async () => {
     const root = await tempDir();
-    const target = join(root, 'issues', '42', 'session.json');
+    const target = join(root, 'issues', '42', 'state.json');
 
     await writeFileAtomic(target, '{"ok":true}\n');
 

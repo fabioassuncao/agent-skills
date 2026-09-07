@@ -16,11 +16,6 @@ import {
   WEB_CHAT_UI_STORAGE_KEY,
 } from './utils';
 
-/**
- * PORT of `frontend/src/lib/utils.test.ts` @ d8c9d5f — 8 cases, plus 2 for the
- * storage behaviour this port added (namespaced keys, blocked storage).
- */
-
 describe('worktree selection persistence', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -92,7 +87,7 @@ describe('worktree selection persistence', () => {
     }
   });
 
-  it('persists and restores a named WebMux palette as an explicit theme', () => {
+  it('persists and restores a named palette as an explicit theme', () => {
     applyTheme('dracula');
 
     expect(document.documentElement).toHaveAttribute('data-theme', 'dracula');

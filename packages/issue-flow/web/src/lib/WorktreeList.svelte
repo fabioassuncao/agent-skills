@@ -12,29 +12,7 @@
     countAgentStatusesIn,
   } from './worktree-list';
 
-  /**
-   * The sidebar list.
-   *
-   * PORT of `frontend/src/lib/WorktreeList.svelte` @ d8c9d5f (474 lines). §50.3 makes
-   * this the single sidebar list — Tasks and Sessions as two groups over the
-   * same rows — and phase 8C adds the grouping; the row itself already carries
-   * what it needs (`issueRef`, `executionId`).
-   *
-   * The overflow status bars are the part that looks elaborate and is not
-   * decorative: with twenty worktrees, the one that is waiting on you is
-   * usually off screen. An `IntersectionObserver` tracks whether each row is
-   * above, inside or below the viewport, the two floating bars count what is
-   * hidden in each direction, and clicking one scrolls to the next such row.
-   *
-   * Two details in there have specific reasons:
-   *
-   * - **`rootMargin` is measured, not guessed.** The bars sit 8px inside the
-   *   list edges and would otherwise cover rows that the observer still reports
-   *   as visible — the count would say zero while the row is behind the bar.
-   * - **`branchKey` and `untrack`.** The observer is rebuilt only when rows are
-   *   added or removed, not on every status poll; and pruning `rowPositions`
-   *   inside `untrack` keeps the effect from re-running on its own write.
-   */
+
 
   type RowPosition = 'above' | 'visible' | 'below';
 
@@ -248,8 +226,7 @@
         isClosed ||
         wt.prs.length > 0 ||
         !!wt.linearIssue ||
-        !!wt.issueRef ||
-        wt.source === 'oneshot'}
+        !!wt.issueRef}
       <li
         data-branch={wt.branch}
         class="mb-0.5 group relative {isBusy ? 'opacity-40 pointer-events-none' : ''}"
@@ -292,14 +269,6 @@
               </span>
               {#if hasBadgeRow}
                 <span class="flex min-w-0 flex-wrap items-center gap-1.5" data-worktree-badge-row>
-                  {#if wt.source === 'oneshot'}
-                    <span
-                      class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted"
-                      title="Execução autônoma — fecha sozinha ao terminar"
-                    >
-                      autônoma
-                    </span>
-                  {/if}
                   {#if isArchived}
                     <span
                       class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-edge text-muted"

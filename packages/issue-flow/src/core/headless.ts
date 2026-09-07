@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import chalk from 'chalk';
 import { invokeSelectedAgent } from '../agents/invoke.js';
 import { resolveAgentFor } from '../agents/resolve.js';
@@ -15,7 +14,6 @@ import { resolvePolicy } from '../resilience/policy.js';
 import { withRetry } from '../resilience/retry.js';
 import { writeDiagnostic } from '../storage/diagnostics.js';
 import { createSpinner, ElapsedTimer, formatDuration, getIcons, useColor } from '../ui/logger.js';
-import { DECOMPOSITION_THRESHOLDS, timeoutsByPhase } from './decompose.js';
 import { type ClaudeUsage, sumUsage } from './metrics.js';
 import { getSessionPublisher } from './session-publisher.js';
 import { getShutdownSignal } from './shutdown.js';
@@ -43,17 +41,9 @@ export interface HeadlessOptions {
   statusMessage?: string;
   /** Optional callback for routing verbose output (e.g., through listr2 task.output). */
   onOutput?: (line: string) => void;
-  /** Journal-backed identity used to apply the one-time 2× timeout escalation. */
-  timeoutHistory?: {
-    phase: string;
-    journalFiles: string[];
-  };
   /** The invoking phase. Defaults to `analyze` only for resolution; argv is unchanged. */
   phase?: AgentPhase;
-  /**
-   * Semantic permission. Absent means `workspace`, which is the historical
-   * `runHeadless` argv (no `--permission-mode`, no `--dangerously-skip-permissions`).
-   */
+  /** Semantic permission. Absent means `workspace`. */
   permission?: AgentPermission;
   /** Pin this invocation to a provider (L2 reviewer). */
   forceProvider?: AgentProviderId;
@@ -76,28 +66,6 @@ export interface HeadlessResult {
 }
 
 export const DEFAULT_HEADLESS_TIMEOUT_MS = 900_000;
-
-async function escalatedTimeout(
-  timeoutMs: number,
-  history: HeadlessOptions['timeoutHistory'],
-): Promise<number> {
-  if (timeoutMs === 0 || history === undefined) return timeoutMs;
-
-  const journal = (
-    await Promise.all(
-      history.journalFiles.map(async (file) => {
-        try {
-          return await readFile(file, 'utf-8');
-        } catch {
-          return '';
-        }
-      }),
-    )
-  ).join('');
-  const timeouts = timeoutsByPhase(journal).get(history.phase) ?? 0;
-  if (timeouts < DECOMPOSITION_THRESHOLDS.timeoutsPerPhase) return timeoutMs;
-  return Math.min(timeoutMs * 2, Number.MAX_SAFE_INTEGER);
-}
 
 function printAgentEvent(event: AgentEvent, onOutput?: (line: string) => void): void {
   const icons = getIcons();
@@ -191,7 +159,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<HeadlessRes
     correctionCycle,
     storyIds,
   } = options;
-  const timeout = await escalatedTimeout(configuredTimeout, options.timeoutHistory);
+  const timeout = configuredTimeout;
   const settings = await resolveAgentFor(phase);
 
   const verbose = isVerbose();

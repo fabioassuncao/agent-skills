@@ -122,7 +122,8 @@ function makePlan(): TaskPlan {
     project: 'widgets',
     issueNumber: 42,
     issueUrl: 'https://github.com/acme/widgets/issues/42',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
+    noBranch: false,
     description: 'Test plan',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -263,18 +264,6 @@ describe('runAnalyze', () => {
     );
     expect(await exists(join(repoRoot, 'issues'))).toBe(false);
   });
-
-  it('updates the pipeline state of the global tasks.json', async () => {
-    const paths = await expectedPaths(42);
-    await mkdir(paths.issueDir, { recursive: true });
-    await writeFile(paths.tasksFile, JSON.stringify(makePlan(), null, 2), 'utf-8');
-    headlessStub.result = '<issue-analysis>\n# Inline analysis\n</issue-analysis>';
-
-    await runAnalyze('42', makeResolved());
-
-    const plan: TaskPlan = JSON.parse(await readFile(paths.tasksFile, 'utf-8'));
-    expect(plan.pipeline.analyzeCompleted).toBe(true);
-  });
 });
 
 describe('runPrd', () => {
@@ -387,30 +376,6 @@ describe('runPlan', () => {
     const errors = mockPrintError.mock.calls.map(([line]) => line).join('\n');
     expect(errors).toContain(`PRD not found at ${paths.prdFile}`);
     expect(mockRunHeadless).not.toHaveBeenCalled();
-  });
-
-  it('picks up a PRD that only existed in the legacy tree', async () => {
-    // The whole point of routing through resolveIssuePaths(): an existing
-    // install whose artifacts are still under <repoRoot>/issues/ is migrated on
-    // the first read instead of being reported as missing.
-    await mkdir(join(repoRoot, 'issues', '42'), { recursive: true });
-    await writeFile(join(repoRoot, 'issues', '42', 'prd.md'), '# legacy PRD 3c07', 'utf-8');
-    resetStorageResolutionCache();
-
-    headlessStub.run = async (options) => {
-      expect((options as { addDirs?: string[] }).addDirs).toBeUndefined();
-    };
-
-    await expect(runPlan('42', makeResolved())).resolves.toBe(0);
-
-    const prompt = mockRunHeadless.mock.calls.at(-1)?.[0].prompt ?? '';
-    expect(prompt).toContain('# legacy PRD 3c07');
-
-    // The legacy tree is read-only: the source stays exactly as it was.
-    await expect(readFile(join(repoRoot, 'issues', '42', 'prd.md'), 'utf-8')).resolves.toBe(
-      '# legacy PRD 3c07',
-    );
-    expect(await exists(join(repoRoot, 'issues', '42', 'tasks.json'))).toBe(false);
   });
 });
 

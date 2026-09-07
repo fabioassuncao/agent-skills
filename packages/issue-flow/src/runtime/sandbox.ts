@@ -13,31 +13,6 @@ import {
 } from './sandbox/docker.js';
 import type { Runtime } from './types.js';
 
-/**
- * The `sandbox` mode: everything `interactive` does, inside a container.
- *
- * It is the thinnest adapter in this directory on purpose. The container
- * lifecycle is `runtime/sandbox/docker.ts` — including the whole hardened
- * argument list of phase 13 — the pane commands are `agents/tty.ts`, and the
- * worktree, window, argv, prompt delivery and outcome are the same code
- * `interactive` runs (`createPaneRuntime`). Two modes that differ by a container
- * must not become two implementations that differ by everything (§25).
- *
- * What the container changes is exactly two things:
- *
- * 1. **the pane's shell.** Every pane is opened with `docker exec -it -w
- *    <worktree> <container> …`, so the agent command typed into it lands inside
- *    the container without ever naming docker itself. `agents/session/open.ts`
- *    does that when it is given a `container`;
- * 2. **the worktree binding says `runtime: 'docker'`**, which is what a later
- *    teardown and the reconciler dispatch on.
- *
- * The security model of the container — what it protects against and what it
- * explicitly does not — is `docs/sandbox-security.md`. Nothing here weakens it:
- * every flag is decided by `buildDockerRunArgs`, and this file passes the
- * profile through untouched.
- */
-
 export interface SandboxRuntimeDeps extends PaneRuntimeDeps {
   /** The docker profile the worktree runs under: image, mounts, security. */
   profile: SandboxProfileConfig;

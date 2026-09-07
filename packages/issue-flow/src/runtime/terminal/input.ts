@@ -2,25 +2,6 @@ import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { TmuxGateway } from '../tmux/gateway.js';
 
-/**
- * Delivering text to an agent that is running as a TUI in a tmux pane.
- *
- * Ported from `sendPrompt` / `interruptPrompt` / `sendKeys` in WebMux
- * `backend/src/adapters/terminal.ts` @ d8c9d5f. §2.4 of the absorption plan
- * calls this the best isolated artefact in the whole upstream, and the reason is
- * one line of difference:
- *
- * `send-keys -l` of a long text delivers it **character by character**. A TUI
- * with autocomplete, slash commands or paste detection reacts halfway through —
- * it opens a menu on `/`, it submits on an embedded newline, it debounces. Load
- * the text into a tmux buffer and paste it instead, and the whole block arrives
- * as one paste event the TUI already knows how to handle.
- *
- * The prompt of a *first* invocation does not come through here at all: it
- * travels in the agent's own argv (ADR-04, §2.4), which has no race to lose.
- * This is for the turns after that one.
- */
-
 /** Prefix of the tmux buffers this module creates, so a stray one is identifiable. */
 export const PROMPT_BUFFER_PREFIX = 'if-prompt';
 

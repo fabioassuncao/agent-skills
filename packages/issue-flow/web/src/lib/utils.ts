@@ -1,27 +1,6 @@
 import { isThemeKey, THEME_KEYS, type ThemeKey } from './themes';
 import type { PrEntry, ProjectInitPhase, WorktreeCreationPhase, WorktreeInfo } from './types';
 
-/**
- * PORT of `frontend/src/lib/utils.ts` @ d8c9d5f (172 lines).
- *
- * Two things changed and both are deliberate:
- *
- * - **Storage keys are namespaced `issue-flow:`**, matching the two keys the
- *   current panel already owns (`issue-flow:theme`, `issue-flow:refresh`). The
- *   upstream's `wt-` prefix would leave two unrelated conventions in the same
- *   origin.
- * - **Every `localStorage` access is wrapped in `try`/`catch`.** The upstream
- *   calls it bare, which throws outright in a browser configured to block site
- *   data — the current panel learned this and the rule is carried over: a
- *   blocked store means the preference does not survive a reload, never that
- *   the panel fails to load.
- *
- * The Tailwind class helpers below return *role* names (`text-danger`,
- * `bg-success/20`), never literal colours: those classes resolve through the
- * `@theme` mapping in `app.css`, which resolves through the Issue Flow tokens
- * (ADR-19).
- */
-
 export const SSH_STORAGE_KEY = 'issue-flow:ssh-host';
 export const THEME_STORAGE_KEY = 'issue-flow:theme';
 export const LAST_SELECTED_WORKTREE_STORAGE_KEY = 'issue-flow:last-selected-worktree';
@@ -48,16 +27,6 @@ export function writeStored(key: string, value: string | null): void {
   }
 }
 
-/**
- * A pull request as the badges read it.
- *
- * `state: null` is a pull request whose state is **not known** — the one the
- * execution snapshot carries, which records that a PR was opened and nothing
- * about what happened to it since. It is deliberately not defaulted to `open`:
- * a PR painted green because nobody asked GitHub is the same class of lie U21
- * forbids for verification. §50.3 puts the WebMux badge on the panel's PR list,
- * and this is what lets one badge serve both without inventing a state.
- */
 export type PrBadgeInput = Pick<PrEntry, 'repo' | 'number'> & {
   state: PrEntry['state'] | null;
   isDraft: boolean;

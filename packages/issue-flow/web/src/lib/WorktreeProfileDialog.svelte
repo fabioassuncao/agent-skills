@@ -3,7 +3,7 @@
   import Btn from './Btn.svelte';
   import type { ProfileConfig } from './types';
 
-  /** PORT of `frontend/src/lib/WorktreeProfileDialog.svelte` @ d8c9d5f (69 lines). */
+
 
   let {
     branch,

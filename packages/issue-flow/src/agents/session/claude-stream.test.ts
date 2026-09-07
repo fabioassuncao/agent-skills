@@ -6,16 +6,6 @@ import {
   TOOL_PAYLOAD_TRUNCATE_LIMIT,
 } from './claude-stream.js';
 
-/**
- * Parity suite for the Claude stream grammar.
- *
- * Ported from `.references/webmux-main/backend/src/__tests__/claude-cli.test.ts`
- * (the `parseClaudeStreamLine` half; the transcript half lives in
- * `claude.test.ts`). The expected objects gained one key, `result`, which this
- * project's headless reader needs and the upstream had no use for — see
- * `claude-stream.ts`.
- */
-
 const EMPTY = {
   messageStart: null,
   blockStart: null,
@@ -27,7 +17,6 @@ const EMPTY = {
 };
 
 describe('parseClaudeStreamLine', () => {
-  // upstream: "parses text deltas from Claude stream-json output"
   it('parses text deltas', () => {
     expect(
       parseClaudeStreamLine(
@@ -48,8 +37,6 @@ describe('parseClaudeStreamLine', () => {
     });
   });
 
-  // upstream: "surfaces message_start and content_block_start so the client can
-  // key blocks" — the pair that makes `${messageId}:${blockIndex}` possible.
   it('surfaces message_start and content_block_start so a reader can key blocks', () => {
     expect(
       parseClaudeStreamLine(
@@ -72,7 +59,6 @@ describe('parseClaudeStreamLine', () => {
     ).toEqual({ index: 3 });
   });
 
-  // upstream: "parses finalized text and tool blocks from Claude stream-json output"
   it('parses finalised text and tool_use blocks', () => {
     expect(
       parseClaudeStreamLine(
@@ -115,7 +101,6 @@ describe('parseClaudeStreamLine', () => {
     ]);
   });
 
-  // upstream: same case, the `user` half — a tool_result correlated by id.
   it('parses tool_result blocks correlated by tool_use_id', () => {
     expect(
       parseClaudeStreamLine(
@@ -142,7 +127,6 @@ describe('parseClaudeStreamLine', () => {
     ]);
   });
 
-  // upstream: "parses errored result lines without completing the session"
   it('does not complete the session on an errored result', () => {
     expect(
       parseClaudeStreamLine(
@@ -198,7 +182,6 @@ describe('parseClaudeStreamLine', () => {
     expect(parsed?.error).toBe('Claude returned an error');
   });
 
-  // New: the top-level `error` line, which the upstream parsed but never tested.
   it('parses a top-level error line', () => {
     expect(
       parseClaudeStreamLine(JSON.stringify({ type: 'error', message: 'rate limited' }))?.error,
@@ -294,8 +277,6 @@ describe('parseClaudeStreamRecord', () => {
 });
 
 describe('extractToolResultText', () => {
-  // upstream: covered indirectly; broken out because both readers depend on the
-  // two shapes being accepted.
   it('accepts a string payload', () => {
     expect(extractToolResultText('  hello  ')).toBe('hello');
   });

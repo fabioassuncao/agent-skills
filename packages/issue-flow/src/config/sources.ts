@@ -131,8 +131,7 @@ export async function loadGlobalConfig(
       );
       continue;
     }
-    // An unknown key parses successfully into an empty object and disappears
-    // here, which is the retro-compatible behaviour we want.
+    // Unknown top-level keys are outside this loader's domains and disappear.
     Object.assign(config, result.data);
   }
 

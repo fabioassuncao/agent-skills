@@ -1,10 +1,3 @@
-/**
- * GitHub Pull Request, CI and review-comment reading.
- *
- * The single implementation of each of those responsibilities (§20 of the
- * WebMux absorption). Pull Request *creation* is not here: it lives in
- * `commands/pr.ts`, where the deterministic `Closes` / `Refs` body is built.
- */
 export {
   dedupeLatestChecks,
   deriveCheckStatus,

@@ -8,12 +8,6 @@ import {
   worktreeAddArgs,
 } from './git.js';
 
-/**
- * Ported from WebMux `backend/src/__tests__/git-adapter.test.ts` @ d8c9d5f —
- * the cases that do not need a real repository. The ones that do are in
- * `lifecycle.integration.test.ts`, because a test that shells out to git
- * belongs in the integration configuration, never in the default suite.
- */
 describe('parseGitWorktreePorcelain', () => {
   it('parses branch and detached entries', () => {
     const output = [

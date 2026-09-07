@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createApi } from './client.js';
 import { apiContract } from './contract.js';
 
-/**
- * PORT of `packages/api-contract/src/client.test.ts` @ d8c9d5f — 4 cases,
- * `bun:test` → `vitest`. The route names changed where the contract did; the
- * behaviours asserted did not.
- */
+
 
 function success(body: unknown): { status: number; body: unknown; headers: Headers } {
   return {
@@ -39,25 +35,18 @@ describe('createApi', () => {
     expect(paths).toEqual(['https://example.com/api/worktrees/feature%2Fsearch/send']);
   });
 
-  it('preserves numeric path params for notification and CI routes', async () => {
+  it('preserves numeric path params for CI routes', async () => {
     const paths: string[] = [];
     const api = createApi('https://example.com', {
       api: async ({ path }) => {
         paths.push(path);
-        if (path.endsWith('/dismiss')) {
-          return success({ ok: true });
-        }
         return success({ logs: '' });
       },
     });
 
-    await api.dismissNotification({ params: { id: 42 } });
     await api.fetchCiLogs({ params: { runId: 317 } });
 
-    expect(paths).toEqual([
-      'https://example.com/api/notifications/42/dismiss',
-      'https://example.com/api/ci-logs/317',
-    ]);
+    expect(paths).toEqual(['https://example.com/api/ci-logs/317']);
   });
 
   it('throws API error messages from json error bodies', async () => {
@@ -69,9 +58,7 @@ describe('createApi', () => {
       }),
     });
 
-    await expect(api.dismissNotification({ params: { id: 7 } })).rejects.toThrow(
-      'Não encontrado',
-    );
+    await expect(api.fetchCiLogs({ params: { runId: 7 } })).rejects.toThrow('Não encontrado');
   });
 
   it('throws API error messages from stringified json error bodies', async () => {

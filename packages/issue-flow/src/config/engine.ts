@@ -26,7 +26,7 @@ export function createConfig(options: Partial<EngineConfig>): EngineConfig {
     backoffBaseSeconds: options.backoffBaseSeconds ?? DEFAULTS.backoffBaseSeconds,
     backoffMaxSeconds: options.backoffMaxSeconds ?? DEFAULTS.backoffMaxSeconds,
     // Left absent (rather than defaulted to an empty string) so the execute
-    // prompt keeps its historical commit format unless a queue asks otherwise.
+    // prompt keeps its default commit format unless a queue asks otherwise.
     ...(options.commitScope === undefined ? {} : { commitScope: options.commitScope }),
     storiesPerIteration: options.storiesPerIteration ?? 1,
   };
@@ -36,8 +36,7 @@ export function createConfig(options: Partial<EngineConfig>): EngineConfig {
  * Resolve file paths based on issue number and project root.
  *
  * With --issue N, every artifact comes from the global storage layer via
- * `resolveIssuePaths()`, which also migrates the legacy `<projectRoot>/issues/`
- * tree on first read:
+ * `resolveIssuePaths()`:
  *   prdFile = ~/.issue-flow/projects/{id}/issues/{N}/tasks.json
  *   progressFile = ~/.issue-flow/projects/{id}/issues/{N}/progress.txt
  *
@@ -48,8 +47,7 @@ export function createConfig(options: Partial<EngineConfig>): EngineConfig {
  * Beware of the asymmetric mapping in the issue branch: `ResolvedPaths.prdFile`
  * is the engine's *task plan*, so it maps to `IssuePaths.tasksFile`
  * (`tasks.json`) and **not** to `IssuePaths.prdFile` (`prd.md`, the human-facing
- * document produced by the `prd` phase). The name predates the split and is kept
- * because standalone mode really does read a `prd.json`.
+ * document produced by the `prd` phase). Standalone mode reads `prd.json`.
  *
  * `projectRoot` stays on the result either way: `core/engine.ts` uses it as the
  * cwd of its git operations, which the global storage does not replace.

@@ -1,22 +1,11 @@
 <script lang="ts">
   import Btn from './Btn.svelte';
   import LinearBadge from './LinearBadge.svelte';
-  import NotificationItem from './NotificationItem.svelte';
   import RepoGroup from './RepoGroup.svelte';
-  import type { AppNotification, LinkedRepoInfo, PrEntry, WorktreeInfo } from './types';
+  import type { LinkedRepoInfo, PrEntry, WorktreeInfo } from './types';
   import { makeCursorUrl } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/TopBar.svelte` @ d8c9d5f (407 lines).
-   *
-   * The header carries the identity of what is selected, not the product name —
-   * the same rule the current panel already applies to its `h1`: the most
-   * visible line on the screen is for what is happening.
-   *
-   * `truncateWorktreeName` is applied in JS rather than by CSS ellipsis because
-   * the value is also the `title`: truncating in CSS would leave the tooltip
-   * showing the same clipped string.
-   */
+
 
   let {
     name,
@@ -24,8 +13,6 @@
     sshHost,
     linkedRepos = [],
     isMobile = false,
-    notificationHistory = [],
-    unreadCount = 0,
     ontogglesidebar,
     onclose,
     onarchive,
@@ -36,8 +23,6 @@
     onCiClick,
     onReviewsClick,
     ondirtyclick,
-    onbellopen,
-    onnotificationselect,
     onlinearclick,
     archiving = false,
   }: {
@@ -46,8 +31,6 @@
     sshHost: string;
     linkedRepos?: LinkedRepoInfo[];
     isMobile?: boolean;
-    notificationHistory?: AppNotification[];
-    unreadCount?: number;
     ontogglesidebar?: () => void;
     onclose: () => void;
     onarchive: () => void;
@@ -58,25 +41,14 @@
     onCiClick: (pr: PrEntry) => void;
     onReviewsClick: (pr: PrEntry) => void;
     ondirtyclick?: () => void;
-    onbellopen?: () => void;
-    onnotificationselect?: (branch: string) => void;
     onlinearclick?: (issue: NonNullable<WorktreeInfo['linearIssue']>) => void;
     archiving?: boolean;
   } = $props();
 
-  let bellOpen = $state(false);
   let moreOpen = $state(false);
-
-  function toggleBell(): void {
-    bellOpen = !bellOpen;
-    if (bellOpen) onbellopen?.();
-  }
 
   function handleClickOutside(e: MouseEvent): void {
     const target = e.target as HTMLElement;
-    if (!target.closest('.bell-container')) {
-      bellOpen = false;
-    }
     if (!target.closest('.more-container')) {
       moreOpen = false;
     }
@@ -313,68 +285,6 @@
         </div>
       {/if}
 
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="bell-container relative ml-3" onkeydown={() => {}}>
-        <button
-          type="button"
-          class="relative p-1.5 rounded-md cursor-pointer bg-transparent border border-transparent text-muted hover:text-primary hover:border-edge"
-          title="Notificações"
-          aria-label="Notificações"
-          aria-expanded={bellOpen}
-          onclick={toggleBell}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-          </svg>
-          {#if unreadCount > 0}
-            <span
-              class="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-accent text-accent-text text-[10px] flex items-center justify-center leading-none"
-              >{unreadCount > 9 ? '9+' : unreadCount}</span
-            >
-          {/if}
-        </button>
-
-        {#if bellOpen}
-          <div class="bell-dropdown">
-            <div class="text-xs font-semibold text-muted px-3 py-2 border-b border-edge">
-              Notificações
-            </div>
-            {#if notificationHistory.length === 0}
-              <div class="px-3 py-4 text-xs text-muted text-center">Nenhuma notificação ainda</div>
-            {:else}
-              <ul class="list-none max-h-64 overflow-y-auto">
-                {#each notificationHistory as n (n.id)}
-                  <li>
-                    <button
-                      type="button"
-                      class="w-full px-3 py-2 text-left bg-transparent border-none text-inherit cursor-pointer hover:bg-hover flex items-center gap-2"
-                      onclick={() => {
-                        onnotificationselect?.(n.branch);
-                        bellOpen = false;
-                      }}
-                    >
-                      <NotificationItem notification={n} showTimestamp />
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
-        {/if}
-      </div>
-
       <button
         type="button"
         class="p-1.5 rounded-md cursor-pointer bg-transparent border border-transparent text-muted hover:text-primary hover:border-edge"
@@ -414,19 +324,6 @@
     margin-top: var(--space-4);
     width: max-content;
     max-width: 80vw;
-    border-radius: var(--radius-medium);
-    border: 1px solid var(--border);
-    background: var(--surface);
-    box-shadow: 0 4px 12px var(--overlay);
-    z-index: 50;
-  }
-
-  .bell-dropdown {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    margin-top: var(--space-4);
-    width: 18rem;
     border-radius: var(--radius-medium);
     border: 1px solid var(--border);
     background: var(--surface);

@@ -27,6 +27,7 @@ function plan(): TaskPlan {
     issueNumber: 91,
     issueUrl: '',
     branchName: 'develop',
+    noBranch: false,
     description: 'test',
     issueStatus: 'in_progress',
     completedAt: null,
@@ -114,7 +115,13 @@ describe('SQLite plan repository', () => {
     const imported = await ingestAgentPlan(context);
 
     expect(imported.userStories[0]).toMatchObject({ passes: true, notes: 'done' });
-    expect((await loadStoredPlan(context)).executions).toHaveLength(1);
+    expect(
+      await listStoredExecutions({
+        projectId: context.projectId,
+        issueId: context.issueId,
+        databaseOptions: context.databaseOptions,
+      }),
+    ).toHaveLength(1);
     expect(JSON.parse(await readFile(context.tasksPath, 'utf-8')).userStories[0]).toMatchObject({
       passes: true,
       notes: 'done',

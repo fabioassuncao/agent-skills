@@ -8,8 +8,8 @@ repo" rule.
 
 - **`run()` is the shell path for anything whose failure the pipeline reasons
   about**: it is what carries the failure taxonomy, the retry policy and the
-  "never auto-fix the repo" rule, and §45.3 of the absorption names a scattered
-  `spawn` as the degraded form this project must not drift back into.
+  "never auto-fix the repo" rule. A scattered `spawn` would bypass those
+  guarantees.
 
   What legitimately does not go through it is a process `run()` cannot express,
   because `run()` awaits a command to completion and hands back its output:

@@ -7,23 +7,6 @@ import { VIEWER_SESSION_PREFIX } from '../tmux/names.js';
 import { type PtyBackend, type PtySession, spawnPty } from './pty.js';
 import { Scrollback } from './scrollback.js';
 
-/**
- * Attaching a viewer to a worktree's tmux window.
- *
- * Ported from the attach half of WebMux `backend/src/adapters/terminal.ts`
- * @ d8c9d5f. The central trick is the **grouped session**, and it is what makes
- * several viewers possible at once: each viewer gets a tmux session of its own
- * that *shares the windows* of the project's session. Client, active window and
- * size then belong to the viewer, so one person resizing their browser does not
- * reflow everybody else's terminal.
- *
- * Every line of `buildAttachCommand` is here for a reason the upstream learned:
- * see the comments on it.
- */
-
-/** Kept as part of the terminal API for compatibility with existing callers. */
-export { VIEWER_SESSION_PREFIX } from '../tmux/names.js';
-
 /** tmux commands are given a ceiling: a hung one must not hold an attach open. */
 export const TMUX_COMMAND_TIMEOUT_MS = 5_000;
 

@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type ProjectInitDeps, ProjectInitTracker, runProjectInit } from './project-init.js';
 
-/**
- * Ported from `backend/src/__tests__/project-init-service.test.ts` @ d8c9d5f
- * (6 cases). The tracker port is literal; `register` became async here, and
- * the log sink is injected instead of imported.
- */
-
 describe('ProjectInitTracker', () => {
   it('upserts phase transitions and carries prefix/name into ready', () => {
     const tracker = new ProjectInitTracker();

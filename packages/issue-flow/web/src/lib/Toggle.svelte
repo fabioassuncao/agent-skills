@@ -1,18 +1,5 @@
 <script lang="ts">
-  /**
-   * PORT of `frontend/src/lib/Toggle.svelte` @ d8c9d5f (103 lines).
-   *
-   * `preventMouseFocus` exists for one caller — the inline toggle inside
-   * `BranchSelector`'s dropdown. Focusing it on mousedown moves focus out of
-   * the search field, which closes the dropdown the toggle lives in, so the
-   * click never lands. Keyboard focus is unaffected.
-   *
-   * The scoped styles below read the Issue Flow role tokens directly rather
-   * than Tailwind's `--color-*`: `@theme inline` substitutes those into utility
-   * classes and never registers them as custom properties, so `var(--color-…)`
-   * in a scoped style would resolve to nothing. Every component here does the
-   * same.
-   */
+
 
   let {
     checked = $bindable(false),

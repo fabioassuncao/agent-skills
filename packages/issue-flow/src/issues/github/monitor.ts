@@ -4,23 +4,6 @@ import { type LinkedRepo, repoSlugForEntry, repoTargets } from './linked-repos.j
 import { fetchOpenPullRequests } from './pr.js';
 import type { PullRequestComment, PullRequestEntry } from './types.js';
 
-/**
- * The display sync: one pass over every repository, and the gated loop that
- * repeats it.
- *
- * `PORT` per §20 of `syncPrStatus` / `startPrMonitor` from WebMux
- * `backend/src/services/pr-service.ts` @ d8c9d5f, with one structural
- * adaptation: the upstream function writes the result into per-worktree
- * storage, which the Issue Flow does not have yet. Here the pass *returns* the
- * data and the caller decides where it goes — no second state store beside the
- * SQLite database (invariant 22).
- *
- * Two caches make a ten-second loop affordable: `updatedAt` skips a Pull
- * Request whose conversation cannot have changed, and the ETag cache in
- * `comments.ts` turns the requests that survive into conditional ones.
- */
-
-/** WebMux's display-sync interval. */
 export const DEFAULT_SYNC_INTERVAL_MS = 10_000;
 /** How many review-comment reads run at once. */
 export const REVIEW_COMMENT_CONCURRENCY = 5;
@@ -163,20 +146,11 @@ function evictSyncCaches(
 
 export interface PullRequestMonitorOptions extends SyncPullRequestsOptions {
   intervalMs?: number;
-  /**
-   * Activity gate. When it answers `false` the tick is skipped entirely — no
-   * `gh` call at all.
-   *
-   * This is the display-sync policy of §20: nobody is looking, so nothing is
-   * queried and no rate limit is spent. A maintenance sweep that must run with
-   * the dashboard closed simply omits this option; that is the difference
-   * between the two upstream loops, expressed as one parameter rather than two
-   * near-identical functions.
-   */
+
   isActive?: () => boolean;
   /** Called with the result of each pass that actually ran. */
   onSync?: (sync: PullRequestSync) => void | Promise<void>;
-  /** Called when a pass throws. Defaults to swallowing, as upstream does. */
+
   onFailure?: (error: unknown) => void;
 }
 

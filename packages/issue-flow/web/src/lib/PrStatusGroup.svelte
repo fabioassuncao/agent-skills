@@ -9,14 +9,7 @@
     prStatusShellClass,
   } from './utils';
 
-  /**
-   * PORT of `frontend/src/lib/PrStatusGroup.svelte` @ d8c9d5f (107 lines).
-   *
-   * Three segments in one pill: the PR itself, its CI, and its review comments.
-   * `stopPropagation` on the two buttons is load-bearing — the pill is rendered
-   * inside a row that is itself clickable, and without it opening CI also
-   * switches the selected worktree.
-   */
+
 
   let {
     pr,

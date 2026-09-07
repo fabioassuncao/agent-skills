@@ -4,14 +4,7 @@
   import type { ProjectInitPhase } from './types';
   import { applyTheme, errorMessage, loadSavedTheme, projectInitPhaseLabel } from './utils';
 
-  /**
-   * ADAPT of `frontend/src/lib/EmptyProjects.svelte` @ d8c9d5f (77 lines).
-   *
-   * The copy points at `issue-flow project add` (§48.1) rather than at a
-   * `.webmux.yaml` scaffold, and the form stays: an install with an empty
-   * registry has to be able to add its first project from the browser, not only
-   * from a terminal it may not have open.
-   */
+
 
   let path = $state('');
   let error = $state<string | null>(null);

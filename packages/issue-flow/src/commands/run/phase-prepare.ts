@@ -281,7 +281,6 @@ export async function preparePhaseRun(
     sessionStartedAt,
     resolvedIssue,
   } = boot;
-  const _publishedIssueNumber = boot.publishedIssueNumber;
   // Everything above is what a queue needs to exist: prerequisites checked and
   // the primary Issue resolved, but not a single phase run and not a single
   // event published. This is where a run learns it is really a queue.

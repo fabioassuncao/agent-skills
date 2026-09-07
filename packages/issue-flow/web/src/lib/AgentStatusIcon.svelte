@@ -13,14 +13,7 @@
     );
   }
 
-  /**
-   * The closed vocabulary of `web/AGENTS.md`, applied to agent state.
-   *
-   * §50.3 merges this component with the panel's status badge, and the merge
-   * rule is that the icon is the upstream's and the words are the panel's:
-   * one term per concept, no loose synonyms in a badge. `idle` has no visible
-   * mark, so it only ever reaches the pill form.
-   */
+
   export const AGENT_STATUS_LABELS: Record<string, string> = {
     working: 'executando',
     waiting: 'aguardando',
@@ -33,15 +26,7 @@
     return AGENT_STATUS_LABELS[status] ?? AGENT_STATUS_LABELS.idle;
   }
 
-  /**
-   * The other half of §50.3's merge: an *execution*'s status, expressed in this
-   * component's states.
-   *
-   * The panel used to draw its own badge for `idle`/`running`/`completed`/
-   * `failed`. It does not any more — there is one status component, and this is
-   * how the execution vocabulary reaches it. An unknown status maps to `idle`,
-   * which is how the closed vocabulary stays closed (ADR-20).
-   */
+
   export function executionStatusToAgentStatus(status: string | null | undefined): string {
     switch (status) {
       case 'running':
@@ -57,7 +42,7 @@
 </script>
 
 <script lang="ts">
-  /** PORT of `frontend/src/lib/AgentStatusIcon.svelte` @ d8c9d5f (143 lines). */
+
 
   let {
     status,
@@ -66,14 +51,7 @@
     unread = false,
   }: { status: string; size?: number; pill?: boolean; unread?: boolean } = $props();
 
-  /**
-   * One role token per state, from the Issue Flow palette.
-   *
-   * `working` is the `run` role and `done` the `ok` role. The upstream painted
-   * both green, which is the confusion the closed vocabulary exists to prevent:
-   * something still running is not something that passed. The panel already had
-   * a role for exactly this (`--state-run`) and the merge adopts it.
-   */
+
   function pillClass(s: string): string {
     if (s === 'working') return 'bg-run-surface text-run';
     if (s === 'waiting') return 'bg-warning-surface text-warning';

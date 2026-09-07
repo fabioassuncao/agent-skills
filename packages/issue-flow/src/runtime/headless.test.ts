@@ -11,14 +11,6 @@ import { CLAUDE_CAPABILITIES } from '../agents/types.js';
 import { createHeadlessRuntime } from './headless.js';
 import { createRuntime } from './index.js';
 
-/**
- * Phase 3 of the WebMux absorption introduced the runtime contract. Its
- * completion criterion is that nothing changes: `headless` is the default, it
- * is what every release before it did, and a repository with no tmux, no docker
- * and no worktree keeps working (ADR-03).
- *
- * These tests defend exactly that — that the seam is a seam and not a layer.
- */
 describe('headless runtime', () => {
   const calls: Array<{ invocation: AgentInvocation; settings: ResolvedAgentSettings }> = [];
   let result: AgentRunResult;

@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mapWithConcurrency, startSerializedInterval } from './async.js';
 
-/**
- * The five cases below are the upstream `backend/src/__tests__/pr.test.ts`
- * suites for `lib/async.ts`, migrated from `bun:test` to `vitest`. `Bun.sleep`
- * is the only translation: everything else is asserted exactly as upstream.
- */
-
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);

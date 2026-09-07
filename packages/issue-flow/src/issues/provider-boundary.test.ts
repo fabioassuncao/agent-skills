@@ -5,11 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { resolvePackageDir } from '../core/prompt-resolver.js';
 import { DRAFT_TAG } from './draft.js';
 
-/**
- * Guards the provider migration: the pipeline talks to Issue providers, never
- * to `gh` directly. A command that shells out again would bypass the resolver
- * and silently break every non-GitHub origin.
- */
+/** Commands talk to Issue providers and never bypass them with direct `gh` calls. */
 
 const COMMANDS_DIR = fileURLToPath(new URL('../commands', import.meta.url));
 
@@ -28,11 +24,7 @@ async function readCommandFiles(): Promise<Array<{ name: string; content: string
   );
 }
 
-/**
- * The array form the commands used before the migration
- * (`execa('gh', ['issue', 'close', ...])`), which no plain-text search for
- * "gh issue close" would ever catch.
- */
+/** The argv form that a plain-text search for "gh issue close" would miss. */
 const GH_ISSUE_ARGV = /(['"])gh\1\s*,\s*\[\s*(['"])issue\2/;
 
 describe('src/commands does not call gh for Issues', () => {

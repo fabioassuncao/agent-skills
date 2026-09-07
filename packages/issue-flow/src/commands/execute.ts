@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createConfig, loadWebConfig, resolvePaths, validateDependencies } from '../config.js';
 import { runEngine } from '../core/engine.js';
-import { MultiPublisher } from '../core/journal.js';
 import { getSessionPublisher, setSessionPublisher } from '../core/session-publisher.js';
-import { FilePublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
+import { MemoryPublisher, NullPublisher, type SessionPublisher } from '../core/session-state.js';
 import { allStoriesPass, isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getPlanRepository } from '../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
@@ -27,10 +26,7 @@ export interface ExecuteOptions {
   commitScope?: string;
 }
 
-export async function runExecute(
-  positionalMaxIter: number | undefined,
-  options: ExecuteOptions,
-): Promise<number> {
+export async function runExecute(options: ExecuteOptions): Promise<number> {
   const errors = await validateDependencies();
   if (errors.length > 0) {
     printError('The following required tools are not installed:');
@@ -40,12 +36,10 @@ export async function runExecute(
     return 1;
   }
 
-  const maxIterations = options.maxIterations ?? positionalMaxIter;
-
   const config = createConfig({
     issueNumber: options.issue,
     inPipeline: options.inPipeline,
-    maxIterations,
+    maxIterations: options.maxIterations,
     retryLimit: options.retryLimit,
     retryForever: options.retryForever,
     commitScope: options.commitScope,
@@ -57,8 +51,8 @@ export async function runExecute(
   let standalonePublisher: SessionPublisher | null = null;
 
   // `run` owns the publisher when it delegates to this command. A direct
-  // `execute --issue N --web` has no owner, so install the same file-backed
-  // surface here and tear down only what this invocation created.
+  // `execute --issue N --web` has no owner, so install a SQLite publisher and
+  // tear down only what this invocation created.
   if (
     webConfig.enabled &&
     config.issueNumber !== undefined &&
@@ -67,21 +61,17 @@ export async function runExecute(
     const issuePaths = await resolveIssuePaths(config.issueNumber, {
       projectRoot: paths.projectRoot,
     });
-    const filePublisher = new FilePublisher(issuePaths.sessionFile, {
-      logLimit: webConfig.logLimit,
-      includeLogs: webConfig.includeLogs,
-    });
     const repository = getPlanRepository(issuePaths.tasksFile);
     const publisher =
       repository === undefined
-        ? filePublisher
-        : new MultiPublisher([
-            new SqliteSessionPublisher(repository, {
-              logLimit: webConfig.logLimit,
-              includeLogs: webConfig.includeLogs,
-            }),
-            filePublisher,
-          ]);
+        ? new MemoryPublisher({
+            logLimit: webConfig.logLimit,
+            includeLogs: webConfig.includeLogs,
+          })
+        : new SqliteSessionPublisher(repository, {
+            logLimit: webConfig.logLimit,
+            includeLogs: webConfig.includeLogs,
+          });
     standalonePublisher = publisher;
     setSessionPublisher(publisher);
     const numericIssue = /^\d+$/.test(config.issueNumber) ? Number(config.issueNumber) : null;
@@ -104,7 +94,6 @@ export async function runExecute(
     publisher.publish({ type: 'phase:start', at: isoNow(), phase: 'execute' });
     await ensureWebMonitor(
       {
-        publisher,
         port: webConfig.port,
         host: webConfig.host,
         refreshSeconds: webConfig.refreshSeconds,

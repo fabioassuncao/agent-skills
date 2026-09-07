@@ -77,7 +77,8 @@ function makePlan(overrides?: Partial<TaskPlan>): TaskPlan {
     project: 'test',
     issueNumber: 42,
     issueUrl: 'https://github.com/acme/repo/issues/42',
-    branchName: 'issue/42-sample',
+    branchName: 'feat/42-sample',
+    noBranch: false,
     description: 'Test plan',
     issueStatus: 'completed',
     completedAt: '2026-01-02T00:00:00Z',
@@ -352,7 +353,7 @@ describe('runEngine — execute-phase metrics', () => {
     );
   });
 
-  it('preserves CLI closure ownership when a legacy agent writes forged completion fields', async () => {
+  it('preserves CLI closure ownership when an agent writes forged completion fields', async () => {
     await writePlan({ ...pendingPlan(makeStory('US-001', 1, false)), closeIssue: false });
     mockExecuteClaude.mockImplementationOnce(async () => {
       const plan = await readPlan();
@@ -676,7 +677,7 @@ describe('runEngine — execute-phase metrics', () => {
 });
 
 describe('commit message format', () => {
-  it('keeps the historical format when no scope is given', () => {
+  it('keeps the unscoped format when no scope is given', () => {
     expect(commitPlaceholders()).toEqual({
       __COMMIT_MESSAGE__: 'feat: [Story ID] - [Story Title]',
       __FIX_COMMIT_MESSAGE__: 'fix: address review findings',
@@ -766,7 +767,7 @@ describe('runEngine — commit scope in the prompt', () => {
 });
 
 describe('commitPlaceholders — repository commit convention', () => {
-  it('keeps the historical format when the repository declares no convention', () => {
+  it('keeps the default format when the repository declares no convention', () => {
     expect(commitPlaceholders()).toEqual({
       __COMMIT_MESSAGE__: 'feat: [Story ID] - [Story Title]',
       __FIX_COMMIT_MESSAGE__: 'fix: address review findings',

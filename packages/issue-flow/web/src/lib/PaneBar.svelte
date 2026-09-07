@@ -1,11 +1,5 @@
 <script lang="ts">
-  /**
-   * PORT of `frontend/src/lib/PaneBar.svelte` @ d8c9d5f (28 lines).
-   *
-   * The mobile pane selector. `env(safe-area-inset-bottom)` is not cosmetic:
-   * without it the bar sits under the home indicator on a notched phone and
-   * the last pane cannot be tapped.
-   */
+
 
   let {
     activePane,

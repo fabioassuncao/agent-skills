@@ -41,13 +41,6 @@ export type ConversationMessageKind = 'text' | 'thinking' | 'toolUse' | 'toolRes
 export type ConversationProvider = 'codexAppServer' | 'claudeCode';
 
 export interface ConversationMessage {
-  /**
-   * Stable across the live stream and the recorded transcript.
-   *
-   * For Claude this is `${anthropicMessageId}:${contentBlockIndex}` — see
-   * `claude.ts`, where losing it is the bug §45.2-A exists to prevent. For
-   * Codex it is the app-server item id.
-   */
   id: string;
   /** The user turn this belongs to. Groups a prompt with everything it caused. */
   turnId: string;
