@@ -14,7 +14,9 @@ const requireAllShells = process.env.ISSUE_FLOW_REQUIRE_ALL_COMPLETION_SHELLS ==
 const shellParsers = {
   zsh: { executable: 'zsh', args: ['-n'] },
   bash: { executable: 'bash', args: ['-n'] },
-  fish: { executable: 'fish', args: ['-n'] },
+  // Fish needs the explicit stdin operand; without it, recent builds can try
+  // to validate the current directory instead of the piped completion script.
+  fish: { executable: 'fish', args: ['-n', '-'] },
   powershell: {
     executable: 'pwsh',
     args: [

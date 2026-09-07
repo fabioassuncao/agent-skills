@@ -453,24 +453,28 @@ describe('startWebServer', () => {
     expect((await fetch(`${handle.url}/assets/logo.bin`)).status).toBe(404);
   });
 
-  it('serves the real UI assets from the default location', async () => {
+  it('serves the packaged UI or the unbuilt fallback from the default location', async () => {
     const handle = await start();
 
-    // `/` is the built dashboard. It is a module bundle, so the shell
-    // references hashed files under /assets/ rather than app.css/app.js.
     const index = await fetch(`${handle.url}/`);
     expect(index.status).toBe(200);
     const html = await index.text();
     expect(html).toContain('issue-flow');
-    expect(html).toMatch(/\/assets\/index-[^"']+\.js/);
-    // Self-contained UI: no external resources, works offline.
-    expect(html).not.toMatch(/https?:\/\/(?!github)/);
 
     const bundle = /\/assets\/(index-[^"']+\.js)/.exec(html)?.[1];
-    expect(bundle).toBeDefined();
-    const bundleResponse = await fetch(`${handle.url}/assets/${bundle}`);
-    expect(bundleResponse.status).toBe(200);
-    expect(bundleResponse.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    if (bundle === undefined) {
+      // A source checkout is valid before `npm run build:web`: the default
+      // resolver must produce the same actionable fallback as an explicit
+      // missing dashboard directory.
+      expect(html).toContain('npm run build:web');
+      expect(html).toContain('status.json');
+    } else {
+      // A packaged checkout serves the module bundle and remains offline-safe.
+      expect(html).not.toMatch(/https?:\/\/(?!github)/);
+      const bundleResponse = await fetch(`${handle.url}/assets/${bundle}`);
+      expect(bundleResponse.status).toBe(200);
+      expect(bundleResponse.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    }
 
     // ...and there is no second panel behind it any more (§50.8).
     expect((await fetch(`${handle.url}/legacy/`)).status).toBe(404);

@@ -465,7 +465,10 @@ function contentTypeForAsset(file: string): string | null {
  */
 async function loadDashboardAssets(dashboardDir: string | null): Promise<Map<string, StaticAsset>> {
   const assets = new Map<string, StaticAsset>();
-  if (dashboardDir === null) return assets;
+  if (dashboardDir === null) {
+    assets.set('/', { body: UNBUILT_DASHBOARD, contentType: HTML_TYPE });
+    return assets;
+  }
 
   let index: string;
   try {
