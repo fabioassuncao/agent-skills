@@ -44,7 +44,7 @@ lastError is null or {message, at, category}; at is an ISO timestamp. lastReview
 
 Standalone execute may mark its plan completed when every story is verified. When called by resolve-issue, keep issueStatus=in_progress until every requested review/publication phase succeeds. pipeline flags record phase results, not evidence substitutes. Persist pullRequest only after a confirmed PR exists, using {number,url,headBranch,createdAt} as returned by GitHub.
 
-branchName and noBranch encode the accepted branch choice: current captures the actual attached branch and sets noBranch=true; new uses the dedicated planned branch and false. Absence in legacy Skill plans retains new behavior. Other execution choices and their evidence live in the PRD and append-only progress entries described by execution-options, not CLI runState. Rebinding a plan must follow that reference's ownership checks.
+branchName and noBranch encode the accepted branch choice: current captures the actual attached branch and sets noBranch=true; new uses the dedicated planned branch and false. Other execution choices and their evidence live in the PRD and append-only progress entries described by execution-options, not CLI runState. Rebinding a plan must follow that reference's ownership checks.
 
 A group has its own safe local issueNumber string and empty issueUrl. Preserve every member's actual source in the PRD and map story IDs to sources in the PRD and story notes. Completion requires all included criteria and review findings to be resolved; PR references are derived from member evidence, never from the group ID.
 

@@ -116,7 +116,7 @@ var DEFAULT_LABELS = [
   { name: "api", description: "Public interfaces and contracts", color: "006b75" },
   { name: "backend", description: "Server-side code", color: "5319e7" },
   { name: "frontend", description: "User-facing code", color: "bfd4f2" },
-  { name: "database", description: "Schema, queries and migrations", color: "c2e0c6" },
+  { name: "database", description: "Schema and queries", color: "c2e0c6" },
   { name: "infra", description: "Infrastructure, CI and deployment", color: "f9d0c4" },
   { name: "docs", description: "Documentation", color: "0075ca" },
   { name: "security", description: "Security or privacy impact", color: "d93f0b" },

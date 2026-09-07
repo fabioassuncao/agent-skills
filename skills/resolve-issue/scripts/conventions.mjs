@@ -81,7 +81,6 @@ var DEFAULT_AUTO_NAME_SYSTEM_PROMPT = [
 ].join(" ");
 
 // packages/issue-flow/src/conventions/git/branch.ts
-var LEGACY_PREFIX = "issue";
 function applyConvention(convention, type, issueNumber, slug) {
   const hasNumber = issueNumber !== void 0 && issueNumber !== null;
   let result = convention.replaceAll("{type}", type).replaceAll("{N}", hasNumber ? String(issueNumber) : "").replaceAll("{slug}", slug);
@@ -140,7 +139,7 @@ function parseBranch(name) {
   const numbered = match[2];
   const numberedSlug = match[3] ?? "";
   const unnumberedSlug = match[4] ?? "";
-  const type = prefix === LEGACY_PREFIX ? "issue" : isChangeType(prefix) ? prefix : null;
+  const type = isChangeType(prefix) ? prefix : null;
   if (numbered !== void 0) {
     return { type, issueNumber: Number(numbered), slug: numberedSlug, raw };
   }
@@ -441,7 +440,7 @@ var DEFAULT_LABELS = [
   { name: "api", description: "Public interfaces and contracts", color: "006b75" },
   { name: "backend", description: "Server-side code", color: "5319e7" },
   { name: "frontend", description: "User-facing code", color: "bfd4f2" },
-  { name: "database", description: "Schema, queries and migrations", color: "c2e0c6" },
+  { name: "database", description: "Schema and queries", color: "c2e0c6" },
   { name: "infra", description: "Infrastructure, CI and deployment", color: "f9d0c4" },
   { name: "docs", description: "Documentation", color: "0075ca" },
   { name: "security", description: "Security or privacy impact", color: "d93f0b" },

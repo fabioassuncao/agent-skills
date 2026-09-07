@@ -14668,7 +14668,6 @@ var userStorySchema = external_exports.object({
   stageDetail: external_exports.string().optional()
 });
 var pipelineStateSchema = external_exports.object({
-  analyzeCompleted: external_exports.boolean().optional(),
   prdCompleted: external_exports.boolean(),
   jsonCompleted: external_exports.boolean(),
   executionCompleted: external_exports.boolean(),
@@ -14688,9 +14687,9 @@ var prReviewRecommendationSchema = external_exports.enum([
   "REQUEST_CHANGES"
 ]);
 var prReviewStateSchema = external_exports.object({
-  enabled: external_exports.boolean().default(false),
+  enabled: external_exports.boolean(),
   pullRequestNumber: external_exports.number().int().positive().optional(),
-  rounds: external_exports.number().int().min(0).default(0),
+  rounds: external_exports.number().int().min(0),
   lastRecommendation: prReviewRecommendationSchema.optional(),
   lastReviewedAt: external_exports.string().optional()
 });
@@ -14723,12 +14722,12 @@ var runOwnerSchema = external_exports.object({
   startedAt: external_exports.string()
 });
 var issueRunStateSchema = external_exports.object({
-  status: external_exports.enum(["idle", "running", "waiting", "retrying", "paused", "blocked", "failed"]).default("idle"),
-  currentPhase: external_exports.string().nullable().default(null),
-  attempt: external_exports.number().int().min(0).default(0),
-  lastHeartbeatAt: external_exports.string().nullable().default(null),
-  blockedReason: external_exports.string().nullable().default(null),
-  owner: runOwnerSchema.nullable().default(null)
+  status: external_exports.enum(["idle", "running", "waiting", "retrying", "paused", "blocked", "failed"]),
+  currentPhase: external_exports.string().nullable(),
+  attempt: external_exports.number().int().min(0),
+  lastHeartbeatAt: external_exports.string().nullable(),
+  blockedReason: external_exports.string().nullable(),
+  owner: runOwnerSchema.nullable()
 });
 var failureKindSchema = external_exports.enum([
   "network",
@@ -14865,9 +14864,9 @@ var taskPlanSchema = external_exports.object({
   issueClosedAt: external_exports.string().optional(),
   project: external_exports.string(),
   issueNumber: external_exports.union([external_exports.number().int().positive(), external_exports.string().min(1)]),
-  issueUrl: external_exports.string().optional().default(""),
+  issueUrl: external_exports.string(),
   branchName: external_exports.string(),
-  noBranch: external_exports.boolean().optional().default(false),
+  noBranch: external_exports.boolean(),
   description: external_exports.string(),
   issueStatus: external_exports.enum(["pending", "in_progress", "completed"]),
   completedAt: external_exports.string().nullable(),
@@ -14881,22 +14880,13 @@ var taskPlanSchema = external_exports.object({
    * already true — the execute phase must address these before the field is
    * cleared back to null. See core/engine.ts's early-return guards.
    */
-  lastReviewFindings: external_exports.string().nullable().optional().default(null),
+  lastReviewFindings: external_exports.string().nullable(),
   pipeline: pipelineStateSchema,
-  /**
-   * Where the run stands right now. Purely additive: absent in every plan
-   * written before it, and absent is not the same as `idle` — it means the
-   * plan predates the field, which is why there is no `.default()` here.
-   */
+  /** Where the run stands right now; absent before a run has started. */
   runState: issueRunStateSchema.optional(),
   pullRequest: pullRequestRefSchema.optional(),
   prReview: prReviewStateSchema.optional(),
-  userStories: external_exports.array(userStorySchema),
-  /**
-   * Per-invocation history. `.optional()` and no `.default([])`: a plan that
-   * predates the field must not grow an empty array just because it was saved.
-   */
-  executions: external_exports.array(executionRecordSchema).optional()
+  userStories: external_exports.array(userStorySchema)
 });
 var headlessResultSchema = external_exports.object({
   success: external_exports.boolean(),
@@ -14910,11 +14900,11 @@ var sessionLogEntrySchema = external_exports.object({
   message: external_exports.string()
 });
 var sessionUsageShape = {
-  inputTokens: external_exports.number().nullable().default(null),
-  outputTokens: external_exports.number().nullable().default(null),
-  cacheReadTokens: external_exports.number().nullable().default(null),
-  cacheCreationTokens: external_exports.number().nullable().default(null),
-  costUsd: external_exports.number().nullable().default(null)
+  inputTokens: external_exports.number().nullable(),
+  outputTokens: external_exports.number().nullable(),
+  cacheReadTokens: external_exports.number().nullable(),
+  cacheCreationTokens: external_exports.number().nullable(),
+  costUsd: external_exports.number().nullable()
 };
 var sessionPhaseSchema = external_exports.object({
   name: external_exports.string(),
@@ -14923,12 +14913,12 @@ var sessionPhaseSchema = external_exports.object({
   endedAt: external_exports.string().nullable(),
   durationSeconds: external_exports.number().nullable(),
   error: external_exports.string().nullable(),
-  harnessExecutionMs: external_exports.number().nullable().default(null),
-  orchestrationOverheadMs: external_exports.number().nullable().default(null),
-  harnessStartupMs: external_exports.number().nullable().default(null),
-  ttftMs: external_exports.number().nullable().default(null),
-  attemptCount: external_exports.number().nullable().default(null),
-  retryDurationMs: external_exports.number().nullable().default(null),
+  harnessExecutionMs: external_exports.number().nullable(),
+  orchestrationOverheadMs: external_exports.number().nullable(),
+  harnessStartupMs: external_exports.number().nullable(),
+  ttftMs: external_exports.number().nullable(),
+  attemptCount: external_exports.number().nullable(),
+  retryDurationMs: external_exports.number().nullable(),
   ...sessionUsageShape
 });
 var sessionStorySchema = external_exports.object({
@@ -14937,31 +14927,21 @@ var sessionStorySchema = external_exports.object({
   priority: external_exports.number(),
   passes: external_exports.boolean(),
   completedAt: external_exports.string().nullable(),
-  // Also introduced with the metrics, hence the same tolerant default.
-  durationSeconds: external_exports.number().nullable().default(null),
-  // Snapshot fields are always present on output and defaulted on input, so a
-  // session.json written before they existed still parses. This is the mirror
-  // image of userStorySchema, where the same two fields are plainly optional.
-  status: userStoryStatusSchema.default("backlog"),
-  dependencies: external_exports.array(external_exports.string()).default([]),
-  // Published for the panel's story detail view. Same tolerant default as the
-  // fields above: absent (older session.json) and empty resolve to the same
-  // value, so the client never has to tell them apart.
-  description: external_exports.string().default(""),
-  acceptanceCriteria: external_exports.array(external_exports.string()).default([]),
-  // Additive like the rest of this schema: a session.json written before
-  // `stage` existed parses into 'pending'/null, the same values a fresh
-  // snapshot starts a story at.
-  stage: storyStageSchema.default("pending"),
-  stageSince: external_exports.string().nullable().default(null),
-  stageDetail: external_exports.string().nullable().default(null),
+  durationSeconds: external_exports.number().nullable(),
+  status: userStoryStatusSchema,
+  dependencies: external_exports.array(external_exports.string()),
+  description: external_exports.string(),
+  acceptanceCriteria: external_exports.array(external_exports.string()),
+  stage: storyStageSchema,
+  stageSince: external_exports.string().nullable(),
+  stageDetail: external_exports.string().nullable(),
   history: external_exports.array(
     external_exports.object({
       at: external_exports.string(),
       stage: storyStageSchema,
       detail: external_exports.string().nullable()
     })
-  ).default([]),
+  ),
   ...sessionUsageShape
 });
 var sessionConfigurationValueSchema = external_exports.object({
@@ -14993,12 +14973,10 @@ var sessionSnapshotSchema = external_exports.object({
   issue: external_exports.object({
     number: external_exports.number().nullable(),
     url: external_exports.string().nullable(),
-    // Additive: a session.json written before the Issue section was enriched
-    // parses into the same "not reported" values createInitialSnapshot() uses.
-    title: external_exports.string().nullable().default(null),
-    description: external_exports.string().nullable().default(null),
-    labels: external_exports.array(external_exports.string()).default([]),
-    state: external_exports.string().nullable().default(null)
+    title: external_exports.string().nullable(),
+    description: external_exports.string().nullable(),
+    labels: external_exports.array(external_exports.string()),
+    state: external_exports.string().nullable()
   }),
   status: external_exports.enum(["idle", "running", "completed", "failed"]),
   startedAt: external_exports.string().nullable(),
@@ -15022,20 +15000,12 @@ var sessionSnapshotSchema = external_exports.object({
   }).nullable(),
   phases: external_exports.array(sessionPhaseSchema),
   stories: external_exports.array(sessionStorySchema),
-  // The whole aggregate is additive: a snapshot from before it existed parses
-  // into the same "nothing reported" object the reducer starts from.
   metrics: external_exports.object({
-    totalInputTokens: external_exports.number().nullable().default(null),
-    totalOutputTokens: external_exports.number().nullable().default(null),
-    totalCacheReadTokens: external_exports.number().nullable().default(null),
-    totalCacheCreationTokens: external_exports.number().nullable().default(null),
-    totalCostUsd: external_exports.number().nullable().default(null)
-  }).default({
-    totalInputTokens: null,
-    totalOutputTokens: null,
-    totalCacheReadTokens: null,
-    totalCacheCreationTokens: null,
-    totalCostUsd: null
+    totalInputTokens: external_exports.number().nullable(),
+    totalOutputTokens: external_exports.number().nullable(),
+    totalCacheReadTokens: external_exports.number().nullable(),
+    totalCacheCreationTokens: external_exports.number().nullable(),
+    totalCostUsd: external_exports.number().nullable()
   }),
   execution: external_exports.object({
     iteration: external_exports.number(),
@@ -15043,7 +15013,7 @@ var sessionSnapshotSchema = external_exports.object({
     correctionCycle: external_exports.number(),
     maxCorrectionCycles: external_exports.number().nullable()
   }),
-  executions: external_exports.array(executionRecordSchema).default([]),
+  executions: external_exports.array(executionRecordSchema),
   processLogs: external_exports.array(
     external_exports.object({
       at: external_exports.string(),
@@ -15053,15 +15023,12 @@ var sessionSnapshotSchema = external_exports.object({
       stream: external_exports.enum(["stdout", "stderr", "combined"]),
       message: external_exports.string()
     })
-  ).default([]),
-  configuration: sessionConfigurationSchema.nullable().default(null),
-  // Additive resilience projection. Every field defaults so session.json from
-  // before provider failover/observability remains readable without a schema
-  // version bump.
+  ),
+  configuration: sessionConfigurationSchema.nullable(),
   resilience: external_exports.object({
-    attempt: external_exports.number().int().nonnegative().default(0),
-    provider: external_exports.string().nullable().default(null),
-    model: external_exports.string().nullable().default(null),
+    attempt: external_exports.number().int().nonnegative(),
+    provider: external_exports.string().nullable(),
+    model: external_exports.string().nullable(),
     lastFailureKind: external_exports.enum([
       "network",
       "timeout",
@@ -15075,63 +15042,39 @@ var sessionSnapshotSchema = external_exports.object({
       "task_execution",
       "internal",
       "unknown"
-    ]).nullable().default(null),
-    cooldownUntil: external_exports.string().nullable().default(null),
-    lastActivityAt: external_exports.string().nullable().default(null)
-  }).default({
-    attempt: 0,
-    provider: null,
-    model: null,
-    lastFailureKind: null,
-    cooldownUntil: null,
-    lastActivityAt: null
+    ]).nullable(),
+    cooldownUntil: external_exports.string().nullable(),
+    lastActivityAt: external_exports.string().nullable()
   }),
   git: external_exports.object({
     branch: external_exports.string().nullable(),
     baseBranch: external_exports.string().nullable(),
-    branchCreated: external_exports.boolean().nullable().default(null),
-    startCommit: external_exports.string().nullable().default(null),
+    branchCreated: external_exports.boolean().nullable(),
+    startCommit: external_exports.string().nullable(),
     commits: external_exports.array(
       external_exports.object({
         hash: external_exports.string(),
         subject: external_exports.string(),
-        committedAt: external_exports.string().nullable().default(null),
-        storyId: external_exports.string().nullable().default(null)
+        committedAt: external_exports.string().nullable(),
+        storyId: external_exports.string().nullable()
       })
     )
   }),
-  // Additive like the metrics aggregate: a session.json written before the
-  // repository section existed parses into the same all-null object
-  // createInitialSnapshot() starts from.
   repository: external_exports.object({
-    name: external_exports.string().nullable().default(null),
-    remoteUrl: external_exports.string().nullable().default(null),
-    branch: external_exports.string().nullable().default(null),
-    headCommit: external_exports.string().nullable().default(null),
-    root: external_exports.string().nullable().default(null)
-  }).default({ name: null, remoteUrl: null, branch: null, headCommit: null, root: null }),
-  // Additive like the resilience projection: a snapshot written before agent
-  // hooks existed parses into the same "never reported" object the reducer
-  // starts from, so no schema version bump is needed to keep reading it.
+    name: external_exports.string().nullable(),
+    remoteUrl: external_exports.string().nullable(),
+    branch: external_exports.string().nullable(),
+    headCommit: external_exports.string().nullable(),
+    root: external_exports.string().nullable()
+  }),
   agent: external_exports.object({
-    lifecycle: external_exports.enum(["busy", "awaiting-input"]).nullable().default(null),
-    since: external_exports.string().nullable().default(null),
-    phase: external_exports.string().nullable().default(null),
-    awaitingInputCount: external_exports.number().int().nonnegative().default(0),
-    // Additive within the additive section: a session.json written before
-    // the §32 escalation existed parses as "never escalated" rather than
-    // failing, so schemaVersion stays 1.
-    awaitingInputEscalatedAt: external_exports.string().nullable().default(null),
-    awaitingInputWaitedMs: external_exports.number().nonnegative().nullable().default(null),
-    humanHold: external_exports.object({ since: external_exports.string(), reason: external_exports.enum(["takeover", "requested"]) }).nullable().default(null)
-  }).default({
-    lifecycle: null,
-    since: null,
-    phase: null,
-    awaitingInputCount: 0,
-    awaitingInputEscalatedAt: null,
-    awaitingInputWaitedMs: null,
-    humanHold: null
+    lifecycle: external_exports.enum(["busy", "awaiting-input"]).nullable(),
+    since: external_exports.string().nullable(),
+    phase: external_exports.string().nullable(),
+    awaitingInputCount: external_exports.number().int().nonnegative(),
+    awaitingInputEscalatedAt: external_exports.string().nullable(),
+    awaitingInputWaitedMs: external_exports.number().nonnegative().nullable(),
+    humanHold: external_exports.object({ since: external_exports.string(), reason: external_exports.enum(["takeover", "requested"]) }).nullable()
   }),
   pullRequests: external_exports.array(external_exports.object({ number: external_exports.number(), url: external_exports.string(), title: external_exports.string() })),
   logs: external_exports.array(sessionLogEntrySchema),
@@ -15142,19 +15085,15 @@ var sessionSnapshotSchema = external_exports.object({
   environment: external_exports.object({
     node: external_exports.string(),
     platform: external_exports.string(),
-    agent: external_exports.string().nullable().default(null),
-    model: external_exports.string().nullable().default(null),
-    // Additive, like agent/model: a session written before the version was
-    // recorded parses as "not reported" instead of failing validation.
-    cliVersion: external_exports.string().nullable().default(null)
+    agent: external_exports.string().nullable(),
+    model: external_exports.string().nullable(),
+    cliVersion: external_exports.string().nullable()
   }).nullable(),
-  // Additive: a session.json written before the acceptance contract existed
-  // parses as "not reported". schemaVersion stays 1.
   verification: external_exports.object({
     verdict: external_exports.enum(["passed", "failed", "unverified"]).nullable(),
     level: external_exports.string().nullable(),
     independence: external_exports.string().nullable()
-  }).nullable().default(null)
+  }).nullable()
 });
 var webConfigSchema = external_exports.object({
   enabled: external_exports.boolean().default(false),
@@ -15429,9 +15368,6 @@ async function inspectArtifact(operation, path, metadataPath) {
 // packages/issue-flow/src/storage/artifact-paths.ts
 import { join } from "node:path";
 var ISSUES_DIR_NAME = "issues";
-var SESSION_FILENAME = "session.json";
-var EVENTS_FILENAME = "events.jsonl";
-var ROTATED_EVENTS_FILENAME = "events.1.jsonl";
 var PRD_FILENAME = "prd.md";
 var TASKS_FILENAME = "tasks.json";
 var VERIFY_FILENAME = "verify.json";
@@ -15455,9 +15391,6 @@ function resolveIssueArtifactPaths(projectDir, issueNumber) {
     tasksFile: join(issueDir, TASKS_FILENAME),
     progressFile: join(issueDir, "progress.txt"),
     analysisFile: join(issueDir, "analysis.md"),
-    sessionFile: join(issueDir, SESSION_FILENAME),
-    eventsFile: join(issueDir, EVENTS_FILENAME),
-    rotatedEventsFile: join(issueDir, ROTATED_EVENTS_FILENAME),
     runLogFile: join(issueDir, RUN_LOG_FILENAME),
     rotatedRunLogFile: join(issueDir, ROTATED_RUN_LOG_FILENAME),
     decompositionFile: join(issueDir, "decomposition.md"),
@@ -15479,7 +15412,6 @@ var WORKSPACE_IGNORE_BLOCK = [
   "/issue-flow.db",
   "/issue-flow.db-*",
   "/run.lock",
-  "/providers.json",
   "/metadata.json",
   "/backups/",
   "/.gitignore"
@@ -15644,8 +15576,6 @@ if (positional[0] === "--help") {
   }
   if (json2 || context) console.log(JSON.stringify(result));
   else if (!result.ok) console.error(result.errors.map((error51) => error51.message).join("\n"));
-  else if (operation === "plan")
-    console.log(JSON.stringify({ valid: true, stories: result.data.counts.total }));
   else console.log(JSON.stringify(result.data));
   process.exitCode = result.ok ? 0 : 1;
 }

@@ -23,7 +23,7 @@ For a declared branch convention pass convention with placeholders {type}, {N}, 
 
 Issue Flow fallback commit footers use Refs rather than Closes; a completed GitHub demand may use Closes in the PR body. Incomplete work uses Refs. Containers close only when every child is complete. Local-only work cites its repository-relative file path.
 
-Preserve an existing branchName except for an explicitly authorized pending-plan reassociation under execution-options. A legacy issue/N-slug branch or a repository-specific pattern is not an error. Warn on a naming divergence and continue unless a declared mandatory constraint prevents the operation. Validate a newly computed name with git check-ref-format --branch before using it.
+Preserve an existing branchName except for an explicitly authorized pending-plan reassociation under execution-options. A repository-specific pattern is not an error. Warn on a naming divergence and continue unless a declared mandatory constraint prevents the operation. Validate a newly computed name with git check-ref-format --branch before using it.
 
 Stage only files belonging to the change. Never force-push or discard unrelated work. Inspect status before switching branches. Obtain authorization for publication from the request/session; do not repeatedly ask for already-authorized actions.
 
