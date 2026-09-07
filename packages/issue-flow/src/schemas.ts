@@ -468,6 +468,18 @@ const sessionConfigurationSchema = z.object({
  * SessionSnapshot interface in src/core/session-state.ts — changing one
  * without the other fails the typecheck.
  */
+/**
+ * Whether an agent's own hooks report its lifecycle, and where the artifacts
+ * live. Off means the pipeline never writes into the working tree's `.claude/`
+ * or `.codex/` — the behaviour every release before phase 2 of the WebMux
+ * absorption had.
+ */
+export const agentHooksConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+});
+
+export type AgentHooksConfig = z.infer<typeof agentHooksConfigSchema>;
+
 export const sessionSnapshotSchema = z.object({
   schemaVersion: z.literal(1),
   sessionId: z.string().nullable(),
@@ -606,6 +618,34 @@ export const sessionSnapshotSchema = z.object({
       root: z.string().nullable().default(null),
     })
     .default({ name: null, remoteUrl: null, branch: null, headCommit: null, root: null }),
+  // Additive like the resilience projection: a snapshot written before agent
+  // hooks existed parses into the same "never reported" object the reducer
+  // starts from, so no schema version bump is needed to keep reading it.
+  agent: z
+    .object({
+      lifecycle: z.enum(['busy', 'awaiting-input']).nullable().default(null),
+      since: z.string().nullable().default(null),
+      phase: z.string().nullable().default(null),
+      awaitingInputCount: z.number().int().nonnegative().default(0),
+      // Additive within the additive section: a session.json written before
+      // the §32 escalation existed parses as "never escalated" rather than
+      // failing, so schemaVersion stays 1.
+      awaitingInputEscalatedAt: z.string().nullable().default(null),
+      awaitingInputWaitedMs: z.number().nonnegative().nullable().default(null),
+      humanHold: z
+        .object({ since: z.string(), reason: z.enum(['takeover', 'requested']) })
+        .nullable()
+        .default(null),
+    })
+    .default({
+      lifecycle: null,
+      since: null,
+      phase: null,
+      awaitingInputCount: 0,
+      awaitingInputEscalatedAt: null,
+      awaitingInputWaitedMs: null,
+      humanHold: null,
+    }),
   pullRequests: z.array(z.object({ number: z.number(), url: z.string(), title: z.string() })),
   logs: z.array(sessionLogEntrySchema),
   errors: z.array(sessionLogEntrySchema),
@@ -677,6 +717,34 @@ export const prReviewConfigSchema = z.object({
 });
 
 /**
+ * A sibling repository whose Pull Requests belong to the same unit of work.
+ *
+ * `repo` is the `owner/name` slug `gh --repo` expects; `alias` is the short
+ * label shown next to a Pull Request coming from it, and `dir` is an optional
+ * local checkout for a caller that needs the working copy.
+ */
+export const linkedRepoSchema = z.object({
+  repo: z.string().min(1),
+  alias: z.string().min(1),
+  dir: z.string().min(1).optional(),
+});
+
+/**
+ * Resolved GitHub integration configuration (the `github` key of
+ * .issue-flow.json).
+ *
+ * Both fields default to the behaviour of releases without linked
+ * repositories: no sibling repository is queried, and the display sync uses
+ * WebMux's measured ten-second interval — which only ever runs while something
+ * is actually watching, because the monitor is activity-gated.
+ */
+export const githubConfigSchema = z.object({
+  linkedRepos: z.array(linkedRepoSchema).default([]),
+  syncIntervalMs: z.number().int().min(1_000).default(10_000),
+  autoRemoveOnMerge: z.boolean().default(false),
+});
+
+/**
  * The `policy` key of .issue-flow.json — the repository policy layer. Defined
  * in `policy/schemas.ts` next to the module that consumes it, and re-exported
  * here so `schemas.ts` stays the single index of the file's keys.
@@ -709,8 +777,25 @@ export const verifyConfigSchema = z.object({
   crossVerify: z.boolean().default(true),
 });
 
+/**
+ * The `run` key of .issue-flow.json.
+ *
+ * `autoClose` is the option §17 absorbs from `webmux oneshot`
+ * (`meta.oneshot.autoCloseOnDone`): once the run is over, close what it left
+ * open. It defaults to `false` — upstream defaults it on because a oneshot
+ * *is* the session it would close, while `run` has always left its sessions in
+ * place, and an option added to an existing command must not change what the
+ * command already did.
+ */
+export const runConfigSchema = z.object({
+  autoClose: z.boolean().default(false),
+});
+
 export type WebConfig = z.infer<typeof webConfigSchema>;
 export type PrReviewConfig = z.infer<typeof prReviewConfigSchema>;
+export type RunConfig = z.infer<typeof runConfigSchema>;
+export type LinkedRepoConfig = z.infer<typeof linkedRepoSchema>;
+export type GitHubConfig = z.infer<typeof githubConfigSchema>;
 const routingModeSchema = z.enum(['off', 'shadow', 'recommend', 'active']);
 const routingProfileSchema = z.enum(['economy', 'balanced', 'quality', 'speed']);
 const routingPolicySchema = z.literal('recommended');

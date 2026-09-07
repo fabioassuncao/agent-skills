@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import { dirname } from 'node:path';
 
@@ -22,18 +23,19 @@ export async function writeFileAtomic(
   fs: AtomicWriteFs = fsp,
 ): Promise<void> {
   await fs.mkdir(dirname(path), { recursive: true });
-  const tmpFile = `${path}.tmp`;
-  await fs.writeFile(tmpFile, content, 'utf-8');
-
+  const tmpFile = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await fs.rename(tmpFile, path);
-  } catch (err: unknown) {
-    // EXDEV: rename fails across different devices/drives (common on Windows)
-    if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+    await fs.writeFile(tmpFile, content, { encoding: 'utf-8', mode: 0o600 });
+    try {
+      await fs.rename(tmpFile, path);
+    } catch (err: unknown) {
+      // EXDEV: rename fails across different devices/drives (common on Windows)
+      if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
       await fs.copyFile(tmpFile, path);
-      await fs.unlink(tmpFile);
-    } else {
-      throw err;
     }
+  } finally {
+    // Also covers partial writes and an EXDEV copy that failed midway. After a
+    // successful rename the temp no longer exists, so ENOENT is expected.
+    await fs.unlink(tmpFile).catch(() => {});
   }
 }

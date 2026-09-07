@@ -36,8 +36,14 @@ export type PolicySourceOrigin = 'filesystem' | 'gh' | 'git' | 'config' | 'env' 
  * `gh`, no network, a timeout — and the policy is therefore incomplete rather
  * than empty. Nothing absent is recorded: a repository without a
  * `CONTRIBUTING.md` would otherwise drown `sources` in negative entries.
+ *
+ * Git conventions refine `found` into two, and the difference is what makes it
+ * safe to stop imposing a default: `declared` is a rule the repository wrote
+ * down (a commitlint config, a `.gitmessage`, a husky hook) and it turns the
+ * Issue Flow fallback off; `inferred` is a pattern read out of history and it
+ * only informs. Guessing from a handful of commits is not a mandate.
  */
-export type PolicySourceStatus = 'found' | 'unavailable' | 'disabled';
+export type PolicySourceStatus = 'found' | 'declared' | 'inferred' | 'unavailable' | 'disabled';
 
 /**
  * Provenance of one piece of the resolved policy.
@@ -142,6 +148,18 @@ export interface PolicyGit {
   typeMap: Record<string, string> | null;
   allowedTypes: string[] | null;
   scopes: string[] | null;
+  /**
+   * Content of the repository's `commit.template` — a `.gitmessage` at the root
+   * or whatever `git config commit.template` points at. It is a commit format
+   * the repository wrote down, so it is a declaration, not a hint.
+   */
+  commitTemplate: string | null;
+  /**
+   * True when at least one Git convention above came from a source the
+   * repository *declares*, as opposed to one inferred from history. Only a
+   * declaration turns the Issue Flow fallback off (§11).
+   */
+  declared: boolean;
 }
 
 export const EMPTY_POLICY_GIT: PolicyGit = {
@@ -152,6 +170,8 @@ export const EMPTY_POLICY_GIT: PolicyGit = {
   typeMap: null,
   allowedTypes: null,
   scopes: null,
+  commitTemplate: null,
+  declared: false,
 };
 
 /** The resolved policy of a repository, at a given scope. */

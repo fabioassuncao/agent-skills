@@ -1,7 +1,9 @@
+import { loadRunConfig } from '../config.js';
 import { backgroundRejection } from '../execution/detach.js';
-import { parseIssueArguments } from '../issues/args.js';
-import { describeRunLockOwner } from '../storage/lock.js';
+import { ensureProvidersRegistered } from '../issues/bootstrap.js';
+import { mintInlineIssue } from '../issues/providers/inline.js';
 import { printError, printInfo } from '../ui/logger.js';
+import { resolveRunDemand } from './run/demand.js';
 import { detachAfterConfirm, runQueue } from './run/multi-issue.js';
 import { runPipelinePhases } from './run/phases.js';
 import { claimRunOwnership, runIssueSession as runIssueSessionImpl } from './run/session.js';
@@ -9,6 +11,31 @@ import type { RunIssueSession, RunPipelineOptions } from './run/types.js';
 
 export { publishIssueDetails, publishStorySeed } from './run/publish.js';
 export type { QueueFailureMode, RunPipelineOptions } from './run/types.js';
+
+/**
+ * Settle what this invocation runs, minting the Issue when the demand came in
+ * as a free prompt.
+ *
+ * §17 of the absorption plan: `--prompt` is `webmux oneshot`'s way in, and it
+ * is absorbed **as an Issue** rather than as a second execution path. By the
+ * time this returns, the rest of `run` cannot tell an inline demand from a
+ * GitHub one — which is the whole point of the convergence.
+ */
+async function resolveRequestedIssues(
+  issue: string | readonly string[],
+  options: RunPipelineOptions,
+): Promise<string[]> {
+  const demand = resolveRunDemand({
+    issues: typeof issue === 'string' ? [issue] : issue,
+    ...(options.prompt === undefined ? {} : { prompt: options.prompt }),
+  });
+  if (demand.kind === 'issues') return demand.ids;
+
+  ensureProvidersRegistered();
+  const minted = await mintInlineIssue(demand.prompt);
+  printInfo(`Inline demand recorded as ${minted.id}: ${minted.title}`);
+  return [minted.id];
+}
 
 /** Bound session entry that closes over this module's phase orchestrator. */
 const runIssueSession: RunIssueSession = (issueNumber, mode, input) =>
@@ -33,11 +60,18 @@ export async function runPipeline(
 ): Promise<number> {
   let requested: string[];
   try {
-    requested = parseIssueArguments(typeof issue === 'string' ? [issue] : issue);
+    requested = await resolveRequestedIssues(issue, options);
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err));
     return 1;
   }
+
+  // Resolved once, for the whole invocation: a queue is one run, and closing
+  // what it left open is a decision about the run, not about each issue.
+  const effectiveOptions: RunPipelineOptions =
+    options.autoClose === undefined
+      ? { ...options, autoClose: (await loadRunConfig()).autoClose }
+      : options;
 
   if (options.background === true && options.detachedChild !== true) {
     const reason = backgroundRejection(mode);
@@ -45,7 +79,7 @@ export async function runPipeline(
       printError(reason);
       return 1;
     }
-    return detachAfterConfirm(requested, noBranch, prReview, options);
+    return detachAfterConfirm(requested, noBranch, prReview, effectiveOptions);
   }
 
   // Ownership of the run, for the whole invocation — a queue is one run, not
@@ -53,9 +87,7 @@ export async function runPipeline(
   // and a branch, so "a different issue" is not a different lock.
   const ownership = await claimRunOwnership(requested[0] as string, options.detachedChild === true);
   if (!ownership.ok) {
-    printError(
-      `Another issue-flow run owns this project: ${describeRunLockOwner(ownership.owner)}.`,
-    );
+    printError(ownership.refusal);
     printInfo('Wait for it to finish, or stop that process before running again.');
     return 1;
   }
@@ -66,7 +98,7 @@ export async function runPipeline(
       noBranch,
       prReview,
       requested,
-      runOptions: options,
+      runOptions: effectiveOptions,
       restartWeb: options.restartWeb,
       ...(ownership.interruptedBy === null ? {} : { interruptedBy: ownership.interruptedBy }),
     });
@@ -77,7 +109,7 @@ export async function runPipeline(
 
     return runQueue(
       first.queue.plan,
-      { mode, from, noBranch, prReview, runOptions: options },
+      { mode, from, noBranch, prReview, runOptions: effectiveOptions },
       first.queue.resolved,
       runIssueSession,
     );

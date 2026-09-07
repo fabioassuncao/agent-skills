@@ -45,6 +45,9 @@ var FORBIDDEN_PROVIDER_NAMES = [
 function isChangeType(value) {
   return CHANGE_TYPES.includes(value);
 }
+function isAllowedType(value, vocabulary = CHANGE_TYPES) {
+  return vocabulary === "any" ? value !== "" : vocabulary.includes(value);
+}
 function isForbiddenProviderToken(value) {
   return FORBIDDEN_PROVIDER_NAMES.includes(value.toLowerCase());
 }
@@ -67,11 +70,18 @@ function slugify(title, maxLength = SLUG_MAX_LENGTH) {
   return cut.replace(/-+$/g, "");
 }
 
+// packages/issue-flow/src/conventions/git/auto-name.ts
+var AUTO_NAME_MAX_LENGTH = 40;
+var DEFAULT_AUTO_NAME_SYSTEM_PROMPT = [
+  "Generate a concise git branch name from the task description.",
+  "Return only the branch name.",
+  "Use lowercase kebab-case.",
+  `Maximum ${AUTO_NAME_MAX_LENGTH} characters.`,
+  "Do not include quotes, code fences, or prefixes like feature/ or fix/."
+].join(" ");
+
 // packages/issue-flow/src/conventions/git/branch.ts
 var LEGACY_PREFIX = "issue";
-function branchType(type) {
-  return type === "style" || type === "revert" ? "chore" : type;
-}
 function applyConvention(convention, type, issueNumber, slug) {
   const hasNumber = issueNumber !== void 0 && issueNumber !== null;
   let result = convention.replaceAll("{type}", type).replaceAll("{N}", hasNumber ? String(issueNumber) : "").replaceAll("{slug}", slug);
@@ -114,11 +124,10 @@ function collide(name, existingRefs, currentOid) {
   return `${name}-${Date.now()}`;
 }
 function branchName(input) {
-  const type = branchType(input.type);
   const convention = input.convention ?? DEFAULT_BRANCH_CONVENTION;
   const slug = slugify(input.title);
-  const raw = applyConvention(convention, type, input.issueNumber, slug);
-  const truncated = truncateBranch(raw, BRANCH_MAX_LENGTH);
+  const raw = applyConvention(convention, input.type, input.issueNumber, slug);
+  const truncated = truncateBranch(raw, input.maxLength ?? BRANCH_MAX_LENGTH);
   return collide(truncated, input.existingRefs, input.currentOid);
 }
 function parseBranch(name) {
@@ -139,42 +148,14 @@ function parseBranch(name) {
 }
 
 // packages/issue-flow/src/conventions/git/change-type.ts
-var ISSUE_TYPE_MAP = {
-  bug: "fix",
-  feature: "feat",
-  task: "chore",
-  epic: "chore",
-  idea: "chore",
-  research: "chore",
-  documentation: "docs"
-};
-var TITLE_PREFIX_MAP = {
-  bug: "fix",
-  fix: "fix",
-  feature: "feat",
-  enhancement: "feat",
-  architecture: "feat",
-  refactor: "refactor",
-  docs: "docs",
-  documentation: "docs",
-  chore: "chore",
-  perf: "perf",
-  test: "test",
-  ci: "ci"
-};
 function normalizeKey(value) {
   return value.trim().toLowerCase();
 }
-function typeFromIssueType(issueType) {
-  const key = normalizeKey(issueType);
-  if (isChangeType(key)) return key;
-  return ISSUE_TYPE_MAP[key] ?? null;
-}
-function mergedTypeMap(overlay) {
+function mergedTypeMap(overlay, vocabulary) {
   const merged = { ...DEFAULT_LABEL_TYPE_MAP };
   if (overlay === void 0 || overlay === null) return merged;
   for (const [label, type] of Object.entries(overlay)) {
-    if (isChangeType(type)) {
+    if (isAllowedType(type, vocabulary)) {
       merged[normalizeKey(label)] = type;
     }
   }
@@ -188,48 +169,14 @@ function typeFromLabels(labels, typeMap) {
   }
   return null;
 }
-function typeFromTitle(title) {
-  const match = title.match(/^\s*\[([^\]]+)\]/);
-  if (match?.[1] === void 0) return null;
-  const key = normalizeKey(match[1]);
-  if (isChangeType(key)) return key;
-  return TITLE_PREFIX_MAP[key] ?? null;
-}
 function resolveChangeType(input) {
   if (input.declaredType !== void 0 && input.declaredType !== null) {
     return { type: input.declaredType, source: "declared" };
   }
-  const labels = input.labels ?? [];
-  const typeMap = mergedTypeMap(input.typeMap);
-  const fromLabels = typeFromLabels(labels, typeMap);
-  const fromIssueType = input.issueType !== void 0 && input.issueType !== null && input.issueType !== "" ? typeFromIssueType(input.issueType) : null;
-  if (fromIssueType !== null) {
-    const issueKey = normalizeKey(input.issueType ?? "");
-    if (issueKey === "task" && fromLabels !== null) {
-      return { type: fromLabels, source: "label" };
-    }
-    if (fromLabels !== null && fromLabels !== fromIssueType) {
-      return {
-        type: fromIssueType,
-        source: "issue-type",
-        conflict: { issueType: fromIssueType, label: fromLabels }
-      };
-    }
-    return { type: fromIssueType, source: "issue-type" };
-  }
+  const vocabulary = input.allowedTypes ?? void 0;
+  const fromLabels = typeFromLabels(input.labels ?? [], mergedTypeMap(input.typeMap, vocabulary));
   if (fromLabels !== null) {
     return { type: fromLabels, source: "label" };
-  }
-  if (input.titleConvention !== null && input.title !== void 0) {
-    const fromTitle = typeFromTitle(input.title);
-    if (fromTitle !== null) {
-      return { type: fromTitle, source: "title" };
-    }
-  } else if (input.title !== void 0) {
-    const fromTitle = typeFromTitle(input.title);
-    if (fromTitle !== null) {
-      return { type: fromTitle, source: "title" };
-    }
   }
   return { type: "feat", source: "fallback" };
 }
@@ -237,7 +184,6 @@ function resolveChangeType(input) {
 // packages/issue-flow/src/conventions/git/commit.ts
 var HEADER_MAX = 72;
 var BODY_WIDTH = 72;
-var STORY_ID = /^US-\d+$/i;
 function wrap(text, width) {
   const paragraphs = text.replace(/\r\n/g, "\n").split("\n");
   return paragraphs.map((paragraph) => {
@@ -277,19 +223,17 @@ function headerLine(type, scope, breaking, subject) {
   return `${prefix}${clipped}`;
 }
 function commitMessage(input) {
+  const free = input.format === "free";
   const type = sanitizeType(input.type);
   const scope = sanitizeScope(input.scope);
   const breaking = input.breaking !== void 0 && input.breaking !== null && input.breaking !== "";
-  const lines = [headerLine(type, scope, breaking, input.subject)];
+  const lines = [free ? input.subject : headerLine(type, scope, breaking, input.subject)];
   if (input.body !== void 0 && input.body !== "") {
-    lines.push("", wrap(input.body, BODY_WIDTH));
+    lines.push("", free ? input.body : wrap(input.body, BODY_WIDTH));
   }
   const footers = [];
   if (input.issueNumber !== void 0 && input.issueNumber !== null) {
     footers.push(`Refs #${input.issueNumber}`);
-  }
-  if (input.storyId !== void 0 && input.storyId !== null && STORY_ID.test(input.storyId)) {
-    footers.push(`Story: ${input.storyId}`);
   }
   if (breaking) {
     footers.push(`BREAKING CHANGE: ${input.breaking}`);
@@ -303,6 +247,64 @@ function commitMessage(input) {
     lines.push("", ...footers);
   }
   return lines.join("\n");
+}
+
+// packages/issue-flow/src/conventions/git/convention.ts
+var DEFAULT_GIT_CONVENTION = {
+  branch: { pattern: DEFAULT_BRANCH_CONVENTION, maxLength: BRANCH_MAX_LENGTH, autoName: null },
+  commit: {
+    format: "conventional",
+    types: CHANGE_TYPES,
+    template: null,
+    footer: { refs: true, signoff: false }
+  },
+  pullRequest: { titleFormat: "conventional", bodyTemplate: null, closesWhenVerified: true },
+  merge: { strategy: "no-ff", cleanupWorktree: false }
+};
+function declaresConventional(value) {
+  return /conventional/i.test(value);
+}
+function commitFormat(input) {
+  const declaration = input.commitConvention?.trim() ?? "";
+  if (input.declared === true && (input.commitTemplate ?? "") !== "") return "free";
+  if (declaration === "") return DEFAULT_GIT_CONVENTION.commit.format;
+  if (declaration === "free") return "free";
+  if (declaresConventional(declaration)) return "conventional";
+  return input.declared === true ? "free" : DEFAULT_GIT_CONVENTION.commit.format;
+}
+function commitTypes(input) {
+  if (input.declared !== true) return DEFAULT_GIT_CONVENTION.commit.types;
+  if (input.allowedTypes != null && input.allowedTypes.length > 0) return input.allowedTypes;
+  return "any";
+}
+function titleFormat(input) {
+  const declaration = input.pullRequestTitleConvention?.trim() ?? "";
+  if (declaration === "") return DEFAULT_GIT_CONVENTION.pullRequest.titleFormat;
+  if (declaration === "free") return "free";
+  if (declaresConventional(declaration)) return "conventional";
+  return input.declared === true ? "free" : DEFAULT_GIT_CONVENTION.pullRequest.titleFormat;
+}
+function resolveGitConvention(input = {}) {
+  const branchPattern = input.branchConvention?.trim();
+  return {
+    branch: {
+      pattern: branchPattern === void 0 || branchPattern === "" ? DEFAULT_GIT_CONVENTION.branch.pattern : branchPattern,
+      maxLength: input.branchMaxLength ?? DEFAULT_GIT_CONVENTION.branch.maxLength,
+      autoName: DEFAULT_GIT_CONVENTION.branch.autoName
+    },
+    commit: {
+      format: commitFormat(input),
+      types: commitTypes(input),
+      template: input.commitTemplate ?? null,
+      footer: { refs: true, signoff: input.signoff === true }
+    },
+    pullRequest: {
+      titleFormat: titleFormat(input),
+      bodyTemplate: input.pullRequestTemplate ?? null,
+      closesWhenVerified: DEFAULT_GIT_CONVENTION.pullRequest.closesWhenVerified
+    },
+    merge: { ...DEFAULT_GIT_CONVENTION.merge }
+  };
 }
 
 // packages/issue-flow/src/conventions/git/pull-request.ts
@@ -326,6 +328,7 @@ function scopesAgree(scopes) {
   return unique.length === 1 ? unique[0] : void 0;
 }
 function pullRequestTitle(input) {
+  if (input.format === "free") return input.subject;
   const type = input.types !== void 0 && input.types.length > 0 ? highestImpact(input.types) : input.type;
   const scope = input.scopes !== void 0 && input.scopes.length > 0 ? scopesAgree(input.scopes) : sanitizeScope2(input.scope);
   const subject = input.subject.replace(/\.$/, "").trim();
@@ -487,11 +490,12 @@ var operations = {
   prTitle: pullRequestTitle,
   issueReferences: issueReferenceLines,
   changeType: resolveChangeType,
+  convention: resolveGitConvention,
   defaults: () => DEFAULT_CONVENTIONS
 };
 if (process.argv.includes("--help")) {
   console.log(
-    "Read JSON {operation,input} from stdin. Operations: branch, parseBranch, commit, prTitle, issueReferences, changeType, defaults. Prints JSON; never runs git or writes files."
+    "Read JSON {operation,input} from stdin. Operations: branch, parseBranch, commit, prTitle, issueReferences, changeType, convention, defaults. Prints JSON; never runs git or writes files."
   );
 } else {
   try {

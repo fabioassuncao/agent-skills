@@ -46,6 +46,23 @@ export interface IssueProvider {
   checkAvailability?(): Promise<ProviderAvailability>;
 
   /**
+   * Whether this identifier is unambiguously this origin's.
+   *
+   * Optional, and answering `true` is a strong statement: the resolver then
+   * queries **only** the origins that claim the identifier, and leaves every
+   * other one alone. It exists because an origin can own a namespace no other
+   * one could ever produce — `inline-<hash>` is minted by Issue Flow itself —
+   * and asking GitHub about such an identifier costs a network round-trip and
+   * a warning about a failure that was never a failure.
+   *
+   * An origin whose identifiers could collide with another's (a plain number)
+   * must **not** implement this: the divergence machinery is what settles
+   * those, and claiming one would silence it. Pure and synchronous; never
+   * throws.
+   */
+  claims?(id: string): boolean;
+
+  /**
    * Fetch an Issue by its provider-scoped identifier.
    *
    * Returns `null` when the Issue does not exist. Throws only on real failures

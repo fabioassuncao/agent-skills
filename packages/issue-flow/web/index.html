@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <link rel="icon" href="data:," />
+    <script>
+      // O tema precisa estar aplicado ANTES do primeiro paint: sem isto o
+      // reload pinta a paleta do SO e só troca quando o bundle roda — o flash
+      // da paleta oposta a cada carregamento. Roda antes do CSS de propósito.
+      //
+      // A chave `issue-flow:theme` é lida também pelo bundle
+      // (`readStoredTheme`); este script não pode depender dele, que só carrega
+      // depois. Mudou o formato do valor, mude nos dois lugares.
+      try {
+        var stored = localStorage.getItem('issue-flow:theme');
+        if (
+          stored === 'light' ||
+          stored === 'dark' ||
+          stored === 'github-dark' ||
+          stored === 'dracula' ||
+          stored === 'nord' ||
+          stored === 'solarized-dark' ||
+          stored === 'one-dark'
+        ) {
+          document.documentElement.setAttribute('data-theme', stored);
+        }
+      } catch (_) {
+        // Armazenamento bloqueado: o painel carrega no modo sistema.
+      }
+    </script>
+    <title>issue-flow</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <noscript>
+      <p>
+        Este painel precisa de JavaScript. Sem ele, o estado bruto da execução
+        continua disponível em <a href="/status.json">status.json</a>.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

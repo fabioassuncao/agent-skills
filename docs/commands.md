@@ -14,6 +14,7 @@ installed.
 - [Issues](#issues) — `generate`
 - [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`, `bench`
 - [Shell completion](#shell-completion) — `complete` scripts, activation, removal, and protocol
+- [Worktrees](#managed-worktrees) — list, refresh, tabs, archive, label, merge, remove and prune without a server
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
 - [Exit codes](#exit-codes)
 
@@ -50,8 +51,10 @@ Commands that resolve an issue (`run`, `resume`, `init`, `analyze`, `prd`,
 `plan`, `review`, `pr`) also accept the [issue source flags](issues.md#flags):
 `--local`, `--github`, `--prefer-local`, `--prefer-github`, `--ask`.
 
-Running `issue-flow` with no arguments prints `ps` when this machine has live
-runs, and the help text otherwise.
+Running `issue-flow` with no arguments always prints the grouped root help: all
+public commands, root options and the public environment variables the binary
+actually reads. Run `issue-flow ps` explicitly to inspect live runs; an orphan
+or a live run never replaces command discovery with status output.
 
 ## Pipeline
 
@@ -67,6 +70,8 @@ issue-flow run 42 --pr-review         # add a whole-PR review after `pr`
 issue-flow run 42 --continuous        # unattended profile
 issue-flow run 42,43,50               # several issues (also: `run 42 43 50`)
 issue-flow run 42 --background        # detach and return the terminal
+issue-flow run --prompt "Fix the flaky cache test"   # no Issue behind it
+issue-flow run 42 --auto-close        # close the sessions the run leaves open
 ```
 
 `run` first executes the `init` prerequisite gate, then **prd → plan → execute
@@ -81,6 +86,8 @@ review results stop the phase without launching a correction agent.
 | Flag | Description |
 |------|-------------|
 | `--mode <auto\|manual>` | Recorded in the run header and blocks `--background`. It does **not** stop the CLI pipeline after the artifacts — that behaviour belongs to the portable [`resolve-issue` Skill](../skills/README.md#other-ways-to-work) |
+| `--prompt <text>` | Describe the work directly, with no Issue behind it. The demand becomes an Issue of the `inline` origin and the pipeline runs unchanged — see [a demand with no Issue](#a-demand-with-no-issue). Cannot be combined with an issue number |
+| `--auto-close` / `--keep-open` | Whether the run closes the agent sessions it left open once it is over. Off by default; `run.autoClose` in `.issue-flow.json` sets the project default and `--keep-open` revokes it. A run a person took over is never closed automatically |
 | `--close-issue` / `--no-close-issue` | Persist or revoke explicit closure for this execution; see [closure contract](#explicit-issue-closure) |
 | `--from <phase>` | Start at a specific phase instead of the first incomplete one |
 | `--no-branch` | Run on the current branch: no branch is created and no PR is opened. Persisted in `tasks.json`; the persisted value wins on resume |
@@ -113,6 +120,12 @@ issue-flow resume          # a pending queue, otherwise the latest unfinished is
 issue-flow resume 42       # a specific issue, or its owning queue
 issue-flow resume --all    # every unfinished issue of this project, in order
 ```
+
+`resume` is also how you hand control **back** to a run a person took over: a
+held run is checked first, before ownership, because it is alive and holding
+`run.lock` on purpose — asking about ownership first would answer "another run
+owns this project", which is exactly the wrong answer. See
+[human takeover](web-monitor.md#human-takeover).
 
 Resumption always worked implicitly by re-running `run`. `resume` makes every
 step explicit. It first acquires ownership and checks pending queues; a queue
@@ -498,7 +511,7 @@ at most one `gh` invocation, cached once per process. See
 
 ```bash
 issue-flow conventions branch --issue 42
-issue-flow conventions commit --type feat --scope api --subject "add endpoint" --story US-010
+issue-flow conventions commit --type feat --scope api --subject "add endpoint"
 issue-flow conventions pr-title --issue 42
 ```
 
@@ -716,16 +729,205 @@ Commander command tree; hidden commands and options are omitted. This protocol
 path, like script generation, writes only to stdout and does not initialize
 Issue Flow storage, inspect Git, or contact an agent or GitHub.
 
+## Projects
+
+One machine, one server, several repositories — and a repository does not need
+to have run once before it can be listed.
+
+```bash
+issue-flow project ls [--json]      # every known project, curated and discovered
+issue-flow project add [path]       # curate a project (defaults to the current repository)
+issue-flow project rm <project>     # stop curating it; runs and history are preserved
+issue-flow project use <project>    # mark it as the most recently used one
+```
+
+`<project>` accepts the project id, the prefix it is served under, or a path
+inside it.
+
+**These commands never require a running server.** The registry lives in
+`issue-flow.db` (see [the `projects` table](storage.md#projects--the-project-registry)),
+so `project ls` works on a laptop with nothing listening. When a monitor *is*
+running it is told about the change afterwards, best effort, so it starts serving
+a new project without being restarted — a monitor that cannot be reached is not
+an error.
+
+`project add` on a repository that has no convention files runs the repository
+scaffold first and prints the phases as they happen:
+
+```text
+$ issue-flow project add ~/code/api
+  Creating the missing convention files…
+  Analyzing the repository…
+Added api (api-2) — /Users/me/code/api
+```
+
+The prefix (`api-2` above) is the URL segment the dashboard serves that project
+under. It is derived from the directory name and never stored: `-2` appears here
+because `api` is a reserved hub route.
+
+`project rm` is **demotion, not deletion**. The project goes back to
+`discovered`: it stops being reloaded on the next `serve` and keeps every run,
+artifact and telemetry row it ever produced.
+
+## Free sessions — an agent with no issue behind it
+
+Everything above starts from an Issue. This does not.
+
+```bash
+issue-flow session new [--agent codex] [--branch <b>] [--profile <p>] \
+                       [--prompt <text>] [--label <text>] [--permission <level>] [--json]
+issue-flow session ls [--all] [--json]      # free sessions; --all includes the ones a run owns
+issue-flow session attach <id>              # hand this terminal to the session's tmux window
+issue-flow session send <id> <text>         # a subsequent turn, pasted as one block
+issue-flow session stop <id> [--remove-worktree]
+issue-flow session link <id> --issue 42     # promote it into the workflow
+```
+
+`session new` creates the worktree, opens the tmux window and starts the agent
+in it. With no `--branch` it invents one — `session/<slug>-<8 hex>`, from the
+label or the prompt — because needing a branch name is exactly the ceremony
+this command exists to skip. `--permission` defaults to `workspace`; the three
+levels are the ones documented in [agents](agents.md).
+
+The session it creates is the **same** `AgentSession` a phase of the pipeline
+creates, with `run_id`, `phase` and `story_id` left empty. There is no second
+kind of execution, which is why `session ls --all` can list both in one table:
+
+```text
+$ issue-flow session ls --all
+ID                                     AGENT      STATUS     MODE               BRANCH / LABEL
+9f3c…                                  codex      running    free               poking at the parser
+1a77…                                  claude     idle       run 4c2f…          feat/42-thing
+```
+
+**A free session never starts the pipeline**, and the pipeline never takes one
+over: a `review` or `verify` phase always opens its own session, because that
+independence is what makes the word "verified" mean something.
+
+`session link` is the promotion in the other direction. The scratch session
+turns out to be the work on issue 42, and pointing it at that issue's run keeps
+the conversation, the branch and the pane exactly as they are. The run has to
+exist already — `link` never creates one:
+
+```text
+$ issue-flow session link 9f3c… --issue 42
+Issue 42 has no run to link to yet. Start one with `issue-flow run 42`, then link the session.
+```
+
+Opening a session needs `tmux`; `issue-flow run` does not, and nothing about
+headless runs changes. These commands read and write the database directly, so
+like `project` they work with no server running — only `attach` needs the tmux
+server itself.
+
+`--agent` accepts any configured custom-agent id in addition to the five
+built-ins. A custom agent is a terminal-session extension, not a headless
+pipeline provider: its declared command runs in the pane, while the built-in
+provider runners remain responsible for structured pipeline output, usage,
+failover, review and verification. See [custom agents](configuration.md#custom-agents).
+
+## Managed worktrees
+
+These commands curate the worktrees that remain after a session closes. They
+operate directly on the same storage and lifecycle layer as the dashboard, so
+no monitoring server is required.
+
+```bash
+issue-flow worktree ls [--all | --archived] [--json] [--project <path>]
+issue-flow worktree refresh <branch> [--json] [--project <path>]
+issue-flow worktree archive <branch> [--project <path>]
+issue-flow worktree unarchive <branch> [--project <path>]
+issue-flow worktree label <branch> [label] [--clear] [--project <path>]
+issue-flow worktree remove <branch> [--yes] [--project <path>]
+issue-flow worktree merge <branch> [--yes] [--project <path>]
+issue-flow worktree prune [--dry-run | --yes] [--project <path>]
+```
+
+`ls` (alias `list`) includes active and closed, non-archived worktrees by
+default. `--all` includes archived rows; `--archived` shows only those rows.
+`--json` writes one versioned JSON value to stdout without logger prefixes.
+
+`refresh` is non-destructive. It selects the active tab's existing pane when
+that pane is still alive; when it is authoritatively absent, it resumes the
+same provider conversation in a new authenticated pane. It never kills a live
+agent as a way to refresh the terminal. `--json` reports the `sessionId` and
+whether the operation was `reattach` or `resume`.
+
+`archive` closes live sessions before marking the worktree archived;
+`unarchive` returns it to the default list. `label` accepts at most 80
+characters, and `--clear` removes the caption.
+
+`remove` and `merge` are destructive and ask for confirmation; non-interactive
+automation must pass `--yes`. `merge` uses the canonical no-fast-forward merge
+with rollback and then removes the managed worktree. Both operations hold the
+same cross-process lock used by web mutations, including the teardown window.
+
+`prune` is a dry run unless `--yes` is explicit. A candidate must still be a
+managed/bound worktree, clean, closed in SQLite and absent as a physical tmux
+window when the operation rechecks it under the lock. It does not mean
+`git worktree prune`, which only removes administrative metadata.
+
+The WebMux `restore` command is intentionally absent: its safe semantics depend
+on a shutdown snapshot this project does not maintain. Reopen the intended
+branch explicitly with `issue-flow session new --branch <branch>`. Service
+installation and self-update are also external authorities: this portable
+package does not mutate `launchd`/`systemd` or guess the package manager.
+
+### Agent tabs in a worktree
+
+```bash
+issue-flow tab list <branch> [--json] [--project <path>]
+issue-flow tab create <branch> [--json] [--project <path>]
+issue-flow tab switch <branch> <tab-id> [--json] [--project <path>]
+issue-flow tab close <branch> <tab-id> [--yes] [--json] [--project <path>]
+```
+
+An agent tab is another durable `AgentSession` in the same managed worktree,
+not browser layout state. `tab list` (alias `ls`) marks the active row with `*`;
+its `tab-id` is the Issue Flow session id, never the provider conversation id.
+`create` forks the root conversation and selects the fork. Only Claude and
+Codex have the provider-native, resumable fork primitive required by this
+operation; review and PR-review sessions cannot be forked because they must
+remain independent.
+
+Switching tabs moves the already-running pane between the visible worktree
+window and its parking window; it does not restart the provider process.
+Closing is the only destructive tab operation: the root cannot be closed, and
+a fork requires an interactive confirmation or `--yes`. A present pane is
+stopped only after its project, window and durable owner token all match. An
+authoritatively absent orphan can be dismissed without killing anything, while
+a foreign/reused pane id fails closed.
+
+`create`, `switch` and `close` share the same cross-process branch lock as the
+HTTP surface; `worktree refresh` uses that lock too. `list` is a read-only
+projection and does not acquire it. Their `--json` forms write one undecorated
+JSON value, suitable for automation. Tabs currently require a host-runtime
+managed worktree; sandbox worktrees do not advertise safe fork support.
+
 ## Web monitor
 
 ```bash
+issue-flow serve --port 3737 --host 127.0.0.1 --refresh 5 [--project <path>]…
 issue-flow web stop     # stop the single monitoring server, if one is running
-issue-flow web serve --port 3737 --host 127.0.0.1 --refresh 5
+issue-flow web serve …  # alias of `serve`
 ```
 
-`web serve` is what `--web` spawns detached behind the scenes; running it by hand
-only matters for debugging the monitor itself. See
-[Web monitoring](web-monitor.md).
+`serve` is the machine-wide monitor: it reloads every curated project, serves the
+repository it was started in for that process only (never writing it down), and
+shows a consolidated view of the active work across all of them. `--project` adds
+a repository for this process only and can be repeated; a service unit with no
+useful working directory names its projects through
+[`ISSUE_FLOW_PROJECT_DIR`](configuration.md#environment-variables) instead.
+
+`web serve` is the same command under its previous name — it is what `--web`
+spawns detached behind the scenes, and running it by hand only matters for
+debugging the monitor itself. See [Web monitoring](web-monitor.md).
+
+In the foreground, `serve` prints the bound URL, every deduplicated external
+IPv4 URL when the host accepts network traffic, the projects loaded, and the
+actual state/cadence of its observers. Continuous output is deliberately
+limited to `run:open`, status/phase transitions and `run:close`; ordinary
+snapshot updates and conversation content are not logged. A detached monitor
+started by `--web` keeps `stdio` ignored.
 
 ## Exit codes
 
@@ -787,3 +989,53 @@ telemetry. It does not overwrite or replace the source plan.
 resolution error exits 1 with an `error` object. Status still uses CLI storage
 resolution, which can perform existing compatibility imports; use `artifacts`
 for strictly read-only inspection of a file.
+
+## A demand with no Issue
+
+`issue-flow run --prompt "<text>"` runs the pipeline on work that has no Issue
+behind it. This is the entry `webmux oneshot` had and `run` did not, absorbed as
+described in §17 of the absorption plan.
+
+```bash
+issue-flow run --prompt "Fix the flaky cache test; it only fails on CI"
+```
+
+What happens is deliberately unremarkable. The text is recorded as an Issue of
+a fourth origin, **`inline`**, alongside `github` and `local`; its identifier is
+`inline-<12 hex>`, derived from the text itself; and from there the run is the
+run you already know — `prd → plan → execute → review → pr`, the acceptance
+contract, and the independent reviewer. There is no shorter path with fewer
+guarantees, which is the whole point: one implementation, two ways in.
+
+Consequences worth knowing:
+
+- **The identifier is the demand.** Running the same prompt twice addresses the
+  same Issue and resumes it, rather than starting a parallel history. Change a
+  word and it is a different demand.
+- **The title is the first line** of the prompt, shortened; the body is the
+  prompt in full.
+- **It resumes like anything else**: `issue-flow resume inline-a1b2c3d4e5f6`,
+  `issue-flow status`, `issue-flow history inline-…`.
+- **It is per project**, stored beside the run in the SQLite store — the same
+  demand typed in two repositories is two Issues, exactly as it would be on
+  GitHub.
+- `--prompt` and an issue number are mutually exclusive: passing both is a
+  usage error rather than a guess about which one you meant.
+
+### Closing what a run left open
+
+`--auto-close` closes the agent sessions the run left open once it is over —
+the option `webmux oneshot` had as `autoCloseOnDone`. It is **off by default**,
+because `run` has always left its sessions in place; `run.autoClose` in
+`.issue-flow.json` sets the project default, and `--keep-open` revokes it for
+one invocation.
+
+Two rules bound it:
+
+- Nothing is deleted. Sessions are marked `stopped`; no branch, worktree or
+  file is touched. A headless run opens no session, so it closes nothing.
+- **A person who took the run over disarms it.** While the run is under
+  `human_hold` — which is what typing into the agent's terminal produces — the
+  auto-close does not fire, and the state is re-read immediately before closing
+  so a takeover during the run's own finalization still aborts it. Hand control
+  back with `issue-flow resume`.

@@ -5,6 +5,7 @@ import {
   secondsBetween,
 } from './derive.js';
 import type { SessionEvent } from './events.js';
+import { applyAgentLifecycleEvent } from './reducer-agent.js';
 import { applyGitEvent } from './reducer-git.js';
 import { applyLogEvent } from './reducer-log.js';
 import { applyMetricsEvent } from './reducer-metrics.js';
@@ -89,6 +90,14 @@ function applyEvent(
     case 'agent:result':
     case 'agent:activity':
       return applyResilienceEvent(snapshot, event);
+
+    case 'agent:busy':
+    case 'agent:awaiting-input':
+    case 'agent:awaiting-input-escalated':
+    case 'pr:opened':
+    case 'human:hold':
+    case 'human:resume':
+      return applyAgentLifecycleEvent(snapshot, event);
 
     default: {
       const _exhaustive: never = event;

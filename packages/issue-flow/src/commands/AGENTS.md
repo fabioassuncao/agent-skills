@@ -14,6 +14,38 @@ mode so the clean terminal and the dashboard share `currentActivity`;
 `FilePublisher` already throttles the write that would otherwise bust the
 `/api/status` ETag on every tool call.
 
+## `project` and `serve`
+
+`project ls|add|rm|use` reads and writes the project registry in SQLite
+**directly**. That is a hard requirement, not an optimization: the CLI may
+never need a server to be running. A live monitor is notified afterwards, best
+effort, only so it starts serving a new project without a restart — a monitor
+that cannot be reached is not an error, because the registry write already
+happened and it is the authority.
+
+`project rm` is demotion, not deletion. Say so in the output: the word "remove"
+invites the other reading, and runs, artifacts and telemetry all survive it.
+
+`serve` is the canonical name of the machine-wide monitor; `web serve` is an
+alias delegating to the same body (`web/AGENTS.md`: a third way to bind is what
+that module exists to prevent).
+
+Its serialized 60-second maintenance cadence is headless: per served project,
+Linear pickup (when enabled and credentialed) and GitHub merged-worktree GC
+(when enabled) run independently. A Linear failure must not suppress GitHub GC;
+shutdown aborts an in-flight pass and waits for it before closing storage.
+
+The bare root command is onboarding, not status: it always renders
+`cli-help.ts`. `ps` is the only root-level run inventory. Keep the preformatted
+help's command list and public environment list exact; internal context
+variables never belong there.
+
+`worktree ls|archive|unarchive|label|remove|merge|prune` works directly, without
+a server, but never implements lifecycle policy here. Every mutation delegates
+to `agents/session/worktree-control.ts`. Destructive commands require
+confirmation/`--yes`; prune is dry-run by default and rechecks candidates under
+the shared cross-process lock.
+
 ## Layout of `run/` (#100)
 
 `run.ts` is a thin façade: `RunPipelineOptions`, `runPipeline()`, and
@@ -31,6 +63,8 @@ re-exports. Behaviour lives under `src/commands/run/`:
 | `phase-options.ts` | Pure resolvers for `--no-branch`, `--pr-review`, `--start-us`, retry budget |
 | `phase-bootstrap.ts` / `phase-prepare.ts` / `phases.ts` | Phase orchestration split |
 | `phase-runners.ts` / `phase-config.ts` / `phase-start.ts` / `phase-finalize.ts` | Named helpers for runners, agent config, resume start, summary |
+| `demand.ts` | Pure resolvers for what the invocation runs (issues vs `--prompt`) and for `--auto-close`/`--keep-open` |
+| `auto-close.ts` | The end of an autonomous run: the agent's completion signals, and the optional close of the sessions it left open |
 
 Direction is `run.ts → run/*` only. Modules under `run/` must not import
 `run.ts`. `types.ts` imports none of its siblings.
@@ -178,3 +212,36 @@ that already loads the plan (the one resolving `--no-branch`): a run must not
 gain a second disk read per enrichment. The seed publishes nothing on an empty
 plan — an event with no content still bumps the publisher's version and forces a
 write plus a cache miss on every poller.
+
+## The convergence of the oneshot (§17)
+
+`issue-flow run` is the **only** execution path. §17 of the absorption plan
+folded `webmux oneshot` into it, and the rule that came with it is that nothing
+here may grow a second one: there is no `oneshot` command, and `--prompt` is not
+a lighter mode.
+
+Three things arrived, and each stays in its own place:
+
+- **A free prompt is an Issue.** `--prompt` is resolved by `demand.ts` and
+  minted by `issues/providers/inline.ts` into an Issue of the `inline` origin,
+  *before* the pipeline starts. Past `resolveRequestedIssues()` in `run.ts`,
+  nothing downstream can tell an inline demand from a GitHub one — which is
+  what keeps the phases, the acceptance contract and the independent reviewer
+  identical for both. Do not add a branch that asks "is this inline?" to a
+  phase; if one seems necessary, the mint is wrong.
+- **The agent's own end-of-work signals are additional, never authoritative.**
+  `agent_stopped` and `pr_opened` (already persisted by `agents/hooks/`) are
+  read by `auto-close.ts` and weigh only on the close. The pipeline's verdict
+  is what ends a run: a run that stopped its phases early on the agent's say-so
+  would be a run nobody verified (§45.3).
+- **Auto-close is opt-in and a person disarms it.** `--auto-close` marks the
+  run's live `AgentSession` rows `stopped`; it deletes nothing and never touches
+  a branch or a worktree. A run under `human_hold` is skipped, and the hold is
+  re-read immediately before closing so a takeover during the run's own
+  finalization still aborts it. There is no second armed/disarmed flag — armed
+  *is* "no human hold", and `core/human-hold.ts` owns that question alone.
+
+`core/run-completion.ts` is the ported decision (grace window, cold-start guard,
+in-flight guard, disarm-even-when-the-close-failed) and knows nothing about
+Issue Flow; `run/auto-close.ts` is the half that does. Keep them apart: the
+first is what the upstream suite is ported against.

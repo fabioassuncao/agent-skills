@@ -1,0 +1,303 @@
+/* Interface do monitoramento web do issue-flow.
+   Autocontida: sem fontes externas, sem CDN — funciona offline. */
+
+/* ---- Paleta ----
+
+   Tokens nomeados por papel (superfície, texto, borda, acento, estado, foco),
+   nunca por local de uso: mexer na hierarquia visual não exige inventar uma cor
+   por componente. `:root` carrega a paleta clara **inteira** — nenhum token
+   pode ter sua única definição dentro de um `@media` ou de um `[data-theme]`,
+   ou o tema oposto fica sem ele. */
+
+:root {
+  /* Esquema dos controles nativos. Os blocos de tema escuro abaixo o
+     sobrescrevem. */
+  color-scheme: light;
+
+  /* Superfície: página, cartão elevado e recesso neutro. */
+  --surface-page: #f4f5f7;
+  --surface: #ffffff;
+  --surface-sunken: #e5e7eb;
+
+  /* Texto. `--text-subtle` está reservado para uma terceira hierarquia
+     (legendas, metadados) que o painel ainda não usa — mas já cumpre 4,5:1
+     sobre as três superfícies, para poder ser usado sem nova auditoria.
+     Os três são medidos contra a superfície mais escura do tema claro
+     (`--surface-sunken`); ver a tabela de contraste em `web/AGENTS.md`. */
+  --text: #1a1f27;
+  --text-muted: #4b5563;
+  --text-subtle: #5f6773;
+
+  /* Borda. `--border-strong` está reservado para separadores que precisem
+     vencer o ruído de uma lista densa; hoje nenhum precisa. */
+  --border: #e2e5ea;
+  --border-strong: #c7ccd4;
+
+  /* Acento. `--accent-text` é o texto sobre um preenchimento sólido de acento
+     ou de estado (hoje: o banner de desconexão). */
+  --accent: #4f46e5;
+  --accent-text: #ffffff;
+
+  /* Estado: a cor do texto/ícone e a superfície que a acompanha no badge.
+     No tema claro as quatro cores ficam no nível 700 da escala — é o mais
+     claro que atende 4,5:1 sobre a própria superfície do badge. O limiar é
+     4,5:1 e não 3:1 porque `.badge` é `--font-size-sm`/600, abaixo de texto
+     grande. */
+  --state-ok: #15803d;
+  --state-ok-surface: #dcfce7;
+  --state-run: #1d4ed8;
+  --state-run-surface: #dbeafe;
+  --state-warn: #b45309;
+  --state-warn-surface: #fef3c7;
+  --state-error: #b91c1c;
+  --state-error-surface: #fee2e2;
+  /* A merged PR is distinct from a passing check. */
+  --state-merged: #6d28d9;
+  --state-merged-surface: #ede9fe;
+
+  /* Foco por teclado: o anel de `:focus-visible`. Precisa de 3:1 contra o que
+     estiver adjacente (a superfície ao redor do anel), não de 4,5:1 — é um
+     componente gráfico, não texto. */
+  --focus-ring: #4f46e5;
+
+  /* Escalas visuais fechadas. Componentes escolhem um degrau existente em vez
+     de criar valores locais; isso mantém a densidade previsível nos dois temas. */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-md: 0.875rem;
+  --font-size-base: 0.9375rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.25rem;
+
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+
+  --radius-small: 6px;
+  --radius-medium: 10px;
+  --radius-pill: 999px;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  --overlay: rgb(0 0 0 / 0.45);
+}
+
+/* ---- Tema escuro ----
+
+   Dois blocos gêmeos: o do sistema e o forçado pelo controle do painel.
+   **Os dois carregam exatamente a mesma lista de overrides e precisam mudar
+   juntos** — mexeu em um, mexa no outro. Só entram aqui os tokens cujo valor
+   muda; o que é igual nos dois temas fica só em `:root`.
+
+   O guarda `:not([data-theme='light'])` é o que faz a escolha manual vencer o
+   sistema: com o SO em escuro e o tema forçado em claro, o `@media` não
+   sobrescreve nada.
+
+   `color-scheme` vai dentro de cada bloco (e não no `<html>` nem num `<meta>`)
+   porque é ele que manda nos controles nativos — `<select>`, `<progress>`,
+   barras de rolagem — e precisa acompanhar o tema efetivo, não o do SO. */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --surface-page: #0f1218;
+    --surface: #171c24;
+    --surface-sunken: #262d38;
+    --text: #e5e9f0;
+    --text-muted: #9aa1ad;
+    --text-subtle: #8f97a5;
+    --border: #262d38;
+    --accent: #818cf8;
+    /* No escuro os preenchimentos sólidos (acento e estado) são claros, então
+       o texto sobre eles inverte — branco sobre `--state-error` daria 2,98:1
+       no banner de desconexão. */
+    --accent-text: #0f1218;
+    --state-ok: #4ade80;
+    --state-ok-surface: #14301f;
+    --state-run: #60a5fa;
+    --state-run-surface: #172a45;
+    --state-warn: #fbbf24;
+    --state-warn-surface: #3a2d10;
+    --state-error: #f87171;
+    --state-error-surface: #3b1a1a;
+    --state-merged: #c4b5fd;
+    --state-merged-surface: #2a2140;
+    --focus-ring: #818cf8;
+    --shadow: none;
+    --overlay: rgb(0 0 0 / 0.65);
+  }
+}
+
+/* Gêmeo do bloco acima — mesma lista de overrides, mudam juntos. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-page: #0f1218;
+  --surface: #171c24;
+  --surface-sunken: #262d38;
+  --text: #e5e9f0;
+  --text-muted: #9aa1ad;
+  --text-subtle: #8f97a5;
+  --border: #262d38;
+  --accent: #818cf8;
+  /* Ver o comentário do bloco gêmeo acima. */
+  --accent-text: #0f1218;
+  --state-ok: #4ade80;
+  --state-ok-surface: #14301f;
+  --state-run: #60a5fa;
+  --state-run-surface: #172a45;
+  --state-warn: #fbbf24;
+  --state-warn-surface: #3a2d10;
+  --state-error: #f87171;
+  --state-error-surface: #3b1a1a;
+  --state-merged: #c4b5fd;
+  --state-merged-surface: #2a2140;
+  --focus-ring: #818cf8;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
+}
+
+/* ---- Paletas WebMux ----
+
+   As cinco paletas do upstream são opções explícitas adicionais. Os papéis de
+   texto secundário foram clareados onde a cor original não chegava a 4,5:1 em
+   texto pequeno; os demais valores preservam a identidade visual de cada
+   paleta. Todos os 19 pares são medidos por `lib/contrast.test.ts` e na página
+   por `measure.html`. */
+
+:root[data-theme='github-dark'] {
+  color-scheme: dark;
+  --surface-page: #0d1117;
+  --surface: #161b22;
+  --surface-sunken: #21262d;
+  --text: #e6edf3;
+  --text-muted: #9aa4ae;
+  --text-subtle: #8b949e;
+  --border: #30363d;
+  --border-strong: #484f58;
+  --accent: #58a6ff;
+  --accent-text: #0d1117;
+  --state-ok: #3fb950;
+  --state-ok-surface: #143320;
+  --state-run: #58a6ff;
+  --state-run-surface: #152b45;
+  --state-warn: #d29922;
+  --state-warn-surface: #342a0d;
+  --state-error: #ff6b63;
+  --state-error-surface: #3d1715;
+  --state-merged: #d2a8ff;
+  --state-merged-surface: #2d213a;
+  --focus-ring: #58a6ff;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
+}
+
+:root[data-theme='dracula'] {
+  color-scheme: dark;
+  --surface-page: #21222c;
+  --surface: #282a36;
+  --surface-sunken: #343746;
+  --text: #f8f8f2;
+  --text-muted: #b6bfdc;
+  --text-subtle: #a2accb;
+  --border: #44475a;
+  --border-strong: #6272a4;
+  --accent: #bd93f9;
+  --accent-text: #21222c;
+  --state-ok: #50fa7b;
+  --state-ok-surface: #183724;
+  --state-run: #8be9fd;
+  --state-run-surface: #17343b;
+  --state-warn: #f1fa8c;
+  --state-warn-surface: #35371c;
+  --state-error: #ff6e6e;
+  --state-error-surface: #3b1c24;
+  --state-merged: #bd93f9;
+  --state-merged-surface: #30233e;
+  --focus-ring: #bd93f9;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
+}
+
+:root[data-theme='nord'] {
+  color-scheme: dark;
+  --surface-page: #272c36;
+  --surface: #2e3440;
+  --surface-sunken: #3b4252;
+  --text: #eceff4;
+  --text-muted: #b5c3d3;
+  --text-subtle: #a7b5c7;
+  --border: #4c566a;
+  --border-strong: #616e88;
+  --accent: #88c0d0;
+  --accent-text: #1f252e;
+  --state-ok: #a3be8c;
+  --state-ok-surface: #273326;
+  --state-run: #88c0d0;
+  --state-run-surface: #23343a;
+  --state-warn: #ebcb8b;
+  --state-warn-surface: #39301f;
+  --state-error: #e98991;
+  --state-error-surface: #3b2429;
+  --state-merged: #b48ead;
+  --state-merged-surface: #34283a;
+  --focus-ring: #88c0d0;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
+}
+
+:root[data-theme='solarized-dark'] {
+  color-scheme: dark;
+  --surface-page: #00222b;
+  --surface: #002b36;
+  --surface-sunken: #073642;
+  --text: #fdf6e3;
+  --text-muted: #a6b2b2;
+  --text-subtle: #93a1a1;
+  --border: #2e5e6a;
+  --border-strong: #657b83;
+  --accent: #268bd2;
+  --accent-text: #001820;
+  --state-ok: #a7bd00;
+  --state-ok-surface: #253300;
+  --state-run: #3aa6e8;
+  --state-run-surface: #00344b;
+  --state-warn: #d9ad00;
+  --state-warn-surface: #3a2e00;
+  --state-error: #ff6b66;
+  --state-error-surface: #451c1b;
+  --state-merged: #c77dff;
+  --state-merged-surface: #332041;
+  --focus-ring: #2aa6f2;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
+}
+
+:root[data-theme='one-dark'] {
+  color-scheme: dark;
+  --surface-page: #21252b;
+  --surface: #282c34;
+  --surface-sunken: #333842;
+  --text: #d7dae0;
+  --text-muted: #acb3c0;
+  --text-subtle: #9ca5b4;
+  --border: #3e4452;
+  --border-strong: #5c6370;
+  --accent: #61afef;
+  --accent-text: #171b20;
+  --state-ok: #98c379;
+  --state-ok-surface: #263425;
+  --state-run: #61afef;
+  --state-run-surface: #20364b;
+  --state-warn: #e5c07b;
+  --state-warn-surface: #3b3120;
+  --state-error: #e9838c;
+  --state-error-surface: #3d2428;
+  --state-merged: #c678dd;
+  --state-merged-surface: #35243c;
+  --focus-ring: #61afef;
+  --shadow: none;
+  --overlay: rgb(0 0 0 / 0.65);
+}

@@ -39,23 +39,13 @@
   "files": {
     "includes": [
       "src/**/*.ts",
-      "web/public/**/*.js",
+      "web/src/**/*.ts",
+      "web/*.config.ts",
+      "../issue-flow-contract/src/**/*.ts",
       "scripts/**/*.mjs",
       "*.config.ts",
       "!!**/dist",
       "!!**/node_modules"
     ]
-  },
-  "overrides": [
-    {
-      "includes": ["web/public/**/*.js"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useNodejsImportProtocol": "off"
-          }
-        }
-      }
-    }
-  ]
+  }
 }

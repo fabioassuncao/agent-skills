@@ -275,3 +275,69 @@ resolution applies. Dual/remote delivery keeps remote discovery. Direct provider
 APIs retain their legacy allocation behavior unless `localOnly` is requested.
 
 Issue closure is an explicit execution choice; see [command contract](commands.md#explicit-issue-closure).
+
+## Pull Requests, CI and review comments
+
+Issues are one side of GitHub; Pull Requests are the other. Everything the CLI
+**reads** from GitHub about a Pull Request lives in one place —
+`src/issues/github/` — and nothing else in the tree shells out to `gh pr list`,
+`gh pr view` or `gh run view`. Pull Request **creation** is not part of it: that
+belongs to the `pr` phase, which builds the deterministic `Closes` / `Refs` body
+([command contract](commands.md)).
+
+What it reads:
+
+| Question | Answer |
+|---|---|
+| Which Pull Requests target this branch? | `number`, `url`, `title` — what the session snapshot reports |
+| Is a Pull Request open, closed, merged, draft? | Refreshed per Pull Request, `isDraft` included |
+| Did CI pass? | The `statusCheckRollup`, collapsed to one verdict per check |
+| Why did it fail? | The failed steps of the GitHub Actions run |
+| What did reviewers say inline? | Review comments, anchored to file and line |
+| And in the sibling repositories? | The same, for every repository under [`github.linkedRepos`](configuration.md#github) |
+
+Three rules make repeated reading affordable and honest:
+
+- **A failed query is never an empty answer.** A list that could not be fetched
+  is reported as a failure, not as "no Pull Request" — the difference between a
+  view that is temporarily incomplete and a conclusion that is wrong.
+- **Conditional requests.** Review comments are re-read with `If-None-Match`; a
+  `304 Not Modified` costs no GitHub rate limit. A Pull Request whose
+  `updatedAt` has not moved is not re-read at all.
+- **Nothing is polled while nobody is watching.** The periodic refresh is
+  activity-gated: with the view closed it makes no `gh` call. A maintenance
+  sweep that has to run regardless simply does not pass the gate.
+
+A cancelled CI run is treated as *superseded*, not as a failure, and a re-run
+wins over the run it replaced — otherwise a Pull Request whose workflow was
+re-triggered would report as permanently failed.
+
+## The `inline` origin — a demand with no Issue
+
+A third origin ships alongside `github` and `local`: **`inline`**, which holds
+the demands typed straight into
+[`issue-flow run --prompt`](commands.md#a-demand-with-no-issue).
+
+```bash
+issue-flow run --prompt "Fix the flaky cache test; it only fails on CI"
+```
+
+It behaves like any other origin — the same `Issue` shape, the same phases, the
+same acceptance contract — with three properties of its own:
+
+- **The identifier is derived from the prompt**: `inline-<12 hex>` of the
+  text's sha-256. The same demand is the same Issue, so re-running a prompt
+  resumes it instead of starting a second history.
+- **It claims its own identifiers.** No other origin is ever queried for an
+  `inline-…` id, so a `resume` of an inline demand costs no GitHub round-trip
+  and reports no failure that was never one. This is what
+  `IssueProvider.claims()` is for; an origin whose identifiers could collide
+  with another's must not implement it, or divergence detection would be
+  silenced.
+- **It is per project and lives in SQLite** (`inline_issues`, migration 18) —
+  never in the repository, so a one-line demand leaves no directory behind. It
+  needs the SQLite store; on the legacy JSON store the origin simply reports
+  itself unavailable and the other two keep working.
+
+`--prompt` and an issue number are mutually exclusive: passing both is a usage
+error rather than a guess.

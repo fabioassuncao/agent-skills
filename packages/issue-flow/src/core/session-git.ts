@@ -1,3 +1,4 @@
+import { listPullRequestsForBranch } from '../issues/github/index.js';
 import {
   getBaseBranch,
   getCommitsSince,
@@ -8,7 +9,6 @@ import {
   normalizeRemoteUrl,
   stripRemoteUrlCredentials,
 } from '../utils/git.js';
-import { run } from '../utils/shell.js';
 import {
   NullPublisher,
   type SessionCommit,
@@ -46,6 +46,10 @@ export interface GitStateSources {
 /**
  * List PRs whose head is the given branch via the GitHub CLI. Never throws;
  * returns [] when gh is unavailable, unauthenticated or returns bad JSON.
+ *
+ * The `gh` call itself lives in `issues/github/pr.ts`, the single
+ * implementation of Pull Request reading; this stays as the session-shaped
+ * entry point its callers already import.
  */
 export interface ListPullRequestsOptions {
   /**
@@ -60,38 +64,7 @@ export async function listPullRequests(
   branch: string,
   options: ListPullRequestsOptions = {},
 ): Promise<SessionPullRequest[]> {
-  if (!branch) return [];
-
-  const result = await run('gh', [
-    'pr',
-    'list',
-    '--head',
-    branch,
-    '--state',
-    options.state ?? 'all',
-    '--json',
-    'number,url,title',
-    '--limit',
-    '10',
-  ]);
-  if (result.exitCode !== 0) return [];
-
-  try {
-    const parsed: unknown = JSON.parse(result.stdout || '[]');
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (pr): pr is { number: number; url: string; title: string } =>
-          typeof pr === 'object' &&
-          pr !== null &&
-          typeof (pr as { number?: unknown }).number === 'number' &&
-          typeof (pr as { url?: unknown }).url === 'string' &&
-          typeof (pr as { title?: unknown }).title === 'string',
-      )
-      .map((pr) => ({ number: pr.number, url: pr.url, title: pr.title }));
-  } catch {
-    return [];
-  }
+  return listPullRequestsForBranch(branch, options);
 }
 
 const defaultSources: GitStateSources = {

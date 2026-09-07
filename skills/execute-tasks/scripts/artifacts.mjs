@@ -14982,6 +14982,9 @@ var sessionConfigurationSchema = external_exports.object({
   fallbacks: external_exports.array(external_exports.string()),
   overrides: external_exports.array(external_exports.string())
 });
+var agentHooksConfigSchema = external_exports.object({
+  enabled: external_exports.boolean().default(true)
+});
 var sessionSnapshotSchema = external_exports.object({
   schemaVersion: external_exports.literal(1),
   sessionId: external_exports.string().nullable(),
@@ -15107,6 +15110,29 @@ var sessionSnapshotSchema = external_exports.object({
     headCommit: external_exports.string().nullable().default(null),
     root: external_exports.string().nullable().default(null)
   }).default({ name: null, remoteUrl: null, branch: null, headCommit: null, root: null }),
+  // Additive like the resilience projection: a snapshot written before agent
+  // hooks existed parses into the same "never reported" object the reducer
+  // starts from, so no schema version bump is needed to keep reading it.
+  agent: external_exports.object({
+    lifecycle: external_exports.enum(["busy", "awaiting-input"]).nullable().default(null),
+    since: external_exports.string().nullable().default(null),
+    phase: external_exports.string().nullable().default(null),
+    awaitingInputCount: external_exports.number().int().nonnegative().default(0),
+    // Additive within the additive section: a session.json written before
+    // the §32 escalation existed parses as "never escalated" rather than
+    // failing, so schemaVersion stays 1.
+    awaitingInputEscalatedAt: external_exports.string().nullable().default(null),
+    awaitingInputWaitedMs: external_exports.number().nonnegative().nullable().default(null),
+    humanHold: external_exports.object({ since: external_exports.string(), reason: external_exports.enum(["takeover", "requested"]) }).nullable().default(null)
+  }).default({
+    lifecycle: null,
+    since: null,
+    phase: null,
+    awaitingInputCount: 0,
+    awaitingInputEscalatedAt: null,
+    awaitingInputWaitedMs: null,
+    humanHold: null
+  }),
   pullRequests: external_exports.array(external_exports.object({ number: external_exports.number(), url: external_exports.string(), title: external_exports.string() })),
   logs: external_exports.array(sessionLogEntrySchema),
   errors: external_exports.array(sessionLogEntrySchema),
@@ -15147,6 +15173,16 @@ var issuesConfigSchema = external_exports.object({
 var prReviewConfigSchema = external_exports.object({
   publisher: external_exports.enum(["local", "github"]).default("local")
 });
+var linkedRepoSchema = external_exports.object({
+  repo: external_exports.string().min(1),
+  alias: external_exports.string().min(1),
+  dir: external_exports.string().min(1).optional()
+});
+var githubConfigSchema = external_exports.object({
+  linkedRepos: external_exports.array(linkedRepoSchema).default([]),
+  syncIntervalMs: external_exports.number().int().min(1e3).default(1e4),
+  autoRemoveOnMerge: external_exports.boolean().default(false)
+});
 var verifyCheckSchema = external_exports.object({
   id: external_exports.string().min(1),
   run: external_exports.string().optional(),
@@ -15159,6 +15195,9 @@ var verifyConfigSchema = external_exports.object({
   pairings: external_exports.record(external_exports.string(), external_exports.string()).default({}),
   contract: external_exports.array(verifyCheckSchema).optional(),
   crossVerify: external_exports.boolean().default(true)
+});
+var runConfigSchema = external_exports.object({
+  autoClose: external_exports.boolean().default(false)
 });
 var routingModeSchema = external_exports.enum(["off", "shadow", "recommend", "active"]);
 var routingProfileSchema = external_exports.enum(["economy", "balanced", "quality", "speed"]);

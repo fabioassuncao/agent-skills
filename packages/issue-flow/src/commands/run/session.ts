@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { resetAgentInvocationState } from '../../agents/invoke.js';
+import { loadRuntimeConfig } from '../../config/runtime.js';
 import { initResilienceConfig, loadWebConfig } from '../../config.js';
 import { JournalPublisher, MultiPublisher } from '../../core/journal.js';
 import { setSessionPublisher } from '../../core/session-publisher.js';
@@ -7,6 +8,11 @@ import { FilePublisher, MemoryPublisher, type SessionPublisher } from '../../cor
 import { onShutdown } from '../../core/shutdown.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../../core/state-manager.js';
 import { getInactivityTimeout, setInactivityTimeout } from '../../core/verbose.js';
+import {
+  type AcquireExecutionSlotResult,
+  acquireExecutionSlot,
+  describeSlotRefusal,
+} from '../../runtime/concurrency.js';
 import { getPlanRepository } from '../../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../../storage/db/session-publisher.js';
 import {
@@ -14,12 +20,13 @@ import {
   flushDiagnostics,
   writeDiagnostic,
 } from '../../storage/diagnostics.js';
-import { acquireRunLock, describeRunLockOwner } from '../../storage/lock.js';
+import { describeRunLockOwner } from '../../storage/lock.js';
 import { resolveIssuePaths, resolveProjectPaths } from '../../storage/resolve.js';
 import type { RunLock } from '../../storage/schemas.js';
 import { printError, printWarning } from '../../ui/logger.js';
 import { describePreflight, getProjectRoot, preflightRepository } from '../../utils/git.js';
 import { ensureWebMonitor } from '../../web/lock.js';
+import { settleFinishedRun } from './auto-close.js';
 import { reportIfOversized } from './oversized.js';
 import type { IssueRunResult, IssueSessionInput, RunPipelinePhases } from './types.js';
 
@@ -66,10 +73,16 @@ export async function ensureRepositoryWritable(phase: string): Promise<void> {
 
 export type RunOwnership =
   | { ok: true; interruptedBy: RunLock | null; release: () => Promise<void> }
-  | { ok: false; owner: RunLock };
+  | { ok: false; refusal: string };
 
 /**
- * Take the project's run lock, or report who holds it.
+ * Take an execution slot, or report why it was refused.
+ *
+ * At the default `runtime.maxConcurrent` of 1 this **is** the project run lock:
+ * the same file, the same call, the same outcome — a project does not become
+ * parallel by upgrading. Above 1 the exclusion moves to the execution unit and
+ * a ceiling takes its place. `runtime/concurrency.ts` is what knows the
+ * difference, and this is the single place a run asks it (§31.3).
  *
  * A project whose storage cannot be resolved at all (no git repository yet, no
  * home directory) runs **without** a lock rather than not running: the guard
@@ -77,15 +90,28 @@ export type RunOwnership =
  * single run cannot start.
  */
 export async function claimRunOwnership(target: string, detached = false): Promise<RunOwnership> {
-  let lockFile: string;
+  let projectDir: string;
+  let projectRunLockFile: string;
   try {
-    lockFile = (await resolveProjectPaths()).runLockFile;
+    const paths = await resolveProjectPaths();
+    projectDir = paths.projectDir;
+    projectRunLockFile = paths.runLockFile;
   } catch {
     return { ok: true, interruptedBy: null, release: async () => {} };
   }
 
-  const result = await acquireRunLock(lockFile, { target, detached });
-  if (!result.ok) return result;
+  // The unit is the issue this invocation is for. A queue is one run, not one
+  // per issue, so the first issue names the slot the whole invocation holds.
+  const { maxConcurrent } = await loadRuntimeConfig();
+  const result: AcquireExecutionSlotResult = await acquireExecutionSlot({
+    projectDir,
+    projectRunLockFile,
+    unitId: target,
+    target,
+    maxConcurrent,
+    detached,
+  });
+  if (!result.ok) return { ok: false, refusal: describeSlotRefusal(result) };
 
   return {
     ok: true,
@@ -293,6 +319,39 @@ async function applySessionSideEffects(input: {
   }
 }
 
+/**
+ * Close out the run: the completion signals, and the optional auto-close.
+ *
+ * Never throws and never changes the exit code — everything here is an
+ * epilogue to a verdict the pipeline already reached. A run that stopped to
+ * hand control over to a queue is skipped: it is not over, the queue is about
+ * to run it.
+ */
+async function settleIssueRun(input: {
+  paths: Awaited<ReturnType<typeof resolveIssuePaths>>;
+  issueNumber: string;
+  publisher: SessionPublisher;
+  input: IssueSessionInput;
+  result: IssueRunResult;
+}): Promise<void> {
+  if (input.result.queue !== undefined) return;
+  const context = getPlanRepository(input.paths.tasksFile);
+  const runId = input.publisher.snapshot().sessionId;
+  if (context === undefined || runId === null) return;
+  try {
+    await settleFinishedRun({
+      context,
+      runId,
+      issueId: input.issueNumber,
+      outcome: input.result.code === 0 ? 'completed' : 'failed',
+      autoClose: input.input.runOptions?.autoClose === true,
+      publisher: input.publisher,
+    });
+  } catch {
+    // An epilogue that fails is not a failed run.
+  }
+}
+
 export async function runIssueSession(
   issueNumber: string,
   mode: string,
@@ -381,6 +440,13 @@ export async function runIssueSession(
     if (result.code !== 0) {
       await reportIfOversized(issueNumber, paths, result);
     }
+    // The end of the run, in the sense §17 absorbs from the oneshot watcher:
+    // the agent's own `agent_stopped`/`pr_opened` corroborate what the
+    // pipeline already decided, and — only when asked for — the sessions the
+    // run left open are closed. A run a person took over settles nothing.
+    // Deliberately after the phases and before the session is closed, so the
+    // hold is re-read once the finalization has actually taken time.
+    await settleIssueRun({ paths, issueNumber, publisher, input, result });
     return result;
   } finally {
     await closeIssueSession({ releaseCheckpoint, releaseClose, result, publisher });

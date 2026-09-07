@@ -89,6 +89,123 @@ downgraded or modified. The `db check`, `db backup`, `db vacuum`, `db export`,
 `db verify` and `db import` commands are documented in
 [the command reference](commands.md#database-maintenance).
 
+### `agent_events`
+
+What an agent's own [lifecycle hooks](agents.md#lifecycle-hooks) reported: one
+row per event, with `run_id`, `phase`, `type`, `lifecycle`, the raw payload and
+when it happened.
+
+It is written down rather than kept in memory for one reason: the most useful
+event is `awaiting_input`, and the case worth being able to look up is precisely
+the one where nothing was watching when it happened.
+
+`run_id` carries **no foreign key**. The event arrives from a hook running in
+the agent's own process, and the ordinary race — a hook firing before the run's
+first snapshot has been committed — must not lose it. The outside world is the
+authority on what exists; this table records what was reported.
+
+### `worktrees`
+
+What each managed worktree is bound to: branch, path, base branch, agent,
+profile, runtime, the environment values it exports and the ports it owns.
+`active_agent_session_id` identifies the tab currently occupying the visible
+agent slot; `tab_sequence_counter` is monotonic, so deleting Fork 2 never makes
+another conversation reuse that label.
+
+git is the authority on whether a worktree **exists**; this table is the
+authority on what it is **bound to**. A row whose directory git no longer lists
+is reported as `orphaned` and left alone — never recreated because a row says it
+should be there, never deleted because a directory is missing.
+
+Keyed by `(project_id, branch)`: a worktree is the branch it carries, and moving
+the directory does not make it a different one. `runtime.env` stays a file under
+the worktree's own git directory, because `bash` and the lifecycle hooks read it
+and neither can query a database.
+
+### `agent_sessions`
+
+The durable link between a model conversation and what it is being used for:
+`run_id`, `phase`, `story_id`, `branch`, `worktree_id`, `provider`,
+`conversation_id`, `status`, `pane_target`, `pane_token`,
+`parent_session_id`, `tab_sequence` and `label`.
+
+**`run_id`, `phase` and `story_id` are nullable, and that is the whole design.**
+A session opened by a person — no issue, no plan, no workflow — is the *same*
+row with those three columns empty. There is no second table and no second
+execution model; a consumer that assumed they were present would break the one
+mode that has nothing to put in them.
+
+`label` is a caption, never an identity: nothing is looked up by it. It exists
+because a free session has only a uuid and a generated branch to show a person,
+while a workflow session is already named by its issue.
+
+The conversation itself is never copied here and never parsed. The provider owns
+it, on disk under `~/.claude` or `~/.codex`; this table holds its id so
+`--resume` has something to point at. `status` is *reported* — by the agent's
+hooks, or demoted to `orphaned` by reconciliation when tmux no longer has the
+window. Nothing here deletes a row because a pane is gone.
+
+An agent tab is another row in this table, not a row in a `tabs` table. The root
+has `parent_session_id = NULL` and `tab_sequence = 0`; forks point to the root
+and carry their monotonic sequence. The `tabId` exposed by HTTP and CLI is the
+row's `id`, while `conversation_id` remains the provider's separate identity.
+All tab materialization is scoped by the exact `worktree_id`, so reusing a
+branch cannot adopt sessions from an older checkout incarnation.
+
+`pane_target` is tmux's stable `%N` id, but it is never authority by itself:
+`pane_token` is a durable random nonce mirrored in the pane's
+`@issue-flow-owner` tag alongside the owning project session. Movement,
+selection, teardown, reconciliation and websocket attach require that tuple to
+match the expected main/parking window. This protects against pane-id reuse and
+grouped viewer aliases.
+
+Migration 22 adds these tab columns plus the worktree active pointer/counter.
+It backfills a pre-v22 session only when its worktree incarnation is
+unambiguous; ambiguous branch histories remain nullable instead of being
+guessed. Creating a fork persists its session row and the active/counter
+worktree fields in one transaction. Whole-worktree teardown likewise changes
+every live sibling of the exact `worktree_id` to `stopped` atomically.
+
+### `projects` — the project registry
+
+The row that anchors every foreign key is also the **project registry**: the one
+list the CLI, the server, the dashboard and the runtime read.
+
+| Column | Meaning |
+|---|---|
+| `id` | The [project id](#project-id). The identity, stable across moving the checkout and identical in two clones |
+| `root` | Where the repository currently is. A **locator**, updated when it moves — never the identity |
+| `name` | Dashboard label. Cosmetic |
+| `added_at` | When the project first entered the registry. Set once, never rewritten |
+| `last_seen_at` | Last time it was opened or executed. Orders every list |
+| `source` | `registered` · `discovered` · `ephemeral` |
+
+`source` is what keeps direct mode intact:
+
+| Situation | `source` | In the dashboard | Persisted |
+|---|---|---|---|
+| `issue-flow run` in a repository nobody registered | `discovered` | yes, ordered by recency | yes — the row already existed |
+| `issue-flow project add` or the dashboard button | `registered` | yes, in the curated list | yes |
+| `issue-flow serve` standing inside an unregistered repository | `ephemeral` | yes, for this server only | **no** |
+| `issue-flow project rm` | back to `discovered` | recent | history preserved |
+
+Promotion and demotion **never destroy history**: they change one column. Runs,
+artifacts and telemetry hang off `id`, so `project rm` removes the project from
+the curated list and nothing else. Deleting for real belongs to a separate,
+explicitly destructive command.
+
+`ephemeral` is never written. With a registry shared by every server on the
+machine, persisting the directory a server happens to sit in would make *other*
+servers start serving that repository after their next restart.
+
+There is no `projects.json`. A second state file next to the database would need
+its own consistency story for the same facts.
+
+The URL prefix a project is served under (`/web`, `/web-2`) is **derived**, never
+stored: it comes from the directory basename, with `-2`, `-3`… on collision and a
+reserved list (`api`, `ws`, `assets`, `health`) so a project can never shadow a
+hub route. Storing it would create a second identity competing with `id`.
+
 ## One issue directory
 
 Everything a single issue accumulates. Nothing here is created before something

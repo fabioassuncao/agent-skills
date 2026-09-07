@@ -80,10 +80,10 @@ try {
   const cli = join(installed, 'dist/cli.js');
   await checkArtifactCli(cli, root);
   const env = { ...process.env, ISSUE_FLOW_HOME: join(root, 'state'), NO_COLOR: '1' };
-  assert.match(
-    execFileSync(process.execPath, [cli, '--help'], { env, encoding: 'utf8' }),
-    /Usage: issue-flow/,
-  );
+  const help = execFileSync(process.execPath, [cli, '--help'], { env, encoding: 'utf8' });
+  assert.match(help, /^Issue Flow —/);
+  assert.match(help, /\nUsage:\n/);
+  assert.match(help, /^\s+issue-flow run\s+/m);
   const project = join(root, 'project');
   await mkdir(project);
   execFileSync('git', ['init', '-q', project]);

@@ -21,11 +21,11 @@ import { applyPlaceholders, loadPrompt } from '../core/prompt-resolver.js';
 import { publishPhaseMetrics } from '../core/session-metrics.js';
 import { isoNow, loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getGlobalTimeout } from '../core/verbose.js';
+import { viewPullRequest } from '../issues/github/index.js';
 import { resolvePolicyPlaceholders } from '../policy/placeholders.js';
 import { resolveIssuePaths } from '../storage/resolve.js';
 import type { PrReviewRecommendation } from '../types.js';
 import { printError, printInfo, printSuccess } from '../ui/logger.js';
-import { run } from '../utils/shell.js';
 
 /**
  * The `pr-review` phase: review a Pull Request as a whole.
@@ -101,24 +101,16 @@ interface GhPullRequest {
 /**
  * Collect revision metadata without throwing. Missing revisions leave the
  * report available for inspection but cannot produce a verified recommendation.
+ *
+ * The `gh pr view` call lives in `issues/github/pr.ts`, which is the single
+ * implementation of Pull Request reading; only the field list is this
+ * command's business.
  */
 async function fetchPullRequestMetadata(number: number): Promise<GhPullRequest | null> {
-  try {
-    const result = await run('gh', [
-      'pr',
-      'view',
-      String(number),
-      '--json',
-      'title,url,headRefName,headRefOid,baseRefOid',
-    ]);
-    if (result.exitCode !== 0) {
-      return null;
-    }
-    const parsed: unknown = JSON.parse(result.stdout);
-    return typeof parsed === 'object' && parsed !== null ? (parsed as GhPullRequest) : null;
-  } catch {
-    return null;
-  }
+  return viewPullRequest<GhPullRequest>(
+    String(number),
+    'title,url,headRefName,headRefOid,baseRefOid',
+  );
 }
 
 function mergePullRequest(

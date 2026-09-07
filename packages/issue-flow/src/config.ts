@@ -10,6 +10,7 @@ import {
   PROJECT_CONFIG_FILENAME,
 } from './config/sources.js';
 
+export { loadAutoNameConfig } from './config/auto-name.js';
 export { getInstallHint, validateDependencies } from './config/dependencies.js';
 export { createConfig, DEFAULTS, resolvePaths } from './config/engine.js';
 
@@ -34,11 +35,29 @@ export {
   setAgentCliOverrides,
 } from './config/agent.js';
 export {
+  type CustomAgentsConfig,
+  type LoadCustomAgentsConfigOptions,
+  loadCustomAgentsConfig,
+  persistCustomAgent,
+  removeCustomAgent,
+} from './config/custom-agents.js';
+export {
+  type LoadGitHubConfigOptions,
+  loadGitHubConfig,
+  persistGitHubAutoRemoveOnMerge,
+} from './config/github.js';
+export {
   type LoadIssuesConfigOptions,
   loadIssuesConfig,
   setIssuesCliOverrides,
 } from './config/issues.js';
-
+export {
+  type LinearConfig,
+  type LoadLinearConfigOptions,
+  linearApiKey,
+  loadLinearConfig,
+  persistLinearAutoCreate,
+} from './config/linear.js';
 export {
   type LoadPolicyConfigOptions,
   loadPolicyConfig,
@@ -48,7 +67,6 @@ export {
   type LoadPrReviewConfigOptions,
   loadPrReviewConfig,
 } from './config/pr-review.js';
-
 export {
   getActiveResilienceConfig,
   initResilienceConfig,
@@ -58,6 +76,13 @@ export {
   setResilienceCliOverrides,
 } from './config/resilience.js';
 export { loadRoutingConfig, setRoutingCliOverrides } from './config/routing.js';
+export { type LoadRunConfigOptions, loadRunConfig } from './config/run.js';
+export {
+  type LoadRuntimeConfigOptions,
+  loadRuntimeConfig,
+  type RuntimeConfig,
+  setRuntimeCliOverrides,
+} from './config/runtime.js';
 export {
   type LoadTelemetryConfigOptions,
   loadTelemetryConfig,

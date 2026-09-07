@@ -1,3 +1,5 @@
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -68,9 +70,19 @@ describe('resolvePackageDir', () => {
     expect(resolvePackageDir('prompts')).toBe(join(packageRoot, 'prompts'));
   });
 
-  it('resolves web/public from the compiled dist/ layout', () => {
-    const resolved = resolvePackageDir(join('web', 'public'), join(packageRoot, 'dist'));
-    expect(resolved).toBe(join(packageRoot, 'web', 'public'));
+  // Was `web/public` — the previous panel's directory, removed by §50.8. The
+  // case keeps its subject (a nested package directory found from `dist/`) with
+  // the directory that actually ships now.
+  it('resolves web/dist from the compiled dist/ layout', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'issue-flow-package-layout-'));
+    mkdirSync(join(fixture, 'web', 'dist'), { recursive: true });
+
+    try {
+      const resolved = resolvePackageDir(join('web', 'dist'), join(fixture, 'dist'));
+      expect(resolved).toBe(join(fixture, 'web', 'dist'));
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it('resolves prompts/ from the compiled dist/ layout', () => {

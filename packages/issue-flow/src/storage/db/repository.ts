@@ -171,10 +171,16 @@ function ensureStoredProject(
 ): void {
   database
     .prepare(
-      `INSERT INTO projects (id, root, remote_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+      // `last_seen_at` is what makes a project that only ever ran — never
+      // curated — sort into the dashboard's "recent" list (§47.3). The row was
+      // always created here; before the registry there was simply nothing that
+      // could tell one dormant project from another.
+      `INSERT INTO projects (id, root, remote_url, created_at, updated_at, last_seen_at)
+       VALUES (?, ?, NULL, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at,
+         last_seen_at = excluded.last_seen_at`,
     )
-    .run(context.projectId, context.projectRoot, timestamp, timestamp);
+    .run(context.projectId, context.projectRoot, timestamp, timestamp, timestamp);
 }
 
 /**
@@ -394,10 +400,16 @@ export function writePlanRows(
   const timestamp = plan.lastAttemptAt ?? new Date().toISOString();
   database
     .prepare(
-      `INSERT INTO projects (id, root, remote_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+      // `last_seen_at` is what makes a project that only ever ran — never
+      // curated — sort into the dashboard's "recent" list (§47.3). The row was
+      // always created here; before the registry there was simply nothing that
+      // could tell one dormant project from another.
+      `INSERT INTO projects (id, root, remote_url, created_at, updated_at, last_seen_at)
+       VALUES (?, ?, NULL, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at,
+         last_seen_at = excluded.last_seen_at`,
     )
-    .run(context.projectId, context.projectRoot, timestamp, timestamp);
+    .run(context.projectId, context.projectRoot, timestamp, timestamp, timestamp);
   database
     .prepare(
       `INSERT INTO issues (project_id, id, title, status, branch_name, created_at, updated_at)
@@ -1153,10 +1165,12 @@ export async function saveSessionEvent(
         const startedAt = input.snapshot.startedAt ?? input.event.at;
         database
           .prepare(
-            `INSERT INTO projects (id, root, remote_url, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+            `INSERT INTO projects (id, root, remote_url, created_at, updated_at, last_seen_at)
+             VALUES (?, ?, NULL, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at,
+               last_seen_at = excluded.last_seen_at`,
           )
-          .run(context.projectId, context.projectRoot, startedAt, updatedAt);
+          .run(context.projectId, context.projectRoot, startedAt, updatedAt, updatedAt);
         database
           .prepare(
             `INSERT INTO issues (project_id, id, title, status, branch_name, created_at, updated_at)
@@ -1330,6 +1344,836 @@ export async function touchStoredSession(
   }, context.databaseOptions);
 }
 
+/**
+ * Persist one agent lifecycle event reported by a hook.
+ *
+ * The upstream this is absorbed from keeps these in memory (§2.5). Writing them
+ * down is the point of the difference: an `awaiting_input` that happened while
+ * no monitor was open is exactly the one worth being able to look up.
+ *
+ * Never rejects. This runs inside a handler on the agent's hot path, and a
+ * storage failure may not become an agent failure.
+ */
+export async function recordAgentEvent(
+  context: PlanRepositoryContext,
+  input: {
+    runId: string;
+    phase: string;
+    type: string;
+    lifecycle?: string | null;
+    payload: unknown;
+    occurredAt: string;
+  },
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare(
+        `INSERT INTO agent_events
+           (id, project_id, run_id, phase, type, lifecycle, payload_json, occurred_at, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        context.projectId,
+        input.runId,
+        input.phase,
+        input.type,
+        input.lifecycle ?? null,
+        JSON.stringify(input.payload),
+        input.occurredAt,
+        new Date().toISOString(),
+      );
+  }, context.databaseOptions);
+}
+
+export interface StoredAgentEvent {
+  runId: string;
+  phase: string;
+  type: string;
+  lifecycle: string | null;
+  payload: unknown;
+  occurredAt: string;
+  recordedAt: string;
+}
+
+/** Lifecycle history of one run, oldest first. */
+export async function listAgentEvents(input: {
+  projectId: string;
+  runId: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+}): Promise<StoredAgentEvent[]> {
+  return withDatabase(
+    (database) =>
+      database
+        .prepare(
+          `SELECT run_id, phase, type, lifecycle, payload_json, occurred_at, recorded_at
+             FROM agent_events WHERE project_id = ? AND run_id = ?
+            ORDER BY occurred_at, rowid`,
+        )
+        .all<{
+          run_id: string;
+          phase: string;
+          type: string;
+          lifecycle: string | null;
+          payload_json: string;
+          occurred_at: string;
+          recorded_at: string;
+        }>(input.projectId, input.runId)
+        .map((row) => ({
+          runId: row.run_id,
+          phase: row.phase,
+          type: row.type,
+          lifecycle: row.lifecycle,
+          payload: JSON.parse(row.payload_json) as unknown,
+          occurredAt: row.occurred_at,
+          recordedAt: row.recorded_at,
+        })),
+    input.databaseOptions,
+  );
+}
+
+export interface StoredWorktree {
+  worktreeId: string;
+  branch: string;
+  path: string;
+  baseBranch: string | null;
+  label: string | null;
+  profile: string;
+  agent: string;
+  runtime: 'host' | 'docker';
+  startupEnvValues: Record<string, string>;
+  allocatedPorts: Record<string, number>;
+  source: string | null;
+  conversationId: string | null;
+  /** Absent only in legacy/test callers; persisted and read back as false. */
+  archived?: boolean;
+  /** Active AgentSession tab in this worktree. Null/absent means the root. */
+  activeAgentSessionId?: string | null;
+  /** Monotonic allocator for fork labels; deleted sequences are not reused. */
+  tabSequenceCounter?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function toStoredWorktree(row: {
+  id: string;
+  branch: string;
+  path: string;
+  base_branch: string | null;
+  label: string | null;
+  profile: string;
+  agent: string;
+  runtime: string;
+  startup_env_json: string;
+  allocated_ports_json: string;
+  source: string | null;
+  conversation_id: string | null;
+  archived: number;
+  active_agent_session_id: string | null;
+  tab_sequence_counter: number;
+  created_at: string;
+  updated_at: string;
+}): StoredWorktree {
+  return {
+    worktreeId: row.id,
+    branch: row.branch,
+    path: row.path,
+    baseBranch: row.base_branch,
+    label: row.label,
+    profile: row.profile,
+    agent: row.agent,
+    runtime: row.runtime === 'docker' ? 'docker' : 'host',
+    startupEnvValues: JSON.parse(row.startup_env_json) as Record<string, string>,
+    allocatedPorts: JSON.parse(row.allocated_ports_json) as Record<string, number>,
+    source: row.source,
+    conversationId: row.conversation_id,
+    archived: row.archived === 1,
+    activeAgentSessionId: row.active_agent_session_id,
+    tabSequenceCounter: row.tab_sequence_counter,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Read order, shared by every worktree query so the row shape stays one thing. */
+const WORKTREE_COLUMNS =
+  'id, branch, path, base_branch, label, profile, agent, runtime, startup_env_json, allocated_ports_json, source, conversation_id, archived, active_agent_session_id, tab_sequence_counter, created_at, updated_at';
+
+/**
+ * Record what a worktree is bound to.
+ *
+ * Keyed by `(project_id, branch)` rather than by path: a worktree is the branch
+ * it carries, and moving the directory does not make it a different one.
+ */
+export async function saveWorktree(
+  context: PlanRepositoryContext,
+  worktree: StoredWorktree,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      // The project row is a foreign key of this table and a worktree can be
+      // the first thing a project ever records — a `run` that starts in a
+      // worktree has not written a session yet. Upserting it here keeps the
+      // writer self-sufficient, the same way saveSessionEvent does.
+      database
+        .prepare(
+          `INSERT INTO projects (id, root, remote_url, created_at, updated_at)
+           VALUES (?, ?, NULL, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+        )
+        .run(context.projectId, context.projectRoot, worktree.createdAt, worktree.updatedAt);
+      database
+        .prepare(
+          `INSERT INTO worktrees
+           (project_id, id, branch, path, base_branch, label, profile, agent, runtime,
+            startup_env_json, allocated_ports_json, source, conversation_id, archived,
+            active_agent_session_id, tab_sequence_counter, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(project_id, branch) DO UPDATE SET
+           path = excluded.path,
+           base_branch = excluded.base_branch,
+           label = excluded.label,
+           profile = excluded.profile,
+           agent = excluded.agent,
+           runtime = excluded.runtime,
+           startup_env_json = excluded.startup_env_json,
+           allocated_ports_json = excluded.allocated_ports_json,
+           source = excluded.source,
+           conversation_id = excluded.conversation_id,
+           archived = excluded.archived,
+           active_agent_session_id = excluded.active_agent_session_id,
+           tab_sequence_counter = excluded.tab_sequence_counter,
+           updated_at = excluded.updated_at`,
+        )
+        .run(
+          context.projectId,
+          worktree.worktreeId,
+          worktree.branch,
+          worktree.path,
+          worktree.baseBranch,
+          worktree.label,
+          worktree.profile,
+          worktree.agent,
+          worktree.runtime,
+          JSON.stringify(worktree.startupEnvValues),
+          JSON.stringify(worktree.allocatedPorts),
+          worktree.source,
+          worktree.conversationId,
+          worktree.archived ? 1 : 0,
+          worktree.activeAgentSessionId ?? null,
+          worktree.tabSequenceCounter ?? 0,
+          worktree.createdAt,
+          worktree.updatedAt,
+        );
+    });
+  }, context.databaseOptions);
+}
+
+export async function loadWorktree(
+  context: PlanRepositoryContext,
+  branch: string,
+): Promise<StoredWorktree | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare(`SELECT ${WORKTREE_COLUMNS} FROM worktrees WHERE project_id = ? AND branch = ?`)
+      .get<Parameters<typeof toStoredWorktree>[0]>(context.projectId, branch);
+    return row === undefined ? null : toStoredWorktree(row);
+  }, context.databaseOptions);
+}
+
+export async function listWorktrees(context: PlanRepositoryContext): Promise<StoredWorktree[]> {
+  return withDatabase((database) => {
+    return database
+      .prepare(`SELECT ${WORKTREE_COLUMNS} FROM worktrees WHERE project_id = ? ORDER BY branch`)
+      .all<Parameters<typeof toStoredWorktree>[0]>(context.projectId)
+      .map(toStoredWorktree);
+  }, context.databaseOptions);
+}
+
+export async function deleteWorktree(
+  context: PlanRepositoryContext,
+  branch: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare('DELETE FROM worktrees WHERE project_id = ? AND branch = ?')
+      .run(context.projectId, branch);
+  }, context.databaseOptions);
+}
+
+const AGENT_SESSION_COLUMNS =
+  'id, run_id, phase, story_id, branch, worktree_id, provider, permission, conversation_id, status, pane_target, pane_token, parent_session_id, tab_sequence, label, created_at, updated_at, ended_at';
+
+interface AgentSessionRow {
+  id: string;
+  run_id: string | null;
+  phase: string | null;
+  story_id: string | null;
+  branch: string;
+  worktree_id: string | null;
+  provider: string;
+  permission: StoredAgentSession['permission'];
+  conversation_id: string | null;
+  status: string;
+  pane_target: string | null;
+  pane_token: string | null;
+  parent_session_id: string | null;
+  tab_sequence: number | null;
+  label: string | null;
+  created_at: string;
+  updated_at: string;
+  ended_at: string | null;
+}
+
+function toStoredAgentSession(row: AgentSessionRow): StoredAgentSession {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    phase: row.phase as StoredAgentSession['phase'],
+    storyId: row.story_id,
+    branch: row.branch,
+    worktreeId: row.worktree_id,
+    provider: row.provider as StoredAgentSession['provider'],
+    permission: row.permission,
+    conversationId: row.conversation_id,
+    status: row.status as StoredAgentSession['status'],
+    paneTarget: row.pane_target,
+    paneToken: row.pane_token,
+    parentSessionId: row.parent_session_id,
+    tabSequence: row.tab_sequence,
+    label: row.label,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    endedAt: row.ended_at,
+  };
+}
+
+/** Shape of `agent_sessions`. Mirrors `src/agents/session/types.ts`. */
+export interface StoredAgentSession {
+  id: string;
+  runId: string | null;
+  phase: string | null;
+  storyId: string | null;
+  branch: string;
+  worktreeId: string | null;
+  provider: string;
+  permission: 'read-only' | 'workspace' | 'autonomous';
+  conversationId: string | null;
+  status: 'starting' | 'running' | 'idle' | 'stopped' | 'orphaned';
+  paneTarget: string | null;
+  paneToken: string | null;
+  parentSessionId: string | null;
+  tabSequence: number | null;
+  /** Free caption for a session no issue names (ADR-16). */
+  label: string | null;
+  createdAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+}
+
+export async function saveAgentSession(
+  context: PlanRepositoryContext,
+  session: StoredAgentSession,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      // Same reason as saveWorktree: the project row is a foreign key and a
+      // session can be the first thing a project records.
+      database
+        .prepare(
+          `INSERT INTO projects (id, root, remote_url, created_at, updated_at)
+           VALUES (?, ?, NULL, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+        )
+        .run(context.projectId, context.projectRoot, session.createdAt, session.updatedAt);
+      database
+        .prepare(
+          `INSERT INTO agent_sessions
+             (project_id, id, run_id, phase, story_id, branch, worktree_id, provider, permission,
+              conversation_id, status, pane_target, pane_token, parent_session_id, tab_sequence, label,
+              created_at, updated_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             run_id = excluded.run_id,
+             phase = excluded.phase,
+             story_id = excluded.story_id,
+             branch = excluded.branch,
+             worktree_id = excluded.worktree_id,
+             provider = excluded.provider,
+             permission = excluded.permission,
+             conversation_id = excluded.conversation_id,
+             status = excluded.status,
+             pane_target = excluded.pane_target,
+             pane_token = excluded.pane_token,
+             parent_session_id = excluded.parent_session_id,
+             tab_sequence = excluded.tab_sequence,
+             label = excluded.label,
+             updated_at = excluded.updated_at,
+             ended_at = excluded.ended_at`,
+        )
+        .run(
+          context.projectId,
+          session.id,
+          session.runId,
+          session.phase,
+          session.storyId,
+          session.branch,
+          session.worktreeId,
+          session.provider,
+          session.permission,
+          session.conversationId,
+          session.status,
+          session.paneTarget,
+          session.paneToken,
+          session.parentSessionId,
+          session.tabSequence,
+          session.label,
+          session.createdAt,
+          session.updatedAt,
+          session.endedAt,
+        );
+    });
+  }, context.databaseOptions);
+}
+
+/** Upsert one session and its worktree active pointer in the same transaction. */
+export async function saveAgentSessionActivation(
+  context: PlanRepositoryContext,
+  session: StoredAgentSession,
+  worktree: StoredWorktree,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      database
+        .prepare(
+          `INSERT INTO projects (id, root, remote_url, created_at, updated_at)
+           VALUES (?, ?, NULL, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+        )
+        .run(context.projectId, context.projectRoot, session.createdAt, session.updatedAt);
+      database
+        .prepare(
+          `INSERT INTO agent_sessions
+             (project_id, id, run_id, phase, story_id, branch, worktree_id, provider, permission,
+              conversation_id, status, pane_target, pane_token, parent_session_id, tab_sequence, label,
+              created_at, updated_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             run_id = excluded.run_id,
+             phase = excluded.phase,
+             story_id = excluded.story_id,
+             branch = excluded.branch,
+             worktree_id = excluded.worktree_id,
+             provider = excluded.provider,
+             permission = excluded.permission,
+             conversation_id = excluded.conversation_id,
+             status = excluded.status,
+             pane_target = excluded.pane_target,
+             pane_token = excluded.pane_token,
+             parent_session_id = excluded.parent_session_id,
+             tab_sequence = excluded.tab_sequence,
+             label = excluded.label,
+             updated_at = excluded.updated_at,
+             ended_at = excluded.ended_at`,
+        )
+        .run(
+          context.projectId,
+          session.id,
+          session.runId,
+          session.phase,
+          session.storyId,
+          session.branch,
+          session.worktreeId,
+          session.provider,
+          session.permission,
+          session.conversationId,
+          session.status,
+          session.paneTarget,
+          session.paneToken,
+          session.parentSessionId,
+          session.tabSequence,
+          session.label,
+          session.createdAt,
+          session.updatedAt,
+          session.endedAt,
+        );
+      const updated = database
+        .prepare(
+          `UPDATE worktrees
+              SET active_agent_session_id = ?, updated_at = ?
+            WHERE project_id = ? AND id = ? AND branch = ?`,
+        )
+        .run(
+          session.id,
+          worktree.updatedAt,
+          context.projectId,
+          worktree.worktreeId,
+          worktree.branch,
+        );
+      if (updated.changes !== 1) {
+        throw new Error(`Worktree binding disappeared: ${worktree.branch}`);
+      }
+    });
+  }, context.databaseOptions);
+}
+
+/** Persist stop intent for every live AgentSession of one worktree atomically. */
+export async function stopAgentSessionsForWorktree(
+  context: PlanRepositoryContext,
+  worktreeId: string,
+  at: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare(
+        `UPDATE agent_sessions
+            SET status = 'stopped', updated_at = ?, ended_at = ?
+          WHERE project_id = ? AND worktree_id = ?
+            AND status IN ('starting', 'running', 'idle', 'orphaned')`,
+      )
+      .run(at, at, context.projectId, worktreeId);
+  }, context.databaseOptions);
+}
+
+/** Restore a stop-intent snapshot atomically when physical teardown fails. */
+export async function restoreAgentSessionStates(
+  context: PlanRepositoryContext,
+  sessions: readonly StoredAgentSession[],
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      const update = database.prepare(
+        `UPDATE agent_sessions
+            SET status = ?, updated_at = ?, ended_at = ?
+          WHERE project_id = ? AND id = ? AND worktree_id IS ?`,
+      );
+      for (const session of sessions) {
+        update.run(
+          session.status,
+          session.updatedAt,
+          session.endedAt,
+          context.projectId,
+          session.id,
+          session.worktreeId,
+        );
+      }
+    });
+  }, context.databaseOptions);
+}
+
+/** Persist a new fork row and its worktree active/counter pointer atomically. */
+export async function saveAgentTabCreation(
+  context: PlanRepositoryContext,
+  session: StoredAgentSession,
+  worktree: StoredWorktree,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      database
+        .prepare(
+          `INSERT INTO agent_sessions
+             (project_id, id, run_id, phase, story_id, branch, worktree_id, provider, permission,
+              conversation_id, status, pane_target, pane_token, parent_session_id, tab_sequence, label,
+              created_at, updated_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          context.projectId,
+          session.id,
+          session.runId,
+          session.phase,
+          session.storyId,
+          session.branch,
+          session.worktreeId,
+          session.provider,
+          session.permission,
+          session.conversationId,
+          session.status,
+          session.paneTarget,
+          session.paneToken,
+          session.parentSessionId,
+          session.tabSequence,
+          session.label,
+          session.createdAt,
+          session.updatedAt,
+          session.endedAt,
+        );
+      const updated = database
+        .prepare(
+          `UPDATE worktrees
+              SET active_agent_session_id = ?, tab_sequence_counter = ?, updated_at = ?
+            WHERE project_id = ? AND id = ? AND branch = ?`,
+        )
+        .run(
+          worktree.activeAgentSessionId ?? null,
+          worktree.tabSequenceCounter ?? 0,
+          worktree.updatedAt,
+          context.projectId,
+          worktree.worktreeId,
+          worktree.branch,
+        );
+      if (updated.changes !== 1)
+        throw new Error(`Worktree binding disappeared: ${worktree.branch}`);
+    });
+  }, context.databaseOptions);
+}
+
+export async function loadStoredAgentSession(
+  context: PlanRepositoryContext,
+  id: string,
+): Promise<StoredAgentSession | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare(
+        `SELECT ${AGENT_SESSION_COLUMNS} FROM agent_sessions WHERE project_id = ? AND id = ?`,
+      )
+      .get<AgentSessionRow>(context.projectId, id);
+    return row === undefined ? null : toStoredAgentSession(row);
+  }, context.databaseOptions);
+}
+
+export async function listStoredAgentSessions(
+  context: PlanRepositoryContext,
+  filter: { branch?: string; runId?: string } = {},
+): Promise<StoredAgentSession[]> {
+  return withDatabase((database) => {
+    const clauses = ['project_id = ?'];
+    const values: string[] = [context.projectId];
+    if (filter.branch !== undefined) {
+      clauses.push('branch = ?');
+      values.push(filter.branch);
+    }
+    if (filter.runId !== undefined) {
+      clauses.push('run_id = ?');
+      values.push(filter.runId);
+    }
+    return database
+      .prepare(
+        `SELECT ${AGENT_SESSION_COLUMNS} FROM agent_sessions
+          WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC, rowid DESC`,
+      )
+      .all<AgentSessionRow>(...values)
+      .map(toStoredAgentSession);
+  }, context.databaseOptions);
+}
+
+export async function deleteAgentSession(
+  context: PlanRepositoryContext,
+  id: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare('DELETE FROM agent_sessions WHERE project_id = ? AND id = ?')
+      .run(context.projectId, id);
+  }, context.databaseOptions);
+}
+
+/**
+ * The most recent run recorded for an issue, or `null` when it has none.
+ *
+ * Read-only on purpose: `issue-flow session link` uses it to point a free
+ * session at an execution that already exists, and a link that found nothing
+ * has to say so rather than invent a run. Creating one here would fabricate the
+ * execution the person is about to be told they still have to start — and the
+ * outside world, not this table, is the authority on whether work is running
+ * (ADR-08).
+ */
+export async function findLatestRunIdForIssue(
+  context: PlanRepositoryContext,
+): Promise<string | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare(
+        `SELECT id FROM runs WHERE project_id = ? AND issue_id = ?
+          ORDER BY started_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get<{ id: string }>(context.projectId, context.issueId);
+    return row?.id ?? null;
+  }, context.databaseOptions);
+}
+
+/**
+ * Record — or clear — that a person took over a run.
+ *
+ * `null` clears it. Nothing else writes these columns, so a hold is only ever
+ * set by a takeover and only ever released explicitly.
+ */
+export async function saveRunHumanHold(
+  context: PlanRepositoryContext,
+  runId: string,
+  hold: { since: string; reason: string } | null,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare(
+        'UPDATE runs SET human_hold_at = ?, human_hold_reason = ? WHERE id = ? AND project_id = ?',
+      )
+      .run(hold?.since ?? null, hold?.reason ?? null, runId, context.projectId);
+  }, context.databaseOptions);
+}
+
+export async function loadRunHumanHold(
+  context: PlanRepositoryContext,
+  runId: string,
+): Promise<{ runId: string; since: string; reason: 'takeover' | 'requested' } | null> {
+  return withDatabase((database) => {
+    const row = database
+      .prepare('SELECT human_hold_at, human_hold_reason FROM runs WHERE id = ? AND project_id = ?')
+      .get<{ human_hold_at: string | null; human_hold_reason: string | null }>(
+        runId,
+        context.projectId,
+      );
+    if (row === undefined || row.human_hold_at === null) return null;
+    return {
+      runId,
+      since: row.human_hold_at,
+      // A reason written by a newer release is narrowed to the one that is
+      // always true of a hold: somebody took over.
+      reason: row.human_hold_reason === 'requested' ? 'requested' : 'takeover',
+    };
+  }, context.databaseOptions);
+}
+
+/** Runs a person currently holds, newest first. */
+export async function listHeldRuns(input: {
+  projectId: string;
+  databaseOptions?: OpenIssueFlowDatabaseOptions;
+}): Promise<Array<{ runId: string; issueId: string | null; since: string; reason: string }>> {
+  return withDatabase(
+    (database) =>
+      database
+        .prepare(
+          `SELECT id, issue_id, human_hold_at, human_hold_reason FROM runs
+            WHERE project_id = ? AND human_hold_at IS NOT NULL
+            ORDER BY human_hold_at DESC`,
+        )
+        .all<{
+          id: string;
+          issue_id: string | null;
+          human_hold_at: string;
+          human_hold_reason: string | null;
+        }>(input.projectId)
+        .map((row) => ({
+          runId: row.id,
+          issueId: row.issue_id,
+          since: row.human_hold_at,
+          reason: row.human_hold_reason ?? 'takeover',
+        })),
+    input.databaseOptions,
+  );
+}
+
+export interface StoredHandoff {
+  id: string;
+  runId: string;
+  fromSessionId: string | null;
+  fromPhase: string;
+  fromProvider: string;
+  toPhase: string;
+  toProvider: string | null;
+  payload: unknown;
+  createdAt: string;
+  consumedAt: string | null;
+}
+
+export async function saveStoredHandoff(
+  context: PlanRepositoryContext,
+  handoff: StoredHandoff,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      database
+        .prepare(
+          `INSERT INTO projects (id, root, remote_url, created_at, updated_at)
+           VALUES (?, ?, NULL, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET root = excluded.root, updated_at = excluded.updated_at`,
+        )
+        .run(context.projectId, context.projectRoot, handoff.createdAt, handoff.createdAt);
+      database
+        .prepare(
+          `INSERT INTO handoffs
+             (id, project_id, run_id, from_session_id, from_phase, from_provider,
+              to_phase, to_provider, payload_json, created_at, consumed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             payload_json = excluded.payload_json,
+             consumed_at = excluded.consumed_at`,
+        )
+        .run(
+          handoff.id,
+          context.projectId,
+          handoff.runId,
+          handoff.fromSessionId,
+          handoff.fromPhase,
+          handoff.fromProvider,
+          handoff.toPhase,
+          handoff.toProvider,
+          JSON.stringify(handoff.payload),
+          handoff.createdAt,
+          handoff.consumedAt,
+        );
+    });
+  }, context.databaseOptions);
+}
+
+export async function listStoredHandoffs(
+  context: PlanRepositoryContext,
+  filter: { runId: string; toPhase?: string; pendingOnly?: boolean },
+): Promise<StoredHandoff[]> {
+  return withDatabase((database) => {
+    const clauses = ['project_id = ?', 'run_id = ?'];
+    const values: string[] = [context.projectId, filter.runId];
+    if (filter.toPhase !== undefined) {
+      clauses.push('to_phase = ?');
+      values.push(filter.toPhase);
+    }
+    if (filter.pendingOnly === true) clauses.push('consumed_at IS NULL');
+
+    return database
+      .prepare(
+        `SELECT id, run_id, from_session_id, from_phase, from_provider, to_phase, to_provider,
+                payload_json, created_at, consumed_at
+           FROM handoffs WHERE ${clauses.join(' AND ')} ORDER BY created_at, rowid`,
+      )
+      .all<{
+        id: string;
+        run_id: string;
+        from_session_id: string | null;
+        from_phase: string;
+        from_provider: string;
+        to_phase: string;
+        to_provider: string | null;
+        payload_json: string;
+        created_at: string;
+        consumed_at: string | null;
+      }>(...values)
+      .map((row) => ({
+        id: row.id,
+        runId: row.run_id,
+        fromSessionId: row.from_session_id,
+        fromPhase: row.from_phase,
+        fromProvider: row.from_provider,
+        toPhase: row.to_phase,
+        toProvider: row.to_provider,
+        payload: JSON.parse(row.payload_json) as unknown,
+        createdAt: row.created_at,
+        consumedAt: row.consumed_at,
+      }));
+  }, context.databaseOptions);
+}
+
+export async function consumeStoredHandoff(
+  context: PlanRepositoryContext,
+  id: string,
+  at: string,
+): Promise<void> {
+  await withDatabase((database) => {
+    database
+      .prepare('UPDATE handoffs SET consumed_at = ? WHERE id = ? AND project_id = ?')
+      .run(at, id, context.projectId);
+  }, context.databaseOptions);
+}
+
 export async function loadExecution(
   context: PlanRepositoryContext,
   id: string,
@@ -1432,4 +2276,66 @@ export async function exportStoredState(
       tables.map((table) => [table, database.prepare(`SELECT * FROM ${table}`).all()]),
     );
   }, options);
+}
+
+/* ── audit log ──────────────────────────────────────────────────────────── */
+
+export interface StoredAuditEntry {
+  action: string;
+  payload: unknown;
+  occurredAt: string;
+}
+
+/**
+ * Record a fact worth being able to explain later.
+ *
+ * `audit_log` already backed the branch history; reconciliation needs the same
+ * append for a different reason (§30): when the outside world contradicts a row
+ * and a session is closed as `orphaned`, the closure must leave a trace. A
+ * status that changed with no record of why is indistinguishable from a bug,
+ * and the row itself only carries the new value, never the reason.
+ */
+export async function appendAuditEntry(
+  context: PlanRepositoryContext,
+  action: string,
+  payload: unknown,
+): Promise<void> {
+  await withDatabase((database) => {
+    database.transaction(() => {
+      const occurredAt = new Date().toISOString();
+      ensureStoredProject(database, context, occurredAt);
+      database
+        .prepare(
+          `INSERT INTO audit_log (id, project_id, occurred_at, action, payload_json)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(randomUUID(), context.projectId, occurredAt, action, JSON.stringify(payload));
+    });
+  }, context.databaseOptions);
+}
+
+/** Audit entries of one project, oldest first. `action` filters by exact match. */
+export async function listAuditEntries(
+  context: PlanRepositoryContext,
+  filter: { action?: string } = {},
+): Promise<StoredAuditEntry[]> {
+  return withDatabase((database) => {
+    const clauses = ['project_id = ?'];
+    const values: string[] = [context.projectId];
+    if (filter.action !== undefined) {
+      clauses.push('action = ?');
+      values.push(filter.action);
+    }
+    return database
+      .prepare(
+        `SELECT action, payload_json, occurred_at FROM audit_log
+          WHERE ${clauses.join(' AND ')} ORDER BY occurred_at, rowid`,
+      )
+      .all<{ action: string; payload_json: string; occurred_at: string }>(...values)
+      .map((row) => ({
+        action: row.action,
+        payload: JSON.parse(row.payload_json) as unknown,
+        occurredAt: row.occurred_at,
+      }));
+  }, context.databaseOptions);
 }

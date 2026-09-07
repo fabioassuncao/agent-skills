@@ -1,16 +1,19 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { loadRuntimeConfig } from '../config/runtime.js';
 import { parseJournal } from '../core/journal.js';
 import { PIPELINE_PHASES, PipelineManager, type PipelinePhase } from '../core/pipeline.js';
 import { loadTaskPlan } from '../core/state-manager.js';
 import { loadExecutionPlan, nextQueueIssue, queueNeedsFinalization } from '../execution/plan.js';
 import { resolveCommandIssue } from '../issues/context.js';
+import { acquireExecutionSlot, describeSlotRefusal } from '../runtime/concurrency.js';
 import {
   listStoredIssueEvents,
   listStoredIssueIds,
   listStoredQueues,
 } from '../storage/db/queries.js';
-import { acquireRunLock, describeRunLockOwner, type RunLockHandle } from '../storage/lock.js';
+import { listHeldRuns, saveRunHumanHold } from '../storage/db/repository.js';
+import { describeRunLockOwner, type RunLockHandle } from '../storage/lock.js';
 import { getIssuePaths, QUEUES_DIR_NAME } from '../storage/paths.js';
 import { resolveIssuePaths, resolveProjectPaths } from '../storage/resolve.js';
 import type { TaskPlan } from '../types.js';
@@ -73,13 +76,35 @@ export async function runResume(issue?: string, options: ResumeOptions = {}): Pr
     return 1;
   }
 
+  // 0. A run a person took over is **alive** and holding the lock on purpose:
+  // the pipeline is waiting for them, the watchdog is paused, and no phase has
+  // advanced. Resuming it means handing control back, not starting anything —
+  // and it has to happen before the ownership check, which would otherwise
+  // refuse with "another run owns this project" and be exactly wrong (§32).
+  const released = await releaseHeldRuns(project, issue);
+  if (released > 0) return 0;
+
   // 1. Ownership, before reading anything else: a resume that runs beside a
   // live owner is the collision this whole layer exists to prevent.
-  const acquisition = await acquireRunLock(project.runLockFile, { target: issue ?? 'resume' });
+  //
+  // It goes through the same slot `run` takes, and for the same reason: above
+  // the default ceiling a run holds a lock on its *unit*, so a resume taking the
+  // project lock would exclude nothing and let two processes work the same issue.
+  //
+  // With no issue named, the ceiling is forced back to 1. A bare `resume` may
+  // touch several issues and every pending queue, and there is no single unit it
+  // could name — so it takes the project lock and excludes everything, which is
+  // the conservative answer rather than a guess at scope.
+  const { maxConcurrent } = await loadRuntimeConfig();
+  const acquisition = await acquireExecutionSlot({
+    projectDir: project.projectDir,
+    projectRunLockFile: project.runLockFile,
+    unitId: issue ?? 'resume',
+    target: issue ?? 'resume',
+    maxConcurrent: issue === undefined ? 1 : maxConcurrent,
+  });
   if (!acquisition.ok) {
-    printError(
-      `Another issue-flow run owns this project: ${describeRunLockOwner(acquisition.owner)}.`,
-    );
+    printError(describeSlotRefusal(acquisition));
     printInfo('Wait for it to finish, or stop that process before resuming.');
     return 1;
   }
@@ -335,4 +360,57 @@ async function loadTarget(
   } catch {
     return null;
   }
+}
+
+/**
+ * Hand control back to the pipeline for every run this resume covers.
+ *
+ * Returns how many holds were released. Zero means nothing was held and the
+ * ordinary resume should proceed.
+ *
+ * Releasing is always explicit — nothing here infers that a person is finished,
+ * because a run that resumed itself when the terminal went quiet would be the
+ * failure the hold exists to prevent.
+ */
+async function releaseHeldRuns(
+  project: Awaited<ReturnType<typeof resolveProjectPaths>>,
+  issue: string | undefined,
+): Promise<number> {
+  if (project.storageDriver !== 'sqlite') return 0;
+
+  let held: Awaited<ReturnType<typeof listHeldRuns>>;
+  try {
+    held = await listHeldRuns({
+      projectId: project.projectId,
+      databaseOptions: project.databaseOptions,
+    });
+  } catch {
+    // No hold is readable, so there is nothing to release and the ordinary
+    // resume path is the right one.
+    return 0;
+  }
+  const targets = issue === undefined ? held : held.filter((run) => run.issueId === issue);
+  if (targets.length === 0) return 0;
+
+  for (const run of targets) {
+    await saveRunHumanHold(
+      {
+        tasksPath: '',
+        projectId: project.projectId,
+        // The write is keyed by run and project; the remaining context fields
+        // are not read by it, and the run's own row already knows its issue.
+        projectRoot: project.projectDir,
+        issueId: run.issueId ?? '',
+        databaseOptions: project.databaseOptions,
+      },
+      run.runId,
+      null,
+    );
+    printInfo(
+      `Handed control back to the pipeline for ${
+        run.issueId === null ? `run ${run.runId}` : `issue #${run.issueId}`
+      }, held since ${run.since}.`,
+    );
+  }
+  return targets.length;
 }

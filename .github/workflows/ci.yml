@@ -29,6 +29,14 @@ jobs:
 
       - run: npm ci
 
+      # The typed HTTP contract is a sibling package with its own lockfile: it
+      # pins zod 3 (what @ts-rest/core peers on) while the CLI runs on zod 4,
+      # and keeping the two installs apart is what stops one from dragging the
+      # other's major along. The dashboard build resolves it from here.
+      - run: npm run contract:install
+
+      - run: npm run test:contract
+
       - run: npm run skills:check
 
       - run: npm run skills:test
@@ -41,6 +49,10 @@ jobs:
       - run: npm run lint
 
       - run: npm run typecheck
+
+      # `tsc` covers `src/**` only; the dashboard is Svelte and needs its own
+      # type check, which is also what verifies the component props.
+      - run: npm run check:web
 
       - name: Install completion parser runtimes
         if: runner.os == 'Linux' && matrix.node-version == 22
@@ -56,6 +68,11 @@ jobs:
         run: npm test -- src/completion.test.ts
 
       - run: npm test
+
+      # The dashboard suite runs in a DOM, against `web/src/**`. It is a
+      # separate config on purpose: merging it would make the Node suite pay for
+      # a browser environment it never uses.
+      - run: npm run test:web
 
       - run: npm run build
 

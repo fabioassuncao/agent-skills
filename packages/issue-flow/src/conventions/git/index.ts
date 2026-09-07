@@ -1,9 +1,37 @@
-export { archiveFolderName, branchName, parseBranch } from './branch.js';
+export {
+  AUTO_NAME_MAX_LENGTH,
+  AUTO_NAME_TIMEOUT_MS,
+  type AutoNameBranchOptions,
+  type AutoNameRequest,
+  type AutoNameResult,
+  autoNameBranch,
+  autoNameSystemPrompt,
+  autoNameUserPrompt,
+  type BranchNameGenerator,
+  DEFAULT_AUTO_NAME_SYSTEM_PROMPT,
+  generateFallbackBranchName,
+  normalizeGeneratedBranchName,
+} from './auto-name.js';
+export {
+  archiveFolderName,
+  type BranchNameSource,
+  branchName,
+  parseBranch,
+  type ResolveBranchNameInput,
+  type ResolvedBranchName,
+  resolveBranchName,
+} from './branch.js';
 export { resolveChangeType } from './change-type.js';
 export { commitMessage } from './commit.js';
-export { issueReferenceLines, pullRequestTitle } from './pull-request.js';
-export { slugify } from './slug.js';
 export {
+  DEFAULT_GIT_CONVENTION,
+  type GitConventionInput,
+  resolveGitConvention,
+} from './convention.js';
+export { issueReferenceLines, pullRequestTitle } from './pull-request.js';
+export { isValidBranchName, sanitizeBranchName, slugify } from './slug.js';
+export {
+  type AutoNameConvention,
   BRANCH_CHANGE_TYPES,
   BRANCH_MAX_LENGTH,
   type BranchChangeType,
@@ -11,20 +39,27 @@ export {
   CHANGE_TYPES,
   type ChangeType,
   type ChangeTypeInput,
+  type ChangeTypeLike,
   type ChangeTypeResult,
   type ChangeTypeSource,
+  type CommitFormat,
   type CommitInput,
+  type CommitTypeVocabulary,
   DEFAULT_BRANCH_CONVENTION,
   DEFAULT_COMMIT_PATTERN,
   DEFAULT_LABEL_TYPE_MAP,
   DEFAULT_PR_TITLE_PATTERN,
   FORBIDDEN_PROVIDER_NAMES,
+  type GitConvention,
   type IssueReference,
   type IssueRefInput,
+  isAllowedType,
   isBranchChangeType,
   isChangeType,
   isForbiddenProviderToken,
+  type MergeStrategy,
   type ParsedBranch,
+  type PrTitleFormat,
   type PrTitleInput,
   SLUG_MAX_LENGTH,
 } from './types.js';

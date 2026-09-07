@@ -4,15 +4,19 @@ import {
   loadAgentConfig,
   loadRoutingConfig,
 } from '../config.js';
+import { startAwaitingInputWatch } from '../core/awaiting-input.js';
+import { startHumanHoldWatch } from '../core/human-hold.js';
 import { getSessionPublisher } from '../core/session-publisher.js';
 import { isoNow } from '../core/state-manager.js';
 import { type ClassifiedFailure, classify, type FailureKind } from '../resilience/errors.js';
 import { analyzeTask } from '../routing/analyze.js';
 import { evaluateCeilings } from '../routing/budget.js';
 import { decideRouting } from '../routing/decide.js';
+import { createRuntime } from '../runtime/index.js';
+import { getPlanRepository, type PlanRepositoryContext } from '../storage/db/repository.js';
 import { bindDiagnosticContext, writeDiagnostic } from '../storage/diagnostics.js';
 import type { ProviderHealthRecord } from '../storage/schemas.js';
-import { beginExecution, endExecution } from '../telemetry/recorder.js';
+import { beginExecution, endExecution, getTelemetryContext } from '../telemetry/recorder.js';
 import { redactSecrets } from '../telemetry/redact.js';
 import type { ExecutionPurpose, ExecutionRecord, ExecutionTrigger } from '../telemetry/types.js';
 import { printInfo } from '../ui/logger.js';
@@ -20,6 +24,7 @@ import { resolveAntigravityTimeoutMs } from './antigravity.js';
 import { probeReadinessInventory } from './availability.js';
 import { peekHarnessVersion } from './claude.js';
 import { recordProviderFailure, recordProviderSuccess } from './health.js';
+import { type AgentHookSession, startAgentHookSession } from './hooks/runtime.js';
 import { ensureCursorStorageGrant } from './permissions.js';
 import { runnerFor } from './registry.js';
 import { applyOpenCodeGoModel, hasExplicitAgentSelection, resolveAgentFor } from './resolve.js';
@@ -110,6 +115,19 @@ export function resetAgentInvocationState(): void {
 }
 
 /** One invocation, including provider selection, health persistence and audit events. */
+/**
+ * The repository context of the run in flight, or `null` when there is none.
+ *
+ * Resolved the same way `agents/hooks/apply.ts` resolves it — through the
+ * telemetry binding — rather than threaded through every caller: this is a
+ * cross-cutting lookup, not an argument of an invocation.
+ */
+function repositoryContextForRun(): PlanRepositoryContext | null {
+  const tasksPath = getTelemetryContext()?.tasksPath;
+  if (tasksPath === undefined) return null;
+  return getPlanRepository(tasksPath) ?? null;
+}
+
 export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<SelectedAgentRun> {
   const config = getActiveResilienceConfig();
   let selection =
@@ -350,10 +368,54 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
     );
   }
 
+  // Lifecycle reporting for this invocation: the agent's own hooks tell us when
+  // it starts working and when it is blocked on a human (ADR-05). Absent
+  // whenever it cannot be set up — no session id, not a repository, disabled by
+  // configuration — because observability may never decide whether an agent runs.
+  let hooks: AgentHookSession | null = null;
+  try {
+    hooks = await startAgentHookSession({
+      phase: invocation.phase,
+      runId: publisher.snapshot().sessionId,
+      workingDirectory: invocation.workingDirectory ?? process.cwd(),
+    });
+  } catch {
+    hooks = null;
+  }
+
+  // Every invocation goes through the runtime contract, whose default mode is
+  // `headless` (ADR-03). In this mode `prepare`/`dispose` touch nothing and
+  // `launch` calls the same registered runner the pipeline always called — the
+  // seam exists so `interactive` and `sandbox` change *where* an agent runs
+  // without changing *what* runs (ADR-02).
+  const runtime = createRuntime('headless');
+  const runtimeContext = await runtime.prepare({
+    projectRoot: invocation.workingDirectory ?? process.cwd(),
+  });
+
+  // While a person holds the run (§32) the watchdog must not kill the agent:
+  // the silence is somebody reading, not a stall. The watch installs the
+  // process-wide gate every runner's watchdog already consults, so none of the
+  // five had to be changed. Absent context or session id means no hold can
+  // exist, and the gate stays uninstalled.
+  const holdContext = repositoryContextForRun();
+  const runId = publisher.snapshot().sessionId;
+  const holdWatch =
+    holdContext !== null && runId !== null ? startHumanHoldWatch(holdContext, runId) : null;
+
+  // The other half of §32: an `awaiting-input` nobody answers has to escalate,
+  // and it has to do so **headless** (ADR-03) — a run with no dashboard open is
+  // exactly the one that most needs to be told. It hangs here, on the single
+  // chokepoint every invocation goes through, so none of the five runners had
+  // to change and no mode is left uncovered. Unlike the hold watch it needs no
+  // storage: the state it reads is the publisher's, in this process.
+  const awaitingInputWatch = startAwaitingInputWatch({ publisher });
+
   let run: AgentRunResult;
   const startedMs = Date.now();
   try {
-    run = await runner.run(
+    const handle = await runtime.launch(
+      runtimeContext,
       {
         ...invocation,
         onLine: (line) => {
@@ -389,6 +451,7 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       },
       selection.settings,
     );
+    run = await handle.result();
   } catch (err) {
     writeDiagnostic({
       level: 'error',
@@ -411,6 +474,13 @@ export async function invokeSelectedAgent(invocation: AgentInvocation): Promise<
       });
     }
     throw err;
+  } finally {
+    // Always: the hook files live in the user's working tree, so an invocation
+    // that throws may not leave them pointing at an endpoint that is gone.
+    await hooks?.close();
+    holdWatch?.stop();
+    awaitingInputWatch.stop();
+    await runtime.dispose(runtimeContext);
   }
   issueSpend.executions += 1;
   issueSpend.durationMs += Math.max(0, Date.now() - startedMs);

@@ -20,9 +20,12 @@ describe('ensureProvidersRegistered', () => {
   it('registers the built-in providers', () => {
     ensureProvidersRegistered();
 
-    expect(getRegisteredSources().sort()).toEqual(['github', 'local']);
+    // `inline` joined the built-ins with §17's convergence: a free `--prompt`
+    // is an Issue of its own origin, not a second execution path.
+    expect(getRegisteredSources().sort()).toEqual(['github', 'inline', 'local']);
     expect(getProvider('github').name).toBe('github');
     expect(getProvider('local').name).toBe('local');
+    expect(getProvider('inline').name).toBe('inline');
   });
 
   it('is idempotent', () => {

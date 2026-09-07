@@ -7,6 +7,7 @@ import { createInitialSnapshot } from '../core/session-state.js';
 import type { PlanRepositoryContext } from '../storage/db/repository.js';
 import { SqliteSessionPublisher } from '../storage/db/session-publisher.js';
 import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
+import { createProjectRegistry } from '../storage/projects/registry.js';
 import { classifyRunLock, listLiveRuns } from './registry.js';
 
 const HOST = 'test-host';
@@ -77,6 +78,62 @@ describe('listLiveRuns', () => {
       { projectId: 'beta', target: '20', detached: true },
     ]);
     expect(runs.every((run) => run.status === 'running')).toBe(true);
+  });
+
+  // §31.3: above the default ceiling a run holds a lock under `locks/`, not the
+  // project one. `ps` reading only `run.lock` would go blind exactly when there
+  // is more than one run to see.
+  it('lists the per-unit locks a parallel project holds', async () => {
+    await mkdir(join(tmp, 'projects', 'alpha', 'locks'), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'locks', '42.lock'),
+      JSON.stringify(lock({ target: '42' })),
+    );
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'locks', '43.lock'),
+      JSON.stringify(lock({ target: '43' })),
+    );
+
+    const runs = await listLiveRuns({ env: env() });
+    expect(runs.map((run) => run.target).sort()).toEqual(['42', '43']);
+    expect(runs.every((run) => run.projectId === 'alpha')).toBe(true);
+  });
+
+  it('lists the project lock and a unit lock side by side', async () => {
+    await mkdir(join(tmp, 'projects', 'alpha', 'locks'), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'run.lock'),
+      JSON.stringify(lock({ target: '10' })),
+    );
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'locks', '42.lock'),
+      JSON.stringify(lock({ target: '42' })),
+    );
+
+    const runs = await listLiveRuns({ env: env() });
+    expect(runs.map((run) => run.target).sort()).toEqual(['10', '42']);
+  });
+
+  // The directory is absent in every project that never raised the ceiling,
+  // which is the ordinary case and not a failure.
+  it('is unbothered by a project with no locks directory', async () => {
+    await mkdir(join(tmp, 'projects', 'alpha'), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'run.lock'),
+      JSON.stringify(lock({ target: '10' })),
+    );
+    await expect(listLiveRuns({ env: env() })).resolves.toHaveLength(1);
+  });
+
+  it('ignores files under locks/ that are not locks', async () => {
+    await mkdir(join(tmp, 'projects', 'alpha', 'locks'), { recursive: true });
+    await writeFile(
+      join(tmp, 'projects', 'alpha', 'locks', '42.lock'),
+      JSON.stringify(lock({ target: '42' })),
+    );
+    await writeFile(join(tmp, 'projects', 'alpha', 'locks', 'README.md'), 'notes\n');
+
+    await expect(listLiveRuns({ env: env() })).resolves.toHaveLength(1);
   });
 
   it('names a kill -9 leftover as orphan, never as running', async () => {
@@ -155,5 +212,41 @@ describe('listLiveRuns', () => {
       expect.objectContaining({ projectId: 'json-project', issue: 63, phase: 'execute' }),
     ]);
     expect(existsSync(join(tmp, 'issue-flow.db'))).toBe(false);
+  });
+
+  // P10 — two projects executing at the same time.
+  it('P10: lists concurrent runs from two projects, each with its own lock and label', async () => {
+    const registry = createProjectRegistry({ databaseOptions: { env: env() } });
+    await registry.register({ id: 'alpha', root: '/repo/alpha', name: 'Alpha' });
+    await registry.register({ id: 'beta', root: '/repo/beta', name: 'Beta' });
+
+    for (const [projectId, target] of [
+      ['alpha', '10'],
+      ['beta', '20'],
+    ]) {
+      await mkdir(join(tmp, 'projects', projectId), { recursive: true });
+      await writeFile(
+        join(tmp, 'projects', projectId, 'run.lock'),
+        JSON.stringify(lock({ target })),
+      );
+    }
+
+    const runs = await listLiveRuns({ env: env() });
+
+    expect(runs.map((run) => [run.projectId, run.projectName, run.status])).toEqual([
+      ['alpha', 'Alpha', 'running'],
+      ['beta', 'Beta', 'running'],
+    ]);
+    // `run.lock` is per project, so two projects never contend for one file —
+    // which is what makes concurrent execution possible at all.
+    expect(new Set(runs.map((run) => run.lockFile)).size).toBe(2);
+  });
+
+  it('falls back to the raw project id when the registry has no label', async () => {
+    await mkdir(join(tmp, 'projects', 'unlabelled'), { recursive: true });
+    await writeFile(join(tmp, 'projects', 'unlabelled', 'run.lock'), JSON.stringify(lock()));
+
+    const runs = await listLiveRuns({ env: env() });
+    expect(runs[0]?.projectName).toBeNull();
   });
 });

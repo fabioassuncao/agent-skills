@@ -1,8 +1,13 @@
+import {
+  type AutoNameBranchOptions,
+  autoNameBranch,
+  type BranchNameGenerator,
+  generateFallbackBranchName,
+} from './auto-name.js';
 import { slugify } from './slug.js';
 import {
   BRANCH_MAX_LENGTH,
   type BranchInput,
-  type ChangeType,
   DEFAULT_BRANCH_CONVENTION,
   isChangeType,
   type ParsedBranch,
@@ -10,9 +15,7 @@ import {
 
 const LEGACY_PREFIX = 'issue';
 
-function branchType(type: ChangeType): string {
-  return type === 'style' || type === 'revert' ? 'chore' : type;
-}
+export { isValidBranchName, sanitizeBranchName } from './slug.js';
 
 function applyConvention(
   convention: string,
@@ -79,12 +82,59 @@ function collide(
  * bytes, regardless of who runs it.
  */
 export function branchName(input: BranchInput): string {
-  const type = branchType(input.type);
   const convention = input.convention ?? DEFAULT_BRANCH_CONVENTION;
   const slug = slugify(input.title);
-  const raw = applyConvention(convention, type, input.issueNumber, slug);
-  const truncated = truncateBranch(raw, BRANCH_MAX_LENGTH);
+  const raw = applyConvention(convention, input.type, input.issueNumber, slug);
+  const truncated = truncateBranch(raw, input.maxLength ?? BRANCH_MAX_LENGTH);
   return collide(truncated, input.existingRefs, input.currentOid);
+}
+
+/** How {@link resolveBranchName} arrived at the name it returns. */
+export type BranchNameSource = 'convention' | 'generated' | 'fallback';
+
+export interface ResolveBranchNameInput extends Omit<BranchInput, 'title'> {
+  /** Issue or document title. Optional: path 2 works from a description alone. */
+  title?: string;
+  /** Free-form statement of the work, used when there is no issue to name from. */
+  description?: string;
+  /**
+   * The generated-name path. Absent — or absent a description — the resolver
+   * never reaches it, which is what keeps `headless` free of any model call.
+   */
+  autoName?: { generate: BranchNameGenerator; config?: AutoNameBranchOptions } | null;
+}
+
+export interface ResolvedBranchName {
+  branch: string;
+  source: BranchNameSource;
+}
+
+/**
+ * The three paths a branch name can take (§10.4).
+ *
+ * 1. A known issue, or a title that still slugifies to something → the
+ *    repository's convention, unchanged from what Issue Flow always did.
+ * 2. No issue but a description, with a generator configured → a generated
+ *    name: flat, kebab-case, no prefix. This is the case the convention never
+ *    served, where the slug came out of an arbitrary document title.
+ * 3. Neither → `change-<uuid8>`, which is always a legal branch name.
+ */
+export async function resolveBranchName(
+  input: ResolveBranchNameInput,
+): Promise<ResolvedBranchName> {
+  const title = input.title ?? '';
+  const hasIssue = input.issueNumber !== undefined && input.issueNumber !== null;
+
+  if (hasIssue || slugify(title) !== '') {
+    return { branch: branchName({ ...input, title }), source: 'convention' };
+  }
+
+  const description = input.description ?? '';
+  if (input.autoName != null && description.trim() !== '') {
+    return await autoNameBranch(description, input.autoName.generate, input.autoName.config);
+  }
+
+  return { branch: generateFallbackBranchName(), source: 'fallback' };
 }
 
 /**

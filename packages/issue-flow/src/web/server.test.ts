@@ -1,22 +1,38 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { Server } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createAgentSession, saveSession } from '../agents/session/store.js';
 import {
   createInitialSnapshot,
   MemoryPublisher,
   type SessionSnapshot,
 } from '../core/session-state.js';
+import {
+  buildProjectSessionName,
+  buildWorktreeParkingWindowName,
+  buildWorktreeWindowName,
+} from '../runtime/tmux/names.js';
 import { sessionSnapshotSchema } from '../schemas.js';
+import {
+  loadWorktree,
+  type PlanRepositoryContext,
+  saveWorktree,
+} from '../storage/db/repository.js';
+import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
 import {
   SESSION_LIST_DESCRIPTION_MAX,
   startWebServer,
   truncateSessionDescription,
   type WebServerHandle,
 } from './server.js';
-import type { ActiveSession, SessionDirectoryHandle } from './session-directory.js';
+import type {
+  ActiveSession,
+  SessionDirectoryChange,
+  SessionDirectoryHandle,
+} from './session-directory.js';
 
 const noop = (): void => {};
 const packageVersion = (createRequire(import.meta.url)('../../package.json') as { version: string })
@@ -385,62 +401,92 @@ describe('startWebServer', () => {
     expect(forbidden.status).toBe(403);
   });
 
-  it('serves static assets from the public directory', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'issue-flow-web-'));
-    tmpDirs.push(dir);
-    await writeFile(join(dir, 'index.html'), '<html>monitor</html>');
-    await writeFile(join(dir, 'app.css'), 'body {}');
-    await writeFile(join(dir, 'app.js'), 'console.log(1);');
-
-    const handle = await start({ publicDir: dir });
+  /**
+   * A checkout that never ran `npm run build:web`.
+   *
+   * The previous panel used to be this answer (ADR-18). Phase 8D removed it
+   * with §50.7 green, so `/` says what is missing and links `status.json` —
+   * which §50.8 keeps as the one fallback that needs no JavaScript at all.
+   */
+  it('says the dashboard is not built, and keeps status.json reachable', async () => {
+    const handle = await start({ dashboardDir: join(tmpdir(), 'issue-flow-no-dashboard') });
 
     const index = await fetch(`${handle.url}/`);
     expect(index.status).toBe(200);
     expect(index.headers.get('content-type')).toBe('text/html; charset=utf-8');
-    expect(await index.text()).toBe('<html>monitor</html>');
+    const html = await index.text();
+    expect(html).toContain('npm run build:web');
+    expect(html).toContain('status.json');
 
-    const css = await fetch(`${handle.url}/app.css`);
-    expect(css.headers.get('content-type')).toBe('text/css; charset=utf-8');
+    // The no-JavaScript fallback is a route of its own and does not depend on
+    // any panel existing.
+    expect((await fetch(`${handle.url}/status.json`)).status).toBe(200);
 
-    const js = await fetch(`${handle.url}/app.js`);
-    expect(js.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    // The previous panel is gone: nothing answers at its addresses.
+    for (const path of ['/legacy/', '/legacy', '/app.css', '/app.js']) {
+      expect((await fetch(`${handle.url}${path}`, { redirect: 'manual' })).status).toBe(404);
+    }
   });
 
-  it('serves the real UI assets when no publicDir is given (default resolution)', async () => {
+  it('serves the built dashboard and only the assets the build emits', async () => {
+    const dashboardDir = await mkdtemp(join(tmpdir(), 'issue-flow-dashboard-'));
+    tmpDirs.push(dashboardDir);
+    await mkdir(join(dashboardDir, 'assets'), { recursive: true });
+    await writeFile(join(dashboardDir, 'index.html'), '<html>new</html>');
+    await writeFile(join(dashboardDir, 'assets', 'index-abc123.js'), 'export default 1;');
+    await writeFile(join(dashboardDir, 'assets', 'index-abc123.css'), '.a{}');
+    await writeFile(join(dashboardDir, 'assets', 'logo.bin'), 'binary');
+
+    const handle = await start({ dashboardDir });
+
+    expect(await (await fetch(`${handle.url}/`)).text()).toBe('<html>new</html>');
+
+    const asset = await fetch(`${handle.url}/assets/index-abc123.js`);
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    expect((await fetch(`${handle.url}/assets/index-abc123.css`)).headers.get('content-type')).toBe(
+      'text/css; charset=utf-8',
+    );
+
+    // A file the build is not expected to emit is not guessed at: answering it
+    // with the wrong Content-Type is worse than not answering.
+    expect((await fetch(`${handle.url}/assets/logo.bin`)).status).toBe(404);
+  });
+
+  it('serves the packaged UI or the unbuilt fallback from the default location', async () => {
     const handle = await start();
 
     const index = await fetch(`${handle.url}/`);
     expect(index.status).toBe(200);
     const html = await index.text();
     expect(html).toContain('issue-flow');
-    expect(html).toContain('app.css');
-    expect(html).toContain('app.js');
-    // Self-contained UI: no external resources, works offline.
-    expect(html).not.toMatch(/https?:\/\/(?!github)/);
 
-    const css = await fetch(`${handle.url}/app.css`);
-    expect(css.status).toBe(200);
-    expect(await css.text()).toContain('[hidden] {\n  display: none !important;\n}');
+    const bundle = /\/assets\/(index-[^"']+\.js)/.exec(html)?.[1];
+    if (bundle === undefined) {
+      // A source checkout is valid before `npm run build:web`: the default
+      // resolver must produce the same actionable fallback as an explicit
+      // missing dashboard directory.
+      expect(html).toContain('npm run build:web');
+      expect(html).toContain('status.json');
+    } else {
+      // A packaged checkout serves the module bundle and remains offline-safe.
+      expect(html).not.toMatch(/https?:\/\/(?!github)/);
+      const bundleResponse = await fetch(`${handle.url}/assets/${bundle}`);
+      expect(bundleResponse.status).toBe(200);
+      expect(bundleResponse.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    }
 
-    const js = await fetch(`${handle.url}/app.js`);
-    expect(js.status).toBe(200);
-    const jsText = await js.text();
-    expect(jsText).toContain('api/status');
-    expect(jsText).toContain('api/sessions');
-    expect(jsText).toContain('renderDashboard');
-    expect(jsText).toContain('pollAgain');
-    expect(jsText).toContain('state.sessions.length >= 1');
-    expect(jsText).not.toContain('Seleção explícita deixa de fazer sentido com uma única sessão');
-    expect(jsText).toContain("el('span', 'dashboard-card-head'");
-    expect(jsText).not.toContain("el('div', 'dashboard-card-head'");
+    // ...and there is no second panel behind it any more (§50.8).
+    expect((await fetch(`${handle.url}/legacy/`)).status).toBe(404);
   });
 
   it('answers 404 JSON for unknown routes, missing assets and non-GET methods', async () => {
-    const handle = await start({ publicDir: join(tmpdir(), 'does-not-exist') });
+    const handle = await start({ dashboardDir: join(tmpdir(), 'does-not-exist-either') });
 
+    // `/` is deliberately absent from this list: with no build it answers the
+    // page that says so, which is more useful than a 404 nobody can act on.
     for (const request of [
       fetch(`${handle.url}/nope`),
-      fetch(`${handle.url}/`),
       fetch(`${handle.url}/api/control/pause`, { method: 'POST' }),
       fetch(`${handle.url}/api/status`, { method: 'POST' }),
     ]) {
@@ -520,21 +566,133 @@ function makeSnapshot(sessionId: string, issueNumber: number): SessionSnapshot {
   };
 }
 
-/** A `SessionDirectoryHandle` double backed by a fixed, in-memory list. */
-function fakeSessionDirectory(snapshots: SessionSnapshot[]): SessionDirectoryHandle {
-  const sessions: ActiveSession[] = snapshots.map((snapshot) => ({
+/**
+ * A `SessionDirectoryHandle` double backed by an in-memory list, with the push
+ * side driven by hand: `replace()` swaps the sessions and notifies subscribers
+ * exactly as a scan would, so a test can observe `/api/stream` without a real
+ * SQLite tree or a filesystem watch.
+ */
+function fakeSessionDirectory(snapshots: SessionSnapshot[]) {
+  let sessions: ActiveSession[] = snapshots.map((snapshot) => ({
     issueDir: '/fake/issue-dir',
     filePath: '/fake/issue-dir/session.json',
     snapshot,
     updatedAtMs: Date.now(),
   }));
-  return {
+  const listeners = new Set<(change: SessionDirectoryChange) => void>();
+  let revision = 0;
+  const handle: SessionDirectoryHandle & {
+    replace(next: SessionSnapshot[], change?: Partial<SessionDirectoryChange>): void;
+    subscriberCount(): number;
+  } = {
+    subscriberCount: () => listeners.size,
     sessions: () => sessions,
     getSession: (sessionId) => sessions.find((s) => s.snapshot.sessionId === sessionId),
     events: async (sessionId) =>
       sessions.some((s) => s.snapshot.sessionId === sessionId) ? [] : undefined,
+    agentEvents: async (sessionId) =>
+      sessions.some((s) => s.snapshot.sessionId === sessionId) ? [] : undefined,
     refresh: async () => {},
-    close: () => {},
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    revision: () => revision,
+    close: () => listeners.clear(),
+    replace: (next, change = {}) => {
+      sessions = next.map((snapshot) => ({
+        issueDir: '/fake/issue-dir',
+        filePath: '/fake/issue-dir/session.json',
+        snapshot,
+        updatedAtMs: Date.now(),
+      }));
+      revision += 1;
+      const payload: SessionDirectoryChange = {
+        added: [],
+        updated: [],
+        removed: [],
+        revision,
+        ...change,
+      };
+      for (const listener of listeners) listener(payload);
+    },
+  };
+  return handle;
+}
+
+/** One `event:`/`data:` frame of a Server-Sent Events response. */
+interface StreamFrame {
+  event: string;
+  data: unknown;
+}
+
+/**
+ * Read `/api/stream` and expose the frames as they arrive. `next(event)` waits
+ * for the next frame of a given type, so a test asserts on delivery order
+ * rather than on a timer.
+ */
+async function openEventStream(url: string) {
+  const controller = new AbortController();
+  const res = await fetch(url, {
+    signal: controller.signal,
+    headers: { accept: 'text/event-stream' },
+  });
+  const frames: StreamFrame[] = [];
+  const waiters: { event: string; resolve: (frame: StreamFrame) => void }[] = [];
+
+  const deliver = (frame: StreamFrame): void => {
+    const index = waiters.findIndex((waiter) => waiter.event === frame.event);
+    // A frame handed to a waiter is consumed; buffering it too would let the
+    // next `next()` call answer with a frame the test already asserted on.
+    if (index >= 0) waiters.splice(index, 1)[0]?.resolve(frame);
+    else frames.push(frame);
+  };
+
+  const reader = res.body?.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const pump = async (): Promise<void> => {
+    if (reader === undefined) return;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        const raw = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const event = /^event: (.+)$/m.exec(raw)?.[1];
+        const data = /^data: (.*)$/m.exec(raw)?.[1];
+        if (event !== undefined && data !== undefined) {
+          deliver({ event, data: JSON.parse(data) });
+        }
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
+  };
+  void pump().catch(() => {});
+
+  return {
+    response: res,
+    frames,
+    next: (event: string, timeoutMs = 2000): Promise<StreamFrame> => {
+      const existing = frames.findIndex((frame) => frame.event === event);
+      if (existing >= 0) return Promise.resolve(frames.splice(existing, 1)[0] as StreamFrame);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(`no '${event}' frame in ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        waiters.push({
+          event,
+          resolve: (frame) => {
+            clearTimeout(timer);
+            resolve(frame);
+          },
+        });
+      });
+    },
+    close: () => controller.abort(),
   };
 }
 
@@ -639,5 +797,745 @@ describe('startWebServer — multi-session mode (directory-backed)', () => {
     expect(res.status).toBe(409);
     const payload = await res.json();
     expect(payload.sessions).toEqual(expect.arrayContaining(['sess-a', 'sess-b']));
+  });
+});
+
+describe('startWebServer — push transport (/api/stream, absorption phase 1)', () => {
+  const handles: WebServerHandle[] = [];
+  const streams: { close: () => void }[] = [];
+
+  afterEach(async () => {
+    for (const stream of streams.splice(0)) stream.close();
+    for (const handle of handles.splice(0)) await handle.close();
+  });
+
+  async function start(directory: ReturnType<typeof fakeSessionDirectory>) {
+    const handle = await startWebServer({
+      sessions: directory,
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+    return handle;
+  }
+
+  async function connect(url: string) {
+    const stream = await openEventStream(url);
+    streams.push(stream);
+    return stream;
+  }
+
+  it('answers as an event stream and opens with hello plus the current session list', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+
+    const stream = await connect(`${handle.url}/api/stream`);
+    expect(stream.response.status).toBe(200);
+    expect(stream.response.headers.get('content-type')).toBe('text/event-stream; charset=utf-8');
+    expect(stream.response.headers.get('cache-control')).toBe('no-store');
+    expect(stream.response.headers.get('x-accel-buffering')).toBe('no');
+
+    const hello = await stream.next('hello');
+    expect(hello.data).toMatchObject({ instanceId: handle.instanceId, session: null });
+
+    const sessions = (await stream.next('sessions')).data as { sessionId: string }[];
+    expect(sessions.map((entry) => entry.sessionId)).toEqual(['sess-a']);
+  });
+
+  it('pushes the session list on change without the client asking for it', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream`);
+    await stream.next('sessions');
+
+    directory.replace([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)], {
+      added: ['sess-b'],
+    });
+
+    const sessions = (await stream.next('sessions')).data as { sessionId: string }[];
+    expect(sessions.map((entry) => entry.sessionId).sort()).toEqual(['sess-a', 'sess-b']);
+  });
+
+  it('pushes a status frame only for the subscribed session', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream?session=sess-a`);
+
+    expect((await stream.next('hello')).data).toMatchObject({ session: 'sess-a' });
+    expect((await stream.next('status')).data).toMatchObject({ sessionId: 'sess-a' });
+
+    // A change that does not touch sess-a refreshes the list, never the status.
+    directory.replace([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)], {
+      updated: ['sess-b'],
+    });
+    await stream.next('sessions');
+    expect(stream.frames.some((frame) => frame.event === 'status')).toBe(false);
+
+    directory.replace([makeSnapshot('sess-a', 1), makeSnapshot('sess-b', 2)], {
+      updated: ['sess-a'],
+    });
+    expect((await stream.next('status')).data).toMatchObject({ sessionId: 'sess-a' });
+  });
+
+  it('announces a subscribed session that stopped being active', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream?session=sess-a`);
+    await stream.next('status');
+
+    directory.replace([], { removed: ['sess-a'] });
+    expect((await stream.next('gone')).data).toEqual({ sessionId: 'sess-a' });
+  });
+
+  it('pushes exactly what GET /api/sessions would return, so the fallback needs no second path', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream`);
+
+    const pushed = (await stream.next('sessions')).data;
+    const fetched = await (await fetch(`${handle.url}/api/sessions`)).json();
+    expect(pushed).toEqual(fetched);
+  });
+
+  it('releases the subscription when the client disconnects', async () => {
+    const directory = fakeSessionDirectory([makeSnapshot('sess-a', 1)]);
+    const handle = await start(directory);
+    const stream = await connect(`${handle.url}/api/stream`);
+    await stream.next('sessions');
+
+    stream.close();
+    // The subscription is dropped on the socket's close event, which is
+    // asynchronous relative to abort(); a bounded wait keeps the assertion
+    // about the contract rather than about scheduling.
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline && directory.subscriberCount() > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(directory.subscriberCount()).toBe(0);
+  });
+
+  it('advertises the push capability on /api/health so an older reused monitor is distinguishable', async () => {
+    const handle = await start(fakeSessionDirectory([]));
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('stream:sessions');
+  });
+
+  it('works over the legacy single-publisher backend, which cannot push on its own', async () => {
+    const publisher = makePublisher();
+    const handle = await startWebServer({
+      publisher,
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+
+    const stream = await connect(`${handle.url}/api/stream?session=session-1`);
+    await stream.next('status');
+
+    publisher.publish({ type: 'phase:start', at: '2026-08-03T12:00:05Z', phase: 'prd' });
+    expect((await stream.next('status')).data).toMatchObject({ currentPhase: 'prd' });
+  });
+});
+
+describe('startWebServer — the terminal surface (absorption phase 8)', () => {
+  const handles: WebServerHandle[] = [];
+
+  afterEach(async () => {
+    for (const handle of handles.splice(0)) await handle.close();
+  });
+
+  async function start(
+    overrides: Partial<Parameters<typeof startWebServer>[0]> = {},
+  ): Promise<WebServerHandle> {
+    const handle = await startWebServer({
+      publisher: makePublisher(),
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+      ...overrides,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+    return handle;
+  }
+
+  // Off unless asked for: a monitor that never serves a terminal must not
+  // advertise one, and must not hand out a credential for it.
+  it('is absent unless the caller asked for it', async () => {
+    const handle = await start();
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('terminal:attach');
+    expect((await fetch(`${handle.url}/api/terminal/token`)).status).toBe(404);
+  });
+
+  it('advertises the capability and serves the credential on loopback', async () => {
+    const handle = await start({ terminal: { resolveTarget: async () => null } });
+
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('terminal:attach');
+
+    const token = await (await fetch(`${handle.url}/api/terminal/token`)).json();
+    expect(token.path).toBe('/ws/terminal');
+    expect(typeof token.token).toBe('string');
+    expect(token.token.length).toBeGreaterThan(0);
+  });
+
+  // ADR-10: this is a remote shell. It exists on loopback or it does not exist,
+  // and the credential is never served where the surface itself is refused.
+  it('does not exist when the monitor is not bound to loopback', async () => {
+    const handle = await start({
+      host: '0.0.0.0',
+      terminal: { resolveTarget: async () => null },
+    });
+
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('terminal:attach');
+    expect((await fetch(`${handle.url}/api/terminal/token`)).status).toBe(404);
+  });
+});
+
+describe('startWebServer — the session listing (absorption phase 8D)', () => {
+  const handles: WebServerHandle[] = [];
+  const agentTmpDirs: string[] = [];
+
+  afterEach(async () => {
+    for (const handle of handles.splice(0)) await handle.close();
+    for (const dir of agentTmpDirs.splice(0)) await rm(dir, { recursive: true, force: true });
+  });
+
+  async function start(
+    overrides: Partial<Parameters<typeof startWebServer>[0]> = {},
+  ): Promise<WebServerHandle> {
+    const handle = await startWebServer({
+      publisher: makePublisher(),
+      port: 0,
+      host: '127.0.0.1',
+      info: noop,
+      warn: noop,
+      ...overrides,
+    });
+    if (handle === null) throw new Error('server failed to start');
+    handles.push(handle);
+    return handle;
+  }
+
+  /**
+   * Phase 8D split `sessions` out of `worktrees`.
+   *
+   * The two are different promises and conflating them cost the dashboard its
+   * whole session surface: a monitor that could list perfectly well could not
+   * say so without also claiming it could merge, archive and re-profile.
+   */
+  it('announces nothing and answers an empty list without the dependency', async () => {
+    const handle = await start();
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('sessions');
+    expect(health.capabilities).not.toContain('pr:ci');
+
+    const response = await fetch(`${handle.url}/api/worktrees`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ worktrees: [] });
+  });
+
+  it('announces the listing, and `pr:ci` only where a CI log can be read', async () => {
+    const listingOnly = await start({
+      worktrees: { resolveProject: async () => null },
+    });
+    const first = await (await fetch(`${listingOnly.url}/api/health`)).json();
+    expect(first.capabilities).toContain('sessions');
+    expect(first.capabilities).not.toContain('pr:ci');
+
+    const withCi = await start({
+      worktrees: { resolveProject: async () => null, ciLog: async () => 'log' },
+    });
+    const second = await (await fetch(`${withCi.url}/api/health`)).json();
+    expect(second.capabilities).toContain('pr:ci');
+  });
+
+  it('never announces the mutation surface it does not serve', async () => {
+    const handle = await start({ worktrees: { resolveProject: async () => null } });
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('worktrees:mutate');
+  });
+
+  it('announces worktree mutations only when loopback and runtime wiring agree', async () => {
+    const handle = await start({
+      worktrees: {
+        writable: true,
+        resolveProject: async () => null,
+        resolveRuntime: async () => null,
+      },
+    });
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('worktrees:mutate');
+    expect(health.capabilities).not.toContain('worktrees');
+  });
+
+  it('HTTP-gates a mutation even when a dependency incorrectly claims writable off loopback', async () => {
+    const handle = await start({
+      host: '0.0.0.0',
+      worktrees: {
+        writable: true,
+        resolveProject: async () => null,
+        resolveRuntime: async () => null,
+      },
+    });
+    const response = await fetch(`${handle.url}/api/worktrees`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(response.status).toBe(403);
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).not.toContain('worktrees:mutate');
+  });
+
+  it('serves custom-agent CRUD over HTTP and announces granular capabilities', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'issue-flow-agent-http-'));
+    agentTmpDirs.push(projectRoot);
+    const handle = await start({
+      agents: {
+        writable: true,
+        resolveProject: async () => ({ projectRoot }),
+      },
+    });
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('agents:read');
+    expect(health.capabilities).toContain('agents:write');
+
+    const created = await fetch(`${handle.url}/api/agents`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Gemini CLI', startCommand: `gemini "\${PROMPT}"` }),
+    });
+    expect(created.status).toBe(200);
+    expect((await created.json()).agent.id).toBe('gemini-cli');
+
+    const listed = await fetch(`${handle.url}/api/agents`);
+    expect((await listed.json()).agents).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'gemini-cli', kind: 'custom' })]),
+    );
+
+    const updated = await fetch(`${handle.url}/api/agents/gemini-cli`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Gemini Pro', startCommand: 'gemini pro' }),
+    });
+    expect(updated.status).toBe(200);
+    expect((await updated.json()).agent.label).toBe('Gemini Pro');
+
+    expect(
+      (
+        await fetch(`${handle.url}/api/agents/gemini-cli`, {
+          method: 'DELETE',
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it('keeps agent reads and validation available remotely while refusing writes', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'issue-flow-agent-remote-'));
+    agentTmpDirs.push(projectRoot);
+    const handle = await start({
+      host: '0.0.0.0',
+      agents: {
+        writable: true,
+        resolveProject: async () => ({ projectRoot }),
+      },
+    });
+    const url = `http://127.0.0.1:${handle.port}`;
+    const health = await (await fetch(`${url}/api/health`)).json();
+    expect(health.capabilities).toContain('agents:read');
+    expect(health.capabilities).not.toContain('agents:write');
+    const listed = await fetch(`${url}/api/agents`);
+    expect(listed.status).toBe(200);
+    expect(
+      (await listed.json()).agents.every(
+        (agent: { startCommand: unknown }) => agent.startCommand === null,
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await fetch(`${url}/api/agents/validate`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ label: 'X', startCommand: 'x' }),
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${url}/api/agents`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ label: 'X', startCommand: 'x' }),
+        })
+      ).status,
+    ).toBe(403);
+    expect((await fetch(`${url}/api/agents/%ZZ`, { method: 'DELETE' })).status).toBe(400);
+  });
+
+  it('dispatches encoded worktree resources to the canonical runtime operation', async () => {
+    const setLabel = vi.fn(async () => ({}));
+    const worktrees = {
+      list: async () => [
+        {
+          branch: 'feat/http',
+          path: '/worktrees/feat/http',
+          entry: {
+            path: '/worktrees/feat/http',
+            branch: 'feat/http',
+            head: 'abc',
+            bare: false,
+            detached: false,
+          },
+          binding: { branch: 'feat/http', worktreeId: 'wt-http' },
+          state: 'managed',
+        },
+      ],
+      setLabel,
+    };
+    const handle = await start({
+      worktrees: {
+        writable: true,
+        resolveProject: async () => null,
+        resolveRuntime: async () =>
+          ({
+            projectId: 'project',
+            deps: { projectId: 'project', worktrees },
+            worktrees,
+            profileNames: [],
+          }) as never,
+      },
+    });
+    const response = await fetch(`${handle.url}/api/worktrees/feat%2Fhttp/label`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'HTTP path' }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, label: 'HTTP path' });
+    expect(setLabel).toHaveBeenCalledWith('feat/http', 'HTTP path');
+  });
+
+  it('dispatches create, select, refresh and delete tab routes over HTTP', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'issue-flow-tabs-http-'));
+    agentTmpDirs.push(projectRoot);
+    const branch = 'feat/http-tabs';
+    const projectId = 'project-tabs-http';
+    const worktreeId = 'wt-tabs-http';
+    const storage: PlanRepositoryContext = {
+      tasksPath: '',
+      projectId,
+      issueId: '',
+      projectRoot,
+      databaseOptions: { env: { [GLOBAL_ROOT_ENV]: projectRoot } },
+    };
+    const timestamp = '2026-09-06T12:00:00.000Z';
+    const binding = {
+      worktreeId,
+      branch,
+      path: projectRoot,
+      baseBranch: 'main',
+      label: null,
+      profile: 'default',
+      agent: 'claude',
+      runtime: 'host' as const,
+      startupEnvValues: {},
+      allocatedPorts: {},
+      source: null,
+      conversationId: null,
+      archived: false,
+      activeAgentSessionId: null,
+      tabSequenceCounter: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    await saveWorktree(storage, binding);
+    const root = createAgentSession({
+      branch,
+      worktreeId,
+      provider: 'claude',
+      permission: 'workspace',
+      conversationId: 'root-http-conversation',
+      paneTarget: '%1',
+      tabSequence: 0,
+      status: 'running',
+    });
+    await saveSession(storage, root);
+    await saveWorktree(storage, { ...binding, activeAgentSessionId: root.id });
+
+    const sessionName = buildProjectSessionName(projectId);
+    const mainWindow = buildWorktreeWindowName(branch);
+    const parkingWindow = buildWorktreeParkingWindowName(worktreeId);
+    const panes = new Map<string, string>([['%1', mainWindow]]);
+    const tokens = new Map<string, string>([['%1', root.paneToken as string]]);
+    let nextPane = 2;
+    const tmux = {
+      isAvailable: async () => true,
+      hasWindow: async () => true,
+      hasWindowStrict: async (_session: string, window: string) =>
+        [...panes.values()].includes(window),
+      getPaneId: async () => '%1',
+      getPaneWindow: async (pane: string) => panes.get(pane) as string,
+      hasPaneStrict: async (pane: string) => panes.has(pane),
+      getPaneIdentity: async (pane: string) => ({
+        paneId: pane,
+        sessionName,
+        windowName: panes.get(pane) as string,
+        ownerToken: tokens.get(pane) ?? null,
+      }),
+      tagPaneOwner: async (pane: string, token: string) => void tokens.set(pane, token),
+      createParkedPane: async () => {
+        const pane = `%${nextPane++}`;
+        panes.set(pane, parkingWindow);
+        return pane;
+      },
+      runCommand: async () => {},
+      swapPanes: async (left: string, right: string) => {
+        const leftWindow = panes.get(left) as string;
+        panes.set(left, panes.get(right) as string);
+        panes.set(right, leftWindow);
+      },
+      movePaneToWindow: async (pane: string, destination: string) =>
+        void panes.set(pane, destination.slice(destination.indexOf(':') + 1)),
+      selectPane: async () => {},
+      killPaneStrict: async (pane: string) => {
+        panes.delete(pane);
+        tokens.delete(pane);
+      },
+      listPaneLocations: async () =>
+        [...panes].map(([paneId, windowName]) => ({
+          paneId,
+          sessionName,
+          windowName,
+          ownerToken: tokens.get(paneId) ?? null,
+        })),
+    };
+    const worktrees = {
+      list: async () => [
+        {
+          branch,
+          path: projectRoot,
+          entry: { path: projectRoot, branch, head: null, bare: false, detached: false },
+          binding: await loadWorktree(storage, branch),
+          state: 'managed' as const,
+        },
+      ],
+      remove: async () => {},
+    };
+    const runtime = {
+      projectId,
+      projectRoot,
+      storage,
+      profileName: 'default',
+      profileNames: ['default'],
+      profileConfigs: [{ name: 'default' }],
+      mainBranch: 'main',
+      startupEnv: {},
+      services: [],
+      worktrees,
+      git: { resolveWorktreeGitDir: async () => join(projectRoot, '.git') },
+      deps: {
+        projectId,
+        projectRoot,
+        storage,
+        worktrees,
+        tmux,
+        git: { resolveWorktreeGitDir: async () => join(projectRoot, '.git') },
+        branchExists: async () => true,
+        panes: [{ id: 'agent', kind: 'agent', focus: true }],
+        profileName: 'default',
+        shellPath: '/bin/sh',
+      },
+    };
+    const handle = await start({
+      worktrees: {
+        writable: true,
+        resolveProject: async () => null,
+        resolveRuntime: async () => runtime as never,
+      },
+    });
+    const encoded = encodeURIComponent(branch);
+    const created = await fetch(`${handle.url}/api/worktrees/${encoded}/tabs`, {
+      method: 'POST',
+    });
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as { tab: { tabId: string } };
+
+    expect(
+      (
+        await fetch(`${handle.url}/api/worktrees/${encoded}/tabs/${createdBody.tab.tabId}/select`, {
+          method: 'POST',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${handle.url}/api/worktrees/${encoded}/agent-terminal/refresh`, {
+          method: 'POST',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${handle.url}/api/worktrees/${encoded}/tabs/${createdBody.tab.tabId}`, {
+          method: 'DELETE',
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it('serves Linear, auto-name and integration settings with loopback-only mutations', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'issue-flow-integrations-http-'));
+    agentTmpDirs.push(projectRoot);
+    const postConversation = vi.fn(async () => ({
+      issueId: 'ENG-12',
+      issueUrl: 'https://linear/ENG-12',
+      commentUrl: 'https://linear/comment/12',
+      attachmentUrl: 'https://linear/attachment/12',
+    }));
+    const runtime = { projectRoot } as never;
+    const handle = await start({
+      integrations: {
+        writable: true,
+        env: { LINEAR_API_KEY: 'server-secret' },
+        resolveRuntime: async () => runtime,
+        createLinearClient: () => ({
+          fetchAssignedIssues: async () => [],
+          postConversation,
+        }),
+        readConversation: async () => ({
+          markdown: 'conversa HTTP',
+          attachment: {
+            issueFlowConversation: 1,
+            branch: 'feat/http',
+            baseBranch: 'main',
+            agent: 'codex',
+            createdAt: '2026-09-06T00:00:00.000Z',
+            conversation: [],
+          },
+        }),
+      },
+    });
+
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toEqual(
+      expect.arrayContaining(['linear:read', 'linear:write', 'settings:write']),
+    );
+    expect(await (await fetch(`${handle.url}/api/linear/issues`)).json()).toEqual({
+      availability: 'ready',
+      issues: [],
+    });
+    expect((await fetch(`${handle.url}/api/project/auto-name`)).status).toBe(200);
+
+    const toggle = await fetch(`${handle.url}/api/linear/auto-create`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(toggle.status).toBe(200);
+
+    const posted = await fetch(`${handle.url}/api/worktrees/feat%2Fhttp/linear`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ target: { kind: 'issue', issueId: 'ENG-12' } }),
+    });
+    expect(posted.status).toBe(200);
+    expect(postConversation).toHaveBeenCalledWith(
+      { kind: 'issue', issueId: 'ENG-12' },
+      {
+        branch: 'feat/http',
+        markdown: 'conversa HTTP',
+        attachment: expect.objectContaining({ issueFlowConversation: 1, branch: 'feat/http' }),
+      },
+    );
+  });
+
+  it('does not announce or allow integration mutations off loopback', async () => {
+    let linearReads = 0;
+    const handle = await start({
+      host: '0.0.0.0',
+      integrations: {
+        writable: true,
+        env: { LINEAR_API_KEY: 'remote-http-secret' },
+        resolveRuntime: async () => ({ projectRoot: '/tmp/project' }) as never,
+        createLinearClient: () => ({
+          fetchAssignedIssues: async () => {
+            linearReads += 1;
+            if (linearReads === 1) throw new Error('Linear echoed remote-http-secret');
+            return [
+              {
+                id: 'id-1',
+                identifier: 'ENG-1',
+                title: 'Título normal',
+                description: 'Descrição remote-http-secret',
+                priority: 1,
+                priorityLabel: 'Urgente',
+                url: 'https://linear/remote-http-secret',
+                branchName: 'eng-1',
+                dueDate: null,
+                updatedAt: '2026-09-06T00:00:00Z',
+                state: { name: 'Todo', color: '#fff', type: 'unstarted' },
+                team: { name: 'Engineering', key: 'ENG' },
+                labels: [],
+                project: null,
+              },
+            ];
+          },
+          postConversation: vi.fn(),
+        }),
+      },
+    });
+    const health = await (await fetch(`${handle.url}/api/health`)).json();
+    expect(health.capabilities).toContain('linear:read');
+    expect(health.capabilities).not.toContain('linear:write');
+    expect(health.capabilities).not.toContain('settings:write');
+    const linear = await fetch(`${handle.url}/api/linear/issues`);
+    expect(linear.status).toBe(502);
+    expect(await linear.text()).not.toContain('remote-http-secret');
+    const linearData = await fetch(`${handle.url}/api/linear/issues`);
+    expect(linearData.status).toBe(200);
+    const linearText = await linearData.text();
+    expect(linearText).toContain('[redacted]');
+    expect(linearText).not.toContain('remote-http-secret');
+    expect((await fetch(`${handle.url}/api/config/project`)).status).toBe(403);
+    expect(
+      (
+        await fetch(`${handle.url}/api/github/auto-remove-on-merge`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ enabled: true }),
+        })
+      ).status,
+    ).toBe(403);
+  });
+
+  it('returns typed statuses for malformed and oversized JSON mutation bodies', async () => {
+    const handle = await start({
+      integrations: {
+        writable: true,
+        resolveRuntime: async () => ({ projectRoot: '/tmp/project' }) as never,
+      },
+    });
+    const malformed = await fetch(`${handle.url}/api/linear/auto-create`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: '{',
+    });
+    expect(malformed.status).toBe(400);
+    const oversized = await fetch(`${handle.url}/api/linear/auto-create`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true, padding: 'x'.repeat(70 * 1024) }),
+    });
+    expect(oversized.status).toBe(413);
   });
 });

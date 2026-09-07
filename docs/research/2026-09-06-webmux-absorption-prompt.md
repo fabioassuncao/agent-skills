@@ -4,15 +4,18 @@
 > [`2026-09-06-webmux-absorption.md`](2026-09-06-webmux-absorption.md) é a *especificação*.
 > Nenhum dos dois funciona sozinho.
 >
-> **Como invocar** (uma fase por sessão de agente):
+> **Como invocar** (uma fase, um intervalo ou o roadmap restante):
 >
 > ```text
 > Execute o prompt mestre em docs/research/2026-09-06-webmux-absorption-prompt.md
 > para a FASE <N>.
 > ```
 >
-> Para retomar uma fase interrompida, use a mesma frase — o protocolo de §5 detecta o
-> estado real no repositório antes de decidir o que fazer.
+> A fase é opcional. Sem fase informada, o agente detecta no repositório a primeira fase
+> ainda incompleta e executa, em ordem, todo o roadmap restante. Para retomar trabalho
+> interrompido, use a mesma invocação: o protocolo de §5 detecta o estado real antes de
+> decidir o que falta. Fases são unidades de sequenciamento e verificação, **não pontos de
+> aprovação humana**.
 
 ---
 
@@ -28,9 +31,57 @@ O objetivo não é `Issue Flow + WebMux`. É:
 Issue Flow + capacidades e implementações absorvidas do WebMux = novo Issue Flow
 ```
 
-Você executa **uma fase por vez**, do roadmap de `§39` da especificação. Uma fase termina
-quando seu critério de conclusão está satisfeito e verificado — não quando o código
-compila.
+Você executa o escopo pedido — uma fase, um intervalo ou o roadmap restante — na ordem de
+dependências de `§39` da especificação. Uma fase termina quando seu critério de conclusão
+está satisfeito e verificado, não quando o código compila. Ao fechá-la, avance
+automaticamente para a próxima fase dentro do escopo, sem solicitar confirmação.
+
+### 0.1 Contrato de autonomia
+
+A invocação deste prompt autoriza todas as mudanças locais razoavelmente necessárias para
+entregar o escopo: criar, alterar, mover, remover e refatorar arquivos; atualizar schemas e
+migrations; instalar, remover ou ajustar dependências e o lockfile; gerar artefatos;
+executar testes, builds, linters, formatadores, benchmarks, smoke tests e validações de
+integração; corrigir falhas diretamente relacionadas encontradas no caminho; e atualizar a
+documentação afetada. Não transforme nenhuma recomendação, plano, gate ou fronteira de
+fase em pedido de autorização.
+
+Por padrão, a entrega inclui branch, commits, push e abertura ou atualização de um Pull
+Request pronto para revisão, desde que o host permita efeitos remotos e as credenciais já
+estejam disponíveis. Só omita a publicação quando a invocação disser `local-only` ou o
+ambiente a impedir. Merge, deploy, release e publicação de pacote ficam fora do escopo
+padrão por produzirem efeitos posteriores à entrega do código.
+
+| Dimensão | Regra operacional |
+|---|---|
+| Escopo | Fases pedidas ou, sem seleção, roadmap restante; inclui pré-requisitos ausentes e correções diretamente relacionadas |
+| Preservar | `headless`, contratos públicos, resiliência, verificação independente, telemetria, compatibilidade, dados e mudanças preexistentes do usuário |
+| Pode modificar | Qualquer parte do repositório necessária à integração, respeitando os invariantes e as instruções locais; `.references/webmux-main/` é sempre somente leitura |
+| Fora do escopo padrão | Linear, multi-tenant, merge, deploy, release, publicação npm e melhorias sem relação direta com a absorção |
+| Entrega | Uma implementação por responsabilidade, dívida/deleções da fase resolvidas, documentação e migrations atualizadas, evidência reproduzível e PR pronto para revisão |
+
+Resolva ambiguidades usando, nesta ordem:
+
+1. o objetivo e as decisões arquiteturais desta especificação;
+2. a arquitetura, os contratos e as instruções vigentes do repositório;
+3. a preservação de compatibilidade, comportamento e garantias existentes;
+4. simplicidade e manutenibilidade;
+5. menor risco técnico;
+6. a alternativa mais fácil de reverter.
+
+Entre alternativas tecnicamente equivalentes, escolha sozinho a primeira que melhor
+satisfizer essa ordem, registre decisões não óbvias no relatório e continue. Interrompa
+somente a parcela realmente impossível de executar por falta de credencial indispensável,
+acesso obrigatório indisponível ou decisão tecnicamente impossível de inferir com
+consequência irreversível relevante. Antes disso, esgote alternativas locais e reversíveis;
+se ainda houver bloqueio, documente evidências, conclua todas as partes independentes e
+marque apenas o restante como bloqueado.
+
+O estado final esperado é um único Issue Flow, sem implementações concorrentes, com as
+capacidades previstas no roadmap integradas, compatibilidade e garantias preservadas,
+deleções previstas concluídas, documentação e provenance atualizadas, e todos os gates
+aplicáveis verdes. Se a invocação limitar expressamente o escopo, esse mesmo estado vale
+para as fases solicitadas e seus pré-requisitos.
 
 ---
 
@@ -52,11 +103,11 @@ compila.
 - **A especificação não se re-deriva.** Se a spec afirma algo, isso já foi verificado no
   código-fonte. Não repita a investigação; siga.
 - **A especificação pode estar desatualizada em relação ao Issue Flow**, que continua
-  evoluindo. Se um caminho de arquivo citado não existir mais, **confirme no repositório e
-  ajuste**, registrando a divergência no relatório final (§8). Não invente.
+  evoluindo. Se um caminho de arquivo citado não existir mais, **verifique o repositório e
+  ajuste autonomamente**, registrando a divergência no relatório final (§8). Não invente.
 - **Se a especificação e o `AGENTS.md` de um módulo se contradisserem, o `AGENTS.md`
-  vence** e a contradição vira um item de relatório. Aqueles invariantes foram aprendidos
-  na dor.
+  vence**. Adapte a implementação à regra de maior precedência, preserve o objetivo por
+  outro caminho coerente e registre a contradição; ela não é, por si só, motivo para parar.
 
 ---
 
@@ -121,9 +172,11 @@ que os testes passem.
    `Bun.file`/`Bun.write` → `node:fs/promises` · `Bun.env` → `process.env` · `Bun.sleep` →
    `node:timers/promises` · `Bun.serve` → `node:http` + `ws` · `Bun.connect` → `node:net`.
 3. **Não redesenhe durante o porte.** Se algo do upstream parece errado, porte primeiro e
-   abra uma issue depois. As **três únicas** exceções já autorizadas pela spec são:
+   registre uma melhoria separada depois. As três exceções já determinadas pela spec são:
    socket tmux dedicado (`-L issue-flow`, ADR-09), `reattach` não destrutivo (`§27`) e
-   autenticação (ADR-10). Qualquer quarta exceção exige perguntar ao usuário.
+   autenticação (ADR-10). Uma exceção adicional só é válida quando necessária para cumprir
+   uma instrução superior, preservar compatibilidade/segurança ou tornar o port executável;
+   escolha a menor mudança reversível, cubra-a com teste e registre a justificativa.
 4. **Nunca porte e endureça na mesma mudança** (ADR-12). Paridade primeiro; hardening é
    fase própria.
 
@@ -134,10 +187,11 @@ que os testes passem.
    novos são **aditivos e opcionais**.
 6. **`headless` continua sendo o default e nunca é removido** (ADR-03). Um repositório sem
    tmux, sem docker e sem worktree deve continuar funcionando exatamente como hoje.
-7. **Não toque em** `src/core/`, `src/resilience/`, `src/storage/` (exceto migrations),
-   `src/telemetry/`, `src/verify/`, `src/routing/` **a não ser que a fase peça
-   explicitamente**. São as garantias que o WebMux não tem e que a absorção não pode
-   custar.
+7. **Preserve por padrão** `src/core/`, `src/resilience/`, `src/storage/` (exceto
+   migrations), `src/telemetry/`, `src/verify/` e `src/routing/`. Toque neles apenas quando
+   a fase ou uma correção diretamente necessária exigir integração real; nesse caso faça a
+   menor alteração compatível, mantenha os contratos, amplie os testes e registre o motivo.
+   São as garantias que o WebMux não tem e que a absorção não pode custar.
 8. **Comandos de agente são montados como argv, nunca como string de shell** (ADR-04). A
    string de shell + `quoteShell` do WebMux **não é portada**.
 9. **Estado do agente vem de hook, nunca de parsing de TTY** (ADR-05). Nenhuma decisão de
@@ -199,14 +253,17 @@ que os testes passem.
     argv → string de shell · permissão semântica → `yolo: boolean` · superfície web com
     auth → bind sem credencial.
 
-25. **Nenhuma capacidade do painel atual se perde** (ADR-18). O frontend do WebMux é a
-    **base estrutural**; as funcionalidades do painel do Issue Flow são **portadas sobre
-    ela**, não descartadas: dashboard de execuções, abas com ARIA, os quatro blocos,
-    Kanban, histórico, drawer com timeline de tentativas, tema, métricas, retro-
-    compatibilidade de `session.json` e as escritas limitadas a loopback. O
-    `web/AGENTS.md` atual — 18 pares de contraste medidos, glossário pt-BR, escalas
-    fechadas — **migra junto**, adaptado. O painel antigo só sai quando os três blocos de
-    `§50.7` estiverem verdes; até lá convive em `/legacy`. Antes de mexer, leia `§50`.
+21. **Toda unidade portada produz sua ficha de rastreabilidade** (`§46`) em
+    `docs/absorption-trace.md`, na mesma PR. A seção *"Comportamento deliberadamente NÃO
+    portado"* pode estar vazia, mas nunca ausente: é onde uma simplificação silenciosa
+    vira decisão explícita e revisável.
+
+22. **Um único conceito de projeto** (`§47`). CLI, servidor, painel e runtime consultam o
+    **mesmo** `ProjectRegistry`, cuja chave é o `projectId` do Issue Flow
+    (`projectIdFromRemote`), nunca o path. O registry guarda apenas o necessário para
+    reencontrar e operar o projeto — nada que possa ser derivado do repositório. Não
+    crie um segundo arquivo de estado ao lado do SQLite, e não faça o CLI depender de
+    um servidor no ar.
 
 23. **O frontend é portado, não reimplementado** (ADR-15). Svelte 5, Tailwind 4, Vite 6,
     xterm.js, `diff2html` e o pacote de contrato vêm junto e **substituem** o monitor
@@ -221,17 +278,14 @@ que os testes passem.
     agente, e nunca deixe a pipeline reaproveitar uma sessão livre em `review`/`verify`
     (ADR-07 continua valendo). Antes de mexer, leia `§49`.
 
-22. **Um único conceito de projeto** (`§47`). CLI, servidor, painel e runtime consultam o
-    **mesmo** `ProjectRegistry`, cuja chave é o `projectId` do Issue Flow
-    (`projectIdFromRemote`), nunca o path. O registry guarda apenas o necessário para
-    reencontrar e operar o projeto — nada que possa ser derivado do repositório. Não
-    crie um segundo arquivo de estado ao lado do SQLite, e não faça o CLI depender de
-    um servidor no ar.
-
-21. **Toda unidade portada produz sua ficha de rastreabilidade** (`§46`) em
-    `docs/absorption-trace.md`, na mesma PR. A seção *"Comportamento deliberadamente NÃO
-    portado"* pode estar vazia, mas nunca ausente: é onde uma simplificação silenciosa
-    vira decisão explícita e revisável.
+25. **Nenhuma capacidade do painel atual se perde** (ADR-18). O frontend do WebMux é a
+    **base estrutural**; as funcionalidades do painel do Issue Flow são **portadas sobre
+    ela**, não descartadas: dashboard de execuções, abas com ARIA, os quatro blocos,
+    Kanban, histórico, drawer com timeline de tentativas, tema, métricas, retro-
+    compatibilidade de `session.json` e as escritas limitadas a loopback. O
+    `web/AGENTS.md` atual — 18 pares de contraste medidos, glossário pt-BR, escalas
+    fechadas — **migra junto**, adaptado. O painel antigo só sai quando os três blocos de
+    `§50.7` estiverem verdes; até lá convive em `/legacy`. Antes de mexer, leia `§50`.
 
 ---
 
@@ -254,7 +308,7 @@ UNDERSTAND → CHARACTERIZE → PORT → COMPILE → PORT TESTS → VERIFY PARIT
 | **VERIFY PARITY** | Comparar saída com o upstream (`§34`), medir contra `§35` e conferir `§45.3` | Caracterização verde + budgets respeitados + nenhuma garantia do Issue Flow rebaixada |
 | **INTEGRATE** | Ligar ao Issue Flow (config, CLI, storage, monitor) | Caminho de ponta a ponta exercitado |
 | **REMOVE DUPLICATE** | Deletar o que `§25` manda deletar nesta fase | `grep` não encontra a implementação antiga |
-| **IMPROVE** | Só agora, e só o que a fase autoriza | — |
+| **IMPROVE** | Só agora; corrija o necessário ao escopo e registre melhorias não relacionadas sem expandi-lo | — |
 
 **Proibido:** `UNDERSTAND → REDESIGN → REWRITE`.
 
@@ -264,24 +318,34 @@ UNDERSTAND → CHARACTERIZE → PORT → COMPILE → PORT TESTS → VERIFY PARIT
 
 ### 5.1 Entrada — antes de escrever qualquer código
 
-1. Confirme o número da fase e leia sua linha em `§39` (objetivo, ADD/MIGRATE/DEPRECATE/
-   DELETE, dependências, risco, critério de conclusão).
+1. Determine pelo pedido e pelo estado real qual é a primeira fase do escopo e leia sua
+   linha em `§39` (objetivo, ADD/MIGRATE/DEPRECATE/DELETE, dependências, risco e critério de
+   conclusão). Sem fase informada, comece pela primeira incompleta e inclua o roadmap
+   restante.
 2. **Verifique as dependências no repositório, não no documento.** Se a fase 6 depende da
-   3 e da 5, procure `src/runtime/types.ts` e `src/runtime/worktree/`. Se não existirem,
-   **pare e informe** — não implemente a dependência por conta própria.
+   3 e da 5, procure `src/runtime/types.ts` e `src/runtime/worktree/`. Se faltarem,
+   implemente primeiro os pré-requisitos ausentes na ordem do roadmap. Se algum depender
+   de recurso externo inacessível, avance nas dependências e fases independentes e bloqueie
+   somente a parcela afetada.
 3. Leia o núcleo (§2) + as seções mapeadas da fase.
 4. Leia os `AGENTS.md` dos diretórios que você vai tocar.
-5. Confirme o estado atual: `git status`, branch, e se há trabalho parcial da mesma fase.
-6. **Produza um plano curto** — arquivos a criar, arquivos a alterar, testes a portar,
-   código a deletar — e siga-o. Se o plano divergir da spec, a divergência é um item de
-   relatório.
+5. Inspecione o estado atual: `git status`, branch e trabalho parcial da mesma fase.
+   Preserve mudanças preexistentes e incorpore trabalho parcial válido em vez de refazê-lo.
+6. **Produza e siga um plano curto de trabalho**, sem submetê-lo à aprovação: arquivos a
+   criar/alterar/remover, testes a portar e validações. Atualize-o quando os fatos exigirem;
+   divergências relevantes da spec entram no relatório.
 
 ### 5.2 Branch e commits
 
-- Uma fase = uma branch = um PR. Nome pela convenção vigente do repositório.
+- Um escopo de entrega = uma branch = um PR. Uma fase isolada é um escopo; um intervalo ou
+  o roadmap restante usa uma única branch, salvo regra explícita do repositório em
+  contrário. A fronteira de fase é checkpoint técnico e de commit, nunca gate humano.
 - Commits atômicos por passo da metodologia (`CHARACTERIZE`, `PORT`, `PORT TESTS`,
   `REMOVE DUPLICATE`), não um commit por arquivo nem um commit gigante no fim.
-- **Nunca faça push nem abra PR sem autorização explícita do usuário nesta sessão.**
+- Faça push e abra/atualize o PR automaticamente depois dos gates, sem pedir nova
+  autorização, salvo invocação `local-only` ou impedimento do ambiente. Não faça merge,
+  deploy, release ou publicação de pacote a menos que a invocação os inclua expressamente;
+  a ausência dessas ações não bloqueia a implementação.
 
 ### 5.3 Verificação — os comandos reais
 
@@ -293,13 +357,23 @@ npm run lint               # biome check .
 npm run check              # biome check . && tsc --noEmit
 npm test                   # vitest run
 npm run test:integration   # vitest run --config vitest.integration.config.ts
+npm run build              # skills:sync + build:cli; valida artefatos empacotados
+npm run smoke              # pipeline isolada com agentes/gh determinísticos
 ```
 
 Testes ficam **ao lado do código** (`foo.ts` → `foo.test.ts`). Testes que exigem `git`,
 `tmux` ou `docker` reais vão para a configuração de integração, nunca para a suíte
-padrão.
+padrão. Rode `test:integration` quando a fase tocar nesses limites e `smoke` quando alterar
+CLI, empacotamento ou o fluxo de ponta a ponta. Se houver migration, teste banco novo,
+banco existente migrado, reabertura e compatibilidade de leitura; nunca dependa de
+migration aplicada manualmente pelo usuário.
 
 Se a fase tocar em `skills-src/`: `npm run skills:check` e `npm run skills:test`.
+
+Se uma dependência necessária não estiver instalada ou precisar mudar, use o gerenciador
+e a versão de runtime definidos pelo repositório, atualize manifest e lockfile juntos,
+justifique a escolha em documentação/provenance quando relevante e continue. Falhas de
+check são trabalho a corrigir e reexecutar, não checkpoints para consultar o usuário.
 
 ### 5.4 Gates de conclusão — todos obrigatórios
 
@@ -307,6 +381,11 @@ Uma fase só termina quando **todos** forem verdadeiros:
 
 - [ ] `npm run check` limpo
 - [ ] `npm test` verde, **sem testes existentes removidos ou marcados como skip**
+- [ ] `npm run build` verde; fontes e artefatos gerados sincronizados
+- [ ] `npm run test:integration` e `npm run smoke` verdes quando aplicáveis à fase, ou
+      justificativa técnica objetiva de não aplicabilidade registrada
+- [ ] Migrations da fase validadas em banco novo e existente, incluindo reabertura e
+      compatibilidade, quando aplicável
 - [ ] Testes de caracterização da fase (`§34`) verdes
 - [ ] Testes upstream da fase portados, com a contagem registrada
 - [ ] Orçamentos de `§35` da fase medidos e respeitados (`§6` abaixo)
@@ -317,6 +396,10 @@ Uma fase só termina quando **todos** forem verdadeiros:
 - [ ] Checklist do risco inverso (`§45.3`) conferido — nenhuma garantia rebaixada
 - [ ] Documentação afetada atualizada (`docs/`, `AGENTS.md` do módulo)
 - [ ] Relatório final produzido (`§8`)
+
+Gate vermelho inicia diagnóstico, correção e nova execução automaticamente. Se um bloqueio
+real de §9 impedir o fechamento, marque a fase como parcial, preserve a evidência e continue
+pelas fases independentes; não converta o gate em solicitação de validação humana.
 
 ---
 
@@ -338,10 +421,10 @@ porte, no mesmo estilo (mediana de ≥3 execuções, wall clock em milissegundos
 | Boot do CLI | n/a | ≤ 250 ms |
 | Contexto re-ingerido por story após a 1ª invocação | 0 | **0 — invariante** |
 
-Estourar um budget **não** é motivo para desistir: é motivo para **relatar com o número
-medido** e propor a correção. A única linha sem margem de negociação é a latência
-output→tela — não existe justificativa aceitável para voltar ao polling de 3–8 s no caminho
-interativo.
+Estourar um budget **não** é motivo para desistir: diagnostique, implemente a correção e
+meça novamente, registrando o número antes/depois. A única linha sem margem de negociação
+é a latência output→tela — não existe justificativa aceitável para voltar ao polling de
+3–8 s no caminho interativo.
 
 ---
 
@@ -361,9 +444,11 @@ copiado literalmente — o que o invariante 1 já garante.
 
 ---
 
-## 8. Relatório final da fase
+## 8. Relatório de fase e entrega
 
-Termine **toda** sessão com este bloco, mesmo quando a fase ficar incompleta:
+Registre este bloco ao fechar cada fase, mesmo quando ela ficar incompleta, e prossiga para
+a próxima fase dentro do escopo. No fim da sessão, reúna os blocos no relatório da entrega;
+produzir o relatório não cria uma pausa para aprovação.
 
 ```markdown
 ## Fase <N> — <objetivo>
@@ -398,36 +483,51 @@ Ficha em `docs/absorption-trace.md` para: <módulos>. Cada uma com
 ### Divergências em relação à especificação
 <caminho que mudou, decisão que não coube, contradição com AGENTS.md — ou "nenhuma">
 
-### Decisões que exigem o usuário
-<ou "nenhuma">
+### Decisões autônomas relevantes
+<escolha, evidência e justificativa — ou "nenhuma">
+
+### Bloqueios externos remanescentes
+<credencial/recurso/decisão irreversível realmente impeditiva, alternativas tentadas e
+trabalho independente concluído — ou "nenhum">
 
 ### Próxima fase
-Fase <N+1> — <objetivo>. Dependências satisfeitas: sim/não.
+Fase <N+1> — <objetivo>. Dependências satisfeitas: sim/não. Ação tomada: iniciada |
+pré-requisito implementado | independente concluída | bloqueada por <evidência>.
 ```
 
 ---
 
-## 9. Quando parar e perguntar
+## 9. Decisão autônoma e bloqueios reais
 
-Pare e pergunte ao usuário — **não decida sozinho** — quando:
+Não peça aprovação, confirmação, validação ou escolha durante a execução para resolver:
 
-- uma dependência de fase não existir no repositório;
-- a spec contradisser um `AGENTS.md` de módulo;
-- o porte exigir uma **quarta** exceção ao "não redesenhe" (invariante 3);
-- o porte exigir tocar em `src/core`, `src/resilience`, `src/verify` ou `src/routing` sem
-  que a fase peça;
-- uma dependência nova precisar entrar em `package.json` e não estiver prevista na spec
-  (`node-pty`, `ws`, `@xterm/xterm` + addons, `svelte`, `vite`,
-  `@sveltejs/vite-plugin-svelte`, `tailwindcss`, `diff2html`, `@ts-rest/core`,
-  `@testing-library/svelte`, `happy-dom` e `svelte-check` **estão** previstos;
-  qualquer outra, não);
-- um budget de `§35` estourar por mais de 2× e a correção exigir mudança arquitetural;
-- o idioma da nova interface ainda não tiver sido decidido (`§50.4`, opção A/B/C) e a
-  fase tocar em strings visíveis;
-- for necessário push, PR, comentário em issue ou qualquer efeito remoto.
+- pré-requisito de fase ausente — implemente-o primeiro;
+- divergência entre a spec e o código atual — siga a precedência de §1 e adapte;
+- alteração necessária fora dos caminhos originalmente previstos — faça a menor mudança
+  coerente e cubra-a com testes;
+- dependência nova — avalie manutenção, segurança, compatibilidade e custo, escolha a
+  alternativa mais simples tecnicamente adequada e atualize manifest/lockfile;
+- budget excedido — diagnostique, corrija e meça novamente; se não atingir o teto sem
+  comprometer invariantes, entregue o melhor resultado seguro com evidência e risco
+  residual explícitos;
+- nomes, layout de arquivos, APIs internas, ordem de parâmetros, formato de teste, idioma
+  visível ou outra decisão reversível. O idioma já está decidido em `§50.4`: pt-BR;
+- avanço de fase, execução de migrations locais/de teste, geração de artefatos, correções
+  relacionadas, documentação, commits e publicação do PR quando incluída no escopo.
 
-**Não pare** por incerteza rotineira: nome de arquivo, ordem de parâmetros, formato de
-teste. Decida como um colega experiente decidiria, registre em "Divergências" e siga.
+Só existe bloqueio quando **todas** as alternativas razoáveis falharem e restar uma destas
+condições:
+
+1. credencial indispensável ausente e sem caminho local/offline;
+2. acesso indisponível a recurso externo obrigatório e sem fixture, cache, mock ou etapa
+   local equivalente;
+3. decisão impossível de inferir tecnicamente que possa produzir consequência externa
+   irreversível relevante.
+
+Mesmo então, não paralise o trabalho inteiro: preserve os logs/evidências, marque apenas a
+parte afetada como bloqueada, complete todas as fases e validações independentes e deixe
+uma descrição objetiva do que falta. Limites impostos pelo ambiente do agente continuam
+valendo; tente caminhos permitidos, mas não os contorne.
 
 ---
 
@@ -463,6 +563,7 @@ teste. Decida como um colega experiente decidiria, registre em "Divergências" e
 | Chavear o registry por path em vez de `projectId` | Perde a identidade estável por remote que o Issue Flow já tem (`§47.2`) |
 | Fazer `issue-flow project ls` exigir servidor no ar | O CLI precisa funcionar offline; só o WebMux podia assumir servidor (`§47.5`) |
 | Adotar **Bun** como runtime | `DISCARD` explícito (ADR-01). Svelte, Tailwind, Vite, xterm.js, `diff2html` e `@ts-rest/core` **são adotados** — ver ADR-15 |
+| Transformar plano, gate, relatório ou fronteira de fase em pedido de aprovação | O contrato de §0.1 exige progressão autônoma; checkpoints servem para verificar, não para esperar |
 
 ---
 
@@ -483,7 +584,7 @@ docker ou sessão.
 | 6 | Runtime tmux | 3, 5 | alto | C3 verde; budget 400 ms; sem tmux degrada limpo |
 | 7 | Agent wrappers TTY e sessões | 6 | alto | C4, C5 verdes; prompt no argv; `--resume` funcional |
 | 8 | Terminal web (backend) | 7 | alto | C6, C9 verdes; backpressure e replay incremental testados |
-| 8B ⭐ | Port integral do frontend Svelte | 8 | alto | Roteiro A de §48.6 completo; monitor vanilla removido |
+| 8B ⭐ | Port integral do frontend Svelte | 8 | alto | Roteiro A de §48.6 completo; painel antigo intacto em `/legacy` |
 | 8C | Funcionalidades do painel do Issue Flow na nova base | 8B | alto | Bloco 2 de §50.7 (U1–U21) verde |
 | 8D | Consolidar UX e remover o painel antigo | 8C | médio | Bloco 3 (I1–I7) verde; só então o antigo sai |
 | 9 | Human-in-the-loop | 8 | médio | C10 verde; watchdog não mata sob `human_hold` |
@@ -502,16 +603,21 @@ docker ou sessão.
 ## 12. Comece aqui
 
 ```text
-1. Confirme a fase.
-2. Leia o núcleo (§1, §38, §42, §35, §25, §45, §46 da spec) e as seções da fase (§2 deste prompt).
-3. Para cada componente da fase, leia a ficha em §45.2 e confirme a base canônica em §45.1.
+1. Determine o escopo pelo pedido; sem fase, detecte a primeira incompleta e inclua o
+   roadmap restante.
+2. Leia o núcleo (§1, §38, §42, §35, §25, §45, §46 da spec) e as seções da fase (§2 deste
+   prompt).
+3. Para cada componente da fase, leia a ficha em §45.2 e verifique a base canônica em
+   §45.1.
 4. Verifique as dependências NO REPOSITÓRIO.
-5. Apresente o plano da fase, dizendo de qual base cada componente parte.
+5. Registre um plano curto de trabalho, dizendo de qual base cada componente parte, e
+   execute-o sem aguardar aprovação.
 6. Execute a metodologia de §4, componente por componente.
 7. Escreva a ficha de rastreabilidade de cada unidade portada (§46 da spec).
 8. Feche os gates de §5.4, incluindo o checklist do risco inverso.
 9. Produza o relatório de §8.
 ```
 
-Se a fase não foi informada, **pergunte qual é** antes de qualquer outra coisa. Não
-presuma a fase 1 só porque é a primeira: o repositório pode já estar adiante.
+Se a fase não foi informada, **não pergunte**. Determine o progresso por arquivos,
+migrations, testes, rastreabilidade e gates — nunca apenas pelo número da versão ou por uma
+suposição — e prossiga da primeira fase incompleta até o estado final de §0.1.

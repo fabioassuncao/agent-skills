@@ -7,7 +7,7 @@
     "issue-flow": "./dist/cli.js"
   },
   "scripts": {
-    "build": "npm run skills:sync && npm run build:cli",
+    "build": "npm run skills:sync && npm run build:cli && npm run build:web",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -17,10 +17,10 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "check": "biome check . && tsc --noEmit",
+    "check": "biome check . && tsc --noEmit && npm run check:web",
     "fix": "biome check --write . && tsc --noEmit",
     "prepack": "npm run skills:check && npm run build",
-    "prepublishOnly": "npm run skills:check && npm run skills:test && npm run lint && npm run typecheck && npm test",
+    "prepublishOnly": "npm run skills:check && npm run skills:test && npm run lint && npm run typecheck && npm run check:web && npm test && npm run test:web && npm run test:contract",
     "preversion": "node scripts/git-version.mjs check",
     "postversion": "node scripts/git-version.mjs commit",
     "skills:sync": "node scripts/skills-build.mjs",
@@ -31,7 +31,16 @@
     "skills:benchmark": "node scripts/skills-benchmark.mjs",
     "skills:cli-test": "node scripts/skills-cli-test.mjs",
     "build:cli": "tsup",
-    "context:measure": "node scripts/architecture-benchmark.mjs"
+    "context:measure": "node scripts/architecture-benchmark.mjs",
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "test:web": "vitest run --config web/vitest.config.ts",
+    "check:web": "cd web && svelte-check --tsconfig ./tsconfig.json",
+    "contract:install": "node scripts/contract-install.mjs",
+    "test:contract": "npm --prefix ../issue-flow-contract test",
+    "prebuild:web": "npm run contract:install",
+    "pretest:web": "npm run contract:install",
+    "pretest:contract": "npm run contract:install"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -39,7 +48,8 @@
   "files": [
     "dist",
     "prompts",
-    "web"
+    "sandbox",
+    "web/dist"
   ],
   "keywords": [
     "ai",
@@ -57,7 +67,7 @@
     "github"
   ],
   "license": "MIT",
-  "author": "Fábio Assunção",
+  "author": "F\u00e1bio Assun\u00e7\u00e3o",
   "homepage": "https://github.com/fabioassuncao/issue-flow#readme",
   "bugs": {
     "url": "https://github.com/fabioassuncao/issue-flow/issues"
@@ -75,17 +85,35 @@
     "execa": "^9.5.2",
     "listr2": "^10.2.1",
     "ora": "^8.2.0",
+    "ws": "^8.21.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.10",
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/svelte": "^5.4.2",
     "@types/node": "^22.14.0",
+    "@types/ws": "^8.18.1",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "diff2html": "^3.4.56",
     "esbuild": "^0.28.2",
+    "happy-dom": "^20.14.0",
     "mdast-util-from-markdown": "^2.0.3",
     "skills": "1.5.23",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "tailwindcss": "^4.3.3",
     "tsup": "^8.4.0",
     "typescript": "^5.8.3",
+    "vite": "^6.4.3",
     "vitest": "^3.1.1",
     "yaml": "^2.9.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
   }
 }

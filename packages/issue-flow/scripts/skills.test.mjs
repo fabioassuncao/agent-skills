@@ -587,7 +587,11 @@ test('isolated helper follows naming precedence and never closes via commit', ()
   const script = join(artifactRoot, 'create-pr/scripts/conventions.mjs');
   const call = (operation, input) =>
     JSON.parse(run(script, [], { input: JSON.stringify({ operation, input }) }).stdout);
-  assert.equal(call('changeType', { issueType: 'Bug', labels: ['enhancement'] }).type, 'fix');
+  // Two rungs: a type the project declares (here, through its label map) and
+  // `feat`. An Issue Type name is no longer translated into a type.
+  assert.equal(call('changeType', { labels: ['bug'] }).type, 'fix');
+  assert.equal(call('changeType', { labels: ['enhancement'] }).type, 'feat');
+  assert.equal(call('changeType', { labels: [] }).source, 'fallback');
   assert.equal(
     call('branch', { type: 'fix', issueNumber: 42, title: 'Login fails' }),
     'fix/42-login-fails',
@@ -595,6 +599,15 @@ test('isolated helper follows naming precedence and never closes via commit', ()
   const commit = call('commit', { type: 'fix', subject: 'Fix expiry', issueNumber: 42 });
   assert.match(commit, /Refs #42/);
   assert.doesNotMatch(commit, /Closes/);
+  assert.doesNotMatch(commit, /Story:/);
+  // `free` hands the message back untouched; the Refs footer is not a format choice.
+  assert.equal(
+    call('commit', { format: 'free', type: 'fix', subject: 'Fix expiry.', issueNumber: 42 }),
+    'Fix expiry.\n\nRefs #42',
+  );
+  // Only a declared convention replaces the Issue Flow vocabulary.
+  assert.equal(call('convention', {}).commit.format, 'conventional');
+  assert.equal(call('convention', { declared: true, commitConvention: 'own' }).commit.types, 'any');
 });
 
 test('Git fixture setup rejects escaping paths, internal files, commands and invalid refs', () => {

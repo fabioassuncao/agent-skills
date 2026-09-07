@@ -27,21 +27,34 @@ those live in the documents referenced below, which are the source of truth.
   selection by phase, authentication, permission, token economy, troubleshooting
 - [`docs/issues.md`](docs/issues.md) — GitHub and local providers, conflict
   resolution, hierarchy discovery and multi-issue queues
-- [`docs/storage.md`](docs/storage.md) — the global tree, the project id,
-  `tasks.json`, `session.json`, telemetry and the legacy migration
-- [`docs/web-monitor.md`](docs/web-monitor.md) — the dashboard, its HTTP API and
-  the single-instance server
+- [`docs/storage.md`](docs/storage.md) — the global tree, the project id, the
+  project registry, `tasks.json`, `session.json`, telemetry and the legacy migration
+- [`docs/web-monitor.md`](docs/web-monitor.md) — the dashboard, its HTTP API, the
+  single-instance server and serving several projects at once
 - [`docs/resilience.md`](docs/resilience.md) — failure taxonomy, retry table,
   failover, watchdog, journal and decomposition
 - [`docs/verification.md`](docs/verification.md) — the acceptance contract, the
   independent reviewer, shadow routing and escalation
+- [`docs/runtime.md`](docs/runtime.md) — the three runtime modes (`headless`,
+  `interactive`, `sandbox`): what each one isolates, how an agent in a pane is
+  observed, and what a teardown is allowed to remove
+- [`docs/sandbox-security.md`](docs/sandbox-security.md) — what the `sandbox` mode
+  protects against and what it does not, the launch flags, credential handling and
+  the two images
 - [`docs/conventions.md`](docs/conventions.md) — how conventions are discovered,
   the precedence ladder, the defaults, and the `AGENTS.md` / `CLAUDE.md` policy
 - [`docs/git-conventions.md`](docs/git-conventions.md) — branches, commits and
   Pull Request titles; provider-independent by construction
+- [`docs/skills-and-agents.md`](docs/skills-and-agents.md) — how a person uses the
+  Skills from an agent, and what each one expects
 - [`docs/skills.md`](docs/skills.md) — Skill sources, artifacts, sync and validation
 - [`docs/skills-compatibility.md`](docs/skills-compatibility.md) — official host support
 - [`docs/skills-evals.md`](docs/skills-evals.md) — behavioral scenarios and evidence
+- [`docs/provenance.md`](docs/provenance.md) — every unit absorbed from WebMux, with
+  origin, commit and strategy; the frozen upstream baseline lives here
+- [`docs/absorption-trace.md`](docs/absorption-trace.md) — the behavioural chain per
+  ported module: original, existing behaviour, adaptations, what was deliberately not
+  ported, and the parity tests
 
 ## Research
 
@@ -73,6 +86,11 @@ decisions — never a source of truth for behaviour.
   — its executable companion is
   [`docs/research/2026-09-06-webmux-absorption-prompt.md`](docs/research/2026-09-06-webmux-absorption-prompt.md),
   the master prompt that drives the port one phase at a time
+  — and its follow-up,
+  [`docs/research/2026-09-06-webmux-parity-completion-prompt.md`](docs/research/2026-09-06-webmux-parity-completion-prompt.md):
+  the mutation routes the absorption never wrote, which is why several ported
+  dialogs are unreachable, plus how to close them and how to measure parity
+  against the screen rather than against the modules
 
 - [`docs/research/2026-09-06-graph-repos-deep-dive.md`](docs/research/2026-09-06-graph-repos-deep-dive.md)
   — deep dive into four "graph" repositories (Awesome-Graph-Engineering, RepoGraph,
@@ -101,9 +119,11 @@ the code, and was learned the hard way.
 | The agent layer (Claude / Codex / Cursor / Antigravity, selection by phase) | [`packages/issue-flow/src/agents/AGENTS.md`](packages/issue-flow/src/agents/AGENTS.md) |
 | Phase commands, publication order, the multi-issue queue | [`packages/issue-flow/src/commands/AGENTS.md`](packages/issue-flow/src/commands/AGENTS.md) |
 | The execute loop, the session snapshot, metrics | [`packages/issue-flow/src/core/AGENTS.md`](packages/issue-flow/src/core/AGENTS.md) |
+| The session event contract, its reducers and the snapshot | [`packages/issue-flow/src/core/session/AGENTS.md`](packages/issue-flow/src/core/session/AGENTS.md) |
+| Configuration loading, one file per domain | [`packages/issue-flow/src/config/AGENTS.md`](packages/issue-flow/src/config/AGENTS.md) |
 | Default taxonomy and git naming (branch / commit / PR) | [`packages/issue-flow/src/conventions/AGENTS.md`](packages/issue-flow/src/conventions/AGENTS.md) |
 | Multi-issue queue plan, confirm and order | [`packages/issue-flow/src/execution/AGENTS.md`](packages/issue-flow/src/execution/AGENTS.md) |
-| Issue model, providers, resolver and relation graph | [`packages/issue-flow/src/issues/AGENTS.md`](packages/issue-flow/src/issues/AGENTS.md) |
+| Issue model, providers, resolver, relation graph, and GitHub Pull Request / CI reading | [`packages/issue-flow/src/issues/AGENTS.md`](packages/issue-flow/src/issues/AGENTS.md) |
 | Execution telemetry and compatibility projections | [`packages/issue-flow/src/telemetry/AGENTS.md`](packages/issue-flow/src/telemetry/AGENTS.md) |
 | Convention discovery and resolution | [`packages/issue-flow/src/policy/AGENTS.md`](packages/issue-flow/src/policy/AGENTS.md) |
 | Git conventions (branch, commit, PR title) | [`docs/git-conventions.md`](docs/git-conventions.md) |
@@ -111,6 +131,13 @@ the code, and was learned the hard way.
 | Plan-then-apply repository scaffold | [`packages/issue-flow/src/scaffold/AGENTS.md`](packages/issue-flow/src/scaffold/AGENTS.md) |
 | Global storage and artifact paths | [`packages/issue-flow/src/storage/AGENTS.md`](packages/issue-flow/src/storage/AGENTS.md) |
 | Shared process / git / fs primitives | [`packages/issue-flow/src/utils/AGENTS.md`](packages/issue-flow/src/utils/AGENTS.md) |
+| Runtime modes (headless / interactive / sandbox) | [`packages/issue-flow/src/runtime/AGENTS.md`](packages/issue-flow/src/runtime/AGENTS.md) |
+| Worktree isolation, its binding and its rollback | [`packages/issue-flow/src/runtime/worktree/AGENTS.md`](packages/issue-flow/src/runtime/worktree/AGENTS.md) |
+| The tmux multiplexer: sessions, windows, panes and the two defences | [`packages/issue-flow/src/runtime/tmux/AGENTS.md`](packages/issue-flow/src/runtime/tmux/AGENTS.md) |
+| The Docker sandbox: the container per branch and its exact `docker run` args | [`packages/issue-flow/src/runtime/sandbox/AGENTS.md`](packages/issue-flow/src/runtime/sandbox/AGENTS.md) |
+| Getting text into an agent running as a TUI | [`packages/issue-flow/src/runtime/terminal/AGENTS.md`](packages/issue-flow/src/runtime/terminal/AGENTS.md) |
+| The link between a conversation and what it is for | [`packages/issue-flow/src/agents/session/AGENTS.md`](packages/issue-flow/src/agents/session/AGENTS.md) |
+| What one phase hands to the next | [`packages/issue-flow/src/agents/handoff/AGENTS.md`](packages/issue-flow/src/agents/handoff/AGENTS.md) |
 | The monitoring server | [`packages/issue-flow/src/web/AGENTS.md`](packages/issue-flow/src/web/AGENTS.md) |
 | The monitoring dashboard | [`packages/issue-flow/web/AGENTS.md`](packages/issue-flow/web/AGENTS.md) |
 | Terminal output (clean view, icon grammar) | [`packages/issue-flow/src/ui/AGENTS.md`](packages/issue-flow/src/ui/AGENTS.md) |

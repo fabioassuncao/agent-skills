@@ -1514,3 +1514,92 @@ describe('graceful shutdown (US-020)', () => {
     }
   });
 });
+
+/**
+ * The entry half of §17's convergence, end to end: `--prompt` mints an Issue
+ * of the `inline` origin and hands `run` its identifier. Everything after that
+ * is the pipeline `run` always had — which is the point: there is no second
+ * execution path with fewer guarantees.
+ */
+describe('runPipeline — free prompt as an inline Issue (§17)', () => {
+  let tmp: string;
+  let originalCwd: string;
+
+  beforeEach(async () => {
+    originalCwd = process.cwd();
+    tmp = await mkdtemp(join(tmpdir(), 'issue-flow-run-prompt-'));
+    mockProjectRoot.current = tmp;
+    process.chdir(tmp);
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    vi.clearAllMocks();
+    vi.mocked(getProvider).mockReturnValue(makeProvider());
+  });
+
+  afterEach(async () => {
+    setWebCliOverrides({});
+    setIssuesCliOverrides({});
+    process.chdir(originalCwd);
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('runs the whole pipeline on an Issue minted from the prompt', async () => {
+    const seen: string[] = [];
+    vi.mocked(resolveIssue).mockImplementation(async (id: string) => {
+      seen.push(id);
+      return makeResolved({ id, number: null, title: 'Fix the flaky cache test' }, 'inline');
+    });
+
+    const code = await runPipeline([], 'auto', undefined, true, undefined, {
+      prompt: 'Fix the flaky cache test\n\nIt only fails on CI.',
+    });
+
+    expect(code).toBe(0);
+    expect(seen[0]).toMatch(/^inline-[0-9a-f]{12}$/);
+    // The phases are the ordinary ones: nothing about an inline demand
+    // shortens the pipeline or skips the review.
+    expect(vi.mocked(runPrd)).toHaveBeenCalled();
+    expect(vi.mocked(runPlan)).toHaveBeenCalled();
+    expect(vi.mocked(runExecute)).toHaveBeenCalled();
+    expect(vi.mocked(runReview)).toHaveBeenCalled();
+  });
+
+  it('addresses the same Issue when the same demand is run twice', async () => {
+    const seen: string[] = [];
+    vi.mocked(resolveIssue).mockImplementation(async (id: string) => {
+      seen.push(id);
+      return makeResolved({ id, number: null }, 'inline');
+    });
+
+    await runPipeline([], 'auto', undefined, true, undefined, { prompt: 'Same demand' });
+    await runPipeline([], 'auto', undefined, true, undefined, { prompt: '  Same demand  ' });
+
+    expect(seen[0]).toBe(seen[1]);
+  });
+
+  it('refuses an invocation with no demand at all', async () => {
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(' '));
+    });
+    try {
+      expect(await runPipeline([], 'auto')).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors.join('\n')).toMatch(/--prompt/);
+    expect(vi.mocked(resolveIssue)).not.toHaveBeenCalled();
+  });
+
+  it('refuses an issue number and a prompt in the same invocation', async () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      expect(await runPipeline(['42'], 'auto', undefined, true, undefined, { prompt: 'x' })).toBe(
+        1,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(vi.mocked(resolveIssue)).not.toHaveBeenCalled();
+  });
+});

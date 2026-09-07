@@ -5,13 +5,17 @@ Read when creating a branch, commit or PR title. Read execution-options for the 
 Operations and input examples:
 
 ```json
-{"operation":"changeType","input":{"issueType":"Bug","labels":[],"title":"Login fails"}}
+{"operation":"changeType","input":{"labels":["bug"],"typeMap":null}}
 {"operation":"branch","input":{"type":"fix","issueNumber":42,"title":"Login fails"}}
-{"operation":"commit","input":{"type":"fix","subject":"Handle expired sessions","issueNumber":42,"storyId":"US-001"}}
+{"operation":"commit","input":{"type":"fix","subject":"Handle expired sessions","issueNumber":42}}
+{"operation":"commit","input":{"format":"free","type":"fix","subject":"Handle expired sessions"}}
 {"operation":"prTitle","input":{"type":"fix","subject":"Handle expired sessions"}}
 {"operation":"parseBranch","input":"fix/42-login-fails"}
+{"operation":"convention","input":{"declared":true,"commitConvention":"conventional","allowedTypes":["feat","fix"]}}
 {"operation":"defaults","input":{}}
 ```
+
+The change type comes from two rungs: a type the project declares — directly, or through a label in `typeMap` overlaying the default map — and otherwise `feat`. A project's own Issue Type name or a `[Bug]` title prefix is not translated into a type; when the project wants that mapping it declares it. Use `convention` to resolve `commit.format`, `commit.types` and the PR title format from the discovered project conventions: only a `declared` source replaces the Issue Flow fallback, and `types: "any"` means the project's own vocabulary governs. Commit messages carry no `Story:` trailer; story traceability lives in progress, not in the message.
 
 For a declared branch convention pass convention with placeholders {type}, {N}, {slug}. Use issueNumber only for a verified numeric issue; nonnumeric local identifiers can be part of the subject/slug. GitHub issue footers require a real GitHub reference, not merely a numeric local directory. Never use a provider/model as a type or scope.
 
@@ -36,6 +40,6 @@ Manual planning and standalone conversion record the decision without switching/
 - project: require a clear applicable project convention, including a consistently established one. If absent or materially ambiguous, preserve the work and ask for the rule before committing; do not silently fall back.
 - issue-flow: explicitly use the bundled default commit operation. This choice affects commit formatting, not the project's branch or PR conventions.
 
-An explicit concrete message rule or example in the invocation takes priority over these strategies. Apply the chosen convention to header, body, language, references and trailers. The bundled commit operation only renders Issue Flow's Conventional Commit format; it is not a general renderer for project formats. Compose custom messages directly from the discovered rule and do not append Story: or impose a Conventional Commit header automatically. Keep story/source traceability in progress when the project's messages do not carry it. Only reference genuine GitHub issues remotely; local work cites its source path when references are appropriate.
+An explicit concrete message rule or example in the invocation takes priority over these strategies. Apply the chosen convention to header, body, language, references and trailers. The bundled commit operation renders Issue Flow's Conventional Commit format, or passes a message through untouched with `format: "free"`; it is not a general renderer for project formats. Compose custom messages directly from the discovered rule and never impose a Conventional Commit header automatically. Keep story/source traceability in progress when the project's messages do not carry it. Only reference genuine GitHub issues remotely; local work cites its source path when references are appropriate.
 
 Respect signing, signoff and commit hooks. A conflicting mandatory hook blocks the commit; never bypass it to force the selected format. Do not add a closure reference unless closure is authorized. Record the chosen strategy and its evidence with execution choices so later phases review commits against that choice rather than reimposing the fallback.

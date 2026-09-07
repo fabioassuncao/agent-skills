@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -135,8 +135,11 @@ describe('Commander completion integration', () => {
   it('derives root and nested suggestions with descriptions from the registered tree', () => {
     expect(protocol('db', '')).toContain('export\tExport structured SQLite state as readable JSON');
     expect(protocol('web', '')).toContain(
-      'serve\tRun the web monitor server in the foreground (internal — spawned detached by --web)',
+      'serve\tAlias of `issue-flow serve` (internal — spawned detached by --web)',
     );
+    // The multi-project surface completes too, and `project ls` is the one
+    // subcommand that has to work with no server running.
+    expect(protocol('project', '')).toContain('ls\tList known projects, curated and discovered');
     expect(protocol('routing', '')).toContain('use\tEnable an embedded routing policy');
     expect(protocol('run', '--a')).toContain(
       '--agent\tRun every phase on this agent (claude|codex|cursor|antigravity|opencode)',
@@ -190,11 +193,21 @@ describe('Commander completion integration', () => {
       `emits a ${shell} script accepted by the native parser`,
       () => {
         const script = generatedScript(shell);
+        // Fish 3.7's no-execute mode expects a script file: no operand made it
+        // inspect the working directory, while `-` was treated as a literal
+        // filename. A temporary file also matches how users install this
+        // completion. Bash, Zsh and PowerShell keep validating stdin.
+        const fishScript = join(buildDirectory, 'completion.fish');
+        if (shell === 'fish') writeFileSync(fishScript, script);
 
-        const validation = spawnSync(parser.executable, parser.args, {
-          input: script,
-          encoding: 'utf8',
-        });
+        const validation = spawnSync(
+          parser.executable,
+          shell === 'fish' ? [...parser.args, fishScript] : parser.args,
+          {
+            input: shell === 'fish' ? undefined : script,
+            encoding: 'utf8',
+          },
+        );
         if (validation.error !== undefined) throw validation.error;
         if (validation.status !== 0) {
           throw new Error(`${shell} rejected its generated script: ${validation.stderr}`);

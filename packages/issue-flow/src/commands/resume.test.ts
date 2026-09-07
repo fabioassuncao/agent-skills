@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInitialSnapshot, type SessionEvent } from '../core/session-state.js';
 import { loadTaskPlan, saveTaskPlan } from '../core/state-manager.js';
 import { getPlanRepository, saveSessionEvent } from '../storage/db/repository.js';
-import { GLOBAL_ROOT_ENV } from '../storage/paths.js';
+import { GLOBAL_ROOT_ENV, getUnitRunLockPath } from '../storage/paths.js';
 import type { TaskPlan } from '../types.js';
 
 vi.mock('../issues/context.js', () => ({
@@ -84,6 +84,17 @@ afterEach(async () => {
   await rm(globalHome, { recursive: true, force: true });
   await rm(repo, { recursive: true, force: true });
 });
+
+/** A live lock held by another process. pid 1 exists everywhere and is never us. */
+async function writeForeignLock(lockFile: string, target: string): Promise<void> {
+  await mkdir(dirname(lockFile), { recursive: true });
+  const now = new Date().toISOString();
+  await writeFile(
+    lockFile,
+    JSON.stringify({ pid: 1, host: hostname(), target, startedAt: now, lastHeartbeatAt: now }),
+    'utf-8',
+  );
+}
 
 function plan(overrides: Partial<TaskPlan> = {}): TaskPlan {
   return {
@@ -358,6 +369,54 @@ describe('run ownership', () => {
 
     await expect(runResume('42')).resolves.toBe(1);
     expect(mockRunPipeline).not.toHaveBeenCalled();
+  });
+
+  // §31.3: `run` and `resume` have to contend for the *same* thing. Above the
+  // default ceiling a run holds a lock on its unit, so a resume still taking the
+  // project lock would exclude nothing — and two processes would work one issue.
+  describe('above the default ceiling', () => {
+    const previous = process.env.ISSUE_FLOW_RUNTIME_MAX_CONCURRENT;
+
+    beforeEach(() => {
+      process.env.ISSUE_FLOW_RUNTIME_MAX_CONCURRENT = '3';
+    });
+
+    afterEach(() => {
+      if (previous === undefined) delete process.env.ISSUE_FLOW_RUNTIME_MAX_CONCURRENT;
+      else process.env.ISSUE_FLOW_RUNTIME_MAX_CONCURRENT = previous;
+    });
+
+    // Asserted as exclusion rather than as a file: the lock is released when the
+    // resume finishes, so what matters is *what it contends with*.
+    it('stops contending for the project lock', async () => {
+      const { runLockFile } = await resolveProjectPaths();
+      await writeForeignLock(runLockFile, 'somebody else');
+      await writeIssue('42', plan());
+
+      await expect(runResume('42')).resolves.toBe(0);
+      expect(mockRunPipeline).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses when another process already holds that issue', async () => {
+      const { projectDir } = await resolveProjectPaths();
+      await writeForeignLock(getUnitRunLockPath(projectDir, '42'), '42');
+      await writeIssue('42', plan());
+
+      await expect(runResume('42')).resolves.toBe(1);
+      expect(mockRunPipeline).not.toHaveBeenCalled();
+    });
+
+    // A bare `resume` may touch several issues and every pending queue. There is
+    // no single unit it could name, so it excludes everything rather than
+    // guessing at its own scope.
+    it('falls back to the project lock when no issue is named', async () => {
+      const { runLockFile } = await resolveProjectPaths();
+      await writeForeignLock(runLockFile, 'somebody else');
+      await writeIssue('42', plan());
+
+      await expect(runResume()).resolves.toBe(1);
+      expect(mockRunPipeline).not.toHaveBeenCalled();
+    });
   });
 
   it('takes over a lock whose owner is gone', async () => {

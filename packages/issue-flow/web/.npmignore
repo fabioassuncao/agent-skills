@@ -1,0 +1,10 @@
+# Deliberately empty of rules.
+#
+# npm falls back to `.gitignore` when a directory has no `.npmignore`, and
+# `web/.gitignore` ignores `dist/` — which is the built dashboard, exactly the
+# thing the published package needs. This file exists to override that fallback
+# for this directory; `files` in `package.json` is what actually selects
+# `web/dist`.
+#
+# Verify with `npm pack --dry-run`: `web/dist/index.html` must be listed, and
+# `web/src/**` must not.

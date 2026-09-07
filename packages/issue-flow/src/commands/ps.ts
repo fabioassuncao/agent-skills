@@ -9,6 +9,7 @@ export const liveRunJsonSchema = z.object({
   runs: z.array(
     z.object({
       projectId: z.string(),
+      projectName: z.string().nullable(),
       target: z.string(),
       pid: z.number(),
       host: z.string(),
@@ -42,7 +43,9 @@ export function formatPsTable(runs: readonly LiveRun[]): string[] {
       run.storiesTotal !== null ? `${run.storiesCompleted ?? 0}/${run.storiesTotal}` : '—',
       run.elapsedSeconds !== null ? formatDuration(run.elapsedSeconds) : '—',
       String(run.pid),
-      `${run.projectId}${run.detached ? ' (bg)' : ''}`,
+      // The registry's label when there is one: a slug plus a twelve-character
+      // hash identifies a project precisely and reads like nothing at all.
+      `${run.projectName ?? run.projectId}${run.detached ? ' (bg)' : ''}`,
     ]),
   );
   return [header, ...rows];

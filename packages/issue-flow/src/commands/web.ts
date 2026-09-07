@@ -1,9 +1,6 @@
-import { loadGlobalConfig } from '../config/sources.js';
 import { loadWebConfig } from '../config.js';
-import type { WebConfig } from '../schemas.js';
-import { resolveProjectPaths } from '../storage/resolve.js';
-import { ensureSingleWebServer, stopWebMonitor } from '../web/lock.js';
-import { watchSessionDirectory } from '../web/session-directory.js';
+import { stopWebMonitor } from '../web/lock.js';
+import { type RunServeOptions, runServe } from './serve.js';
 
 /**
  * `issue-flow web serve` / `issue-flow web stop` (US-002).
@@ -17,69 +14,19 @@ import { watchSessionDirectory } from '../web/session-directory.js';
  * lock) and re-raises the signal for the default termination behavior.
  */
 
-export interface RunWebServeOptions {
-  port?: number;
-  host?: string;
-  refresh?: number;
-}
+export type RunWebServeOptions = RunServeOptions;
 
 /**
  * Bind (or defer to) the single web monitor instance and keep the process
- * alive for as long as it stays bound. Logging is intentionally silent on the
- * happy path: this process is spawned with `stdio: 'ignore'`, so anything
- * printed here goes nowhere — the caller (`ensureWebMonitor`) is the one that
- * tells the user the server is up.
+ * alive for as long as it stays bound.
+ *
+ * `issue-flow web serve` is now an alias of `issue-flow serve` (§47.4). One
+ * body, not two: the lock, the detached-spawn contract and the silence on the
+ * happy path are unchanged, and the only difference the rename could have
+ * introduced — a second way to bind — is exactly what `web/AGENTS.md` forbids.
  */
 export async function runWebServe(options: RunWebServeOptions): Promise<number> {
-  // Built conditionally, not `{ port: options.port, ... }`: loadWebConfig()
-  // spreads this object directly over the lower-precedence layers, and an
-  // explicit `undefined` value would overwrite an env/.issue-flow.json
-  // setting instead of falling through to it (only an *absent* key does).
-  const cli: Partial<WebConfig> = {};
-  if (options.port !== undefined) cli.port = options.port;
-  if (options.host !== undefined) cli.host = options.host;
-  if (options.refresh !== undefined) cli.refreshSeconds = options.refresh;
-  const webConfig = await loadWebConfig({ cli });
-
-  let storageDriver = (await loadGlobalConfig()).storage?.driver ?? 'sqlite';
-  try {
-    storageDriver = (await resolveProjectPaths()).storageDriver;
-  } catch {
-    // The global monitor remains usable outside a repository.
-  }
-  const sessions = watchSessionDirectory({ storageDriver });
-
-  const noop = (): void => {};
-  const handle = await ensureSingleWebServer({
-    sessions,
-    port: webConfig.port,
-    host: webConfig.host,
-    refreshSeconds: webConfig.refreshSeconds,
-    unref: false,
-    info: noop,
-    warn: noop,
-  });
-
-  if (handle === null) {
-    sessions.close();
-    return 1;
-  }
-
-  if (handle.server === undefined) {
-    // Another instance already won the race (or was already running by the
-    // time this process got here): nothing to serve, so it exits right away
-    // instead of idling as a redundant detached process.
-    sessions.close();
-    return 0;
-  }
-
-  const originalClose = handle.close;
-  handle.close = async () => {
-    await originalClose();
-    sessions.close();
-  };
-
-  return 0;
+  return runServe(options);
 }
 
 /** Stop the single running web monitor instance, if any. */

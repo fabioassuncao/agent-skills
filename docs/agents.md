@@ -186,6 +186,109 @@ escalate it (`approvals_reviewer`, `sandbox_mode`,
 `sandbox_workspace_write.*`). `issue-flow init` warns when those keys are
 present. `ignoreUserConfig: true` is the CI recommendation.
 
+## Lifecycle hooks
+
+An agent's state comes from the agent's own hooks, never from parsing its
+terminal output. A TUI changes between releases, and a parser over one produces
+an answer that is plausible and wrong — so no workflow decision here reads a
+byte of the agent's screen.
+
+Before each invocation the pipeline writes a small helper into the repository's
+**git directory** (`.git/issue-flow/issue-flow-agentctl.mjs` — execution state
+is never committed) and registers it as a hook in `.claude/settings.local.json`
+and `.codex/hooks.json`. The helper reports to a loopback endpoint bound by the
+process running the agent, authenticated with a token that exists only for that
+invocation.
+
+| Reported | Claude hook | Codex hook | Becomes |
+|---|---|---|---|
+| The agent started working | `UserPromptSubmit`, `PostToolUse` | `UserPromptSubmit`, `PreToolUse` | `agent:busy` |
+| **The agent is blocked on a human** | `Notification` (`permission_prompt`, `elicitation_dialog`) | `PermissionRequest`, `SessionStart` | `agent:awaiting-input` + a warning in the log |
+| The agent opened a pull request | `PostToolUse` on `Bash` | `PostToolUse` on `Bash` | `pr:opened`, folded into the run's pull request list |
+| The agent finished its turn | `Stop` | `Stop` | nothing new — the end of the invocation already reports it |
+
+The second row is the one that changes what you can see: before it, an agent
+waiting on a permission prompt was indistinguishable from an agent still
+thinking, including in `headless`, where nobody is watching a terminal. It shows
+up in the dashboard, in `session.json` under `agent`, and in the run's log.
+
+Every event is also written to the `agent_events` table, so a block that
+happened while nothing was watching can still be looked up afterwards.
+
+**What is left behind:** nothing that runs. The hook groups are removed when the
+invocation ends, and the credentials file is deleted first — without it the
+helper exits immediately, so even a hook left behind by a crashed run costs the
+next `claude` session nothing. Hook groups you wrote yourself are never touched:
+the merge replaces only groups whose command is the generated helper.
+
+Set `agent.hooks.enabled` to `false` (or `ISSUE_FLOW_AGENT_HOOKS=0`) to install
+nothing at all. Runs then behave exactly as they did before this existed —
+`headless` never depends on it.
+
+## The conversation channel
+
+The terminal and the structured conversation are **two independent channels**
+onto the same agent. The terminal carries bytes — it is what you see when you
+attach to a pane. The conversation carries *messages*: a prompt, the paragraphs
+the model wrote, the tools it called and what they returned. The dashboard's
+chat panel reads the second one; nothing about it parses the first.
+
+The conversation itself belongs to the provider, on disk under `~/.claude` or in
+`codex`'s own thread store. This project never copies it. What it keeps is the
+conversation's id, in `agent_sessions`, which is what `--resume` takes — so
+reopening a worktree continues the conversation instead of paying for its
+context again.
+
+Reading it works in two directions:
+
+- **A finished conversation** is read back from the provider's transcript. For
+  Claude that is `~/.claude/projects/<encoded cwd>/<session id>.jsonl`; for
+  Codex it is `codex app-server`, a long-lived process this project talks to
+  over JSON-RPC for `thread/read`, `thread/list` and `turn/interrupt`. That
+  daemon is a control channel, not a second way to run a phase: phases still run
+  through `headless` or `interactive`, unchanged.
+- **A conversation in flight** is read from the agent's own stream, message by
+  message, as it is produced. There is no polling.
+
+Every message carries an id that is stable across both routes, which is what
+stops a paragraph the panel already streamed from being drawn a second time when
+the transcript is read back.
+
+### Forking a conversation into worktree tabs
+
+`issue-flow tab create <branch>` creates another `AgentSession` in the same
+managed worktree. The tab id is the Issue Flow session id; it is deliberately
+separate from the provider conversation id. Codex uses its structured
+app-server `thread/fork` operation. Claude starts a new pinned session from the
+root conversation. No operation scans a provider transcript directory or
+guesses a conversation from the current working directory.
+
+Only Claude and Codex advertise a safely resumable native fork. Cursor,
+Antigravity, OpenCode and custom agents are refused instead of approximating a
+fork with an unrelated fresh conversation. The same applies to `review` and
+`pr-review`: their methodological independence takes precedence over the tab
+control. Tabs currently require the host runtime; sandbox worktrees keep their
+single agent session.
+
+Switching a tab preserves the live provider process. If its pane is gone,
+`issue-flow worktree refresh <branch>` or selecting that orphan resumes its
+exact conversation in a newly authenticated pane; it never implements the
+upstream's destructive kill-and-recreate refresh.
+
+### Exporting a conversation, and handing it to the next agent
+
+A conversation can be written out as a JSON file — the messages plus the branch
+and base it belongs to — and read back later to seed a new session with what the
+previous one learnt.
+
+That reseed is fenced and labelled, always. A conversation is text a **model**
+wrote; pasting it into another agent's prompt as if it were instruction would let
+anything a previous agent was talked into writing become an order to the next
+one. The injected block is preceded by a notice that names it as data and is
+wrapped in a `<prior-conversation>` fence, the same way a phase handoff is. Your
+own text — an objective, an issue body — goes outside the fence, because that
+half really is an instruction.
+
 ## Headless examples
 
 ```bash

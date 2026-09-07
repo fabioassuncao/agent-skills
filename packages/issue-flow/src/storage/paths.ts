@@ -37,6 +37,33 @@ export const QUEUES_DIR_NAME = 'queues';
 /** Run-ownership lock, a sibling of `issues/` inside the project directory. */
 export const RUN_LOCK_FILENAME = 'run.lock';
 
+/**
+ * Directory holding one lock per execution unit.
+ *
+ * Only used once `runtime.maxConcurrent` is above 1 (§31.3). At the default of
+ * 1 the project-wide `run.lock` is still the only lock, which is what keeps a
+ * serial project serial.
+ */
+export const UNIT_LOCKS_DIR_NAME = 'locks';
+
+/**
+ * Lock file for one execution unit — an issue, or a story.
+ *
+ * The id is sanitised into a single path component: a story id can contain a
+ * slash, and one that produced a nested path would create a lock nobody looks
+ * for.
+ */
+export function getUnitRunLockPath(projectDir: string, unitId: string): string {
+  const safe =
+    unitId
+      .replace(/[^A-Za-z0-9._-]+/g, '-')
+      // Leading dots are stripped as well as dashes: `..` is a path component
+      // with a meaning, and a lock file is not the place to find out whether
+      // join() normalises it the way one hoped.
+      .replace(/^[.-]+|[.-]+$/g, '') || 'unit';
+  return join(projectDir, UNIT_LOCKS_DIR_NAME, `${safe}.lock`);
+}
+
 /** Persisted agent-provider health, shared by every run of one project. */
 export const PROVIDERS_HEALTH_FILENAME = 'providers.json';
 

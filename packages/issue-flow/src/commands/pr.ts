@@ -3,6 +3,7 @@ import {
   issueReferenceLines,
   pullRequestTitle,
   resolveChangeType,
+  resolveGitConvention,
 } from '../conventions/git/index.js';
 import { DEFAULT_HEADLESS_TIMEOUT_MS, runHeadless } from '../core/headless.js';
 import { runPhaseWithRetry } from '../core/phase-runner.js';
@@ -278,11 +279,13 @@ export async function runPr(
   const policy = await loadRepositoryPolicy();
   const change = resolveChangeType({
     labels: resolution.resolved.issue.labels,
-    title: resolution.resolved.issue.title,
-    titleConvention: policy.issues.titleConvention,
     typeMap: policy.git.typeMap,
+    allowedTypes: policy.git.allowedTypes,
   });
+  // `titleFormat: 'free'` when the repository declared a title convention of
+  // its own: the fallback then stops rendering one over it (ADR-11).
   const prTitle = pullRequestTitle({
+    format: resolveGitConvention({ ...policy.git }).pullRequest.titleFormat,
     type: change.type,
     subject: resolution.resolved.issue.title.replace(/^\s*\[[^\]]+\]\s*/, ''),
   });

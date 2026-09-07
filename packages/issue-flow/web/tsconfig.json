@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "paths": {
+      "@issue-flow/contract": ["../../issue-flow-contract/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "vitest.config.ts"]
+}

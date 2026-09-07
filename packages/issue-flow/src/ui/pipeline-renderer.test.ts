@@ -156,13 +156,17 @@ describe('terminal fallback contract', () => {
   it('keeps the TTY renderer but uses ASCII icons under NO_COLOR', () => {
     const restoreTty = setStdoutTty(true);
     const previousNoColor = process.env.NO_COLOR;
+    const previousCi = process.env.CI;
     process.env.NO_COLOR = '1';
+    delete process.env.CI;
     try {
       expect(selectRenderer(false)).toBe('default');
       expect(getIcons()).toMatchObject({ success: '[OK]', fail: '[FAIL]', connector: '|' });
     } finally {
       if (previousNoColor === undefined) delete process.env.NO_COLOR;
       else process.env.NO_COLOR = previousNoColor;
+      if (previousCi === undefined) delete process.env.CI;
+      else process.env.CI = previousCi;
       restoreTty();
     }
   });

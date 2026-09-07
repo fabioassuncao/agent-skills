@@ -18,7 +18,9 @@ the [Contributing guide](../CONTRIBUTING.md).
 | `packages/issue-flow/prompts-src/` | Authored CLI prompt templates |
 | `packages/issue-flow/prompts/` | Generated, committed CLI runtime prompts |
 | `packages/issue-flow/scripts/` | Generation, validation, packaging, smoke and release tooling |
-| `packages/issue-flow/web/public/` | Packaged monitoring dashboard |
+| `packages/issue-flow/web/src/` | The monitoring dashboard: Svelte 5 + Tailwind 4, built by Vite into `web/dist/` |
+| `packages/issue-flow-contract/` | The typed HTTP contract (`@ts-rest/core` + zod) the dashboard is generated from |
+| `packages/issue-flow/sandbox/` | The container image the `sandbox` runtime mode runs agents in |
 | `evals/skills/` | Versioned behavioral scenarios |
 | `.github/` | Issue and PR templates and CI checks |
 | `docs/` | Human-facing guides, references and dated research |
@@ -92,13 +94,14 @@ tests must exercise these protocols rather than writing artifacts from a stub.
 | `policy/` | Discovery of conventions in the **target** repository |
 | `resilience/` | Failure taxonomy, retry, failover, watchdog |
 | `routing/` | Shadow / active model-aware selection and escalation |
+| `runtime/` | Where an agent runs: the `headless` / `interactive` / `sandbox` contract. `headless` is the default and never depends on tmux, docker or a worktree |
 | `scaffold/` | Plan-then-apply initialization that fills gaps, never overwrites |
 | `storage/` | Global tree (`~/.issue-flow`), artifact paths, legacy migration |
 | `telemetry/` | Execution history written to canonical SQLite storage and materialized into compatibility projections |
 | `ui/` | Terminal output (clean view, icon grammar, pipeline renderer) |
 | `utils/` | Shared process / git / fs primitives with no domain rules |
 | `verify/` | Acceptance contract and independent reviewer |
-| `web/` | Monitoring HTTP server (the dashboard assets live in `web/public/`) |
+| `web/` | Monitoring HTTP server (the dashboard's built assets live in `web/dist/`) |
 
 Root files next to those directories (`cli.ts`, `config.ts`, `types.ts`,
 `schemas.ts`, …) are package entry points or cross-cutting contracts.
@@ -160,6 +163,23 @@ orchestration runtime or part of the distributed Skills.
 
 ## Tooling
 
-Biome covers `src/**/*.ts`, `web/public/**/*.js`, `scripts/**/*.mjs` and
-`*.config.ts`. `npm run check` is read-only and matches the CI gate;
-`npm run fix` applies Biome writes and then typechecks.
+Biome covers `src/**/*.ts`, `web/src/**/*.ts`, `web/*.config.ts`,
+`../issue-flow-contract/src/**/*.ts`, `scripts/**/*.mjs` and `*.config.ts`. It does not read `.svelte` files; `svelte-check` does.
+`npm run check` is read-only and matches the CI gate (Biome, `tsc` over
+`src/**`, then `svelte-check` over `web/`); `npm run fix` applies Biome writes
+and then typechecks.
+
+### Two build pipelines, one package
+
+`tsup` builds the CLI into `dist/`; `vite` builds the dashboard into
+`web/dist/`. `npm run build` runs both. They share nothing but the package:
+the CLI suite (`npm test`) runs in Node against `src/**`, the dashboard suite
+(`npm run test:web`) runs in a DOM against `web/src/**`, and each has its own
+`vitest.config.ts` so neither pays for the other's environment.
+
+`packages/issue-flow-contract` is a sibling package with its own lockfile
+(`npm run contract:install`, `npm run test:contract`). It pins zod 3, which is
+what `@ts-rest/core@3` peers on, while the CLI runs on zod 4; keeping the two
+installs apart is what stops one from dragging the other's major along. Only
+the dashboard bundle consumes it, through a Vite alias — nothing of it reaches
+the CLI runtime.

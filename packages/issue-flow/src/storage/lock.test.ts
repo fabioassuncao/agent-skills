@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -190,6 +191,143 @@ describe('acquireRunLock', () => {
     expect(result.handle.reclaimedFrom).toMatchObject({ pid: 1, target: '101' });
   });
 
+  it('allows only one of two contenders that already observed the same stale owner to reclaim it', async () => {
+    for (let iteration = 0; iteration < 20; iteration++) {
+      await writeLock(
+        lockOf({
+          pid: DEAD_PID,
+          ownerId: `stale-${iteration}`,
+          host: 'stale-host',
+          target: 'old',
+        }),
+      );
+      let observed = 0;
+      let letContendersProceed = (): void => {};
+      const bothObserved = new Promise<void>((resolve) => {
+        letContendersProceed = resolve;
+      });
+      const options = (pid: number, host: string, target: string) => ({
+        target,
+        heartbeat: false as const,
+        pid,
+        host,
+        clock: clockAt(RUN_LOCK_HEARTBEAT_MS * RUN_LOCK_STALE_INTERVALS + 1),
+        beforeReclaim: async () => {
+          observed += 1;
+          if (observed === 2) letContendersProceed();
+          await bothObserved;
+        },
+      });
+
+      const contenders = await Promise.all([
+        acquireRunLock(lockFile, options(101_001, 'contender-a', 'a')),
+        acquireRunLock(lockFile, options(202_002, 'contender-b', 'b')),
+      ]);
+      expect(contenders.filter((result) => result.ok)).toHaveLength(1);
+      expect(contenders.filter((result) => !result.ok)).toHaveLength(1);
+      const winner = contenders.find((result) => result.ok);
+      if (winner?.ok) await winner.handle.release();
+    }
+  });
+
+  it('does not let a resumed predecessor heartbeat or release a successor', async () => {
+    const predecessor = await acquireRunLock(lockFile, {
+      target: 'old',
+      heartbeat: false,
+    });
+    expect(predecessor.ok).toBe(true);
+    if (!predecessor.ok) return;
+
+    // Model the predecessor being suspended while a takeover installs a new
+    // owner. Both happen to use the same pid and host; ownerId distinguishes
+    // the two possessions.
+    await removeRunLock(lockFile);
+    const successor = await acquireRunLock(lockFile, {
+      target: 'new',
+      heartbeat: false,
+    });
+    expect(successor.ok).toBe(true);
+    if (!successor.ok) return;
+    const successorOnDisk = await readRunLock(lockFile);
+
+    await touchRunLock(lockFile, predecessor.handle.lock, '2099-01-01T00:00:00.000Z');
+    await expect(readRunLock(lockFile)).resolves.toEqual(successorOnDisk);
+
+    await predecessor.handle.release();
+    await expect(readRunLock(lockFile)).resolves.toEqual(successorOnDisk);
+
+    await successor.handle.release();
+    await expect(readRunLock(lockFile)).resolves.toBeNull();
+  });
+
+  it('recovers when a dead local contender abandoned its ownership guard', async () => {
+    const stale = lockOf({
+      pid: DEAD_PID,
+      ownerId: 'stale-owner',
+      target: 'old',
+    });
+    await writeLock(stale);
+    const digest = createHash('sha256')
+      .update(stale.ownerId ?? '')
+      .digest('hex');
+    const abandonedGuard = `${lockFile}.owner-${digest}.abandoned.guard`;
+    await writeFile(
+      abandonedGuard,
+      JSON.stringify({
+        reservationId: 'abandoned',
+        pid: DEAD_PID,
+        host: HOST,
+        choosing: false,
+        number: 1,
+      }),
+      'utf-8',
+    );
+
+    const result = await acquireRunLock(lockFile, {
+      target: 'successor',
+      heartbeat: false,
+      clock: clockAt(0),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    await expect(readRunLock(lockFile)).resolves.toMatchObject({ target: 'successor' });
+    expect(await readdir(dir)).toContain(`run.lock.owner-${digest}.abandoned.guard`);
+
+    await result.handle.release();
+  });
+
+  it.each([
+    ['live local', process.pid, HOST],
+    ['foreign', DEAD_PID, 'builder-02'],
+  ])('fails closed without deleting a %s ownership guard', async (_kind, pid, host) => {
+    const stale = lockOf({
+      pid: DEAD_PID,
+      ownerId: `guarded-owner-${_kind}`,
+      target: 'old',
+    });
+    await writeLock(stale);
+    const digest = createHash('sha256')
+      .update(stale.ownerId ?? '')
+      .digest('hex');
+    const guardName = `run.lock.owner-${digest}.blocking.guard`;
+    await writeFile(
+      join(dir, guardName),
+      JSON.stringify({ reservationId: 'blocking', pid, host, choosing: false, number: 1 }),
+      'utf-8',
+    );
+
+    const result = await acquireRunLock(lockFile, {
+      target: 'contender',
+      heartbeat: false,
+      clock: clockAt(0),
+    });
+
+    expect(result).toEqual({ ok: false, owner: stale });
+    await expect(readRunLock(lockFile)).resolves.toEqual(stale);
+    expect(await readdir(dir)).toContain(guardName);
+  });
+
   it('clears an unreadable lock instead of refusing forever', async () => {
     await writeFile(lockFile, '{"pid": 12', 'utf-8');
 
@@ -198,6 +336,27 @@ describe('acquireRunLock', () => {
     expect(result.ok).toBe(true);
     // Nothing was "taken over": there was no owner to name.
     if (result.ok) expect(result.handle.reclaimedFrom).toBeNull();
+  });
+
+  it('does not remove a valid successor installed after observing an unreadable lock', async () => {
+    await writeFile(lockFile, '{"pid": 12', 'utf-8');
+    const successor = lockOf({
+      pid: 1,
+      ownerId: 'successor-owner',
+      target: 'successor',
+    });
+
+    const result = await acquireRunLock(lockFile, {
+      target: 'contender',
+      heartbeat: false,
+      clock: clockAt(0),
+      beforeMalformedReclaim: async () => {
+        await writeLock(successor);
+      },
+    });
+
+    expect(result).toEqual({ ok: false, owner: successor });
+    await expect(readRunLock(lockFile)).resolves.toEqual(successor);
   });
 
   it('re-entering from the same process is not a conflict', async () => {
@@ -264,9 +423,9 @@ describe('the heartbeat', () => {
 
       const before = await readFile(lockFile, 'utf-8');
       await vi.advanceTimersByTimeAsync(35);
-      const after = await readFile(lockFile, 'utf-8');
-
-      expect(after).not.toBe(before);
+      await vi.waitFor(async () => {
+        await expect(readFile(lockFile, 'utf-8')).resolves.not.toBe(before);
+      });
       await result.handle.release();
       // Released: the timer is cleared and the file is gone, so a later tick
       // cannot resurrect a lock this process no longer owns.

@@ -1,3 +1,4 @@
+import { isCurrentRunHeld } from './hold-gate.js';
 import { SHUTDOWN_GRACE_MS, type TerminableChild } from './shutdown.js';
 
 /**
@@ -32,6 +33,24 @@ export interface WatchdogOptions {
   graceMs?: number;
   /** Called once, when the silence limit is crossed. */
   onStall?: (silentMs: number) => void;
+  /**
+   * Whether a person has taken the run over (§32).
+   *
+   * While this answers true the watchdog treats the silence as expected and
+   * never declares a stall — the run is quiet because somebody is reading it,
+   * and killing the agent at exactly that moment is the failure this exists to
+   * prevent. Absent means "nobody is holding anything", which is the behaviour
+   * every release before human takeover had.
+   *
+   * Synchronous on purpose: it is consulted on a timer that runs as often as
+   * every 250 ms, so the caller is expected to answer from a cache rather than
+   * from storage (`core/human-hold.ts` does exactly that).
+   *
+   * Defaults to the process-wide gate, which answers false until a run installs
+   * one — so a watchdog built by any of the five runners gets this for free
+   * without any of them having to thread it through.
+   */
+  isHeldByHuman?: () => boolean;
   /** Injectable clock, so a test drives the silence without waiting for it. */
   clock?: () => number;
   /** Injectable timer factory, so a test can use fake timers deliberately. */
@@ -131,6 +150,13 @@ export function createWatchdog(options: WatchdogOptions = {}): Watchdog {
 
   timer = start(() => {
     if (state.stalled) return;
+    if ((options.isHeldByHuman ?? isCurrentRunHeld)() === true) {
+      // Held: the clock is reset rather than merely not checked, so releasing
+      // the hold gives the agent the full silence budget again instead of
+      // killing it for the minutes a person spent thinking.
+      lastBeat = clock();
+      return;
+    }
     if (clock() - lastBeat > timeoutMs) declareStalled();
   }, checkIntervalFor(timeoutMs));
   timer.unref?.();

@@ -1,12 +1,16 @@
-import { Argument, Command, InvalidArgumentError, Option } from 'commander';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { Argument, Command, Help, InvalidArgumentError, Option } from 'commander';
 import { parseAgentPhaseFlag } from './agents/resolve.js';
 import {
   AGENT_PHASES,
   AGENT_PROVIDER_IDS,
+  AGENT_PROVIDER_LIST,
   type AgentCliOverrides,
   isAgentProviderId,
 } from './agents/types.js';
 import { BENCH_MODES, TASK_CLASSES } from './benchmark/corpus.js';
+import { buildRootHelp } from './cli-help.js';
 import {
   CliFlagError,
   resolveQueueScopeFlags,
@@ -14,6 +18,7 @@ import {
   resolveUserStoryNumberingFlags,
   resolveWebOverrides,
 } from './cli-options.js';
+import { RunDemandError, resolveAutoCloseFlag } from './commands/run/demand.js';
 import {
   QUEUE_FAILURE_MODES,
   type QueueFailureMode,
@@ -254,7 +259,14 @@ function withIssueOptions(cmd: Command): Command {
     .option('--ask', 'On divergence, ask which version to use (interactive only)');
 }
 
-const program = new Command();
+export const program = new Command();
+
+const defaultHelp = new Help();
+program.configureHelp({
+  formatHelp(command, helper) {
+    return command === program ? buildRootHelp() : defaultHelp.formatHelp(command, helper);
+  },
+});
 
 program
   .name('issue-flow')
@@ -384,7 +396,14 @@ withUserStoryNumberingOptions(
             .description(
               'Execute the full pipeline: prd → plan → execute → review → pr (→ pr-review, optional)',
             )
-            .argument('<issues...>', 'Issue number(s): 42, "42,43" or 42 43')
+            .argument('[issues...]', 'Issue number(s): 42, "42,43" or 42 43')
+            // The demand itself, with no Issue behind it (§17). It is minted
+            // into an Issue of the `inline` origin before anything starts, so
+            // the pipeline, the acceptance contract and the independent
+            // reviewer are the same ones an issue number gets.
+            .option('--prompt <text>', 'Describe the work directly, without an Issue')
+            .option('--auto-close', 'Close the agent sessions this run leaves open once it is done')
+            .option('--keep-open', 'Leave them open, revoking a configured run.autoClose')
             .option('--mode <mode>', 'Execution mode: auto | manual', 'auto')
             .addOption(
               new Option('--from <phase>', 'Resume from a specific phase').choices(
@@ -435,6 +454,9 @@ withUserStoryNumberingOptions(
       branch?: boolean;
       prReview?: boolean;
       closeIssue?: boolean;
+      prompt?: string;
+      autoClose?: boolean;
+      keepOpen?: boolean;
       yes?: boolean;
       only?: boolean;
       continue?: boolean;
@@ -450,12 +472,14 @@ withUserStoryNumberingOptions(
     let phases: ReturnType<typeof resolveRunPhaseFlags>;
     let scope: ReturnType<typeof resolveQueueScopeFlags>;
     let numbering: ReturnType<typeof resolveUserStoryNumberingFlags>;
+    let autoClose: boolean | undefined;
     try {
       phases = resolveRunPhaseFlags(options);
       scope = resolveQueueScopeFlags(options);
       numbering = resolveUserStoryNumberingFlags(options);
+      autoClose = resolveAutoCloseFlag(options);
     } catch (error) {
-      if (error instanceof CliFlagError) {
+      if (error instanceof CliFlagError || error instanceof RunDemandError) {
         printError(error.message);
         process.exit(1);
       }
@@ -471,6 +495,8 @@ withUserStoryNumberingOptions(
       phases.prReview,
       {
         closeIssue: options.closeIssue,
+        prompt: options.prompt,
+        autoClose,
         yes: scope.yes,
         only: scope.only,
         cascade: scope.cascade,
@@ -851,25 +877,363 @@ withIssueOptions(
 });
 
 // ── web ─────────────────────────────────────────────────────────────────────
+// ── serve ───────────────────────────────────────────────────────────────────
+// The canonical name for the machine-wide monitor. `web serve` stays as its
+// alias (§47.4): the command, the lock and the detached-spawn contract are
+// unchanged, so nothing that already spells `web serve` has to be rewritten.
+program
+  .command('serve')
+  .description('Serve every registered project on one dashboard')
+  .option('--port <n>', 'Web server port (default: 3737)', parseInteger)
+  .option('--host <h>', 'Web server host (default: 0.0.0.0)')
+  .option('--refresh <s>', 'Suggested UI polling interval in seconds', parseInteger)
+  .option(
+    '--project <path>',
+    'Serve an extra repository for this process only (repeatable)',
+    (value: string, previous: string[] = []) => [...previous, value],
+  )
+  .action(
+    async (options: { port?: number; host?: string; refresh?: number; project?: string[] }) => {
+      const { runServe } = await import('./commands/serve.js');
+      const code = await runServe(options);
+      // On success this process stays alive for as long as the server is bound
+      // (server.ts binds it with unref: false) — only a failure exits here.
+      if (code !== 0) {
+        process.exit(code);
+      }
+    },
+  );
+
+// ── project ─────────────────────────────────────────────────────────────────
+// Reads and writes the registry in SQLite directly: these commands work with
+// no server running (§47.5), which is the one adaptation the upstream CLI —
+// a pure HTTP client — could not have.
+const projectCommand = program
+  .command('project')
+  .description('Curate the projects the dashboard serves');
+
+projectCommand
+  .command('ls')
+  .alias('list')
+  .description('List known projects, curated and discovered')
+  .option('--json', 'Emit the list as JSON')
+  .action(async (options: { json?: boolean }) => {
+    const { runProjectLs } = await import('./commands/project.js');
+    process.exit(await runProjectLs(options));
+  });
+
+projectCommand
+  .command('add')
+  .description('Add a project (defaults to the current repository)')
+  .argument('[path]', 'Repository path', '.')
+  .action(async (path: string) => {
+    const { runProjectAdd } = await import('./commands/project.js');
+    process.exit(await runProjectAdd(path));
+  });
+
+projectCommand
+  .command('rm')
+  .alias('remove')
+  .description('Stop curating a project; its runs and history are preserved')
+  .argument('<project>', 'Project id, served prefix or path')
+  .action(async (target: string) => {
+    const { runProjectRm } = await import('./commands/project.js');
+    process.exit(await runProjectRm(target));
+  });
+
+projectCommand
+  .command('use')
+  .description('Mark a project as the most recently used one')
+  .argument('<project>', 'Project id, served prefix or path')
+  .action(async (target: string) => {
+    const { runProjectUse } = await import('./commands/project.js');
+    process.exit(await runProjectUse(target));
+  });
+
+// ── session ─────────────────────────────────────────────────────────────────
+// The one entry point that does not start from an Issue (§49, ADR-16): an
+// agent, on a branch, in a worktree, with no plan and no workflow behind it.
+// Like `project`, it reads and writes SQLite directly, so it works with no
+// server running.
+const sessionCommand = program
+  .command('session')
+  .description('Open and manage agent sessions, with or without an issue');
+
+sessionCommand
+  .command('new')
+  .description('Open an agent session on a branch — no issue required')
+  .option('--agent <id>', `Agent to open (${AGENT_PROVIDER_LIST})`)
+  .option('--branch <name>', 'Branch to work on (generated when omitted)')
+  .option('--profile <name>', 'Runtime profile to open with')
+  .option('--prompt <text>', 'First turn, delivered in the agent argv')
+  .option('--label <text>', 'Caption for the session, since no issue names it')
+  .option('--permission <level>', 'read-only | workspace | autonomous (default: workspace)')
+  .option('--model <name>', 'Model override for this session')
+  .option('--project <path>', 'Repository to open the session in (default: the current one)')
+  .option('--json', 'Emit the created session as JSON')
+  .action(
+    async (options: {
+      agent?: string;
+      branch?: string;
+      profile?: string;
+      prompt?: string;
+      label?: string;
+      permission?: string;
+      model?: string;
+      project?: string;
+      json?: boolean;
+    }) => {
+      const { runSessionNew } = await import('./commands/session.js');
+      process.exit(await runSessionNew(options));
+    },
+  );
+
+sessionCommand
+  .command('ls')
+  .alias('list')
+  .description('List free sessions; --all includes the ones a run owns')
+  .option('--all', 'Include sessions bound to a run')
+  .option('--project <path>', 'Repository to list (default: the current one)')
+  .option('--json', 'Emit the list as JSON')
+  .action(async (options: { all?: boolean; project?: string; json?: boolean }) => {
+    const { runSessionLs } = await import('./commands/session.js');
+    process.exit(await runSessionLs(options));
+  });
+
+sessionCommand
+  .command('attach')
+  .description("Attach this terminal to a session's tmux window")
+  .argument('<id>', 'Session id')
+  .option('--project <path>', 'Repository the session belongs to')
+  .action(async (id: string, options: { project?: string }) => {
+    const { runSessionAttach } = await import('./commands/session.js');
+    process.exit(await runSessionAttach(id, options));
+  });
+
+sessionCommand
+  .command('send')
+  .description('Send a subsequent turn to a live session')
+  .argument('<id>', 'Session id')
+  .argument('<text>', 'Text to deliver')
+  .option('--project <path>', 'Repository the session belongs to')
+  .action(async (id: string, text: string, options: { project?: string }) => {
+    const { runSessionSend } = await import('./commands/session.js');
+    process.exit(await runSessionSend(id, text, options));
+  });
+
+sessionCommand
+  .command('stop')
+  .description('Stop a session; its worktree and branch survive by default')
+  .argument('<id>', 'Session id')
+  .option('--remove-worktree', 'Also remove the worktree and its branch')
+  .option('--project <path>', 'Repository the session belongs to')
+  .action(async (id: string, options: { removeWorktree?: boolean; project?: string }) => {
+    const { runSessionStop } = await import('./commands/session.js');
+    process.exit(await runSessionStop(id, options));
+  });
+
+sessionCommand
+  .command('link')
+  .description('Bind a free session to an existing run, promoting it to the workflow')
+  .argument('<id>', 'Session id')
+  .option('--issue <number>', 'Issue whose most recent run to link to')
+  .option('--run <id>', 'Link to this run specifically')
+  .option('--project <path>', 'Repository the session belongs to')
+  .action(async (id: string, options: { issue?: string; run?: string; project?: string }) => {
+    const { runSessionLink } = await import('./commands/session.js');
+    process.exit(await runSessionLink(id, options));
+  });
+
+// ── tab ─────────────────────────────────────────────────────────────────────
+// Tabs are AgentSessions in the same worktree. These commands call the same
+// locked domain operations as the HTTP surface; the CLI is not a second model.
+const tabCommand = program
+  .command('tab')
+  .description('List, fork, switch and close agent tabs in one worktree');
+
+tabCommand
+  .command('list')
+  .alias('ls')
+  .description('List tabs; the active AgentSession is marked with *')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(async (branch: string, options: { project?: string; json?: boolean }) => {
+    const { runTabList } = await import('./commands/tab.js');
+    process.exit(await runTabList(branch, options));
+  });
+
+tabCommand
+  .command('create')
+  .description('Fork the root provider conversation into a new AgentSession')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(async (branch: string, options: { project?: string; json?: boolean }) => {
+    const { runTabCreate } = await import('./commands/tab.js');
+    process.exit(await runTabCreate(branch, options));
+  });
+
+tabCommand
+  .command('switch')
+  .description('Bring an existing tab pane to the worktree window')
+  .argument('<branch>', 'Worktree branch')
+  .argument('<tab-id>', 'AgentSession id from `tab list`')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(async (branch: string, tabId: string, options: { project?: string; json?: boolean }) => {
+    const { runTabSwitch } = await import('./commands/tab.js');
+    process.exit(await runTabSwitch(branch, tabId, options));
+  });
+
+tabCommand
+  .command('close')
+  .description('Stop and close one fork tab after confirmation')
+  .argument('<branch>', 'Worktree branch')
+  .argument('<tab-id>', 'Fork AgentSession id from `tab list`')
+  .option('--yes', 'Confirm stopping the fork without prompting')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(
+    async (
+      branch: string,
+      tabId: string,
+      options: { yes?: boolean; project?: string; json?: boolean },
+    ) => {
+      const { runTabClose } = await import('./commands/tab.js');
+      process.exit(await runTabClose(branch, tabId, options));
+    },
+  );
+
+// ── worktree ────────────────────────────────────────────────────────────────
+// Durable worktree curation independent of the monitor. The command bodies use
+// the same session/worktree control layer as the HTTP routes.
+const worktreeCommand = program
+  .command('worktree')
+  .description('List and curate managed worktrees without a running monitor');
+
+worktreeCommand
+  .command('refresh')
+  .description('Reattach the active terminal, or resume its same conversation if dead')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .option('--json', 'Emit pure JSON')
+  .action(async (branch: string, options: { project?: string; json?: boolean }) => {
+    const { runWorktreeRefresh } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeRefresh(branch, options));
+  });
+
+worktreeCommand
+  .command('ls')
+  .alias('list')
+  .description('List managed worktrees; closed worktrees remain visible')
+  .option('--all', 'Include archived worktrees')
+  .option('--archived', 'Show only archived worktrees')
+  .option('--project <path>', 'Repository to inspect (default: the current one)')
+  .option('--json', 'Emit the list as JSON')
+  .action(
+    async (options: { all?: boolean; archived?: boolean; project?: string; json?: boolean }) => {
+      const { runWorktreeLs } = await import('./commands/worktree.js');
+      process.exit(await runWorktreeLs(options));
+    },
+  );
+
+worktreeCommand
+  .command('archive')
+  .description('Archive a worktree and close its live sessions')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(async (branch: string, options: { project?: string }) => {
+    const { runWorktreeArchive } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeArchive(branch, options));
+  });
+
+worktreeCommand
+  .command('unarchive')
+  .description('Return an archived worktree to the active list')
+  .argument('<branch>', 'Worktree branch')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(async (branch: string, options: { project?: string }) => {
+    const { runWorktreeUnarchive } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeUnarchive(branch, options));
+  });
+
+worktreeCommand
+  .command('label')
+  .description('Set or clear a worktree caption')
+  .argument('<branch>', 'Worktree branch')
+  .argument('[label]', 'Caption (80 characters maximum)')
+  .option('--clear', 'Clear the caption')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(
+    async (
+      branch: string,
+      label: string | undefined,
+      options: { clear?: boolean; project?: string },
+    ) => {
+      const { runWorktreeLabel } = await import('./commands/worktree.js');
+      process.exit(await runWorktreeLabel(branch, label, options));
+    },
+  );
+
+worktreeCommand
+  .command('remove')
+  .description('Remove a worktree and its branch after confirmation')
+  .argument('<branch>', 'Worktree branch')
+  .option('--yes', 'Confirm deletion without prompting')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(async (branch: string, options: { yes?: boolean; project?: string }) => {
+    const { runWorktreeRemove } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeRemove(branch, options));
+  });
+
+worktreeCommand
+  .command('merge')
+  .description('Merge into the base branch and remove the worktree')
+  .argument('<branch>', 'Worktree branch')
+  .option('--yes', 'Confirm merge and cleanup without prompting')
+  .option('--project <path>', 'Repository the worktree belongs to')
+  .action(async (branch: string, options: { yes?: boolean; project?: string }) => {
+    const { runWorktreeMerge } = await import('./commands/worktree.js');
+    process.exit(await runWorktreeMerge(branch, options));
+  });
+
+worktreeCommand
+  .command('prune')
+  .description('Preview closed-worktree cleanup; --yes applies the shown plan')
+  .option('--dry-run', 'Only show the cleanup plan (the default)')
+  .option('--yes', 'Remove every worktree shown by the plan')
+  .option('--project <path>', 'Repository whose closed worktrees to prune')
+  .action(async (options: { dryRun?: boolean; yes?: boolean; project?: string }) => {
+    const { runWorktreePrune } = await import('./commands/worktree.js');
+    process.exit(await runWorktreePrune(options));
+  });
+
+// ── web ─────────────────────────────────────────────────────────────────────
 const webCommand = program.command('web').description('Manage the web monitoring server');
 
 webCommand
   .command('serve')
-  .description(
-    'Run the web monitor server in the foreground (internal — spawned detached by --web)',
-  )
+  .description('Alias of `issue-flow serve` (internal — spawned detached by --web)')
   .option('--port <n>', 'Web server port (default: 3737)', parseInteger)
   .option('--host <h>', 'Web server host (default: 0.0.0.0)')
   .option('--refresh <s>', 'Suggested UI polling interval in seconds', parseInteger)
-  .action(async (options: { port?: number; host?: string; refresh?: number }) => {
-    const { runWebServe } = await import('./commands/web.js');
-    const code = await runWebServe(options);
-    // On success this process stays alive for as long as the server is bound
-    // (server.ts binds it with unref: false) — only a failure exits here.
-    if (code !== 0) {
-      process.exit(code);
-    }
-  });
+  .option(
+    '--project <path>',
+    'Serve an extra repository for this process only (repeatable)',
+    (value: string, previous: string[] = []) => [...previous, value],
+  )
+  .action(
+    async (options: { port?: number; host?: string; refresh?: number; project?: string[] }) => {
+      const { runWebServe } = await import('./commands/web.js');
+      const code = await runWebServe(options);
+      // On success this process stays alive for as long as the server is bound
+      // (server.ts binds it with unref: false) — only a failure exits here.
+      if (code !== 0) {
+        process.exit(code);
+      }
+    },
+  );
 
 webCommand
   .command('stop')
@@ -953,7 +1317,6 @@ conventionsCommand
   .option('--scope <scope>', 'Optional scope')
   .requiredOption('--subject <text>', 'Commit subject')
   .option('--issue <n>', 'Issue number for the Refs trailer')
-  .option('--story <id>', 'Story id (US-010)')
   .option('--breaking <text>', 'Breaking change description')
   .option('--json', 'Emit JSON')
   .action(
@@ -962,7 +1325,6 @@ conventionsCommand
       scope?: string;
       subject: string;
       issue?: string;
-      story?: string;
       breaking?: string;
       json?: boolean;
     }) => {
@@ -1116,16 +1478,18 @@ withGlobalOptions(
   },
 );
 
-program.action(async () => {
-  const { listLiveRuns } = await import('./execution/registry.js');
-  const runs = await listLiveRuns();
-  if (runs.length === 0) {
-    program.help();
-    return;
-  }
-  const { runPs } = await import('./commands/ps.js');
-  process.exit(await runPs());
-});
+program.action(() => program.help());
 
 attachCompletion(program);
-program.parse();
+
+function isEntrypoint(): boolean {
+  const invoked = process.argv[1];
+  if (invoked === undefined) return false;
+  try {
+    return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint()) program.parse();

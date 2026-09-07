@@ -1,9 +1,7 @@
-import { getActiveResilienceConfig } from '../../config.js';
 import type { ClassifiedFailure } from '../../resilience/errors.js';
 import { ClassifiedError, requiresHumanAction } from '../../resilience/errors.js';
-import { type PolicyConfig, resolvePolicy } from '../../resilience/policy.js';
-import type { RetryPolicyFor } from '../../resilience/retry.js';
 import { type ExecResult, run } from '../../utils/shell.js';
+import { gh, ghProbePolicy } from '../github/index.js';
 import { hashIssueContent } from '../hash.js';
 import type { IssueProvider, ProviderAvailability } from '../provider.js';
 import { emptyRelations, mergeRelations, parseTextualRelations, uniqueIds } from '../relations.js';
@@ -14,51 +12,6 @@ const VIEW_FIELDS = 'number,title,body,labels,state,url,createdAt,updatedAt,issu
 
 /** Timeout for the availability probes, matching the `init` prerequisite checks. */
 const PROBE_TIMEOUT_MS = 10_000;
-
-/**
- * Every `gh` invocation carries the resilience policy of the failure it hits:
- * the `network` budget for a DNS blip, the `rate_limit` budget (and the
- * server's `Retry-After`) for a rate limit, and — because `resolvePolicy()`
- * clamps them — **no** attempt at all for an authentication or configuration
- * failure. This is the one place `gh` failures stop being fatal on sight.
- */
-function ghPolicy(): RetryPolicyFor {
-  return (failure: ClassifiedFailure) =>
-    resolvePolicy(failure.kind, getActiveResilienceConfig() as PolicyConfig);
-}
-
-/**
- * The budget of the availability probes, capped well below the full one.
- *
- * A probe answers a question about liveness; the answer must not take minutes.
- * The real read (`get`, `create`, `close`) keeps the full policy, so a blip
- * during the work is still absorbed at its documented budget — what is capped
- * here is only how long an *unreachable* GitHub delays a `local` Issue that
- * would have resolved instantly.
- */
-const PROBE_MAX_ATTEMPTS = 3;
-const PROBE_MAX_DELAY_MS = 5_000;
-
-function ghProbePolicy(): RetryPolicyFor {
-  const policyFor = ghPolicy();
-  return (failure) => {
-    const policy = policyFor(failure);
-    return {
-      ...policy,
-      maxAttempts: Math.min(policy.maxAttempts, PROBE_MAX_ATTEMPTS),
-      maxDelayMs: Math.min(policy.maxDelayMs, PROBE_MAX_DELAY_MS),
-      retryForever: false,
-    };
-  };
-}
-
-/** `gh <args>` under the full resilience policy. */
-function gh(args: string[], options: { timeout?: number } = {}): Promise<ExecResult> {
-  return run('gh', args, {
-    retry: ghPolicy(),
-    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
-  });
-}
 
 /**
  * gh reports a missing Issue on stderr with one of these phrasings. The match

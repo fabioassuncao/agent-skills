@@ -1,0 +1,467 @@
+<script lang="ts">
+  import { tick } from 'svelte';
+  import AskUserQuestionCard from './AskUserQuestionCard.svelte';
+  import { ASK_USER_QUESTION_TOOL_NAME, parseAskUserQuestion } from './ask-user-question';
+  import type {
+    AgentsUiConversationMessage,
+    AgentsUiConversationState,
+    AskUserQuestionInput,
+    WorktreeInfo,
+  } from './types';
+
+  /**
+   * The structured agent conversation.
+   *
+   * PORT of `frontend/src/lib/WorktreeConversationPanel.svelte` @ d8c9d5f
+   * (403 lines).
+   *
+   * This channel is **independent of the terminal** (ADR-06): the chat renders
+   * what the agent reported, the terminal renders bytes, and no workflow
+   * decision is ever taken from terminal output. They coexist (§50.3) — chat
+   * for the conversation, logs for process output.
+   *
+   * `buildTranscriptItems` folds a `toolResult` into the `toolUse` that
+   * produced it, keyed by `toolCallId`, so a tool call and its output are one
+   * collapsible block instead of two entries the reader has to pair up.
+   */
+
+  interface Props {
+    worktree: WorktreeInfo;
+    conversation: AgentsUiConversationState | null;
+    conversationError: string | null;
+    conversationLoading: boolean;
+    composerText: string;
+    isSending: boolean;
+    onAttach: () => void;
+    onComposerInput: (value: string) => void;
+    onInterrupt: () => void;
+    onRefresh: () => void;
+    onSend: () => void;
+    onAnswerQuestion: (text: string) => void;
+  }
+
+  type TranscriptItem =
+    | { type: 'message'; key: string; message: AgentsUiConversationMessage }
+    | {
+        type: 'question';
+        key: string;
+        tool: AgentsUiConversationMessage;
+        input: AskUserQuestionInput;
+        answered: boolean;
+      }
+    | {
+        type: 'tool';
+        key: string;
+        tool: AgentsUiConversationMessage;
+        result: AgentsUiConversationMessage | null;
+      };
+
+  const {
+    worktree,
+    conversation,
+    conversationError,
+    conversationLoading,
+    composerText,
+    isSending,
+    onAttach,
+    onComposerInput,
+    onInterrupt,
+    onRefresh,
+    onSend,
+    onAnswerQuestion,
+  }: Props = $props();
+
+  const CHAT_AGENTS = new Set(['codex', 'claude']);
+
+  const agentLabel = $derived(
+    worktree.agentLabel ?? (worktree.agentName === 'claude' ? 'Claude' : 'Codex'),
+  );
+  const supportsAgentChat = $derived(
+    worktree.agentName !== null && CHAT_AGENTS.has(worktree.agentName),
+  );
+  const chatAvailable = $derived(supportsAgentChat && worktree.mux === '✓');
+  const showInterrupt = $derived(chatAvailable && (conversation?.running ?? false));
+  const showComposerInterrupt = $derived(showInterrupt && !conversationError);
+  const showProcessingIndicator = $derived(isSending || showComposerInterrupt);
+  const transcriptItems = $derived(
+    buildTranscriptItems((conversation?.messages ?? []).filter(isVisibleTranscriptMessage)),
+  );
+  const canSend = $derived(
+    chatAvailable &&
+      conversation !== null &&
+      !conversationLoading &&
+      composerText.trim().length > 0 &&
+      !isSending &&
+      !(conversation?.running ?? false),
+  );
+
+  let transcriptViewport = $state<HTMLDivElement | null>(null);
+
+  function handleComposerInput(event: Event): void {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLTextAreaElement)) return;
+    onComposerInput(target.value);
+  }
+
+  function handleComposerKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+    if (canSend) {
+      onSend();
+    }
+  }
+
+  async function scrollTranscriptToBottom(): Promise<void> {
+    await tick();
+    transcriptViewport?.scrollTo({
+      top: transcriptViewport.scrollHeight,
+      behavior: 'auto',
+    });
+  }
+
+  function toolStatusLabel(message: AgentsUiConversationMessage): string {
+    if (message.status === 'inProgress') return 'Executando';
+    if (message.status === 'failed') return 'Falhou';
+    return 'Concluído';
+  }
+
+  function exitCodeLabel(message: AgentsUiConversationMessage): string | null {
+    return message.exitCode === null || message.exitCode === undefined
+      ? null
+      : `saída ${message.exitCode}`;
+  }
+
+  function formatDuration(durationMs: number | null | undefined): string | null {
+    if (durationMs === null || durationMs === undefined) return null;
+    if (durationMs < 1000) return `${durationMs} ms`;
+    return `${(durationMs / 1000).toFixed(1)} s`;
+  }
+
+  function showToolInputFade(text: string): boolean {
+    return text.split('\n').length > 2 || text.length > 160;
+  }
+
+  function messageKind(
+    message: AgentsUiConversationMessage,
+  ): NonNullable<AgentsUiConversationMessage['kind']> {
+    return message.kind ?? 'text';
+  }
+
+  function isVisibleTranscriptMessage(message: AgentsUiConversationMessage): boolean {
+    const kind = messageKind(message);
+    if ((kind === 'text' || kind === 'thinking') && message.text.trim().length === 0) {
+      return false;
+    }
+    return true;
+  }
+
+  function buildTranscriptItems(messages: AgentsUiConversationMessage[]): TranscriptItem[] {
+    const toolUseCallIds = new Set(
+      messages
+        .filter((message) => messageKind(message) === 'toolUse' && message.toolCallId)
+        .map((message) => message.toolCallId as string),
+    );
+    const resultByCallId = new Map<string, AgentsUiConversationMessage>();
+
+    for (const message of messages) {
+      if (
+        messageKind(message) === 'toolResult' &&
+        message.toolCallId &&
+        !resultByCallId.has(message.toolCallId)
+      ) {
+        resultByCallId.set(message.toolCallId, message);
+      }
+    }
+
+    return messages.flatMap((message): TranscriptItem[] => {
+      const kind = messageKind(message);
+      if (kind === 'toolUse') {
+        if (message.toolName === ASK_USER_QUESTION_TOOL_NAME) {
+          const input = parseAskUserQuestion(message.text);
+          if (input) {
+            const answered = messages.some(
+              (other) =>
+                other.role === 'user' &&
+                messageKind(other) === 'text' &&
+                other.order > message.order,
+            );
+            return [{ type: 'question', key: message.id, tool: message, input, answered }];
+          }
+        }
+        return [
+          {
+            type: 'tool',
+            key: message.id,
+            tool: message,
+            result: message.toolCallId ? (resultByCallId.get(message.toolCallId) ?? null) : null,
+          },
+        ];
+      }
+
+      if (kind === 'toolResult' && message.toolCallId && toolUseCallIds.has(message.toolCallId)) {
+        return [];
+      }
+
+      return [{ type: 'message', key: message.id, message }];
+    });
+  }
+
+  $effect(() => {
+    const conversationId = conversation?.conversationId ?? null;
+    const messageCount = conversation?.messages.length ?? 0;
+    const lastMessageId =
+      messageCount > 0 ? (conversation?.messages[messageCount - 1]?.id ?? null) : null;
+    const lastMessageTextLength =
+      messageCount > 0 ? (conversation?.messages[messageCount - 1]?.text.length ?? 0) : 0;
+    if (!conversationId || !transcriptViewport) return;
+    void scrollTranscriptToBottom();
+    void conversationId;
+    void messageCount;
+    void lastMessageId;
+    void lastMessageTextLength;
+  });
+</script>
+
+{#snippet interruptButton()}
+  <button
+    type="button"
+    class="rounded-md border border-danger px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10"
+    onclick={onInterrupt}
+  >
+    Interromper
+  </button>
+{/snippet}
+
+{#snippet sendIcon()}
+  <svg
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="m9 10-4 4 4 4" />
+    <path d="M5 14h11a4 4 0 0 0 4-4V6" />
+  </svg>
+{/snippet}
+
+{#snippet stopIcon()}
+  <svg
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <rect x="7" y="7" width="10" height="10" rx="1.5" />
+  </svg>
+{/snippet}
+
+{#snippet processingIndicator()}
+  <div
+    class="flex max-w-[88%] items-center gap-2 self-start rounded-md border border-edge bg-topbar px-3 py-2 text-xs text-muted"
+  >
+    <span class="spinner"></span>
+    {agentLabel} está processando
+  </div>
+{/snippet}
+
+{#if !supportsAgentChat}
+  <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
+    O chat ainda não está disponível para este worktree.
+  </div>
+{:else if !chatAvailable}
+  <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
+    Abra este worktree para usar o chat.
+  </div>
+{:else}
+  <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
+    {#if conversationError}
+      <div
+        class="mx-4 mt-4 rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-primary"
+        role="alert"
+      >
+        <div>{conversationError}</div>
+        <div class="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-edge bg-surface px-3 py-1.5 text-xs font-medium text-primary hover:bg-hover"
+            onclick={conversation ? onRefresh : onAttach}
+            disabled={conversationLoading || isSending}
+          >
+            {conversation ? 'Reconectar' : 'Conectar'}
+          </button>
+          {#if showInterrupt}
+            {@render interruptButton()}
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    <div class="flex min-h-0 flex-1 flex-col px-4 pt-4">
+      <div
+        bind:this={transcriptViewport}
+        class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden pb-4 pr-1"
+      >
+        {#if conversationLoading && !conversation}
+          <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
+            Conectando à sessão do {agentLabel}…
+          </div>
+        {:else if !conversation}
+          <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
+            Nenhuma mensagem ainda. Envie o primeiro prompt para começar.
+          </div>
+        {:else if conversation.messages.length === 0}
+          {#if showProcessingIndicator}
+            {@render processingIndicator()}
+          {:else}
+            <div class="rounded-md border border-edge bg-topbar px-4 py-5 text-sm text-muted">
+              Nenhuma mensagem ainda. Envie o primeiro prompt para começar.
+            </div>
+          {/if}
+        {:else}
+          {#each transcriptItems as item (item.key)}
+            {#if item.type === 'message' && messageKind(item.message) === 'thinking'}
+              {@const message = item.message}
+              <div
+                class="self-start max-w-[88%] min-w-0 rounded-md border border-edge bg-topbar px-3 py-2 text-xs text-muted"
+              >
+                <div class="mb-1 uppercase tracking-[0.12em]">Raciocínio</div>
+                <div class="whitespace-pre-wrap break-words text-primary">{message.text}</div>
+                {#if message.status === 'inProgress'}
+                  <div class="mt-2 uppercase tracking-[0.12em]">executando</div>
+                {/if}
+              </div>
+            {:else if item.type === 'question'}
+              <AskUserQuestionCard
+                input={item.input}
+                disabled={item.answered}
+                onSubmit={onAnswerQuestion}
+              />
+            {:else if item.type === 'tool'}
+              {@const message = item.tool}
+              {@const result = item.result}
+              <details
+                class={`group self-start max-w-[94%] min-w-0 rounded-md border text-xs ${
+                  message.status === 'failed' || result?.status === 'failed'
+                    ? 'border-danger/30 bg-danger/10 text-primary'
+                    : 'border-edge bg-topbar text-primary'
+                }`}
+                open={message.status === 'failed' || result?.status === 'failed'}
+              >
+                <summary class="cursor-pointer px-3 py-2 text-muted">
+                  <div
+                    class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.12em]"
+                  >
+                    <span>{toolStatusLabel(message)} {message.toolName ?? 'ferramenta'}</span>
+                    {#if exitCodeLabel(message)}
+                      <span>{exitCodeLabel(message)}</span>
+                    {/if}
+                    {#if formatDuration(message.durationMs)}
+                      <span>{formatDuration(message.durationMs)}</span>
+                    {/if}
+                  </div>
+                  <div class="group-open:hidden relative mt-1 max-h-[2.05rem] overflow-hidden">
+                    <pre
+                      class="whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.35] text-primary">{message.text}</pre>
+                    {#if showToolInputFade(message.text)}
+                      <div class="pointer-events-none absolute inset-x-0 bottom-0 h-5 tool-fade"></div>
+                    {/if}
+                  </div>
+                </summary>
+
+                <div class="border-t border-edge px-3 py-2">
+                  <pre
+                    class="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-primary">{message.text}</pre>
+                  {#if message.status === 'inProgress'}
+                    <div class="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">
+                      executando
+                    </div>
+                  {/if}
+                  {#if result}
+                    <div class="mt-3 border-t border-edge pt-2">
+                      <div class="mb-1 text-[10px] uppercase tracking-[0.12em] text-muted">
+                        Saída
+                      </div>
+                      <pre
+                        class="max-h-[18rem] overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-primary">{result.text}</pre>
+                    </div>
+                  {/if}
+                </div>
+              </details>
+            {:else}
+              {@const message = item.message}
+              <div
+                class={`max-w-[88%] min-w-0 rounded-2xl px-4 py-3 text-sm ${
+                  message.role === 'user'
+                    ? 'self-end bg-accent text-accent-text'
+                    : 'self-start border border-edge bg-topbar text-primary'
+                }`}
+              >
+                <div class="whitespace-pre-wrap break-words">{message.text}</div>
+              </div>
+            {/if}
+          {/each}
+          {#if showProcessingIndicator}
+            {@render processingIndicator()}
+          {/if}
+        {/if}
+      </div>
+    </div>
+
+    <div
+      class="border-t border-edge bg-topbar px-4 pb-4 pt-4"
+      style="padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));"
+    >
+      <div class="relative">
+        <textarea
+          id="conversation-composer"
+          aria-label="Mensagem"
+          class="block min-h-[5.25rem] w-full max-w-full resize-none rounded-2xl border border-edge bg-surface py-3 pl-4 pr-14 text-sm text-primary outline-none transition placeholder:text-muted/70 focus:border-accent"
+          placeholder="pergunte qualquer coisa"
+          value={composerText}
+          oninput={handleComposerInput}
+          onkeydown={handleComposerKeydown}
+          disabled={isSending}
+        ></textarea>
+
+        {#if showComposerInterrupt}
+          <button
+            type="button"
+            aria-label="Interromper"
+            class="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted transition hover:bg-hover hover:text-primary"
+            onclick={onInterrupt}
+          >
+            {@render stopIcon()}
+          </button>
+        {:else}
+          <button
+            type="button"
+            aria-label="Enviar"
+            class="absolute right-3 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted transition enabled:hover:bg-hover enabled:hover:text-primary disabled:cursor-not-allowed disabled:opacity-45"
+            onclick={onSend}
+            disabled={!canSend}
+          >
+            {@render sendIcon()}
+          </button>
+        {/if}
+      </div>
+    </div>
+  </section>
+{/if}
+
+<style>
+  .tool-fade {
+    background: linear-gradient(to bottom, transparent, var(--surface-page));
+  }
+</style>

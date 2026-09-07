@@ -121,6 +121,83 @@ export type SessionEvent =
       cooldownUntil?: string | null;
     }
   | { type: 'agent:activity'; at: string; provider: string }
+  | {
+      /**
+       * A person took over the run (§32). Reported, never inferred: the signal
+       * is somebody typing into the agent's terminal, which is the whole of the
+       * mechanism — there is no confirmation step and no mode to switch.
+       */
+      type: 'human:hold';
+      at: string;
+      reason: 'takeover' | 'requested';
+    }
+  | {
+      /**
+       * Control handed back, always explicitly. Nothing infers that a person is
+       * done: a run that resumed itself because the terminal went quiet would
+       * be the bug the hold exists to prevent, with extra steps.
+       */
+      type: 'human:resume';
+      at: string;
+    }
+  | {
+      /**
+       * The agent's own hooks report that it started working (ADR-05). This is
+       * the counterpart of `agent:awaiting-input`, and the only thing that can
+       * clear it — an agent that is producing output is not blocked on anyone.
+       *
+       * Distinct from `agent:activity`, which is the watchdog heartbeat and
+       * says only that a process wrote a byte. This one says what the harness
+       * itself thinks it is doing.
+       */
+      type: 'agent:busy';
+      at: string;
+      phase: string;
+    }
+  | {
+      /**
+       * The agent is blocked on a human: a permission prompt, an elicitation
+       * dialog, or a Codex permission request. It is the single most valuable
+       * event absorbed from WebMux (§18), because before it the state was
+       * indistinguishable from "still thinking" — including in `headless`,
+       * where nobody is looking at a terminal.
+       */
+      type: 'agent:awaiting-input';
+      at: string;
+      phase: string;
+    }
+  | {
+      /**
+       * Nobody answered the agent (§32, last row of its table).
+       *
+       * This is **not** a human hold. A hold means somebody took the run over
+       * and is thinking; this means the agent asked and *nobody came*. Reading
+       * `heldForMs` for this would escalate during a legitimate takeover, which
+       * is precisely what §32 forbids — so the two conditions stay apart, and
+       * an escalation is suppressed while a hold exists.
+       *
+       * The decision is the pipeline's, never the dashboard's: a headless run
+       * with no UI at all still has to escalate (ADR-03). The interface only
+       * displays what this event put in the snapshot.
+       */
+      type: 'agent:awaiting-input-escalated';
+      at: string;
+      phase: string;
+      /** How long the agent had been waiting when the threshold was crossed. */
+      waitedMs: number;
+    }
+  | {
+      /**
+       * A pull request the agent opened by itself, seen by the `PostToolUse`
+       * hook rather than reported by the `pr` phase. It folds into the same
+       * `pullRequests` list the phase writes — one concept, two producers.
+       */
+      type: 'pr:opened';
+      at: string;
+      url: string;
+      number: number | null;
+      title?: string;
+    }
   | { type: 'stories:update'; at: string; stories: UserStory[] }
   | { type: 'activity'; at: string; story?: string; tool?: string; detail?: string }
   | { type: 'log'; at: string; level: SessionLogLevel; message: string }

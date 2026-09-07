@@ -190,6 +190,17 @@ Configure it with `--inactivity-timeout <seconds>`,
 `ISSUE_FLOW_RESILIENCE_INACTIVITY_TIMEOUT_MS`. A tripped watchdog classifies the
 failure as `stalled`.
 
+### While a person is in control
+
+The watchdog **never** trips on a run somebody has taken over. That is not a
+tolerance setting: a held run is silent because a person is reading it, and
+killing the agent at exactly that moment is the failure the hold exists to
+prevent.
+
+Releasing the hold gives the agent the **whole** silence budget again, rather
+than counting the minutes the person spent thinking. See
+[human takeover](web-monitor.md#human-takeover).
+
 ## Queue behaviour
 
 In a [multi-issue queue](issues.md#hierarchies-and-queues),
@@ -267,3 +278,62 @@ sub-issues through `issue-flow generate`, so the repository's label and template
 policy applies to each of them. It refuses to run when the branch already carries
 committed stories: splitting on top of half-finished work leaves commits
 belonging to no issue, and that needs a person.
+
+## Recovery and reconciliation
+
+A pipeline is not the only thing that can be interrupted. The process can be
+restarted, the machine can reboot, a container can die, and someone can remove a
+worktree by hand. `src/runtime/reconcile.ts` is what makes the answer to all of
+those the same answer.
+
+**One rule decides every case: who is the authority.**
+
+| Data | Authority | What the database holds |
+|------|-----------|-------------------------|
+| Which worktrees exist; branch, dirty, ahead | **git** | a projection |
+| A live window and its panes | **tmux** (`list-windows -a`) | the last liveness seen |
+| A live container | **docker** | a projection |
+| Whether a conversation still exists | **the provider** | its id |
+| Whether the agent is working or waiting | **the agent's hooks** | the current state |
+| What a session is bound to — run, phase, story | **SQLite** | the authority |
+| Workflow progress | **SQLite** (`runs`/`phases`/`stories`) | the authority |
+| Allocated ports | **SQLite** + `runtime.env` | the authority |
+
+The outside world is the authority on **existence and life**; the database is
+the authority on **binding and intent**. A disagreement always resolves in
+favour of the outside world, and the row is marked `orphaned` — never recreated
+out of optimism, and never deleted because a directory is gone. Closing a
+session that way writes an `audit_log` entry, so a status that changed has a
+reason attached to it.
+
+That asymmetry is what keeps the two failure modes apart. Recreating a worktree
+because a row mentions one would resurrect work nobody asked for; deleting a row
+because a directory vanished would destroy the record of what was attempted. The
+projection is rebuilt from scratch on every pass and so never accumulates
+rubbish; the bindings are never rebuilt and so never lose history.
+
+**How a session comes back** depends only on what is actually alive:
+
+| What survived | What happens | What it costs |
+|---|---|---|
+| The tmux window | **reattach** — the window is not touched | nothing; the agent never noticed |
+| Only the conversation | **resume** (`--resume <id>`) | startup, not context |
+| Neither | **fresh** | a new conversation |
+
+A live window always wins. An agent whose window is intact kept working while
+nobody was watching, and rebuilding that window to "restore" it would kill the
+process it was restoring.
+
+**Reconciliation reads the world in aggregate.** `tmux list-windows -a` runs
+once per pass and the container listing runs once per pass, never once per
+entity — measured flat from 1 to 21 worktrees, inside the 50 ms budget. That is
+what makes a 500 ms freshness window affordable: a pass that grew with the
+number of worktrees could not be repeated at that rate. Calls that arrive during
+a pass join it rather than starting a second one, so a dashboard refreshing four
+panels costs one pass.
+
+**Reconciliation never invents agent state.** `starting`, `running` and `idle`
+are reported by the agent's hooks; a pane existing is not evidence for any of
+them. The only move this layer makes is the demotion of a live row whose window
+is gone. A silent agent is the [watchdog](#the-inactivity-watchdog)'s problem,
+not a reconciliation problem.

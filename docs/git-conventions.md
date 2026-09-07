@@ -9,6 +9,19 @@ See also [`docs/conventions.md`](conventions.md) for how conventions are
 discovered, and `issue-flow conventions` / `issue-flow policy --json` for the
 machine-readable surface.
 
+## Strong defaults, minimal policy
+
+Everything below is what Issue Flow does when the repository has decided
+nothing. **The moment the repository declares its own rule, Issue Flow yields
+the whole decision** — it does not overlay or merge it. A rule the repository
+wrote down is `declared` and turns the fallback off; a pattern read out of
+history is `inferred`, reported and nothing more.
+
+Four rules never yield, because each is a guarantee rather than a preference:
+provider independence, `Refs` instead of `Closes` on a commit, `Closes` versus
+`Refs` in a PR as a function of the verification state, and the ban on inferring
+priority or triage labels from a diff.
+
 ## Independence of provider
 
 Branch, commit and Pull Request title are a function of the issue and the
@@ -33,11 +46,16 @@ Default pattern: `{type}/{N}-{slug}`.
 | No associated issue | `{type}/{slug}` |
 | Empty slug | `{type}/{N}` |
 
-`style` and `revert` are valid commit types and are not used as branch prefixes.
+The type comes from two rungs: a type the repository declares — directly, or
+through the label map (`policy.git.typeMap` overlays the default one) — and
+otherwise `feat`, marked as `fallback`. Inferring it from an Issue Type name or
+a `[Bug]` title prefix gave a confident answer nobody could check and changed
+nothing downstream; both rungs and their tables are gone.
 
-The type is resolved by a five-rung ladder: a declared `policy.git.branchConvention`
-(format), native Issue Type, labels (`policy.git.typeMap` overlays the default
-map), a title prefix such as `[Bug]`, then `feat` marked as `fallback`.
+Work with no issue takes one of two other paths: a free description with a
+generator configured produces a flat kebab-case name of at most 40 characters
+and **no prefix**; anything else produces `change-<uuid8>`. Without a configured
+generator — the default — no model is ever called to name a branch.
 
 `issue/{N}-*` remains recognised when extracting a number, so existing branches
 are not renamed and a resumed run keeps `tasks.json.branchName`.
@@ -48,21 +66,22 @@ issue-flow conventions branch --issue 63
 
 ## Commits
 
-The format below is the Issue Flow fallback. Portable Skills first apply an
-explicit invocation rule, declared project conventions, or clearly established
-project practice. Their `auto`, `project` and `issue-flow` strategies are described
-in the [Skill invocation guide](../skills/README.md#configure-an-invocation). The
-bundled commit renderer generates this fallback, not arbitrary project formats.
+`commit.format` picks between two. **`conventional`** (the default) renders the
+message below and wraps the body at 72 columns. **`free`** leaves subject and
+body exactly as written, which is what a repository shipping a `.gitmessage` or
+declaring its own format gets.
 
 ```text
 <type>(<scope>)[!]: <subject>
 
 Refs #N
-Story: US-010
 ```
 
-- Vocabulary: `feat` `fix` `docs` `refactor` `perf` `test` `build` `ci` `chore` `style` `revert`
-- One commit, one type. Footers use `Refs`, never `Closes`.
+- Default vocabulary: `feat` `fix` `docs` `refactor` `perf` `test` `build` `ci` `chore` `style` `revert`
+- A repository declaring its own types replaces that list; one declaring a
+  convention without enumerating types gets `types: 'any'`, so a legitimate type
+  of its own is never rejected.
+- One commit, one type. Footers use `Refs`, never `Closes`, in both formats.
 - `commit.signoff` in `~/.issue-flow/config.json` adds `Signed-off-by:`.
 
 ```bash
@@ -84,57 +103,23 @@ Reference lines are deterministic:
 | Container whose children all closed | `Closes #N` |
 | Container with pending children | `Refs #N` |
 
-A repository `PULL_REQUEST_TEMPLATE` still governs the body.
-
 ```bash
 issue-flow conventions pr-title --issue 63
 ```
 
 ### PR description and metadata
 
-The single [PR template](../.github/PULL_REQUEST_TEMPLATE.md) governs the body:
-what changed, how it was tested, related issues and notes for reviewers. Keep all
-four sections and explain non-applicable sections briefly. Include concrete
-before/after behavior and compatibility or migration risks when useful. The
-Conventional Commit-style title is this project's convention, not a requirement
-of the GitHub platform.
+The repository's `PULL_REQUEST_TEMPLATE` governs the body — fill in the sections
+it actually has. With no template, say what changed and how it was tested.
+Apply existing labels the diff genuinely supports, querying the live registry
+first; never create one to fit, and never infer `high`, `medium`, `low`,
+`blocked`, size or triage labels from a diff.
 
-A template does not populate the PR sidebar. For PRs **in this repository**, apply
-existing labels automatically when the actual diff supports them:
-
-| Dimension | Existing labels | Selection |
-|---|---|---|
-| Nature | `bug`, `enhancement`, `refactor` | Behavior corrected, capability added, or code reorganized |
-| Area | `architecture`, `backend`, `frontend`, `infra`, `monitoring` | Material architectural, server/CLI, UI, infrastructure, or observability impact |
-| Documentation | `documentation` | Documentation is a relevant part of the delivered change |
-
-Labels can coexist. A backend correction can use `bug` and `backend`; a document
-that mentions an API does not automatically need `backend`. Architectural work
-changes boundaries or responsibilities, not merely many files. Do not classify
-by changed-file count or blindly copy issue labels. Use `documentation`, not a
-new synonymous `docs` label. Query the live registry before applying labels;
-this table does not authorize recreating a deleted label.
-
-Do not infer `high`, `medium`, `low`, `blocked`, size or triage labels from a diff.
-Such decisions need an explicit user selection or an applicable PR rule. The
-repository's issue-type guidance is about issues; it does not make issue types
-into PR fields or forbid useful PR labels such as `bug` and `enhancement`.
-
-Assignees, reviewers, milestone and project membership require explicit values
-or a concrete applicable rule. Do not assume the issue author owns the PR, assign
-the current account automatically, or invent a reviewer/release. CODEOWNERS may
-let GitHub request review; avoid duplicate manual requests. Unspecified fields
-may remain empty.
-
-Skills and the CLI share the publication procedure in the
-[PR metadata contract](../skills-src/_shared/pr-metadata.md). They read the
-consumer project's conventions and vocabulary; the label table above is not a
-universal default. Metadata is applied separately from the body and verified on
-the created PR. If a field fails, preserve the PR URL and report what is pending;
-retry only the missing authorized operation, never create another PR. Plain
-adoption of an existing PR does not reclassify it. Explicit updates preserve
-manual metadata unless removal/replacement was requested. No bulk migration of
-older PRs is part of this workflow.
+Assignees, reviewers, milestone and project membership need explicit values or a
+concrete applicable rule; unspecified fields may stay empty. The publication
+procedure Skills and the CLI share — how metadata is applied and verified, and
+what to do when one field fails — is the
+[PR metadata contract](../skills-src/_shared/pr-metadata.md).
 
 GitHub documents [PR templates](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository),
 [repository labels](https://docs.github.com/en/issues/using-labels-and-milestones-to-track-work/managing-labels)
@@ -142,8 +127,12 @@ and [separate metadata options in gh pr create](https://cli.github.com/manual/gh
 
 ## Discovery
 
-`commitlint`, `release-please`, `semantic-release`, Changesets,
-`amannn/action-semantic-pull-request` and `.husky/commit-msg` are discovered
-and recorded in `issue-flow policy --json`. JavaScript commitlint configs are
-read as text and never executed. A value declared in `.issue-flow.json` wins
-over discovery; discovery wins over the default.
+Declared sources: `commitlint` (config file or `package.json`), `release-please`,
+`semantic-release`, Changesets, `amannn/action-semantic-pull-request`, a CI job
+running `commitlint`, `.husky/commit-msg`, and the repository's
+`commit.template` (`.gitmessage`, or wherever `git config commit.template`
+points). Inferred sources: recent commit subjects and existing branch names.
+
+All are recorded in `issue-flow policy --json` with their status. JavaScript
+commitlint configs are read as text and never executed. A value declared in
+`.issue-flow.json` wins over discovery; discovery wins over the default.

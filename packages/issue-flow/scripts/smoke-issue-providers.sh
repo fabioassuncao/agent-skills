@@ -492,6 +492,38 @@ scenario_both_divergent() {
 
 # ── main ────────────────────────────────────────────────────────────────────
 
+# ── scenario D: a free prompt, with no Issue behind it (§17) ────────────────
+
+# `issue-flow run --prompt` is the entry `webmux oneshot` had and `run` did not.
+# What this proves is the point of the convergence: the demand becomes an Issue
+# of the `inline` origin, and from there the pipeline, the prompts and the
+# summary are the ordinary ones — no shorter path, no skipped phase.
+scenario_inline_prompt() {
+  echo "[D] Free prompt -- no Issue behind it (§17)"
+  local repo out
+  repo="$(new_workspace unauthed)"
+  WORKSPACES="$WORKSPACES $repo"
+
+  out="$repo/.smoke/run.log"
+  run_cli "$repo" run --prompt "Throttle the public API to 100 req/min" --no-branch --local >"$out" 2>&1
+  expect_code "$?" 0 "issue-flow run --prompt succeeds with no Issue at all"
+
+  local prompts="$repo/.smoke/all-prompts.txt"
+  prompt_bundle "$repo/.smoke/prompts" "$prompts"
+
+  expect_contains "$out" "Inline demand recorded as inline-" "the demand is reported as an inline Issue"
+  expect_contains "$prompts" "Throttle the public API to 100 req/min" "the prompt reaches the phases as the Issue body"
+  expect_contains "$prompts" "Source: inline" "phases are told the origin is inline"
+  expect_missing "$repo/.smoke/gh.log" "issue view" "an inline demand never asks GitHub for an issue"
+  expect_contains "$out" "Pipeline finished" "the pipeline reports completion"
+  expect_contains "$out" "unverified" "verification is not weakened for an inline demand"
+
+  # No issue argument and no prompt is a usage error, not an empty run.
+  run_cli "$repo" run >"$repo/.smoke/no-demand.log" 2>&1
+  expect_code "$?" 1 "run with no demand at all fails"
+  expect_contains "$repo/.smoke/no-demand.log" "--prompt" "the error names the way to pass a free demand"
+}
+
 if [ ! -f "$CLI" ]; then
   echo "Building the CLI (dist/cli.js not found)..."
   (cd "$PKG_DIR" && npm run build >/dev/null) || {
@@ -509,6 +541,8 @@ echo
 scenario_local_only
 echo
 scenario_both_divergent
+echo
+scenario_inline_prompt
 echo
 
 if [ "$KEEP" = "1" ]; then
