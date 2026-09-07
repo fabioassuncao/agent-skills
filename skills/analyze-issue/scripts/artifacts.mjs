@@ -15180,7 +15180,8 @@ var linkedRepoSchema = external_exports.object({
 });
 var githubConfigSchema = external_exports.object({
   linkedRepos: external_exports.array(linkedRepoSchema).default([]),
-  syncIntervalMs: external_exports.number().int().min(1e3).default(1e4)
+  syncIntervalMs: external_exports.number().int().min(1e3).default(1e4),
+  autoRemoveOnMerge: external_exports.boolean().default(false)
 });
 var verifyCheckSchema = external_exports.object({
   id: external_exports.string().min(1),
