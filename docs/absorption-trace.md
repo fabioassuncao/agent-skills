@@ -440,8 +440,8 @@ e `packages/issue-flow/src/utils/async.ts` — estratégia: **MERGE** (PR e come
 | A varredura de auto-remove em si (`startAutoRemoveMonitor` + `auto-remove-service.ts`) | `pr-service.ts:660` | Pertence a `src/runtime/worktree/gc.ts` (§22, Fase 5), que já existe. O que a Fase 14 devia entregar é a **fonte de dados** dela, `fetchBranchPullRequestStates`, e a política ungated — que aqui é `startPullRequestMonitor` sem `isActive` |
 | `readWorktreePrs` / `writeWorktreePrs` | `adapters/fs.ts` | Escrevem `prs.json` por worktree com `Bun.write`, sem escrita atômica (§45.0). O veículo de persistência do Issue Flow é o SQLite; o sync devolve os dados e não escolhe onde eles moram |
 | `hasRecentDashboardActivity()` | `server.ts` | É a implementação do gate, não o gate. O painel do Issue Flow ainda não existe na forma que a Fase 8B vai trazer; `isActive` é o ponto de encaixe, e escrever agora uma heurística de atividade sobre o painel antigo seria uma segunda implementação para jogar fora |
-| A integração Linear em torno do PR (`linkedLinearIssue` no `WorktreeSnapshot`) | `linear-*.ts` | `DISCARD` explícito (ADR-14) |
-| `unref()` no `setInterval` do intervalo serializado | `lib/async.ts` | Seria endurecer durante o porte (ADR-12). O agendador é injetável, então quem precisar de um timer que não segura o processo passa o seu — e nenhum caminho de CLI liga o monitor hoje |
+| A integração Linear em torno do PR (`linkedLinearIssue` no `WorktreeSnapshot`) | `linear-*.ts` | Não entrou **nesta fase**. O Bloco C reverteu o ADR-14: a UI hoje projeta o vínculo por branch a partir de `GET /api/linear/issues`, sem persistir uma segunda verdade no snapshot |
+| `unref()` no `setInterval` do intervalo serializado | `lib/async.ts` | Seria endurecer durante o porte (ADR-12). O `serve` hoje liga o monitor de PR/CI e a manutenção Linear/GC e encerra ambos explicitamente no teardown; nenhum deles depende de `unref()` para terminar corretamente |
 
 **Testes de paridade**
 
@@ -624,7 +624,7 @@ rotas de projeto e `autoAddCwd` em `backend/src/server.ts`.
 | `bin/src/migrate.ts` / `webmux project migrate` | `bin/src/migrate.ts` | Funde servidores antigos de projeto único num só. Nunca existiu um servidor Issue Flow por projeto — não há de onde migrar |
 | `closeProjectSockets()` antes do `manager.remove()` | `backend/src/server.ts` | Não há socket por projeto ainda: o transporte de terminal chega na fase 8. A ordem correta está registrada em comentário no `removeProject`, para quando houver |
 | Worktree, tmux e sandbox no `ProjectRuntime` | `backend/src/runtime.ts` | São das fases 5, 6 e 12. Escrevê-los aqui criaria uma segunda implementação mais fraca da mesma responsabilidade (invariante 13) |
-| Loops *light*/*heavy* com trabalho real | `backend/src/services/*-service.ts` | O contrato dos dois níveis foi portado (`ProjectLoopController`, `setActive`), mas reconciliação, GC de worktree e poll de PR/CI pertencem às fases 5, 11 e 14. O default é no-op |
+| Loops *light*/*heavy* com trabalho real | `backend/src/services/*-service.ts` | Não entraram **nesta fase**. PR/CI ganhou seu gate depois; o Bloco C ligou Linear pickup e GC de worktree em uma cadência serializada de 60 s no `serve`, enquanto reconciliação permanece sob sua autoridade própria |
 | `EmptyProjects.svelte` / onboarding do painel | `frontend/src/lib/EmptyProjects.svelte` | O painel atual é vanilla e só sai com §50.7 (ADR-18). O seletor e a visão "Trabalho ativo" foram acrescentados sobre ele, sem trocar de stack |
 
 **Testes de paridade**
@@ -1046,8 +1046,8 @@ Os tipos vêm de `domain/config.ts` (`ProfileConfig`, `PaneTemplate`, `MountSpec
 
 | O quê | Por quê |
 |---|---|
-| `agents` (agentes custom por template), `integrations.linear`, `integrations.github`, `workspace.*`, `lifecycleHooks`, `autoName`, `oneshot` de `ProjectConfig` | Não são profiles. `linear` é `DISCARD` explícito (§22); `github` já tem sua seção (`src/config/github.ts`); `lifecycleHooks`, `autoName` e `oneshot` pertencem às Fases 5, 4 e 15; o agente custom por template é §45.2-L e entra por `src/agents/custom.ts`. Portar aqui criaria a segunda implementação que o invariante 13 proíbe |
-| `persistLocalLinearConfig`, `persistLocalGitHubConfig`, `persistLocalCustomAgent`, `removeLocalCustomAgent` | Escrita de configuração pelo servidor, com `Bun.write` (não atômico) num arquivo YAML que este projeto não tem. Nenhuma das quatro pertence a profiles; se a escrita de configuração voltar, volta por `writeFileAtomic` e na fase que a precisar |
+| `agents` (agentes custom por template), `integrations.linear`, `integrations.github`, `workspace.*`, `lifecycleHooks`, `autoName`, `oneshot` de `ProjectConfig` | Não são profiles e não entraram **nesta fase**. GitHub já tinha seu domínio; B/C acrescentaram agentes, Linear e auto-name em módulos próprios de `config/`; lifecycle/oneshot mantêm suas autoridades. Portá-los em `runtime/profiles.ts` criaria a segunda implementação que o invariante 13 proíbe |
+| `persistLocalLinearConfig`, `persistLocalGitHubConfig`, `persistLocalCustomAgent`, `removeLocalCustomAgent` | A escrita YAML/Bun não foi portada. B/C trouxeram as mutações necessárias por `writeFileAtomic` sob `withSerializedFileLock`, preservando as demais chaves de `.issue-flow.json` |
 | Rung de configuração global (`~/.issue-flow/config.json`) para `runtime` | Um profile nomeia comandos de pane e imagens de container que só significam algo dentro de um repositório. Mesma decisão já tomada para `web` e `github` |
 | Variável de ambiente para `profiles` e `services` | São estruturas demais para uma variável (o precedente do repositório é `ISSUE_FLOW_RESILIENCE_RETRY`, que é JSON, e é a exceção). Só `ISSUE_FLOW_RUNTIME_PROFILE` existe |
 
@@ -1228,7 +1228,7 @@ sinal.**
 |---|---|---|
 | Auto-close da sessão ao desarmar | `oneshot-watcher-service.ts` | É da convergência do oneshot (Fase 15), que é quem decide o que acontece com a sessão depois |
 | ~~Escalada por `awaiting_input` sem resposta por N minutos~~ | §32, última linha da tabela | **Resolvido na Fase 8C.** A política vive em `src/core/awaiting-input.ts`, roda no chokepoint `agents/invoke.ts` (portanto **headless**, ADR-03), publica `agent:awaiting-input-escalated` + um `log` de nível `warn` e um diagnóstico em `~/.issue-flow/logs`, e a interface **exibe** `agent.awaitingInputEscalatedAt` sem decidir nada. `heldForMs` deliberadamente **não** é o número que ela lê: hold humano e `awaiting_input` são condições opostas, e confundi-las escalaria durante um takeover legítimo — exatamente o que §32 proíbe |
-| `postToLinearOnDone` | `meta.oneshot` | ADR-14 — Linear não é absorvido |
+| `postToLinearOnDone` | `meta.oneshot` | Continua fora do **oneshot**: o Bloco C restaurou post manual e auto-create como integração separada, sem tornar o fim de todo run uma publicação externa implícita |
 
 **Testes de paridade**
 
@@ -1526,7 +1526,7 @@ migration **18**.
 | `agentLifecycle: "closed"` → `lifecycle: null` | O Issue Flow não tem esse ciclo de vida; "nenhum hook reportou ainda" é a mesma condição e preserva a guarda de cold-start intacta |
 | Novo sinal terminal: o **veredito da própria pipeline** | É a metade Issue Flow da convergência (§17). Ele é imediato e soberano; `agent_stopped`/`pr_opened` entram como evidência **adicional** e nunca encurtam fases (§45.3) |
 | `closeWorktree(branch)` → marcar `stopped` as `AgentSession` vivas do run | O equivalente estrutural: o upstream fecha a *sessão*, não o worktree. Nada é deletado, nenhum branch ou worktree é tocado, e um run headless (que não abre sessão) fecha nada — ADR-03 |
-| Janela da releitura: post ao Linear → **finalização do próprio run** | O gatilho original não existe (ADR-14), mas a corrida sim: a pessoa pode assumir enquanto o run fecha a issue e imprime o resumo |
+| Janela da releitura: post ao Linear → **finalização do próprio run** | O gatilho `postToLinearOnDone` continua fora, mas a corrida de takeover durante a finalização existe independentemente dele: a pessoa pode assumir enquanto o run fecha a issue e imprime o resumo |
 | Prompt livre → **Issue de origem `inline`**, não um caminho paralelo | §17 é explícito: "manter a entrada do Issue Flow, aceitar prompt livre como `source: inline`". Depois de `resolveRequestedIssues()` nada a jusante distingue uma demanda inline de uma do GitHub, e é isso que mantém contrato de aceitação e revisor independente idênticos |
 | Identificador **endereçado por conteúdo** (`inline-<hash12>`) | O prompt é a única identidade que a demanda tem. Torna a segunda invocação do mesmo prompt um **resume**, não uma história paralela — e é o que faz `--background` funcionar, já que o filho re-executa o mesmo argv |
 | Demanda inline em **SQLite** (`inline_issues`), não em arquivo | Uma demanda de uma linha não pode deixar um diretório no repositório; e guardá-la sob `issues/` faria o provider `local` responder pelo mesmo identificador, criando divergência entre origens onde não há nenhuma |
@@ -1539,7 +1539,7 @@ migration **18**.
 | O quê | Por quê |
 |---|---|
 | `startOneshotWatcher` — o `setInterval` de 3 s | No upstream o servidor é um processo separado da CLI e precisa descobrir o fim por polling. Aqui a pipeline é dona do próprio fim e o conhece de forma síncrona; um poller seria uma **segunda autoridade sobre o mesmo fato** (ADR-08). O corpo do ciclo (`runOneshotWatch` → `runCompletionPass`) foi portado inteiro e é chamado pelo run, então nenhuma decisão se perdeu — só o relógio |
-| `postToLinearOnDone` e todo o `--linear` | ADR-14 — Linear é `DISCARD` explícito |
+| `postToLinearOnDone` e `--linear` no caminho `run` | O Bloco C reverteu o descarte da integração, mas não acrescentou publicação externa implícita ao fim da pipeline; o post explícito vive na UI/API e o pickup headless vive no `serve` |
 | `--resume <branch>` do oneshot | `issue-flow resume` já é essa responsabilidade (invariante 13). Um segundo caminho de retomada dentro de `run` seria a duplicação que a fase existe para evitar |
 | `--agent`, `--base`, `--profile`, `--env` do oneshot | São opções de **criação de worktree**, não de demanda; pertencem a `runtime`/`profiles` (Fases 5, 6 e 10), que já as têm |
 | `--branch <name>` | O branch de um `run` vem do plano e da convenção (`conventions/git/branch.ts`), nunca de um flag — seria uma segunda convenção de branch |
@@ -1589,7 +1589,7 @@ subcomandos `add` / `open` / `list` / `send` / `close`.
 
 **Comportamento existente**
 - **Abrir um agente nunca exige uma issue.** No upstream a unidade é a
-  *worktree*; a issue (Linear) é opcional e sai por ADR-14. É essa postura que a
+  *worktree*; a issue Linear é opcional. É essa postura que a
   fase preserva, traduzida para o modelo do Issue Flow: a unidade aqui é a
   `AgentSession`, e `run_id`/`phase`/`story_id` vazios são o modo livre (ADR-16).
 - **O branch é gerado quando ninguém o nomeia** (`resolveBranch` →
@@ -1634,9 +1634,9 @@ subcomandos `add` / `open` / `list` / `send` / `close`.
 
 | O quê | Por quê |
 |---|---|
-| `autoName` — gerar o nome do branch com um modelo | Nomear um branch de rascunho não pode custar um round-trip a um LLM. O slug do rótulo mais o sufixo aleatório do próprio upstream (`generateFallbackBranchName`) resolve o mesmo problema de forma determinística e offline |
+| `autoName` — gerar o nome do branch com um modelo | Não entrou na abertura livre desta fase, que conserva fallback offline. A criação explícita do Bloco A/C usa hoje `loadAutoNameConfig` + o `src/conventions/git/auto-name.ts` canônico quando recebe prompt sem branch |
 | `worktree archive` / `unarchive` / `restore` / `prune` / `label` / `profile` / `tab` | São operações sobre **worktrees**, não sobre sessões: pertencem a `runtime/worktree/` (Fase 5) e a `runtime/profiles.ts` (Fase 10). Trazê-las para `session` seria a segunda implementação que §25 proíbe |
-| `buildSeedFromLinear` / `--linear` em `worktree add` | ADR-14 — Linear é `DISCARD` explícito |
+| `buildSeedFromLinear` / `--linear` em `worktree add` | A reversão do ADR-14 trouxe pickup headless e post de conversa, não um segundo seed/CLI: o auto-create delega à criação gerenciada com título/descrição do ticket |
 | `createWorktreeTab` e os panes estacionados (`*-parked`) | Multi-aba por worktree é um modelo de layout próprio; ele depende de `runtime/profiles.ts`, que é da Fase 10, e nada em §49 o exige |
 | `refreshAgentTerminal` (matar e recriar o pane do agente) | O `reattach`/`resume` de §27 já cobre reabrir sem destruir; um segundo caminho que destrói seria exatamente a regressão que §27 corrige |
 | `switchToTmuxWindow` escrevendo `control.env` | Depende do `control.env` do upstream, que o Issue Flow não tem: `session attach` entrega o terminal ao tmux diretamente, no socket `-L issue-flow` (ADR-09) |
@@ -1696,7 +1696,7 @@ estratégia: PORT (o `capabilities.ts` é NEW).
 | O quê | Por quê |
 |---|---|
 | Pacote irmão com `package-lock.json` próprio | O `@ts-rest/core@3` tem peer em `zod@^3`; a CLI roda em `zod@4`. Manter as duas instalações separadas é o que impede uma de arrastar o major da outra. O bundle do painel resolve o contrato por alias do Vite, então nada disso chega ao runtime da CLI |
-| Todo schema `Linear*` removido | ADR-14. Removidos, não mantidos como tipo morto |
+| Schemas `Linear*` não entraram **nesta fase inicial** | O Bloco C os restaurou no contrato quando as cinco rotas e os quatro componentes passaram a existir; não houve tipo morto entre as fases |
 | `InstanceSummary` / `MigrateProjects*` removidos | Eram o sensor do `MigrationBanner`, que é migração interna do WebMux (§48.1) |
 | `BuiltInAgentIdSchema` com 5 providers | O upstream tem 2; a camada de agentes do Issue Flow é a base canônica (§45.2-L) |
 | `ProjectSummary` com `id`/`root`/`served`, `prefix` nulável | §47.2: a chave é o `projectId` derivado do remote, nunca o path; e um projeto registrado sem execução nenhuma — o caso que §47 criou — não tem prefixo |
@@ -1709,11 +1709,11 @@ estratégia: PORT (o `capabilities.ts` é NEW).
 
 | O quê | Por quê |
 |---|---|
-| Rotas `*/linear/*` e schemas associados | ADR-14 — se voltar, volta como Issue Provider |
+| Rotas `*/linear/*` e schemas associados | Resolvido no Bloco C por reversão do ADR-14: três rotas Linear tipadas, capabilities `linear:read`/`linear:write` e integração separada do registry de Issue Providers |
 | `/api/instances`, `/api/projects/migrate` | Sensor e ação de uma migração que é do WebMux, não do Issue Flow (§48.1, §50.8) |
 | `POST /api/worktrees/:name/upload` | Não existe rota equivalente no Issue Flow e este porte não inventa backend. `uploadFiles()` recusa com mensagem honesta |
-| `OneshotConfig.postToLinearOnDone` | Parte Linear do oneshot (ADR-14); `autoCloseOnDone` foi mantido |
-| `linearCreateTicketOption`, `linearAutoCreateWorktrees` em `AppConfig` | Idem |
+| `OneshotConfig.postToLinearOnDone` | Continua fora: post explícito não é efeito colateral do fim de todo run; `autoCloseOnDone` foi mantido |
+| `linearCreateTicketOption` | Criar ticket é uma escolha explícita do `LinearPostDialog`, não config global; `linearAutoCreateWorktrees` foi restaurado no `AppConfig` pelo Bloco C |
 
 **Testes de paridade**
 
@@ -1780,8 +1780,8 @@ ADAPT em rotas, contrato, idioma e paleta.
 |---|---|
 | Interface inteira em pt-BR | §50.4, opção A: o glossário fechado do painel atual é decisão de produto já tomada e documentada |
 | `@theme inline` alimentado pelos tokens de papel do Issue Flow; nenhuma cor literal em classe utilitária | ADR-19. `inline` é obrigatório: sem ele o Tailwind copia a *declaração* para o próprio `:root`, congela os valores claros e o tema escuro vira no-op — falha silenciosa |
-| `tokens.css` é cópia literal da camada de paleta de `web/public/app.css`, com teste de deriva | Enquanto os dois painéis convivem (ADR-18), nada mais impede a deriva, e uma deriva é invisível: os 18 pares medidos simplesmente deixam de descrever a tela |
-| `themes.ts`: as 5 paletas viram os 3 modos do painel (`system`/`light`/`dark`) | 5 paletas alternativas seriam 5 tabelas de contraste que ninguém mediu. O tema do terminal passa a ser **derivado** dos tokens resolvidos na página (`getComputedStyle`), não duplicado ao lado deles |
+| `tokens.css` preserva a camada histórica `light`/`dark` e declara cada paleta nomeada como conjunto completo de tokens de papel | ADR-19 foi revertida em 2026-09-06 por pedido do dono do projeto. A deriva agora é guardada estruturalmente e pelos 19 pares medidos por tema |
+| `themes.ts`: as 5 paletas voltam como adição aos 3 modos (`system`/`light`/`dark`) | A escolha explícita não observa o SO; o tema do terminal continua **derivado** dos tokens resolvidos na página (`getComputedStyle`), não duplicado ao lado deles |
 | `Terminal.svelte`: URL autenticada, chaveada por sessão, quadros `o<offset>\n` / `s<offset>\n`, `lastOffset` na reconexão, aviso de `truncated` | ADR-10 e as duas adições de §15. O upstream repete 1 MB inteiro a cada `visibilitychange` — trocar de aba duas vezes custava dois megabytes |
 | Polling do `App.svelte` (5 s / 1 s) → assinatura de `/api/stream` | §35: teto duro de 250 ms p95 em output→tela. O intervalo sobrevive só como rede de segurança de 15 s, pausada em aba oculta |
 | Todo acesso a `localStorage` em `try`/`catch`, com chaves `issue-flow:` | O painel atual já aprendeu que armazenamento bloqueado **lança**; o upstream chama direto. Armazenamento bloqueado significa "a preferência não sobrevive ao reload", nunca "o painel não carrega" |
@@ -1799,8 +1799,8 @@ ADAPT em rotas, contrato, idioma e paleta.
 | O quê | Por quê |
 |---|---|
 | `MigrationBanner.svelte` (46 linhas) | Avisa sobre instâncias antigas do **WebMux**; a migração é dele (§48.1, §50.8) |
-| `LinearPanel` · `LinearBadge` · `LinearDetailDialog` · `LinearPostDialog` (314 linhas) | ADR-14. Junto saem o painel na sidebar, o badge no header e na linha, e as duas rotas de "postar conversa" |
-| As 5 paletas de `themes.ts` | Ver adaptações: são 5 tabelas de contraste não medidas contra a decisão de produto de §50.0 |
+| ~~`LinearPanel` · `LinearBadge` · `LinearDetailDialog` · `LinearPostDialog` (314 linhas)~~ | **Revertido no Bloco C, em 2026-09-06, por pedido do dono do projeto.** Os quatro componentes voltaram em pt-BR, ligados às capabilities e rotas reais |
+| O mapa xterm literal das 5 paletas de `themes.ts` | As paletas foram restauradas, mas duplicar suas cores no terminal criaria uma segunda fonte da verdade. O xterm deriva a paleta dos tokens computados |
 | `Notification` do navegador (permissão + notificação nativa) | Depende do canal de notificações do WebMux, que não existe aqui. Os toasts permanecem; a notificação de SO volta com o canal que a alimentaria |
 | Upload de imagem por drag/paste (a *chamada*) | A UI foi portada inteira; só a rota não existe. `uploadFiles()` recusa com mensagem honesta e o terminal escreve `[Erro no envio: …]` |
 | ~~`sendKeys` / `selectPane` como operação de servidor~~ | **Resolvido depois desta ficha.** O cliente já os mandava; o backend respondia `not available yet`. `src/web/terminal-ws.ts` passou a encaminhá-los ao gateway tmux (`sendHexKeys` / `selectPane`), que já os tinha — nenhum dos dois pode passar pelo pty do espectador, que é *leitor* do pane. Ver o commit `feat(web): let the terminal send a key sequence and pick a pane` |
@@ -1828,16 +1828,18 @@ ADAPT em rotas, contrato, idioma e paleta.
 | `web/src/lib/PrStatusGroup.test.ts` | idem upstream | 3 | ✅ |
 | `web/src/lib/AgentStatusIcon.test.ts` | idem upstream | 3 portados + 1 | ✅ |
 | `web/src/lib/DiffDialog.test.ts` | idem upstream | 2 portados + 1 | ✅ |
-| `web/src/tokens.test.ts` | novo — guarda de deriva da paleta (ADR-19) | 3 | ✅ |
+| `web/src/tokens.test.ts` | novo — invariantes estruturais da paleta (ADR-19) | 2 | ✅ |
 | `src/web/server.test.ts` (mount duplo) | novo — `/` = painel novo, `/legacy/` = antigo, 301 sem barra, fallback sem build, `Content-Type` por extensão | 1 novo + 3 atualizados | ✅ |
 | `src/storage/projects/prefix.test.ts` | atualizado — `legacy` no conjunto reservado | 1 atualizado | ✅ |
 
-**Total: 148 casos portados dos 148 do upstream, mais 20 acrescentados.**
-Seis casos do `App.test.ts` eram de Linear (ADR-14); em vez de sumirem da
-contagem foram **substituídos** por seis que cobrem o que ocupou o lugar deles —
+**Total histórico desta fase: 148 casos portados dos 148 do upstream, mais 20 acrescentados.**
+Seis casos do `App.test.ts` eram de Linear; naquele estágio foram
+**substituídos** por seis que cobriam o que ocupou o lugar deles —
 o gate de capability, o vínculo opcional com a issue (ADR-16/ADR-17), o socket
 autenticado por sessão (ADR-10) e o canal de push que substituiu o polling
-(§35). O `TopBar.test.ts` faz o mesmo com o caso do badge do Linear.
+(§35). O Bloco C restaurou depois casos de Linear em `App`, `TopBar`,
+`WorktreeList` e `LinearComponents.test.ts`; esta contagem histórica não os
+antecipa.
 
 **Orçamentos**
 
@@ -1958,7 +1960,7 @@ inteira.
 | stderr do `app-server` só é entregue se o chamador pedir (`onStderr`) | Mesmo motivo. O pipe continua sendo drenado sempre — não drenar travaria o protocolo |
 | `ClaudeCliClient.sendMessage` (spawn de `claude -p`) → **não portado**; no lugar, `createClaudeStreamReader()` sobre linhas | `§25`: um só agent launcher. Ver "NÃO portado" |
 | `AgentsUiConversationMessage` do `packages/api-contract` → `ConversationMessage` local em `conversation.ts` | `packages/issue-flow/src` não depende de `@issue-flow/contract` (só `web/` depende), e o contrato está preso a zod 3 enquanto este pacote está em zod 4. A forma é **estruturalmente idêntica** — mesmos campos, mesma ordem, mesma opcionalidade — para ser atribuível sem cast no dia em que a dependência existir. Ver "Pendência" |
-| Export para o Linear → export para **arquivo**, via `writeFileAtomic` | ADR-14 descarta Linear. `§45.3` proíbe `writeFile` direto; um export é artefato e é gravado como todo artefato deste projeto |
+| Export local por `writeFileAtomic`, independente de destino externo | `§45.3` proíbe `writeFile` direto; um export local é artefato e continua existindo. O Bloco C reutiliza `buildConversationExportPayload` como attachment canônico do Linear sem substituir o caminho por arquivo |
 | `buildPriorConversationSection` → `buildConversationSeedPrompt`, com `CONVERSATION_DATA_NOTICE` e cerca `<prior-conversation>` | Conversa é texto **escrito por um modelo**. Reinjetá-la sem dizer isso é injeção de prompt com o atacante já dentro. É a mesma situação de `agents/handoff/types.ts`, e é respondida do mesmo jeito, com a redação deliberadamente parecida para que um agente que já respeita a cerca de handoff reconheça esta |
 | `webmux: 1` → `issueFlowConversation: 1` | Nomeação do projeto. Não há dado upstream para ler, então não há compatibilidade a manter — a tolerância a `order`/`kind` ausentes, essa sim, foi portada |
 | `buildCodexItemConversationMessages` trazido de `worktree-conversation-service.ts` | `§22` só endereça `codex-app-server.ts`, mas sem a tradução o porte entrega um cliente tipado que nada renderiza — meia entrega. Só a **metade pura** veio; o serviço com estado ficou onde estava |
@@ -1970,8 +1972,8 @@ inteira.
 | `ClaudeCliClient.sendMessage` — lançar `claude -p` e ler o stream | `adapters/claude-cli.ts:~560` | Seria um **segundo agent launcher**, que é literalmente o que `§25` proíbe ("Agent launcher: `src/agents/` — dois modos, um só launcher") e o que `§45.1-C` decide manter no Issue Flow: timeout absoluto, watchdog de inatividade, registro para shutdown, classificação de falha, `usage`, `harnessVersion`, failover. Nada disso existe no upstream. O que a Fase 8B precisa é *ler* o stream, e `createClaudeStreamReader()` faz isso sobre linhas de qualquer origem — inclusive as que `agents/claude.ts` já entrega por `onLine` |
 | `ClaudeCliRunHandle` (`completion`/`interrupt`/`sessionId` como Promise) | `adapters/claude-cli.ts` | Consequência do item acima: é a alça de um processo que este módulo não inicia. `interrupt` no modo interativo já é `agents/tty.ts`; no headless é o watchdog |
 | `services/claude-conversation-stream-service.ts`, `agents-ui-stream-service.ts`, `worktree-conversation-service.ts` (a metade com estado) | serviços do painel | `§22` não os endereça a esta fase. Eles carregam `revision`, assinaturas, persistência de meta em `meta.json` e bookkeeping de abas — estado de UI e de worktree que este projeto guarda em SQLite e em `runtime/`. Portá-los aqui seria trazer o modelo de estado do upstream junto com o parser |
-| `exportConversationToLinear`, `buildSeedFromLinear`, `downloadWebmuxAttachmentDefault`, `defaultSeedFromLinearDeps` | `conversation-export-service.ts` | ADR-14 — Linear é `DISCARD` explícito. É metade do arquivo |
-| `buildIssueHeader` (cabeçalho `Fixes ENG-1`, `branchName` do Linear) | `conversation-export-service.ts` | Mesmo motivo. O que ele resolvia — dar contexto ao agente antes da conversa — virou o parâmetro `header` de `buildConversationSeedPrompt`, **fora** da cerca, porque essa metade é instrução do operador e não texto de modelo |
+| `buildSeedFromLinear`, `downloadWebmuxAttachmentDefault`, `defaultSeedFromLinearDeps` | `conversation-export-service.ts` | Continuam fora: o Bloco C adicionou pickup e post, não reseed a partir de attachment externo. `exportConversationToLinear` foi adaptado em `issues/linear/{conversation,client}.ts` sobre o payload canônico local |
+| `buildIssueHeader` (cabeçalho `Fixes ENG-1`, `branchName` do Linear) | `conversation-export-service.ts` | Não foi portado como helper Linear. O que ele resolvia — dar contexto ao agente antes da conversa — virou o parâmetro `header` de `buildConversationSeedPrompt`, **fora** da cerca, porque essa metade é instrução do operador e não texto de modelo |
 | `adapters/session-discovery.ts` | `§22` | Continua fora, e pelo mesmo motivo da Fase 7: descobrir conversas no disco é insumo de *reconciliação* (Fase 11). O que esta fase acrescenta é `listSessions(cwd)` no gateway do Claude, que é a consulta, não a varredura periódica |
 | Reset de `blockIndex` em `message_start` | — | Foi escrito e **removido**. Toda mensagem que emite bloco vem precedida do seu `content_block_start`, que define o índice; resetar pareceria mais limpo e mudaria a identidade de um bloco que chegasse sem ele. Invariante 3: não redesenhar durante o porte |
 
@@ -1999,8 +2001,10 @@ contra a contagem real.
 todos de Linear: os 4 de `exportConversationToLinear` (attachment, criação de issue por
 team key, comentário que falha sem derrubar o export, upload que falha) e os 4 de
 `buildSeedFromLinear` (preferir attachment do webmux, cair para a integração GitHub,
-`source: none`, cabeçalho do Linear). Cada um asserta contra um stub da API do Linear e
-não sobrevive a ADR-14. O que ocupou o lugar deles é o transporte por arquivo
+`source: none`, cabeçalho do Linear). Na fase 7B eles não sobreviveram; os quatro
+casos de export foram recuperados de forma adaptada pelo Bloco C, enquanto os
+quatro de reseed permanecem deliberadamente fora. O que ocupou o lugar deles na
+7B foi o transporte por arquivo
 (`writeConversationExport`, round-trip e ausência de `.tmp`) e a regra do dado
 (`CONVERSATION_DATA_NOTICE` antes de qualquer citação, cerca fechada, `escapeFence` numa
 mensagem hostil) — nenhum dos dois existia no upstream.
@@ -2265,11 +2269,11 @@ Backend de §32: `src/core/awaiting-input.ts` (novo) · `src/core/session/{event
 | U12 | Drawer | `lib/ExecutionPanel.test.ts` › "the drawer (U12)" (4) · `lib/snapshot.test.ts` (`executionsFor`) | ✅ |
 | U13 | Métricas | `lib/format.test.ts` (14) · `lib/ExecutionPanel.test.ts` (o agregado na tela) | ✅ |
 | U14 | Saída | `lib/ExecutionPanel.test.ts` › `"Saída" (U14, U21)` (6) · `lib/executions.test.ts` (`filterLogs`) | ✅ |
-| U15 | Tema | `App.executions.test.ts` › "the theme (U15)" (3) · `src/tokens.test.ts` (3, já existente) | ✅ |
+| U15 | Tema | `App.executions.test.ts` › "the theme (U15)" (3) · `src/tokens.test.ts` (2, já existente) | ✅ |
 | U16 | Atualização | `App.executions.test.ts` › "the refresh interval (U16)" (2) · `lib/executions.test.ts` (`refreshOptions`) · `lib/ExecutionPanel.test.ts` (as cinco opções) | ✅ |
 | U17 | Identidade da instância | `lib/api.test.ts` › "instance identity (U17)" (4) · `App.executions.test.ts` (1) | ✅ |
 | U18 | Retrocompatibilidade | `lib/snapshot.test.ts` (13) · `lib/format.test.ts` (`metric`, e "never renders a missing count as zero") | ✅ |
-| U19 | Contraste | `lib/contrast.test.ts` (6, os 19 pares recalculados nos dois temas) + **medição na página** (abaixo) | ✅ |
+| U19 | Contraste | `lib/contrast.test.ts` (12, os 19 pares recalculados nos sete temas explícitos) + **medição na página** (abaixo) | ✅ |
 | U20 | Responsivo | `lib/responsive.test.ts` (49, o contrato de CSS) + **medição na página** (abaixo) | ✅ |
 | U21 | Verificação | `lib/snapshot.test.ts` › "verification (U21)" (3) · `lib/vocabulary.test.ts` (3) · `lib/ExecutionPanel.test.ts` (3) | ✅ |
 
@@ -2394,8 +2398,8 @@ passou a ser dado, não constante).
 | `mainView: 'executions' \| 'worktree'` → **uma** seleção, e o painel decide por *"existe snapshot?"* | §50.5. Enquanto a escolha era "de qual lista veio", as duas telas eram inevitáveis. Com a pergunta trocada, a promoção de §49.2 fica de graça: uma sessão livre vinculada a uma issue passa a ter snapshot e o workflow aparece no lugar — sem componente novo e sem evento (I4) |
 | `GET /api/worktrees` é uma **projeção** de `agent_sessions` | §25: uma implementação por responsabilidade. O worktree é do `runtime/worktree/`, a intenção de usá-lo é do `agent_sessions` (ADR-08/ADR-16), e este módulo só junta as duas na forma que a barra lateral portada já sabe desenhar. Um segundo registro é exatamente como os dois começariam a discordar sobre qual branch está aberta |
 | `executionId` da linha **é** o `runId` da sessão | E o run id **é** o `sessionId` do dashboard (`web/session-directory.ts` passa um como o outro). Essa igualdade única é o que faz I1 e I4 funcionarem sem nada novo |
-| `worktrees` partida em `sessions` + `session:open` (+ `pr:ci` anunciada) | As duas metades são promessas diferentes. `worktrees` fecha vinte rotas de mutação sem backend; um monitor que listava perfeitamente bem não podia dizer isso sem alegar que sabia integrar, arquivar e trocar profile. Foi essa fusão que deixou o grupo "Sessões" vazio desde a Fase 8B |
-| "Novo worktree" → **"Nova sessão"**, sem diálogo | I3/S1. Todo campo de `POST /api/sessions` é opcional e a branch é gerada no servidor; pedir qualquer um deles seria a cerimônia que o modo livre existe para pular. O diálogo portado (`CreateWorktreeDialog`) continua atrás da capability `worktrees`, para quando o backend de criação explícita existir |
+| `worktrees` partida em `sessions` + `session:open` (+ `pr:ci` anunciada) | Naquele estágio, listar e abrir sessão eram as únicas promessas verdadeiras. O Bloco A acrescentou depois `worktrees:mutate`; o Bloco B, `agents:read`/`agents:write`, sem voltar à capability ampla que misturava domínios |
+| "Novo worktree" → **"Nova sessão"**, sem diálogo | I3/S1 continua sendo um clique e todo campo de `POST /api/sessions` é opcional. O Bloco A tornou o diálogo explícito de worktree alcançável separadamente por `worktrees:mutate`, sem adicionar cerimônia ao modo livre |
 | `ProgressBlock` ganhou `part`, não um irmão | §50.5 põe fases em "Visão geral" e stories em "Stories". Dois arquivos quase iguais é como uma lista de fases e uma de stories começam a discordar sobre o que é uma linha |
 | `WorkspaceBlock` é **um** componente para N linhas (Task) e uma (sessão livre) | A regra literal do enunciado. Um segundo componente para "a versão de sessão" é o sintoma de estar reconstruindo as duas interfaces dentro de um produto só |
 | `ExecutionHeader` aceita `snapshot: null` | Mesma razão: um "header de sessão" seria a segunda interface voltando pela porta dos fundos. Sem snapshot ele nomeia a sessão e a branch e some com os timers, porque não há execução para cronometrar |
@@ -2413,8 +2417,8 @@ passou a ser dado, não constante).
 | O quê | Por quê |
 |---|---|
 | A aba "Commits / PR / CI" de uma **sessão livre** (§50.5 a desenha) | Não há fonte. Commits vêm do reducer de git da pipeline (ligado a um run) e o diff exige `fetchWorktreeDiff`, que a capability `worktrees` fecha. Uma aba que nunca enche é pior do que uma aba a menos — e ela aparece sozinha no instante em que a sessão ganha um run (I4) |
-| As vinte rotas de mutação de worktree (criar, integrar, arquivar, rotular, profile, diff, tabs, agentes, `pull-main`) | São o backend que `worktrees` promete e que ninguém escreveu. Escrevê-lo aqui seria uma fase de UX crescendo um backend inteiro; a capability continua não anunciada e a superfície continua honestamente ausente |
-| Abas múltiplas por worktree (`tabs`) | A Fase 9B registrou que o modelo de layout de multi-aba não foi portado. A projeção devolve `tabs: []` e a `TabBar` fica escondida, em vez de oferecer um "+" que responderia 404 |
+| As rotas de mutação que ainda não pertenciam a esta fase | O backend foi entregue depois em blocos separados: A cobre worktrees sob `worktrees:mutate`; B cobre agentes sob `agents:read`/`agents:write`; D cobre abas e refresh sob `worktrees:tabs`/`terminal:refresh`. Esta ficha continua descrevendo o limite da Fase 8D, não o estado atual das capabilities |
+| Abas múltiplas por worktree (`tabs`) | Não pertenciam à Fase 8D. O Bloco D resolveu o modelo depois como `AgentSession` adicional no mesmo worktree; a projeção atual devolve Root/forks e a `TabBar` continua escondida onde a capability ou o provider/runtime seguro não existem |
 | Notificação nativa do SO | Mesma razão das fases 8B e 8C: depende de um canal de notificação que não existe aqui |
 
 **Testes**
@@ -2534,11 +2538,14 @@ aparecer ali, o que tornou a correção necessária em vez de cosmética.
    "Tasks"/"Sessions". §50.5 desenha o esboço em inglês; o glossário fechado já
    nomeia os dois conceitos em pt-BR (ADR-20), e um terceiro termo para uma
    coisa que já tem nome é precisamente o que §50.4 proíbe.
-2. **Criar um worktree é abrir uma sessão.** No modelo unificado uma sessão
-   *contém* seu worktree, então uma segunda rota de criação produziria um
-   worktree em que ninguém está trabalhando. `POST /api/sessions` é o caminho.
-3. **`sessions` como capability nova em vez de anunciar `worktrees`.** A
-   alternativa era anunciar `worktrees` e ver vinte rotas responderem 404.
+2. **Sessão livre e criação explícita de worktree são caminhos distintos.**
+   `POST /api/sessions` continua sendo o caminho de I3; o Bloco A acrescentou
+   `POST /api/worktrees` para criação explícita, inclusive multi-agent, sempre
+   terminando em `openAgentSession` e no mesmo `WorktreeManager` canônico.
+3. **Capabilities granulares em vez de anunciar `worktrees`.** A fase abriu com
+   `sessions`; A acrescentou `worktrees:mutate` e B acrescentou
+   `agents:read`/`agents:write`. A alternativa ampla faria um subconjunto
+   entregue prometer rotas de outros blocos.
 4. **A aba "Saída" de uma sessão livre não existe** enquanto não houver fonte
    para commits e PRs dela (registrado acima).
 5. **`terminal-ws.ts` ganhou `socketName`.** Sem essa costura a suíte de
@@ -2546,5 +2553,670 @@ aparecer ali, o que tornou a correção necessária em vez de cosmética.
    a medição de I7 dizer alguma coisa.
 
 **Bloqueios externos remanescentes**
-Nenhum. A superfície de mutação de worktrees (`worktrees`) segue sem backend e
-segue não anunciada — é escopo declarado de outra fase, não um bloqueio desta.
+Nenhum para a fase. A superfície de mutação de worktrees entrou depois desta
+ficha sob a capability granular `worktrees:mutate`; a ficha específica abaixo
+registra as rotas, os gates e os testes acrescentados.
+
+---
+
+### Mutações de worktree alcançáveis — `src/web/worktrees-api.ts` (Bloco A)
+
+**WebMux original**
+`.references/webmux-main/backend/src/server.ts` @ d8c9d5f —
+`apiCreateWorktree`, `apiDeleteWorktree`, `apiOpenWorktree`,
+`apiCloseWorktree`, archive/label/profile/send/merge/diff/pull-main e as
+listagens de branch; os diálogos correspondentes vivem em
+`.references/webmux-main/frontend/src/`.
+
+**Comportamento existente**
+- O domínio já existia em `runtime/worktree/`, `agents/session/`,
+  `runtime/profiles.ts` e `utils/git.ts`; faltava a superfície HTTP que ligava
+  os diálogos portados a essas autoridades.
+- `GET /api/worktrees` já era projeção de `agent_sessions`, sem um segundo
+  registro de worktrees, e escrita web continuava proibida fora de loopback.
+- Criação parcial não podia remover worktree ou branch preexistente; merge e
+  remoção tinham de encerrar ocupantes antes de retirar o checkout.
+
+**Implementação no Issue Flow**
+- `agents/session/worktree-control.ts` concentra create/open/close,
+  merge/remove, archive, label e profile; `runtime/worktree/branches.ts`
+  concentra as listagens de branch e base.
+- `web/worktrees-api.ts` valida os bodies e delega treze superfícies: create,
+  delete, open, close, merge, archive, label, profile, diff, send, pull-main,
+  branches e base-branches, além da leitura mínima de config do projeto.
+- A migration 20 acrescenta `worktrees.archived` com default `0` e constraint
+  booleana. `open.ts` registra ownership de worktree e branch para rollback.
+- O contrato tipado descreve requests, respostas e erros; a capability
+  `worktrees:mutate` só é anunciada quando o listener é loopback e a dependência
+  gravável está configurada.
+- `App.svelte` liga criação, archive/unarchive, label, profile, merge/remove,
+  diff, send e pull-main; `Cmd/Ctrl+K` aponta para a ação realmente anunciada.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Política transversal em `worktree-control.ts`, handler HTTP fino | HTTP e CLI compartilham a mesma ordem de teardown, lock, git e persistência |
+| Dedupe de agentes e base resolvida uma vez na criação multi-agent | Evita alvos repetidos e nomes instáveis |
+| `existing` exige branch e um só agente | N agentes sobre um checkout único seriam ambíguos |
+| Ownership explícito no rollback | Só a tentativa atual pode remover o que ela criou |
+| Branch com `/` via um segmento `%2F` | Preserva o identificador Git sem transformar a barra em rota |
+| Diff limitado por bytes UTF-8 | O limite de transporte não corta um code point |
+| `worktrees:mutate` em vez de uma capability ampla | A promessa pública cobre exatamente as rotas entregues por este bloco |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| `oneshot` dentro de `POST /api/worktrees` | Responde `501`; não existe watcher configurado nessa rota |
+| Pull de linked repo sem checkout resolvido e `force` em pull-main | Alias não autoriza escolher outro repositório, e descartar commit local viola a política de segurança |
+| Refresh destrutivo do pane | Reattach/resume preservam conversa; o Bloco D expõe esse caminho como `terminal:refresh` sem portar o kill/recreate upstream |
+| Registro paralelo de worktrees ou git/tmux no handler | SQLite/binding, manager e gateways existentes continuam canônicos |
+
+**Testes de paridade**
+
+| Teste | O que defende | Estado |
+|---|---|---|
+| `agents/session/worktree-control.test.ts` | dedupe, base única, `existing+multi`, rollback seletivo, stop antes de merge/remove | ✅ |
+| `agents/session/free-session.characterization.test.ts` | conflito de `mode:new`, ownership e S1–S7 | ✅ |
+| `runtime/worktree/lifecycle.test.ts` + `storage/db/migrations.test.ts` | ciclo de vida, archive compatível e rollback | ✅ |
+| `web/worktrees-api.test.ts` + `web/server.test.ts` | rotas, schemas, `%2F`, capability/bind e byte limit | ✅ |
+| `issue-flow-contract` e testes Svelte de `App`/diálogos | paths/status e ações alcançáveis | ✅ |
+
+**Risco inverso (§45.3).** Não há novo spawn fora de `run()`, git/tmux no
+handler nem escrita fora das autoridades existentes. O lock durável cobre a
+janela crítica e o gate de loopback coincide com a capability pública.
+
+**Orçamentos.** Os gates focados de domínio, HTTP, contrato e UI passaram sem
+`skip`. Integração real, roteiro de nove cliques e budgets globais pertencem à
+aferição consolidada, não são inferidos da existência das rotas.
+
+---
+
+### Agentes customizados — config, registro, sessão e editor (Bloco B)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/agent-service.ts` e
+`agent-validation-service.ts` @ d8c9d5f — agentes descritos por
+`startCommand`/`resumeCommand`; `frontend/src/lib/AgentEditorDialog.svelte` —
+edição e validação.
+
+**Comportamento existente**
+- O Issue Flow possuía cinco runners built-in e permissões semânticas de três
+  níveis. Não havia extensão por template nem CRUD no monitor.
+- O projeto já exigia argv até o limite tmux e proibia prompt, system prompt ou
+  segredo interpolado em string de shell.
+- Reabrir/trocar profile tinha de conservar a permissão persistida; review e
+  verify continuavam sem reutilizar uma sessão anterior.
+
+**Implementação no Issue Flow**
+- `config/custom-agents.ts` resolve `agents` global + projeto por id. O projeto
+  sobrescreve o global e `null` atua como tombstone; escrita usa lock serializado
+  e `writeFileAtomic` sem apagar outras chaves de `.issue-flow.json`.
+- `agents/custom-registry.ts` mantém built-ins canônicos e acrescenta ids custom
+  normalizados. `agents/custom.ts` faz parsing de comando sem shell e troca
+  somente placeholders conhecidos por referências `${ISSUE_FLOW_AGENT_*}`.
+- O contexto é escrito em arquivo efêmero `0600`, carregado fora do argv e
+  removido em sucesso, reattach e falha. Prompt, system prompt e demais valores
+  jamais entram no comando serializado.
+- A migration 21 persiste `agent_sessions.permission` com default `workspace` e
+  constraint `read-only|workspace|autonomous`; reopen e troca de profile
+  preservam o nível registrado.
+- `GET /api/agents` e `POST /api/agents/validate` são leitura/validação;
+  create/update/delete persistem o overlay do projeto. `agents:read` pode ser
+  anunciado remotamente, mas omite comandos completos; `agents:write` só existe
+  em loopback. O editor só aparece com a promessa correspondente.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Registro custom separado do registro de runners headless | Um template TTY não finge implementar stream, usage, failover ou review headless |
+| Command field → argv, operadores de shell como dados | Preserva ADR-04 e impede um template de introduzir um segundo processo |
+| Valores por environment file efêmero, referências braced no argv | Adjacência como `${PROMPT}_suffix` continua inequívoca sem revelar o valor |
+| `resume` capability só com `resumeCommand` | A UI não promete retomada que o agente não declarou |
+| Leitura remota redige `startCommand` e `resumeCommand` | A lista/capabilities é útil sem expor comandos potencialmente sensíveis |
+| `null` no projeto mascara agente global | Excluir no editor não pode fazê-lo reaparecer na próxima leitura |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| Executar templates por `sh -c` | Reintroduziria injeção e montagem duplicada de comando |
+| Substituir valores diretamente em argv | Prompt e system prompt poderiam vazar em `ps`, tmux ou logs |
+| Inferir capabilities de um binário desconhecido | Custom garante terminal; chat/histórico/interrupt permanecem falsos |
+| Transformar agente custom em provider headless | Não há contrato de stream, usage ou veredito que sustente essa promessa |
+| Editar/deletar built-ins | Built-ins continuam definidos pelo código; o overlay só contém customs |
+
+**Testes de paridade**
+
+| Teste | O que defende | Estado |
+|---|---|---|
+| `agents/custom.test.ts`, `custom-registry.test.ts`, `tty.test.ts` | parser/argv, placeholders adjacentes, capabilities e quoting | ✅ |
+| `config/custom-agents.test.ts`, `utils/fs.test.ts`, `storage/lock.test.ts` | merge/tombstone, concorrência, stale lock e limpeza de temporário | ✅ |
+| `agents/session/{open,store,context}.test.ts` e caracterização | environment efêmero, system prompt canônico, permissão e reopen | ✅ |
+| `web/agents-api.test.ts`, `web/server.test.ts`, contrato | CRUD, validação, redaction remota e capabilities | ✅ |
+| `web/src/lib/SettingsDialog.test.ts`, `api.test.ts`, testes de `App` | editor, lista custom e gates de leitura/escrita | ✅ |
+
+**Risco inverso (§45.3).** O parser não executa shell, o ambiente sensível é
+temporário e `0600`, as escritas são atômicas sob lock e a permissão continua
+semântica. `review`/`verify` não ganharam reúso de sessão.
+
+**Orçamentos.** As suítes focadas de backend, contrato e Svelte estão verdes.
+Nenhum valor sensível aparece no argv; a confirmação final de integração e
+empacotamento é feita no gate consolidado.
+
+---
+
+### Integrações do projeto — Linear, GitHub GC, auto-name e Cursor (Bloco C)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/linear-service.ts` e
+`linear-auto-create-service.ts` @ d8c9d5f — cliente GraphQL, tickets atribuídos,
+pickup e publicação de conversa; `backend/src/server.ts` — as cinco rotas de
+configuração/integração; `frontend/src/lib/Linear{Panel,Badge,DetailDialog,PostDialog}.svelte`
+e `CursorButton.svelte` — superfícies do painel.
+
+**Comportamento existente**
+- `src/conventions/git/auto-name.ts` já era a autoridade de naming e
+  `runtime/worktree/gc.ts` já continha a política de auto-remove/auto-pull, mas
+  faltavam rota, configuração e agendamento real no `serve`.
+- `agents/session/export.ts` já definia o payload versionado canônico de
+  conversa Claude/Codex; uma integração externa não podia criar outro formato.
+- `SettingsDialog` era a única superfície de configuração e o host SSH já era
+  armazenado localmente e consumido por `makeCursorUrl()`/`CursorButton`.
+- ADR-10 exigia capabilities granulares e loopback em toda escrita; §45.3
+  proibia credencial, prompt/transcript e segredo em argv, log e telemetria.
+
+**Implementação no Issue Flow**
+- `config/{linear,auto-name,github,project-settings}.ts` resolve/persiste apenas
+  política não secreta. `LINEAR_API_KEY` é lida exclusivamente do ambiente.
+- `issues/linear/client.ts` lista atribuídas, cria/localiza ticket, inicia upload,
+  anexa o JSON canônico e publica um resumo best-effort; `conversation.ts` lê
+  histórico estruturado Claude/Codex com deadline e fecha o app-server.
+- `issues/linear/auto-create.ts` seleciona tickets atribuídos, `unstarted`, com
+  label `issue-flow`, respeita `watchTeams`, deduplica contra o registry git cru
+  e chama `openManagedWorktrees`.
+- `web/integrations-api.ts` e `server.ts` atendem cinco rotas: `GET
+  /api/linear/issues`, `PUT /api/linear/auto-create`, `POST
+  /api/worktrees/:name/linear`, `PUT /api/github/auto-remove-on-merge` e `GET
+  /api/project/auto-name`. O contrato irmão descreve os cinco request/response.
+- `commands/serve.ts` roda uma cadência serializada de 60 s por projeto. Linear
+  pickup e GitHub GC são independentes; shutdown aborta e aguarda o passe.
+- `LinearPanel`, `LinearBadge`, `LinearDetailDialog` e `LinearPostDialog` voltam
+  em pt-BR e se integram ao `App`, `TopBar`, `WorktreeList` e ao único
+  `SettingsDialog`. A reversão formal do ADR-14 é de **2026-09-06, por pedido do
+  dono do projeto**.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Linear como integração, não como `IssueSource` | Preserva a resolução GitHub/local/inline; o painel precisa de tickets atribuídos/pickup, não de uma quarta origem concorrente da pipeline |
+| `LINEAR_API_KEY` capturada na closure do client | Nunca entra em `.issue-flow.json`, argv, resposta, log ou telemetria |
+| Redaction recursiva de payload/erro, inclusive percent-encoding aninhado | Uma API pode ecoar a credencial em qualquer campo ou camada codificada |
+| Signed upload restrito a HTTPS `storage.googleapis.com`/subdomínio, porta 443, sem redirect/userinfo/header perigoso | O upload fornecido pelo GraphQL é uma fronteira SSRF e de header injection |
+| Attachment `issueFlowConversation: 1` como fonte durável; comentário secundário best-effort | Reusa o contrato canônico e não reporta perda quando só o comentário falha |
+| Auto-create consulta o registry git bruto e usa lifecycle compartilhado | Branch externa/stale ainda ocupa o nome; criar direto duplicaria worktree/sessão |
+| Auto-remove exige PRs completos, merged head igual ao HEAD e rechecagem de identidade/limpeza/ocupação sob lock | Nome de branch pode ser reutilizado e leitura parcial não autoriza deleção |
+| Auto-name por loader + rota de leitura, gerador canônico no domínio de convenções | O browser e o handler não ganham uma segunda implementação de naming |
+| Host SSH auditado, não reimplementado | `issue-flow:ssh-host` já alimenta URLs `cursor://file`/`cursor://vscode-remote`; não havia campo órfão |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| Registrar Linear como Issue Provider | Misturaria integração de dashboard com a resolução canônica de demandas |
+| `--linear`/`postToLinearOnDone` no comando `run` | Publicação externa permanece ação explícita na UI/API; pickup automático pertence ao `serve` |
+| Reseed de sessão por attachment Linear | A entrega pede export/post; importar texto externo exigiria outro threat model de prompt injection |
+| Upload para host arbitrário, redirect ou headers fornecidos sem validação | SSRF/exfiltração; falha fechada antes da segunda request |
+| Credencial no JSON ou editor web | Arquivo versionável/DOM não são credential stores |
+| Refresh/tabs de worktree | Não pertencem à ficha C; foram entregues no Bloco D com capabilities separadas e domínio canônico em `agents/session/tabs.ts` |
+
+**Testes de paridade**
+
+| Teste | O que defende | Estado |
+|---|---|---|
+| `issues/linear/client.test.ts` | GraphQL, issue existente/nova, attachment canônico, comment best-effort, redaction, URL/header SSRF | ✅ (HTTP doubles) |
+| `issues/linear/auto-create.test.ts` | seleção, team/label/state, branch externa, abort e lifecycle compartilhado | ✅ |
+| `issues/linear/conversation.test.ts` | deadline e fechamento do Codex app-server | ✅ |
+| `config/linear.test.ts` + `web/integrations-api.test.ts` | precedência, escrita serializada, key só no env, cinco handlers e erros redigidos | ✅ |
+| `issues/github/pr.test.ts` + `runtime/worktree/gc.test.ts` | estado cross-repo, `headRefOid`, leitura inconclusiva e políticas de remoção | ✅ |
+| `commands/serve.reporting.test.ts` | agendamento, independência Linear/GC, abort/teardown e ausência de segredo no log | ✅ |
+| `web/src/lib/LinearComponents.test.ts`, `SettingsDialog.test.ts`, `TopBar.test.ts`, `WorktreeList.test.ts`, testes de `App` | painel/badge/detalhe/post, settings único, capabilities e pt-BR | ✅ |
+| `web/src/lib/utils.test.ts` + `SettingsDialog.test.ts` | consumidor real do host SSH e URLs Cursor local/remota | ✅ |
+
+**Risco inverso (§45.3).** A chave não é persistida; as respostas/erros recebem
+redaction de defesa em profundidade; a UI não envia transcript nem upload URL;
+worktree e naming continuam nas autoridades canônicas. As escritas web exigem
+loopback e capability; a leitura Linear remota continua redigida.
+
+**Orçamentos e limitações verificáveis.** O scheduler compartilha a cadência de
+60 s e nunca sobrepõe passes. As suítes focadas usam clients/fetch/lifecycle
+injetados: validam protocolo, payload, segurança e teardown sem rede, mas não
+constituem teste contra uma conta Linear real. Nenhuma credencial real foi usada
+ou registrada. O click-through e a comparação visual consolidados de §6 ainda
+são gates separados; esta ficha não antecipa a implementação, agora registrada
+na ficha do Bloco D abaixo.
+
+---
+
+### Ajuda raiz e relato operacional do monitor (Blocos E1/E2)
+
+**WebMux original**
+`.references/webmux-main/bin/src/webmux.ts` @ d8c9d5f — `usage()` e prefixo
+`[BE]`; `backend/src/lib/log.ts` — timestamp; `backend/src/server.ts` — URL local
+e IPv4 externos ao subir.
+
+**Comportamento existente**
+- O comando nu podia trocar descoberta por `ps` quando havia um run vivo ou
+  órfão. A tabela já tinha o endereço explícito `issue-flow ps`.
+- O help automático quebrava descrições e não inventariava as variáveis de
+  ambiente públicas.
+- `serve` informava host/porta, mas não os endereços externos, observadores
+  ativos nem transições relevantes; `ui/logger.ts` já era o escritor canônico.
+
+**Implementação no Issue Flow**
+- `cli-help.ts` gera help determinístico: 32 comandos públicos em cinco grupos,
+  uma linha por comando, opções e variáveis públicas realmente lidas. O comando
+  nu sempre mostra esse help; `ps` continua sendo o relatório de runs.
+- `commands/serve.ts` lista todo IPv4 externo deduplicado quando o bind aceita
+  rede e relata diretório/push, PR/CI, reconciliação, GC e projetos servidos.
+- `startServeActivityLogging` emite somente `run:open`, mudanças de
+  status/fase (`run:state`) e `run:close`.
+- `ui/logger.ts` acrescenta `formatSubsystemLine`/`printSubsystem` ao writer
+  único, com horário e `redactSecrets()` antes do stdout.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Help pré-formatado e puro | Torna largura e catálogo testáveis sem iniciar o CLI |
+| Comando nu = help; estado = `ps` | Descoberta e acompanhamento são intenções distintas |
+| Porta efetivamente ligada e URLs externas só em bind não-loopback | Não anuncia endereço incapaz de aceitar conexão |
+| Eventos de lifecycle, não snapshots ou agent events brutos | Dá sinal operacional sem firehose nem conteúdo de conversa |
+| Foreground relata; detached conserva `stdio: 'ignore'` | O output novo não vaza para o run que iniciou `--web` |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| Flags raiz `--port`, `--app`, `--debug` do WebMux | No Issue Flow a porta pertence a `serve`; as outras flags não existem |
+| Segundo logger/prefixador e firehose de eventos | O writer único e o filtro de transições são as autoridades |
+| IPv6, loopback e duplicatas na lista externa | O requisito é um link IPv4 externo alcançável |
+| Variáveis internas de contexto no help | Token, prompt, ids e paths internos não são configuração do usuário |
+
+**Testes de paridade**
+
+| Teste | O que defende | Estado |
+|---|---|---|
+| `cli-help.test.ts` | cinco grupos, catálogo completo, envs reais e largura | ✅ |
+| `commands/serve.reporting.test.ts` | IPv4/dedupe, loopback, observers e erros de boot | ✅ |
+| `ui/logger.test.ts` | timestamp/subsistema e redaction antes da saída | ✅ |
+
+**Risco inverso (§45.3).** Ajuda é formatação pura; `serve` não cria escritor,
+processo ou protocolo novo e não loga prompts/tokens. A política detached não
+mudou.
+
+**Orçamentos.** O catálogo estrutural e o filtro de logs estão verdes. Boot,
+saída do artefato compilado e binds reais pertencem ao smoke consolidado.
+
+---
+
+### CLI de worktrees e veredito dos 18 comandos WebMux (Bloco E3)
+
+**WebMux original**
+`.references/webmux-main/bin/src/` @ d8c9d5f — os comandos `add`, `oneshot`,
+`list`, `open`, `close`, `refresh`, `archive`, `unarchive`, `label`, `remove`,
+`merge`, `send`, `tab`, `prune`, `restore`, `linear`, `service` e `update`.
+
+**Comportamento existente**
+`run --prompt` já cobria oneshot; `session new|stop|send` cobria uma nova sessão,
+close e envio. `session ls` não lista a curadoria de worktrees fechados, e os
+comandos destrutivos ainda não possuíam uma superfície direta sem servidor.
+
+**Implementação no Issue Flow**
+`commands/worktree.ts` e o grupo `worktree` do CLI acrescentam `ls|list`,
+`archive`, `unarchive`, `label`, `remove`, `merge` e `prune`. Eles resolvem o
+contexto local e chamam `worktree-control.ts`, a mesma autoridade das rotas.
+`remove`/`merge` exigem confirmação ou `--yes`; `prune` é dry-run por default e
+aplica somente o plano mostrado com `--yes`. A lista `--json` escreve um único
+valor JSON sem prefixos do logger. O Bloco D completou o inventário com
+`worktree refresh` no mesmo arquivo e `commands/tab.ts` para
+`list/create/switch/close`, ambos delegando ao domínio bloqueado de
+`agents/session/tabs.ts`.
+
+**Veredito dos 18 comandos**
+
+| WebMux | Veredito no Issue Flow | Evidência / razão |
+|---|---|---|
+| `add` | já existe | `session new` cria ou reutiliza branch/worktree e inicia o agente |
+| `oneshot` | já existe | `run --prompt` mantém pipeline, review e verificação |
+| `list` | implementado | `worktree ls|list [--all|--archived] [--json]` |
+| `open` | já existe | `session new --branch <branch>` abre a branch sem refresh destrutivo |
+| `close` | já existe | `session stop`; worktree sobrevive por default |
+| `refresh` | implementado | `worktree refresh <branch>` reattach/resume, nunca mata e recria pane vivo |
+| `archive` | implementado | `worktree archive`, fecha sessões vivas e persiste curadoria |
+| `unarchive` | implementado | `worktree unarchive` |
+| `label` | implementado | `worktree label <branch> [label]` ou `--clear` |
+| `remove` | implementado | `worktree remove <branch> [--yes]`, domínio compartilhado |
+| `merge` | implementado | `worktree merge <branch> [--yes]`, rollback canônico |
+| `send` | já existe | `session send <id> <text>`; só a contagem é logada |
+| `tab` | implementado | `tab list` projeta Root/forks; `create/switch/close` mutam `AgentSession` sob o lock canônico |
+| `prune` | implementado | dry-run por default; `--yes` revalida sob lock antes de remover |
+| `restore` | deliberadamente fora | o snapshot de shutdown do upstream não existe aqui; `session new --branch` é o caminho explícito e seguro |
+| `linear` | deliberadamente fora | o Bloco C entregou a ação na UI/API e o pickup no `serve`; um alias CLI HTTP duplicaria a superfície sem acrescentar operação offline. A credencial permanece fora de argv/log/telemetria |
+| `service` | deliberadamente fora | um pacote portátil não deve mutar `launchd`/`systemd`; instalação do serviço pertence ao operador/distribuição |
+| `update` | deliberadamente fora | npm/pnpm/Homebrew e a política de supply chain são autoridades do package manager, não de um self-updater |
+
+Resumo após o Bloco D: **5 já existentes**, **9 implementados** e **4
+deliberadamente fora**.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Namespace `worktree`, sem aliases dos comandos já existentes | Preserva o vocabulário e evita dois caminhos para a mesma ação |
+| Domínio compartilhado, nunca HTTP ou git direto | CLI funciona sem servidor sem divergir das invariantes web |
+| Lock durável envolvendo teardown e mutação | Outro processo não pode ocupar/remover o mesmo worktree na janela crítica |
+| Prune só aceita binding gerenciado, sessão fechada, tree limpa e ausência física de janela | Não transforma lixo administrativo em autorização de apagar trabalho |
+| Plano revalidado sob lock antes de cada remoção | O estado pode mudar entre preview e apply |
+| Mutações de `tab` e `refresh` chamam o domínio de sessão, não tmux direto | CLI, HTTP e UI compartilham lock, identidade, rollback e prova de ownership; `tab list` é só projeção |
+
+**Comportamento deliberadamente NÃO portado**
+Além de `restore`, `linear`, `service` e `update` na tabela, o CLI não porta o refresh do
+upstream que mata o pane, nem `git worktree prune` como substituto da remoção
+gerenciada. `worktree refresh` e o grupo `tab` usam o modelo canônico entregue
+no Bloco D.
+
+**Testes de paridade**
+
+| Teste | O que defende | Estado |
+|---|---|---|
+| `commands/worktree.test.ts` | flags, JSON, confirmação, dry-run e delegação | ✅ |
+| `commands/tab.test.ts` + bloco `refresh` de `commands/worktree.test.ts` | JSON puro, confirmação e delegação das duas entregas D | ✅ |
+| `runtime/worktree/lock.test.ts` + fixture de segundo processo | exclusão cross-process, reentrância e reclaim seguro | ✅ |
+| `agents/session/worktree-control.test.ts` e `runtime/worktree/lifecycle.test.ts` | rechecagem, teardown e mutações canônicas | ✅ |
+| build + execução do CLI com parse real de `--json` | saída consumível sem decoração | ✅ |
+
+**Risco inverso (§45.3).** Nenhum comando usa git/tmux diretamente. Operações
+destrutivas exigem autorização, prova de ownership e lock, e não encerram uma
+janela que o prune não possa provar pertencer ao candidato.
+
+**Orçamentos.** A execução focada de E3 passou com **81/81** casos, além de
+typecheck, build e parse do JSON. Os testes e limites adicionais de
+`refresh`/`tab` estão na ficha D.
+
+---
+
+### Abas por worktree e refresh não destrutivo (Bloco D)
+
+**WebMux original**
+`.references/webmux-main/backend/src/services/{lifecycle-service,tab-logic}.ts`,
+`backend/src/adapters/tmux.ts`, `backend/src/server.ts`,
+`packages/api-contract/src/{contract,schemas}.ts`,
+`frontend/src/lib/TabBar.svelte` e `bin/src/worktree-commands.ts` @ d8c9d5f —
+Root/forks persistidos em `WorktreeMeta`, panes estacionados e trocados por id,
+rotas de create/select/delete e comandos `tab`/`refresh`. O refresh upstream
+mata a janela e reconstrói todos os panes.
+
+**Comportamento existente**
+O Issue Flow já separava conversa do provider, `AgentSession`, runtime, tmux e
+attach (§27), persistia sessão em SQLite, mantinha o socket dedicado e corrigia
+reabertura para `reattach`/`resume`. A UI já continha a `TabBar` portada, mas a
+Fase 8D ainda projetava `tabs: []`; não havia identidade durável de pane, sessão
+ativa no binding, domínio de fork nem rotas/comandos que pudessem cumprir a
+promessa sem destruir uma conversa viva.
+
+**Implementação no Issue Flow**
+Uma aba é outra `AgentSession` do mesmo `worktreeId`; não existe tabela de tabs.
+`tabId` é `AgentSession.id`, enquanto `conversationId` continua sendo a
+identidade privada do provider. A raiz tem `parentSessionId = null` e sequência
+0; forks apontam para ela. Migração 22 acrescenta relação/sequência/token aos
+agent sessions e ponteiro ativo/contador monotônico aos worktrees. O backfill só
+liga uma linha antiga ao worktree quando a encarnação é inequívoca; história de
+branch ambígua permanece nula, nunca adivinhada.
+
+`agents/session/tabs.ts` é o domínio único de projeção, create, select, delete,
+refresh e reconciliação. Somente Claude e Codex são forkáveis: Claude recebe
+uma sessão nova fixada a partir da conversa raiz; Codex usa `thread/fork` pelo
+app-server e retoma o novo thread. `review` e `pr-review` continuam recusados
+pela mesma guarda de independência de ADR-07.
+
+Cada fork nasce no parking window privado do `worktreeId`. O pane `%N` recebe
+um `paneToken` aleatório persistido e a opção tmux `@issue-flow-owner`, que
+codifica também a sessão dona do projeto. Mover, anexar, reconciliar ou encerrar
+exige a tupla `{paneId, owner do projeto, janela main/parking, paneToken}`; ids
+reutilizados, panes de serviço e aliases viewer são estrangeiros. Selecionar
+usa swap/move e preserva o processo; serviços nunca são estacionados.
+
+Create/select/delete/refresh usam o lock durável por projeto+branch sobre tmux
+e SQLite. Criação grava a nova sessão, o active id e o contador numa transação.
+Se o launch parcial falha, o pane recém-criado é reautenticado antes da limpeza
+e uma linha stopped/orphaned consome a sequência; evidência não some. Fechar
+mantém o lock do snapshot à pós-condição, proíbe a raiz, promove uma raiz/sibling
+autenticada antes de parar o fork ativo e aceita descartar orphan só quando o
+pane está autoritativamente ausente. Teardown integral faz preflight e muda
+todos os siblings do worktree exato para stopped em uma operação de banco.
+
+As rotas `POST /api/worktrees/:name/tabs`,
+`POST /api/worktrees/:name/tabs/:tabId/select`,
+`DELETE /api/worktrees/:name/tabs/:tabId` e
+`POST /api/worktrees/:name/agent-terminal/refresh` ficam sob as capabilities
+loopback distintas `worktrees:tabs` e `terminal:refresh`. A CLI usa o mesmo
+domínio em `tab list/create/switch/close` e `worktree refresh`; `--json` escreve
+um único valor sem decoração. A `TabBar` em pt-BR mantém setas, Home/End,
+roving `tabindex`, confirmação de close e a recuperação alcançável para sessão
+órfã.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| `WorktreeMeta.tabs/forkCounter` → `agent_sessions` + ponteiro/contador no binding | Uma aba é conversa viva, não layout do browser; preserva ADR-16 e evita uma segunda verdade |
+| `root`/`fork-N` locais → UUID da `AgentSession` no wire | O id de UI continua diferente do id de conversa e sobrevive à troca física de pane |
+| `meta.json` → migração SQLite 22 | Relação, contador e ativação precisam de transação e lock cross-process |
+| Coordenada `session:window.0` → `%N` + owner tag + nonce | Coordenada muda em swap e `%N` pode ser reciclado após restart; só a tupla completa prova ownership |
+| Parking nomeado por branch → namespace disjunto derivado do `worktreeId` | Uma branch reutilizada não pode herdar panes de uma encarnação anterior |
+| Refresh kill/recreate → reattach ou resume da mesma conversa | Preserva trabalho vivo e implementa a correção já decidida em §27 |
+| Lock em memória do handler → lock durável do domínio inteiro | CLI e HTTP podem operar em processos distintos; contador, layout e ponteiro não podem divergir |
+| Inventário viewer duplicado → owner físico único | Sessões tmux agrupadas são aliases de observação, não novos donos do pane |
+
+**Comportamento deliberadamente NÃO portado**
+
+| O quê | Por quê |
+|---|---|
+| Refresh que mata a janela e restaura todos os panes | É a regressão que o reattach/resume de §27 corrige; pane vivo não é efeito descartável |
+| Tabs em runtime Docker/sandbox | Não há fork/resume autenticado dentro do container com as mesmas garantias; `supportsTabs` fica falso |
+| Fork de Cursor, Antigravity, OpenCode ou agente custom | Não expõem a primitiva nativa estruturada e retomável exigida; uma conversa nova não é fork |
+| Fork de `review`/`pr-review` | Violaria a independência metodológica de ADR-07 |
+| Tabela `tabs` ou transcript copiado | Duplicaria `AgentSession`/provider e criaria duas autoridades para a mesma conversa |
+
+**Testes de paridade**
+
+| Teste | O que defende | Estado |
+|---|---|---|
+| `agents/session/tabs.test.ts` | sequência concorrente, fork nativo, swap físico, resume, owner-token, orphan/foreign, rollback, teardown e lock integral | ✅ |
+| `storage/db/migrations.test.ts` + `agents/session/store.test.ts` | migração 22 conservadora, relação de tabs e transações sessão+ponteiro | ✅ |
+| `commands/tab.test.ts` + bloco de refresh em `commands/worktree.test.ts` | delegação ao domínio, confirmação e JSON puro | ✅ |
+| `web/worktrees-api.test.ts`, `web/server.test.ts` e pacote contract | projeção/rotas/capabilities e erros HTTP tipados | ✅ |
+| `web/src/lib/TabBar.test.ts` + `web/src/App.test.ts` | Root/forks, ARIA, confirmação, capability e retomada alcançável | ✅ |
+| `runtime/tmux/gateway.strict.test.ts` + `gateway.integration.test.ts` | primitivas estritas, parking, swap/move, tag e owner/viewer num tmux real | ✅ |
+
+**Risco inverso (§45.3).** O fork não cria caminho headless novo, não lê TTY e
+não copia transcript. A permissão da raiz é preservada. Toda chamada física
+passa pelo gateway tmux e todo spawn de provider continua em argv serializado na
+fronteira existente. Falha de observação é desconhecido, não ausência; falha de
+persistência conserva ou registra o possível processo em vez de alegar rollback.
+
+**Orçamentos.** Reattach não inicia provider nem recria layout; seleção movimenta
+o pane existente. Reconciliação usa inventário agregado e continua O(1) em
+processos tmux por passe. A validação final do bloco passou **61/61** casos
+focados e o `check` completo; uma reexecução independente de tabs, CLI,
+worktree e migrações passou **42/42**. As suítes cobrem concorrência em
+processos distintos e a integração real no socket dedicado; os gates
+consolidados e as medições finais permanecem os árbitros dos limites de §35.
+
+---
+
+### Reversão das cinco paletas WebMux (pedido do dono, 2026-09-06)
+
+**WebMux original**
+`.references/webmux-main/frontend/src/lib/themes.ts` @ d8c9d5f — GitHub Dark,
+Dracula, Nord, Solarized Dark e One Dark, inclusive papéis de superfície,
+texto, accent, estado e xterm. ADR-19 as havia condensado nos três modos do
+Issue Flow; o dono do projeto pediu explicitamente a volta como adição.
+
+**Comportamento existente**
+`system`, `light` e `dark` eram persistidos em `issue-flow:theme` e aplicados
+antes do primeiro paint. Somente `system` observava `prefers-color-scheme`. O
+gate vigente mede 19 pares: nove de texto, cinco badges, três focus rings e dois
+pares de accent text.
+
+**Implementação no Issue Flow**
+`themes.ts` expõe oito opções. `tokens.css` declara cada paleta nomeada com todos
+os tokens; `index.html` reconhece as oito antes do paint; `App.svelte` e
+`SettingsDialog.svelte` persistem a escolha e mantêm o listener do SO somente
+em `system`. O terminal relê os tokens computados após a troca.
+
+**Adaptações realizadas**
+
+| O quê | Por quê |
+|---|---|
+| Cinco paletas adicionadas a `system/light/dark` | Preserva preferências existentes e cumpre a reversão pedida |
+| Cores upstream traduzidas para tokens por papel | Tailwind e xterm continuam consumidores, nunca fontes paralelas |
+| Muted/subtle/estados/foco ajustados onde necessário | A identidade visual não autoriza reduzir o limiar WCAG do uso real |
+| xterm derivado de `getComputedStyle` | Página e terminal não podem divergir depois de uma troca |
+
+**Comportamento deliberadamente NÃO portado**
+O mapa xterm literal e a escrita runtime de `--color-*` não entram, pois
+duplicariam os tokens. Também não entra qualquer cor que falhe seu papel real,
+redução de mínimo, exceção de badge ou recurso externo por tema.
+
+**Testes de paridade**
+`tokens.test.ts` guarda que nenhum papel nasce só num bloco de tema e que os
+dois blocos dark base têm os mesmos overrides; `contrast.test.ts` mede os 19
+pares e a presença das cores por tema explícito; testes de
+`themes`/`utils`/`App` defendem chave, fallback, persistência e listener;
+`measure.html` lê a cascata efetiva em Chromium.
+
+**Medições Chromium — 95 pares.** Ordem: `text`, `text-muted` e `text-subtle`
+sobre page/surface/sunken; ok/run/warn/error/merged sobre sua superfície; três
+focus rings; accent text sobre accent/error.
+
+| Paleta | Mínimo absoluto | Menor par de 4,5 | Falhas | Vetor completo |
+|---|---:|---:|---:|---|
+| GitHub Dark | 4,95 | 4,95 | 0 | 16,02 · 14,64 · 12,88 · 7,48 · 6,83 · 6,01 · 6,15 · 5,62 · 4,95 · 5,42 · 5,68 · 5,61 · 5,66 · 7,76 · 7,49 · 6,85 · 6,03 · 7,49 · 6,79 |
+| Dracula | 4,89 (foco) | 5,22 | 0 | 14,81 · 13,36 · 11,06 · 8,63 · 7,78 · 6,44 · 6,99 · 6,31 · 5,22 · 9,50 · 9,54 · 10,96 · 5,60 · 6,06 · 6,55 · 5,90 · 4,89 · 6,55 · 5,80 |
+| Nord | 4,83 | 4,83 | 0 | 12,15 · 10,84 · 8,73 · 7,81 · 6,97 · 5,61 · 6,72 · 5,99 · 4,83 · 6,49 · 6,46 · 8,32 · 5,75 · 4,91 · 7,00 · 6,24 · 5,03 · 7,71 · 6,20 |
+| Solarized Dark | 4,85 (foco) | 4,86 | 0 | 15,41 · 13,92 · 12,05 · 7,62 · 6,89 · 5,96 · 6,21 · 5,61 · 4,86 · 6,39 · 4,90 · 6,32 · 5,26 · 5,48 · 6,20 · 5,60 · 4,85 · 4,96 · 6,55 |
+| One Dark | 4,74 | 4,74 | 0 | 10,99 · 10,00 · 8,40 · 7,30 · 6,64 · 5,58 · 6,20 · 5,64 · 4,74 · 6,51 · 5,26 · 7,39 · 5,46 · 4,85 · 6,51 · 5,92 · 4,98 · 7,32 · 6,66 |
+
+**Risco inverso (§45.3).** A mudança é declarativa e local: não toca processo,
+credencial, autorização ou workflow. Tema explícito não herda o listener do SO,
+e token ausente falha no gate em vez de virar passe por valor vazio.
+
+**Orçamentos.** As cinco paletas somam **95/95** pares aprovados em Chromium,
+sem exceção; menor par de mínimo 4,5 = **4,74**, menor focus ring = **4,85**.
+Flash/reload e responsividade permanecem parte da validação visual consolidada.
+
+---
+
+### Validação final na tela e paridade visual (2026-09-06)
+
+Esta é a evidência de encerramento de §50.7. O dashboard empacotado foi aberto
+em Chromium contra uma fixture descartável com repositório Git real, registro e
+sessões em SQLite, tmux no socket do produto, serviço HTTP e respostas `gh`
+determinísticas. Não foi um mock de componentes: as ações atravessaram as rotas
+do servidor e chegaram aos efeitos abaixo.
+
+#### Roteiro A — click-through real
+
+| Fluxo | Ação e evidência observada | Efeito fora da tela |
+|---|---|---|
+| add project | projeto adicionado e selecionado no switcher | linha criada no registro global e prefixo servido |
+| create worktree | diálogo criou `manual-parity` | checkout Git e binding SQLite persistidos |
+| start agent | sessão apareceu como ativa | pane `%369`, PID 76384, com owner token do projeto |
+| open terminal | xterm conectou à sessão selecionada | viewer anexado ao pane autenticado pelo WebSocket prefixado |
+| interact | `echo CLICK_THROUGH_OK` apareceu no xterm | bytes entregues ao pane vivo, sem processo paralelo |
+| switch session | alternância `manual-parity` ↔ `manual-service` atualizou header, tabs e terminal | panes `%369`/76384 e `%373`/78443 permaneceram os mesmos |
+| service status | serviço ficou verde e mostrou `http://127.0.0.1:5311` | binding guardou `FIXTURE_PORT=5311`; URL canônica expandiu para `http://localhost:5311` |
+| PR/CI | PR #17, check `browser-parity` aprovado e dois comentários apareceram | leitura passou pela fixture `gh`; nenhuma mensagem foi publicada |
+| reconnect | xterm exibiu desconexão/erro e, após o servidor voltar, recuperou o buffer | reattach ao mesmo pane e PID, sem matar ou reiniciar o agente |
+
+A sessão livre de I3 também foi aberta com um clique. Ela chegou ao prompt de
+confiança do Claude sem issue, plano ou run; nenhum texto foi enviado e a
+sessão descartável foi fechada imediatamente.
+
+O percurso real revelou três defeitos de integração, todos corrigidos antes
+desta conclusão:
+
+- o upgrade do terminal aceitava só `/ws/terminal`; agora também resolve
+  `/<project>/ws/terminal` e restringe a busca ao runtime daquele projeto;
+- a criação por worktree não alocava as portas declaradas antes de lançar a
+  sessão; todas as superfícies de abertura agora passam pela mesma alocação;
+- a projeção de serviços expandia URLs só com as portas; agora usa os valores de
+  startup persistidos e depois as portas alocadas, na mesma precedência do
+  ambiente lançado.
+
+#### Comparação visual com o WebMux congelado
+
+O frontend de `.references/webmux-main` em d8c9d5f foi executado de uma cópia
+descartável, sem alterar o baseline, e comparado lado a lado em GitHub Dark com
+o Issue Flow. As superfícies mínimas foram sidebar/estado vazio, diálogo de
+criação e configurações.
+
+| Superfície ou diferença | Classificação final |
+|---|---|
+| shell, sidebar, busca, arquivo, atalhos e rodapé | equivalência implementada: mesma hierarquia, largura, densidade e estados |
+| header editável, nome, badge do agente e ações | equivalência implementada; `Fechar` e indicadores de capability são extensões do Issue Flow |
+| estado vazio “Open Session” | implementado como `Nova sessão` de um clique, ao lado de `Novo` para criação explícita |
+| diálogo de criação | equivalência implementada; vínculo opcional à issue e providers adicionais são extensões deliberadas |
+| branch, Cursor, Pull e Linear no rodapé | equivalência implementada, com vocabulário pt-BR (`Atualizar`) |
+| configurações, agentes customizados, GitHub, Linear e SSH | equivalência implementada; preferências de execução futura são extensão deliberada |
+| GitHub Dark, Dracula, Nord, Solarized Dark e One Dark | restaurados por tokens de papel; `system`/`light`/`dark` foram preservados por compatibilidade |
+| grupos Execuções/Sessões e painel Trabalho ativo | extensão deliberada que preserva a integração Task → sessão/worktree do Issue Flow |
+
+Não há diferença visual restante sem classificação. As adições não substituem
+nem escondem os fluxos do WebMux e o terminal deriva suas cores da cascata CSS,
+sem mapa literal concorrente.
+
+#### U1–U21 e I1–I7
+
+O Roteiro A acima cobre o caminho integrado real. As permutações de estado de
+U1–U21 e I1–I7 são defendidas pelas suítes do componente de produção, contrato
+e integração; a geometria e o contraste foram aferidos no Chromium real:
+
+- U6: o bloco “Agora” terminou em `765 px` e coube em 1440×900 sem rolagem;
+- U20: `clientWidth = scrollWidth = body.scrollWidth` em 360, 768 e 1440 px,
+  sem elemento ofensor;
+- U19: 95/95 pares das cinco paletas adicionais passaram; mínimo absoluto
+  4,74 e menor focus ring 4,85;
+- I7: saída → tela p95 de 1 ms e reconexão mediana de 27 ms, ambos dentro dos
+  budgets de 250 ms e 100 ms;
+- troca de aba/sessão, promoção, multi-projeto, review unificado, fallback
+  legado, `unverified`, ARIA, refresh e identidade da instância permanecem
+  cobertos pelos testes nomeados nas fichas anteriores.
+
+Resultado: **WebMux 9/9, Issue Flow U1–U21 e integração I1–I7 verdes**. A
+remoção do frontend antigo, já realizada na Fase 8D, satisfaz agora também o
+gate de evidência de tela da ADR-18.
+
+#### Gates consolidados após os ajustes da tela
+
+| Gate | Resultado final |
+|---|---|
+| `npm run check` | Biome, TypeScript e Svelte: 0 erros e 0 avisos |
+| `npx vitest run` | 268 arquivos; 3.624 aprovados e 3 ignorados |
+| `npm run test:web` | 34 arquivos; 412/412 |
+| `npm run test:contract` | 5/5 |
+| integração real | 16 arquivos aprovados e 2 ignorados; 119 aprovados e 4 ignorados |
+| `npm run build` | CLI e frontend; 282 módulos transformados |
+| `npm run smoke` | 62/62 |
+| `npm run skills:check` | 11 Skills autocontidas; artefatos sincronizados |
+
+O CLI empacotado foi executado sem argumentos com armazenamento vazio e com
+estado prévio: em ambos mostrou a ajuda raiz, enquanto `ps` continuou sendo o
+comando explícito de inventário. O `serve` recém-compilado respondeu
+`/api/health` em loopback com as capabilities de sessão, worktree, tabs,
+terminal, agentes e integrações anunciadas.

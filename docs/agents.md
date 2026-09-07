@@ -254,6 +254,27 @@ Every message carries an id that is stable across both routes, which is what
 stops a paragraph the panel already streamed from being drawn a second time when
 the transcript is read back.
 
+### Forking a conversation into worktree tabs
+
+`issue-flow tab create <branch>` creates another `AgentSession` in the same
+managed worktree. The tab id is the Issue Flow session id; it is deliberately
+separate from the provider conversation id. Codex uses its structured
+app-server `thread/fork` operation. Claude starts a new pinned session from the
+root conversation. No operation scans a provider transcript directory or
+guesses a conversation from the current working directory.
+
+Only Claude and Codex advertise a safely resumable native fork. Cursor,
+Antigravity, OpenCode and custom agents are refused instead of approximating a
+fork with an unrelated fresh conversation. The same applies to `review` and
+`pr-review`: their methodological independence takes precedence over the tab
+control. Tabs currently require the host runtime; sandbox worktrees keep their
+single agent session.
+
+Switching a tab preserves the live provider process. If its pane is gone,
+`issue-flow worktree refresh <branch>` or selecting that orphan resumes its
+exact conversation in a newly authenticated pane; it never implements the
+upstream's destructive kill-and-recreate refresh.
+
 ### Exporting a conversation, and handing it to the next agent
 
 A conversation can be written out as a JSON file — the messages plus the branch

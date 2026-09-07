@@ -82,6 +82,16 @@ makes promotion free: linking a free session to an issue (`issue-flow session
 link`, or `POST /api/sessions/:id/link`) gives it a run, and the workflow tabs
 appear in place.
 
+Inside one selected worktree, the terminal may have a **Root** tab and numbered
+**Fork** tabs. Each is a real `AgentSession` sharing that worktree; the browser
+does not own or synthesize their identity. Creating a fork uses the root
+provider conversation, selecting one moves its already-running pane into view,
+and closing is offered only for forks after confirmation. The bar keeps the
+ARIA keyboard pattern (arrow keys, Home/End and roving `tabindex`) and remains
+reachable when the active pane is orphaned so **Retomar sessão** can run the
+non-destructive refresh. Safe fork creation is limited to Claude/Codex sessions
+on host-runtime worktrees.
+
 ## The dashboard
 
 With two or more active sessions, the panel opens on the executions dashboard —
@@ -148,17 +158,23 @@ Switching tabs never interrupts the update loop: both views are re-rendered on
 every refresh, so the Kanban is already current the moment it is opened, and an
 open drawer stays open across refreshes, updating in place.
 
-## Light and dark theme
+## Themes
 
-The panel ships both themes and a **"Tema"** select next to the **"Atualizar"**
-control — in the dashboard header *and* in the detail header, mirrored, so
-changing it in one immediately reflects in the other. It has three states:
+The panel ships the two base palettes, the system mode and five named WebMux
+palettes. The **"Tema"** select sits next to **"Atualizar"** in the dashboard
+and detail headers, mirrored, so changing it in one immediately reflects in the
+other. It has eight choices:
 
 | State | What it does |
 |-------|--------------|
 | **Sistema** (default) | Follows the operating system, live: switching the OS theme repaints the panel with no reload |
 | **Claro** | Forces the light theme, whatever the OS says |
 | **Escuro** | Forces the dark theme, whatever the OS says |
+| **GitHub Dark** | Forces the named dark palette ported from WebMux |
+| **Dracula** | Forces the named dark palette ported from WebMux |
+| **Nord** | Forces the named dark palette ported from WebMux |
+| **Solarized Dark** | Forces the named dark palette ported from WebMux |
+| **One Dark** | Forces the named dark palette ported from WebMux |
 
 The choice is stored in `localStorage` under `issue-flow:theme`, so it is **per
 browser** (per origin, in fact), not per session, per project or per machine:
@@ -173,21 +189,59 @@ palette. With `localStorage` unavailable (a private window with storage
 blocked, a hardened profile) the panel still loads and the select still switches
 the theme for that tab — the choice just does not survive the reload.
 
-Both themes declare their own `color-scheme`, so `<select>`, `<progress>` and
-the scrollbars follow the **effective** theme rather than the OS one, and every
-text/background pair meets WCAG AA (4.5:1 for text, 3:1 for the focus ring).
-Nothing here is loaded from the network: the palette is plain CSS custom
-properties in `app.css`, and the panel remains offline-capable.
+Every explicit theme declares its own `color-scheme`, so `<select>`,
+`<progress>` and the scrollbars follow the **effective** theme rather than the
+OS one. Named themes never observe later OS changes. The palette is a complete
+set of role-based CSS custom properties in `tokens.css`; Tailwind and xterm
+consume the computed tokens instead of keeping their own color maps.
 
-## Active execution is read-only
+The browser measurement page recalculates 19 text/state/focus/accent pairs per
+explicit palette. All five restored WebMux palettes pass their minimums in real
+Chromium: 95/95 pairs, with the full vectors recorded in
+[the absorption trace](absorption-trace.md#reversão-das-cinco-paletas-webmux-pedido-do-dono-2026-09-06).
+Nothing is loaded from the network, so the panel remains offline-capable.
+
+## Capability-gated writes
 
 `snapshot.readOnly` stays `true`: the interface never edits, deletes, reorders
-or changes the status of the active run. On a loopback binding, health advertises
-`config:agent:write` and `config:routing:write`; those capabilities reveal
-controls that save **global preferences for future executions** only. Each phase
-can save a harness and concrete tier/model, and routing mode, profile and the
-recommended policy can be changed in the same card. Remote bindings advertise
-neither capability and expose no mutation controls.
+or changes the status of the active run. Other resources have independent
+capabilities. On a loopback binding, health may advertise
+`config:agent:write`, `config:routing:write`, `worktrees:mutate`,
+`worktrees:tabs`, `terminal:refresh`, `agents:write`, `linear:write` and
+`settings:write`; each control is rendered only for the promise it needs.
+`agents:read` is safe remotely, but its response redacts custom-agent commands.
+`linear:read` is also available remotely, but all payload/error strings pass
+through the Linear credential redactor. Remote bindings advertise none of the
+write capabilities and expose no mutation controls. Tab mutation and terminal
+refresh are separate promises: a monitor that can reattach a terminal does not
+therefore claim it may fork or stop an agent.
+
+## Project integrations
+
+The one `SettingsDialog` owns non-secret Linear auto-create and GitHub
+auto-remove toggles; it does not duplicate integration settings in a second
+panel. `GET /api/project/auto-name` reports the provider-neutral naming policy
+that explicit worktree creation already consumes. The browser never generates
+a competing branch name.
+
+With `LINEAR_API_KEY` present, the sidebar lists assigned Linear tickets and
+worktree rows/header show a badge when a branch matches one. The detail dialog
+and “Enviar ao Linear” flow can attach the canonical versioned Claude/Codex
+conversation export to an existing ticket or a new ticket in a selected team.
+The credential remains environment-only. Tests use injected Linear HTTP
+doubles; there is no live-account acceptance claim.
+
+`issue-flow serve` also owns a serialized 60-second maintenance cadence for
+every served project. Linear pickup considers assigned, unstarted tickets with
+the `issue-flow` label and delegates creation to the managed lifecycle. GitHub
+GC is separately gated by `autoRemoveOnMerge` and removes nothing on partial PR
+state, a dirty/busy/changed worktree, or a merged-head mismatch. A failure in
+one integration does not skip the other.
+
+“Abrir no Cursor” needs no server mutation. The local/SSH host stored under
+`issue-flow:ssh-host` is combined with the worktree path into `cursor://file…`
+or `cursor://vscode-remote/ssh-remote+…`; this existing consumer was audited and
+kept.
 
 ## Single instance, detached from the pipeline
 
@@ -215,6 +269,15 @@ A stale lock (dead `pid`, or a live one that does not answer the health probe) i
 removed and re-claimed. The claim uses an exclusive create (`wx`) **after** a
 successful bind, so two invocations racing to become the owner still agree on
 exactly one winner.
+
+When run in the foreground, `issue-flow serve` prints the local URL and, for a
+non-loopback bind, every deduplicated external IPv4 URL using the port that was
+actually bound. It also reports the projects loaded and the real state/cadence
+of session-directory push/fallback, PR/CI monitoring, reconciliation and
+worktree GC. Ongoing output is intentionally sparse: `run:open`, status/phase
+changes and `run:close`. Snapshot churn and agent conversation content are not
+logged, and all subsystem lines pass through the canonical secret redactor.
+The detached process started by `--web` retains `stdio: 'ignore'`.
 
 ### Explicit restart and stale UI assets
 
@@ -388,13 +451,41 @@ Two things about it are deliberate:
 | `GET /api/status?session=<id>` | That session's full [snapshot](storage.md#sessionjson). Also served at `/status.json` |
 | `GET /api/events?session=<id>` | Journal entries for that session |
 | `GET /api/config?session=<id>` | Captured effective configuration, resolved routing settings and the harness catalog with readiness (`installed`, `authentication`, `state`, models) |
+| `GET /api/diagnostics?session=<id>` | Correlated records from the global diagnostic log |
+| `POST /api/config/agent` | Save a global provider/model preference for future runs; loopback only |
+| `POST /api/config/routing` | Save global routing mode/profile/policy for future runs; loopback only |
 | `GET /api/agent-events?session=<id>` | Lifecycle history the agent's own [hooks](agents.md#lifecycle-hooks) reported for that run |
 | `GET /api/stream[?session=<id>]` | [Server-Sent Events](#push-updates): state changes pushed as they happen |
 | `GET /api/projects` | Every known project: the ones this server is serving first, then the ones the registry knows and nothing is running for |
 | `POST /api/projects` | Add a project by `{ "path": "…" }`; loopback only |
 | `DELETE /api/projects/:prefix` | Stop serving a project and demote it to `discovered`; loopback only |
 | `GET /api/project-inits` | Phases of the setups currently in flight |
-| `GET /api/worktrees` | Every live agent session and the worktree it runs in, with services and pull requests; `sessions` capability |
+| `GET /api/worktrees` | Managed worktree projections with their current AgentSession/tabs, services and pull requests; `sessions` capability |
+| `POST /api/worktrees` | Create one or more managed worktrees and open their agent sessions; loopback + `worktrees:mutate` |
+| `POST /api/worktrees/:name/open` | Open an agent session in a managed worktree; loopback + `worktrees:mutate` |
+| `POST /api/worktrees/:name/close` | Stop live sessions without removing the worktree; loopback + `worktrees:mutate` |
+| `DELETE /api/worktrees/:name` | Stop occupants, then remove the managed worktree and branch; loopback + `worktrees:mutate` |
+| `POST /api/worktrees/:name/merge` | Stop occupants, merge through the canonical rollback-safe path, then remove; loopback + `worktrees:mutate` |
+| `PUT /api/worktrees/:name/archive` | Persist archive/unarchive state; loopback + `worktrees:mutate` |
+| `PUT /api/worktrees/:name/label` | Persist or clear the label; loopback + `worktrees:mutate` |
+| `PUT /api/worktrees/:name/profile` | Validate/persist a profile and restart a live session with its stored permission; loopback + `worktrees:mutate` |
+| `POST /api/worktrees/:name/send` | Deliver a turn to the live agent session; loopback + `worktrees:mutate` |
+| `POST /api/worktrees/:name/tabs` | Fork the root Claude/Codex conversation into a selected `AgentSession` tab; loopback + `worktrees:tabs` |
+| `POST /api/worktrees/:name/tabs/:tabId/select` | Select an authenticated existing/resumed tab without restarting it; loopback + `worktrees:tabs` |
+| `DELETE /api/worktrees/:name/tabs/:tabId` | Stop and close one fork; the root is protected; loopback + `worktrees:tabs` |
+| `POST /api/worktrees/:name/agent-terminal/refresh` | Reattach the active pane, or resume its exact conversation when absent; loopback + `terminal:refresh` |
+| `GET /api/worktrees/:name/diff` | UTF-8-safe bounded worktree diff |
+| `GET /api/branches`, `GET /api/base-branches` | Branch choices for the create/open UI |
+| `POST /api/pull-main` | Pull the configured main checkout without a force mode; loopback + `worktrees:mutate` |
+| `GET /api/config/project` | Minimal profile/agent configuration for worktree dialogs |
+| `GET /api/agents` | Built-in and custom agent summaries; `agents:read`; command templates are redacted remotely |
+| `POST /api/agents/validate` | Parse and validate a custom-agent definition without persisting it; `agents:read` |
+| `POST /api/agents`, `PUT /api/agents/:id`, `DELETE /api/agents/:id` | Create/update/delete project custom agents; loopback + `agents:write` |
+| `GET /api/linear/issues` | Assigned active Linear tickets, or an explicit disabled/missing-key availability; `linear:read` |
+| `PUT /api/linear/auto-create` | Persist the project auto-create toggle; loopback + `linear:write`; rejects an environment-pinned value |
+| `POST /api/worktrees/:name/linear` | Attach the canonical conversation export to an existing/new Linear ticket; loopback + `linear:write` |
+| `PUT /api/github/auto-remove-on-merge` | Persist safe merged-worktree GC policy; loopback + `settings:write`; rejects an environment-pinned value |
+| `GET /api/project/auto-name` | Resolved provider-neutral auto-name policy and canonical constants |
 | `GET /api/agent-sessions[?free=1&all=1]` | Agent sessions (§49.3); `all=1` is the consolidated view across every served project |
 | `POST /api/sessions` | Open a session — `issueRef` present binds it to that issue's run, absent makes it free; loopback only |
 | `POST /api/sessions/:id/{input,interrupt,link}` | Send a turn, interrupt, or promote a free session to a run; loopback only |
@@ -402,7 +493,7 @@ Two things about it are deliberate:
 | `POST /api/worktrees/:name/sync-prs` | Force one pull-request sync now, outside the activity gate; `pr:ci` capability |
 | `GET /api/ci-logs/:runId` | Failed steps of a GitHub Actions run; `pr:ci` capability |
 | `GET /api/terminal/token` | Credential the panel presents on the terminal WebSocket handshake; loopback only |
-| `WS /ws/terminal?token=…&session=…` | The terminal transport (`src/web/terminal-ws.ts`); refuses a missing token or a foreign `Origin` |
+| `WS /ws/terminal?token=…&session=…` and `WS /<project>/ws/terminal?token=…&session=…` | The terminal transport (`src/web/terminal-ws.ts`); refuses a missing token or a foreign `Origin`, and the prefixed form resolves the session only inside that project |
 
 The snapshot's `agent` section carries what the agent's own
 [lifecycle hooks](agents.md#lifecycle-hooks) reported — `lifecycle`
@@ -410,15 +501,6 @@ The snapshot's `agent` section carries what the agent's own
 The dashboard shows an explicit badge while an agent is blocked on a human,
 because that is the one state in which the run has stopped progressing until
 someone acts. It is never inferred from output.
-| `GET /api/diagnostics?session=<id>` | Correlated records from the global diagnostic log |
-| `POST /api/config/agent` | Save a global provider/model preference for future runs; loopback only |
-| `POST /api/config/routing` | Save global routing mode/profile/policy for future runs; loopback only |
-| `GET /api/agent-sessions[?free=1]` | Agent sessions — the ones a run owns and the ones nobody does |
-| `POST /api/sessions` | Open an agent session; `issueRef` present binds it to that issue's run, absent makes it free; loopback only |
-| `DELETE /api/sessions/:id[?removeWorktree=1]` | Stop a session; loopback only |
-| `POST /api/sessions/:id/input` | Deliver a subsequent turn, `{ "text": "…" }`; loopback only |
-| `POST /api/sessions/:id/interrupt` | Ctrl-C into the agent's pane; loopback only |
-| `POST /api/sessions/:id/link` | Promote a free session into a run, `{ "issueRef": "42" }`; loopback only |
 
 `GET /api/sessions` exists so the client does not need N× `/api/status` fetches
 just to paint the list. `issueDescription` is a short whitespace-collapsed

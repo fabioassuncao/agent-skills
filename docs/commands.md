@@ -14,6 +14,7 @@ installed.
 - [Issues](#issues) — `generate`
 - [Inspection](#inspection) — `init`, `agent`, `policy`, `conventions`, `routing`, `bench`
 - [Shell completion](#shell-completion) — `complete` scripts, activation, removal, and protocol
+- [Worktrees](#managed-worktrees) — list, refresh, tabs, archive, label, merge, remove and prune without a server
 - [Web monitor](#web-monitor) — `web serve`, `web stop`
 - [Exit codes](#exit-codes)
 
@@ -50,8 +51,10 @@ Commands that resolve an issue (`run`, `resume`, `init`, `analyze`, `prd`,
 `plan`, `review`, `pr`) also accept the [issue source flags](issues.md#flags):
 `--local`, `--github`, `--prefer-local`, `--prefer-github`, `--ask`.
 
-Running `issue-flow` with no arguments prints `ps` when this machine has live
-runs, and the help text otherwise.
+Running `issue-flow` with no arguments always prints the grouped root help: all
+public commands, root options and the public environment variables the binary
+actually reads. Run `issue-flow ps` explicitly to inspect live runs; an orphan
+or a live run never replaces command discovery with status output.
 
 ## Pipeline
 
@@ -816,6 +819,90 @@ headless runs changes. These commands read and write the database directly, so
 like `project` they work with no server running — only `attach` needs the tmux
 server itself.
 
+`--agent` accepts any configured custom-agent id in addition to the five
+built-ins. A custom agent is a terminal-session extension, not a headless
+pipeline provider: its declared command runs in the pane, while the built-in
+provider runners remain responsible for structured pipeline output, usage,
+failover, review and verification. See [custom agents](configuration.md#custom-agents).
+
+## Managed worktrees
+
+These commands curate the worktrees that remain after a session closes. They
+operate directly on the same storage and lifecycle layer as the dashboard, so
+no monitoring server is required.
+
+```bash
+issue-flow worktree ls [--all | --archived] [--json] [--project <path>]
+issue-flow worktree refresh <branch> [--json] [--project <path>]
+issue-flow worktree archive <branch> [--project <path>]
+issue-flow worktree unarchive <branch> [--project <path>]
+issue-flow worktree label <branch> [label] [--clear] [--project <path>]
+issue-flow worktree remove <branch> [--yes] [--project <path>]
+issue-flow worktree merge <branch> [--yes] [--project <path>]
+issue-flow worktree prune [--dry-run | --yes] [--project <path>]
+```
+
+`ls` (alias `list`) includes active and closed, non-archived worktrees by
+default. `--all` includes archived rows; `--archived` shows only those rows.
+`--json` writes one versioned JSON value to stdout without logger prefixes.
+
+`refresh` is non-destructive. It selects the active tab's existing pane when
+that pane is still alive; when it is authoritatively absent, it resumes the
+same provider conversation in a new authenticated pane. It never kills a live
+agent as a way to refresh the terminal. `--json` reports the `sessionId` and
+whether the operation was `reattach` or `resume`.
+
+`archive` closes live sessions before marking the worktree archived;
+`unarchive` returns it to the default list. `label` accepts at most 80
+characters, and `--clear` removes the caption.
+
+`remove` and `merge` are destructive and ask for confirmation; non-interactive
+automation must pass `--yes`. `merge` uses the canonical no-fast-forward merge
+with rollback and then removes the managed worktree. Both operations hold the
+same cross-process lock used by web mutations, including the teardown window.
+
+`prune` is a dry run unless `--yes` is explicit. A candidate must still be a
+managed/bound worktree, clean, closed in SQLite and absent as a physical tmux
+window when the operation rechecks it under the lock. It does not mean
+`git worktree prune`, which only removes administrative metadata.
+
+The WebMux `restore` command is intentionally absent: its safe semantics depend
+on a shutdown snapshot this project does not maintain. Reopen the intended
+branch explicitly with `issue-flow session new --branch <branch>`. Service
+installation and self-update are also external authorities: this portable
+package does not mutate `launchd`/`systemd` or guess the package manager.
+
+### Agent tabs in a worktree
+
+```bash
+issue-flow tab list <branch> [--json] [--project <path>]
+issue-flow tab create <branch> [--json] [--project <path>]
+issue-flow tab switch <branch> <tab-id> [--json] [--project <path>]
+issue-flow tab close <branch> <tab-id> [--yes] [--json] [--project <path>]
+```
+
+An agent tab is another durable `AgentSession` in the same managed worktree,
+not browser layout state. `tab list` (alias `ls`) marks the active row with `*`;
+its `tab-id` is the Issue Flow session id, never the provider conversation id.
+`create` forks the root conversation and selects the fork. Only Claude and
+Codex have the provider-native, resumable fork primitive required by this
+operation; review and PR-review sessions cannot be forked because they must
+remain independent.
+
+Switching tabs moves the already-running pane between the visible worktree
+window and its parking window; it does not restart the provider process.
+Closing is the only destructive tab operation: the root cannot be closed, and
+a fork requires an interactive confirmation or `--yes`. A present pane is
+stopped only after its project, window and durable owner token all match. An
+authoritatively absent orphan can be dismissed without killing anything, while
+a foreign/reused pane id fails closed.
+
+`create`, `switch` and `close` share the same cross-process branch lock as the
+HTTP surface; `worktree refresh` uses that lock too. `list` is a read-only
+projection and does not acquire it. Their `--json` forms write one undecorated
+JSON value, suitable for automation. Tabs currently require a host-runtime
+managed worktree; sandbox worktrees do not advertise safe fork support.
+
 ## Web monitor
 
 ```bash
@@ -834,6 +921,13 @@ useful working directory names its projects through
 `web serve` is the same command under its previous name — it is what `--web`
 spawns detached behind the scenes, and running it by hand only matters for
 debugging the monitor itself. See [Web monitoring](web-monitor.md).
+
+In the foreground, `serve` prints the bound URL, every deduplicated external
+IPv4 URL when the host accepts network traffic, the projects loaded, and the
+actual state/cadence of its observers. Continuous output is deliberately
+limited to `run:open`, status/phase transitions and `run:close`; ordinary
+snapshot updates and conversation content are not logged. A detached monitor
+started by `--web` keeps `stdio` ignored.
 
 ## Exit codes
 

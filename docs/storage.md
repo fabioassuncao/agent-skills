@@ -108,6 +108,9 @@ authority on what exists; this table records what was reported.
 
 What each managed worktree is bound to: branch, path, base branch, agent,
 profile, runtime, the environment values it exports and the ports it owns.
+`active_agent_session_id` identifies the tab currently occupying the visible
+agent slot; `tab_sequence_counter` is monotonic, so deleting Fork 2 never makes
+another conversation reuse that label.
 
 git is the authority on whether a worktree **exists**; this table is the
 authority on what it is **bound to**. A row whose directory git no longer lists
@@ -123,7 +126,8 @@ and neither can query a database.
 
 The durable link between a model conversation and what it is being used for:
 `run_id`, `phase`, `story_id`, `branch`, `worktree_id`, `provider`,
-`conversation_id`, `status`, `pane_target` and `label`.
+`conversation_id`, `status`, `pane_target`, `pane_token`,
+`parent_session_id`, `tab_sequence` and `label`.
 
 **`run_id`, `phase` and `story_id` are nullable, and that is the whole design.**
 A session opened by a person — no issue, no plan, no workflow — is the *same*
@@ -140,6 +144,27 @@ it, on disk under `~/.claude` or `~/.codex`; this table holds its id so
 `--resume` has something to point at. `status` is *reported* — by the agent's
 hooks, or demoted to `orphaned` by reconciliation when tmux no longer has the
 window. Nothing here deletes a row because a pane is gone.
+
+An agent tab is another row in this table, not a row in a `tabs` table. The root
+has `parent_session_id = NULL` and `tab_sequence = 0`; forks point to the root
+and carry their monotonic sequence. The `tabId` exposed by HTTP and CLI is the
+row's `id`, while `conversation_id` remains the provider's separate identity.
+All tab materialization is scoped by the exact `worktree_id`, so reusing a
+branch cannot adopt sessions from an older checkout incarnation.
+
+`pane_target` is tmux's stable `%N` id, but it is never authority by itself:
+`pane_token` is a durable random nonce mirrored in the pane's
+`@issue-flow-owner` tag alongside the owning project session. Movement,
+selection, teardown, reconciliation and websocket attach require that tuple to
+match the expected main/parking window. This protects against pane-id reuse and
+grouped viewer aliases.
+
+Migration 22 adds these tab columns plus the worktree active pointer/counter.
+It backfills a pre-v22 session only when its worktree incarnation is
+unambiguous; ambiguous branch histories remain nullable instead of being
+guessed. Creating a fork persists its session row and the active/counter
+worktree fields in one transaction. Whole-worktree teardown likewise changes
+every live sibling of the exact `worktree_id` to `stopped` atomically.
 
 ### `projects` — the project registry
 

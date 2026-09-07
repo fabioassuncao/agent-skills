@@ -81,6 +81,29 @@ typed into it lands inside the container **without naming docker itself**.
 lives in `agents/session/reuse.ts` and no mode works around it: a phase that may
 not adopt the live session on a branch is refused rather than seated beside it.
 
+### Multiple agent tabs in one worktree
+
+Host-runtime managed worktrees may contain a Root agent pane and several
+provider-native forks. A tab is another durable `AgentSession` for the same
+exact `worktreeId`; it is neither a terminal viewer nor browser layout state.
+Only Claude and Codex are forkable. Review and PR-review sessions remain
+ineligible because forking their conversation would violate the same
+independence rule as resume.
+
+Fork panes are created in a private parking window on the dedicated Issue Flow
+tmux socket. Selection swaps or moves a stable pane id into the visible agent
+slot and parks the previous one; services stay in the main worktree window and
+are never moved. Every physical operation proves the pane id, project-owner
+tag, main/parking window and durable session token. A pane number reused after
+a tmux restart is therefore foreign, not a session to adopt or kill.
+
+Create, select, close and refresh hold the same cross-process branch lock over
+tmux and persistence. Refresh is deliberately non-destructive: it reattaches a
+live pane or resumes the same conversation when that pane is absent. Missing
+panes become `orphaned` evidence; closing an orphan needs no kill, and closing a
+present fork kills only after ownership is proved. The root tab cannot be
+closed. Sandbox worktrees do not currently expose tab forking.
+
 ### `result()` and `observe()` in a pane
 
 An agent running as a TUI produces no stream-json, and nothing here reads the

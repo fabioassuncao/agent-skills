@@ -15,6 +15,7 @@ or a global CLI configuration. Their portable artifact helper does honor
 - [The precedence ladder](#the-precedence-ladder)
 - [`.issue-flow.json`](#issue-flowjson) — per project
 - [`~/.issue-flow/config.json`](#issue-flowconfigjson) — per machine
+- [Custom agents](#custom-agents) — terminal command templates layered by id
 - [Environment variables](#environment-variables)
 - [Per-repository prompt overrides](#per-repository-prompt-overrides)
 
@@ -42,6 +43,12 @@ These domains have specific precedence or merge behavior:
 - **`agent`** climbs all five rungs and merges `phases`, `claude` and `codex`
   key by key, so a project's `phases.plan` does not erase a global
   `phases.execute`.
+- **`agents`** is a registry of custom terminal agents, layered by id as
+  global → project. A project entry replaces the same global id; `null` masks
+  it. There is no environment or CLI rung for command templates.
+- **`linear`**, **`github`** and **`autoName`** are project integration policy.
+  They do not read the global file. Linear and GitHub accept the environment
+  overrides documented below; `autoName` is project-only.
 - **`routing`** has no environment rung, but merges `escalation` and `ceilings`
   one level deeper: defaults < global < project < CLI.
 - **`policy`** replaces the "machine" rung with *what the repository declares
@@ -74,9 +81,12 @@ Optional, at the project root. Every key is independent:
   "web":        { "enabled": true, "port": 3737, "host": "127.0.0.1" },
   "issues":     { "preferredProvider": "github", "conflictPolicy": "ask" },
   "prReview":   { "publisher": "local" },
-  "github":     { "linkedRepos": [{ "repo": "acme/api", "alias": "api" }] },
+  "github":     { "linkedRepos": [{ "repo": "acme/api", "alias": "api" }], "autoRemoveOnMerge": false },
+  "linear":     { "enabled": true, "autoCreateWorktrees": false, "watchTeams": ["ENG"] },
+  "autoName":   { "maxLength": 60, "timeoutMs": 15000 },
   "runtime":    { "profile": "default", "profiles": { "default": { "runtime": "host" } } },
   "agent":      { "provider": "claude", "phases": { "plan": { "provider": "codex" } } },
+  "agents":     { "gemini-cli": { "label": "Gemini CLI", "startCommand": "gemini ${PROMPT}" } },
   "verify":     { "level": "L1", "contract": [{ "id": "test", "run": "npm test", "fatal": true }] },
   "routing":    { "mode": "shadow", "profile": "balanced" },
   "resilience": { "profile": "continuous", "journal": { "enabled": true } },
@@ -147,7 +157,8 @@ its own comment. An unknown value degrades to `local` with a warning.
 {
   "github": {
     "linkedRepos": [{ "repo": "acme/api", "alias": "api", "dir": "../api" }],
-    "syncIntervalMs": 10000
+    "syncIntervalMs": 10000,
+    "autoRemoveOnMerge": false
   }
 }
 ```
@@ -156,6 +167,7 @@ its own comment. An unknown value degrades to `local` with a warning.
 |-----|--------|---------|
 | `linkedRepos` | List of `{ repo, alias, dir? }` | `[]` |
 | `syncIntervalMs` | Integer ≥ 1000 | `10000` |
+| `autoRemoveOnMerge` | boolean | `false` |
 
 `linkedRepos` declares sibling repositories whose Pull Requests belong to the
 same unit of work: `repo` is the `owner/name` slug, `alias` is the short label
@@ -167,6 +179,76 @@ runs in.
 is **activity-gated**: with nothing watching it makes no `gh` call at all, and
 the calls it does make are conditional requests, so an unchanged Pull Request
 costs no GitHub rate limit.
+
+`autoRemoveOnMerge` enables the headless maintenance pass run by
+`issue-flow serve`. A candidate is removed only when every known Pull Request
+for its branch is merged, the current repository proves the merged head is the
+worktree's current commit, the tree is clean, and the binding still has the
+same path/id under the shared mutation lock. A failed or partial GitHub read is
+inconclusive and removes nothing. The dashboard can persist this toggle only on
+loopback; `ISSUE_FLOW_GITHUB_AUTO_REMOVE_ON_MERGE` pins it and takes precedence.
+
+### `linear`
+
+```json
+{
+  "linear": {
+    "enabled": true,
+    "autoCreateWorktrees": false,
+    "watchTeams": ["ENG", "WEB"]
+  }
+}
+```
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `enabled` | boolean | `true` |
+| `autoCreateWorktrees` | boolean | `false` |
+| `watchTeams` | Team keys, for example `["ENG"]` | `[]` (all teams) |
+
+`autoCreateWorktrees` is a headless `serve` loop, not a browser poll. Once per
+60 seconds it considers assigned, unstarted tickets carrying the `issue-flow`
+label, optionally restricted by `watchTeams`, and opens each eligible branch
+through the same managed-worktree/session operation used by the web routes.
+Existing branches in git suppress duplicate pickup even when Issue Flow did not
+create them.
+
+`LINEAR_API_KEY` is the only credential source. It is read from the process
+environment directly by the Linear client and is never written to either JSON
+configuration file, argv, logs or telemetry. `ISSUE_FLOW_LINEAR_ENABLED`,
+`ISSUE_FLOW_LINEAR_AUTO_CREATE` and `ISSUE_FLOW_LINEAR_WATCH_TEAMS` override
+only the non-secret policy. An environment-pinned auto-create value makes the
+dashboard toggle read-only.
+
+The dashboard can list assigned tickets, show the Linear panel/badge/detail,
+and post a Claude or Codex conversation to an existing ticket or a new ticket
+in a selected team. The durable payload is the canonical versioned Issue Flow
+conversation attachment; the summary comment is best-effort. Attachment upload
+accepts only HTTPS signed URLs on Google Storage, rejects redirects,
+credentials and unsafe headers, and redacts credential-shaped data from Linear
+responses and errors. Tests use injected HTTP doubles; this repository does not
+claim a live Linear-account acceptance run.
+
+### `autoName`
+
+`autoName` enables the provider-neutral branch naming policy already owned by
+`src/conventions/git/auto-name.ts` when an explicit worktree request provides a
+prompt but no branch:
+
+```json
+{
+  "autoName": {
+    "maxLength": 60,
+    "timeoutMs": 15000,
+    "systemPrompt": "Return only a concise kebab-case branch name."
+  }
+}
+```
+
+The value may also be `true` (canonical defaults) or `false`/absent (disabled).
+The read-only `GET /api/project/auto-name` exposes the same resolved constants
+that creation consumes; there is no second naming implementation in the web
+layer and no global/environment rung.
 
 ### `runtime`
 
@@ -295,6 +377,13 @@ names pane commands and container images that only mean something inside one
 repository. A parse is tolerant key by key — an unusable pane, profile or service
 is dropped with a warning and the rest of the section still applies.
 
+Agent tabs have no configuration key. For a managed `runtime: "host"`
+worktree, Claude/Codex forks use the same resolved profile, permission, runtime
+environment and agent-pane template as the root session. Their active pointer
+and monotonic sequence are operational state in SQLite, never policy in
+`.issue-flow.json`. Docker/sandbox profiles currently keep a single agent
+session; declaring a profile does not imply tab support.
+
 ### `agent`
 
 ```json
@@ -319,6 +408,57 @@ reference — providers, permission mapping, authentication, token economy — i
 | Key | Values | Default | Meaning |
 |-----|--------|---------|---------|
 | `hooks.enabled` | boolean | `true` | Whether the pipeline installs the [lifecycle hooks](agents.md#lifecycle-hooks) through which an agent reports that it is working or blocked on a human. Off means nothing is written into the working tree's `.claude/` or `.codex/` |
+
+### Custom agents
+
+Custom agents let an interactive session run a terminal harness that Issue Flow
+does not ship as a built-in runner. They are configured under the top-level
+`agents` key in either configuration file:
+
+```json
+{
+  "agents": {
+    "gemini-cli": {
+      "label": "Gemini CLI",
+      "startCommand": "gemini --prompt ${PROMPT}",
+      "resumeCommand": "gemini --resume --prompt ${PROMPT}"
+    }
+  }
+}
+```
+
+The object key is the stable id: lowercase letters and digits separated by
+single hyphens, beginning with a letter, at most 64 characters. `label` and
+`startCommand` are required; `resumeCommand` is optional. Without a resume
+command, reopening starts a fresh process and the advertised `resume`
+capability is false.
+
+The global registry in `~/.issue-flow/config.json` is loaded first. A matching
+entry in `.issue-flow.json` replaces it; a project can hide one inherited id
+with a tombstone:
+
+```json
+{ "agents": { "gemini-cli": null } }
+```
+
+Templates accept `${PROMPT}`, `${SYSTEM_PROMPT}`, `${WORKTREE_PATH}`,
+`${REPO_PATH}`, `${BRANCH}`, `${PROFILE}` and `${PERMISSION}`. The editable
+field is parsed into argv without executing a shell; `&&`, `$(...)`, redirects
+and semicolons are ordinary arguments. Known placeholders become references to
+an ephemeral `0600` environment file and their values never enter argv, tmux
+commands or logs. Unknown placeholders remain untouched for the program to
+interpret.
+
+`PERMISSION` is one of `read-only`, `workspace` or `autonomous`, defaults to
+`workspace` for a new session, and is persisted on the session so reopen and
+profile changes do not silently escalate it. A custom template is a TTY
+extension only: it does not become a headless pipeline provider and cannot
+claim structured chat, conversation history or interrupt support.
+
+The dashboard lists and validates agents with `agents:read`. On a remote bind,
+the response redacts both commands. Create/update/delete and the editor require
+`agents:write`, which the server announces only on loopback. Project writes are
+atomic and preserve unrelated `.issue-flow.json` keys.
 
 ### `verify`
 
@@ -486,6 +626,7 @@ indistinguishable from a value you actually wrote.
   "resilience": { "profile": "continuous" },
   "telemetry": { "enabled": true },
   "agent": { "provider": "claude", "phases": { "execute": { "provider": "codex" } } },
+  "agents": { "gemini-cli": { "label": "Gemini CLI", "startCommand": "gemini ${PROMPT}" } },
   "routing": { "mode": "shadow", "policy": "recommended" }
 }
 ```
@@ -501,6 +642,7 @@ indistinguishable from a value you actually wrote.
 | `resilience` | The same object `.issue-flow.json` accepts |
 | `telemetry` | The same object `.issue-flow.json` accepts |
 | `agent` | Machine default provider, model and per-phase overrides |
+| `agents` | Machine-wide custom terminal agents; a project may replace or mask each id |
 | `routing` | Machine-wide routing mode, profile, policy, escalation and ceilings |
 
 There is no `verify`, `issues`, `prReview` or `policy` rung in this
@@ -522,7 +664,9 @@ upwards only.
 | `ISSUE_FLOW_OPENCODE_VARIANT`, `ISSUE_FLOW_OPENCODE_MIN_VERSION` | OpenCode runner settings |
 | `ISSUE_FLOW_PR_REVIEW_PUBLISHER` | `prReview.publisher` |
 | `ISSUE_FLOW_RUN_AUTO_CLOSE` | `run.autoClose` |
-| `ISSUE_FLOW_GITHUB_LINKED_REPOS`, `ISSUE_FLOW_GITHUB_SYNC_INTERVAL_MS` | The `github` key. Linked repositories are a comma-separated list of `owner/repo=alias` pairs; the alias may be omitted, and then the repository name stands in for it |
+| `ISSUE_FLOW_GITHUB_LINKED_REPOS`, `ISSUE_FLOW_GITHUB_SYNC_INTERVAL_MS`, `ISSUE_FLOW_GITHUB_AUTO_REMOVE_ON_MERGE` | The `github` key. Linked repositories are a comma-separated list of `owner/repo=alias` pairs; the alias may be omitted, and then the repository name stands in for it |
+| `LINEAR_API_KEY` | Linear credential. Environment-only: never persisted, logged or included in telemetry |
+| `ISSUE_FLOW_LINEAR_ENABLED`, `ISSUE_FLOW_LINEAR_AUTO_CREATE`, `ISSUE_FLOW_LINEAR_WATCH_TEAMS` | Non-secret `linear` policy. Team keys are comma-separated |
 | `ISSUE_FLOW_RUNTIME_PROFILE`, `ISSUE_FLOW_RUNTIME_MAX_CONCURRENT` | `runtime.profile` — the profile a run opens with — and `runtime.maxConcurrent`. Profiles and services themselves have no variable: they are too shaped for one, and they belong to the repository rather than to a shell |
 | `ISSUE_FLOW_POLICY`, `ISSUE_FLOW_POLICY_CONTEXT_BUDGET`, `ISSUE_FLOW_POLICY_BASE_BRANCH`, `ISSUE_FLOW_POLICY_BRANCH_CONVENTION`, `ISSUE_FLOW_POLICY_COMMIT_CONVENTION`, `ISSUE_FLOW_POLICY_PR_TITLE_CONVENTION`, `ISSUE_FLOW_POLICY_ISSUE_TITLE_CONVENTION` | The `policy` key |
 | `ISSUE_FLOW_TELEMETRY`, `ISSUE_FLOW_TELEMETRY_MAX_EXECUTIONS`, `ISSUE_FLOW_TELEMETRY_ESTIMATE` | The `telemetry` key |
